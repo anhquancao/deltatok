@@ -5,7 +5,7 @@
 # A dataset base class that you can easily resize and combine.
 # --------------------------------------------------------
 import numpy as np
-from dust3r.datasets.base.batched_sampler import BatchedRandomSampler, BatchedRandomSampleOccAny, DatasetAwareBatchSamplerOccAny
+from dust3r.datasets.base.batched_sampler import BatchedRandomSampler, BatchedRandomSampleOccAny, DatasetAwareBatchSamplerOccAny, DatasetAwareBatchSamplerFixedViews
 
 
 class EasyDataset:
@@ -65,6 +65,12 @@ class MulDataset (EasyDataset):
     def _resolutions(self):
         return self.dataset._resolutions
 
+    def __getattr__(self, name):
+        dataset = self.__dict__.get('dataset')
+        if dataset is None:
+            raise AttributeError(name)
+        return getattr(dataset, name)
+
 
 class ResizedDataset (EasyDataset):
     """ Artifically changing the size of a dataset.
@@ -113,6 +119,12 @@ class ResizedDataset (EasyDataset):
     @property
     def _resolutions(self):
         return self.dataset._resolutions
+
+    def __getattr__(self, name):
+        dataset = self.__dict__.get('dataset')
+        if dataset is None:
+            raise AttributeError(name)
+        return getattr(dataset, name)
 
 
 class CatDataset (EasyDataset):
@@ -175,9 +187,15 @@ class EasyDataset_MUSt3R(EasyDataset):
     def __rmatmul__(self, factor):
         return ResizedDataset_MUSt3R(factor, self)
 
-    def make_sampler(self, batch_size, shuffle=True, world_size=1, rank=0, drop_last=True, per_dataset_sampling=False):
+    def make_sampler(self, batch_size, shuffle=True, world_size=1, rank=0, drop_last=True,
+                     per_dataset_sampling=False, fixed_views_per_batch=False):
         if not (shuffle):
             raise NotImplementedError()  # cannot deal yet
+
+        if fixed_views_per_batch and hasattr(self, 'dataset_configs'):
+            return DatasetAwareBatchSamplerFixedViews(self, batch_size,
+                                                     dataset_configs=self.dataset_configs,
+                                                     world_size=world_size, rank=rank, drop_last=drop_last)
 
         if per_dataset_sampling and hasattr(self, 'dataset_configs'):
             return DatasetAwareBatchSamplerOccAny(self, batch_size,
@@ -231,6 +249,8 @@ class CatDataset_MUSt3R(CatDataset, EasyDataset_MUSt3R):
                 'ray_map_idx': getattr(dataset, 'ray_map_idx', []),
                 'num_of_aspect_ratios': len(dataset._resolutions) if hasattr(dataset, '_resolutions') else 1,
                 'resolutions': list(dataset._resolutions) if hasattr(dataset, '_resolutions') else [(512, 512)],
+                'num_views_per_timestep': getattr(dataset, 'num_views_per_timestep', 1),
+                'min_num_timesteps': getattr(dataset, 'min_num_timesteps', 1),
             }
             configs.append(config)
         return configs, self._cum_sizes

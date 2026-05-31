@@ -18,7 +18,8 @@ from .kitti_pairs import KittiSeqMultiView  # noqa: F401
 from .nuscenes_pairs import Occ3dNuscenesSeqMultiView  # noqa: F401
 
 
-def get_data_loader(dataset, batch_size, num_workers=8, shuffle=True, drop_last=True, pin_mem=True, per_dataset_sampling=False):
+def get_data_loader(dataset, batch_size, num_workers=8, shuffle=True, drop_last=True, pin_mem=True,
+                    per_dataset_sampling=False, fixed_views_per_batch=False):
     # pytorch dataset
     if isinstance(dataset, str):
         dataset = eval(dataset)
@@ -34,6 +35,7 @@ def get_data_loader(dataset, batch_size, num_workers=8, shuffle=True, drop_last=
             rank=rank,
             drop_last=drop_last,
             per_dataset_sampling=per_dataset_sampling,
+            fixed_views_per_batch=fixed_views_per_batch,
         )
     except (AttributeError, NotImplementedError):
         if torch.distributed.is_initialized():

@@ -2,10 +2,12 @@ defaults:
   - train_deltatok
 
 training:
-  bsize: 8
+  bsize: 4
   grad_cum: 1
 
 dataset:
+  fixed_views_per_batch: true
+  per_dataset_sampling: false
   # Same dataset expression as train_deltatok_karolina.yaml, but with the
   # dataset roots on jean-zay's fsn1 working tier
   # (/lustre/fsn1/projects/rech/trg/uyl37fq/occany_data). NOTE: fsn1 purges

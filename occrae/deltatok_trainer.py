@@ -800,6 +800,10 @@ class DeltaTokTrainer(Trainer):
 
             imgs = batch["imgs"].to(self.device, non_blocking=True)
             num_cameras = batch.get("num_cameras", 1)
+            B_cur, V_cur = imgs.shape[:2]
+            T_cur = V_cur // num_cameras
+            if self.is_master and num_batches <= 10:
+                print(f"  [batch {num_batches}] B={B_cur}, V={V_cur}, num_cameras={num_cameras}, T={T_cur}, resolution={imgs.shape[-2:]}")
             tokens, _feats, x_prev, x, H, W = self._extract_pair_feats(
                 imgs, num_cameras=num_cameras
             )
@@ -813,9 +817,17 @@ class DeltaTokTrainer(Trainer):
             pair_batch_idx = torch.arange(num_pairs, device=imgs.device) // (T - 1)
             pair_t = torch.arange(num_pairs, device=imgs.device) % (T - 1) + 1
 
-            pairs_per_batch = int(self.cfg.training.get("pairs_per_batch", 0))
-            if pairs_per_batch > 0 and num_pairs > pairs_per_batch:
-                keep = torch.randperm(num_pairs, device=imgs.device)[:pairs_per_batch]
+            # Subsample pairs: keep `pairs_per_batch` pairs per item (not global).
+            # With B items each having (T-1) pairs, this gives B * pairs_per_batch total.
+            pairs_per_item = int(self.cfg.training.get("pairs_per_batch", 0))
+            B_cur = imgs.shape[0]
+            if pairs_per_item > 0 and (T - 1) > pairs_per_item:
+                offsets = torch.stack([
+                    torch.randperm(T - 1, device=imgs.device)[:pairs_per_item]
+                    for _ in range(B_cur)
+                ])  # (B, pairs_per_item)
+                base = torch.arange(B_cur, device=imgs.device)[:, None] * (T - 1)
+                keep = (base + offsets).reshape(-1)
                 x_prev = x_prev[keep]
                 x = x[keep]
                 pair_batch_idx = pair_batch_idx[keep]
@@ -1334,24 +1346,26 @@ class DeltaTokTrainer(Trainer):
         train_dataset_str = str(self.cfg.dataset.train_dataset)
         test_dataset_str = self.cfg.dataset.get("test_dataset", None)
         per_dataset_sampling = bool(self.cfg.dataset.get("per_dataset_sampling", False))
+        fixed_views_per_batch = bool(self.cfg.dataset.get("fixed_views_per_batch", False))
 
         # no_partial_views=True returns variable view counts per sample (rounded
         # down to a multiple of actual_vpt — see base_seq_dataset.py _get_views).
-        # That breaks torch.stack at collate when bsize > 1, so enforce per-GPU
-        # bsize == 1 whenever any sub-dataset opts into it.
+        # That breaks torch.stack at collate when bsize > 1, UNLESS the
+        # fixed-views sampler is used (it guarantees uniform T*vpt per batch).
         uses_no_partial = "no_partial_views=True" in train_dataset_str or (
             test_dataset_str is not None and "no_partial_views=True" in str(test_dataset_str)
         )
-        if uses_no_partial and int(self.cfg.training.bsize) != 1:
+        if uses_no_partial and int(self.cfg.training.bsize) != 1 and not fixed_views_per_batch:
             raise ValueError(
                 f"no_partial_views=True yields variable view counts per sample; "
                 f"per-GPU training.bsize must be 1 (got {self.cfg.training.bsize}). "
-                f"Lower bsize or remove no_partial_views=True from the dataset string."
+                f"Either set dataset.fixed_views_per_batch=true, lower bsize to 1, "
+                f"or remove no_partial_views=True from the dataset string."
             )
-
         if self.is_master:
             print(f"Building train dataset: {train_dataset_str}")
             print(f"Per-dataset sampling: {per_dataset_sampling}")
+            print(f"Fixed views per batch: {fixed_views_per_batch}")
         self.train_loader = get_data_loader(
             train_dataset_str,
             batch_size=self.cfg.training.bsize,
@@ -1359,6 +1373,7 @@ class DeltaTokTrainer(Trainer):
             shuffle=True,
             drop_last=True,
             per_dataset_sampling=per_dataset_sampling,
+            fixed_views_per_batch=fixed_views_per_batch,
         )
 
         # One DataLoader per `+`-separated sub-dataset (mirrors the build/eval

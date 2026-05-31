@@ -258,6 +258,98 @@ class DatasetAwareBatchSamplerOccAny(BatchedRandomSampler):
             yield from batch
 
 
+class DatasetAwareBatchSamplerFixedViews(BatchedRandomSampler):
+    """Sampler that enforces the same (vpt, T) per batch across mixed datasets.
+
+    Algorithm:
+      1. Sample vpt for the batch from [1, max_eligible_vpt]
+      2. Draw batch_size items from datasets whose num_views_per_timestep >= vpt
+      3. Sample T (num_timesteps) from [min_num_timesteps, max_memory_num_views // vpt]
+      4. Emit (idx, res_idx, memory_num_views=T*vpt, ray_map_idx, vpt)
+
+    This guarantees all items in a batch produce the same number of views,
+    eliminating shape mismatches with no_partial_views=True.
+    """
+
+    def __init__(self, dataset,
+                 batch_size,
+                 dataset_configs,
+                 min_num_timesteps=2,
+                 max_num_timesteps=None,
+                 world_size=1, rank=0, drop_last=True):
+        super().__init__(dataset, batch_size, pool_size=None, world_size=world_size, rank=rank, drop_last=drop_last)
+        self.dataset_configs, self.cum_sizes = dataset_configs
+        self.min_num_timesteps = min_num_timesteps
+        self.max_num_timesteps = max_num_timesteps
+
+    def __iter__(self):
+        if self.epoch is None:
+            assert self.world_size == 1 and self.rank == 0, 'use set_epoch() if distributed mode is used'
+            seed = int(torch.empty((), dtype=torch.int64).random_().item())
+        else:
+            seed = self.epoch + 777
+        rng = np.random.default_rng(seed=seed)
+
+        # Per-item lookup arrays
+        item_cam_count = np.zeros(self.len_dataset, dtype=int)
+        item_max_mem = np.zeros(self.len_dataset, dtype=int)
+        item_num_resolutions = np.zeros(self.len_dataset, dtype=int)
+
+        start_idx = 0
+        for config, end_idx in zip(self.dataset_configs, self.cum_sizes):
+            item_cam_count[start_idx:end_idx] = config.get('num_views_per_timestep', 1)
+            item_max_mem[start_idx:end_idx] = config.get('max_memory_num_views', 10)
+            item_num_resolutions[start_idx:end_idx] = config.get('num_of_aspect_ratios', 1)
+            start_idx = end_idx
+
+        # Shuffle all items and chunk into batches
+        all_idxs = np.arange(self.len_dataset)
+        rng.shuffle(all_idxs)
+        n_batches = len(all_idxs) // self.batch_size
+        batched_idxs = all_idxs[:n_batches * self.batch_size].reshape(n_batches, self.batch_size)
+
+        # Vectorized per-batch reductions (avoids repeated fancy-indexing in loop)
+        batch_min_cams = item_cam_count[batched_idxs].min(axis=1)
+        batch_min_mem = item_max_mem[batched_idxs].min(axis=1)
+        batch_min_res = item_num_resolutions[batched_idxs].min(axis=1)
+
+        empty_ray_map = np.array([], dtype=int)
+        all_batches = []
+
+        for b_idx in range(n_batches):
+            # vpt is capped by the min cam_count across items in this batch
+            min_cam = int(batch_min_cams[b_idx])
+            vpt = int(rng.integers(1, min_cam + 1))
+
+            # T range from memory budget
+            max_mem = int(batch_min_mem[b_idx])
+            min_T = self.min_num_timesteps
+            max_T = max_mem // vpt
+            if self.max_num_timesteps is not None:
+                max_T = min(max_T, self.max_num_timesteps)
+            if max_T < min_T:
+                max_T = min_T
+
+            T = int(rng.integers(min_T, max_T + 1))
+            memory_num_views = T * vpt
+
+            # Per-batch resolution (respects each batch's dataset mix)
+            res_idx = int(rng.integers(batch_min_res[b_idx]))
+
+            all_batches.append([
+                (int(s_idx), res_idx, memory_num_views, empty_ray_map, vpt)
+                for s_idx in batched_idxs[b_idx]
+            ])
+
+        # Shuffle batch order, distribute across DDP ranks
+        rng.shuffle(all_batches)
+        size_per_proc = len(all_batches) // self.world_size
+        my_batches = all_batches[self.rank * size_per_proc: (self.rank + 1) * size_per_proc]
+
+        for batch in my_batches:
+            yield from batch
+
+
 class BatchedRandomSamplerMust3r(BatchedRandomSampler):
     def __init__(self, dataset, batch_size, pool_size, ray_map_prob=0.0, world_size=1, rank=0, drop_last=True):
         super().__init__(dataset, batch_size, pool_size, world_size=world_size, rank=rank, drop_last=drop_last)

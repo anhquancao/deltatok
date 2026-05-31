@@ -19,7 +19,7 @@ mkdir -p slurm/output
 
 source ~/.bashrc
 
-cd /lustre/fswork/projects/rech/trg/uyl37fq/code/OccAny
+cd /lustre/fswork/projects/rech/trg/uyl37fq/code/deltatok
 
 source env_jz_h100.sh
 
@@ -31,8 +31,6 @@ export TORCH_NCCL_HEARTBEAT_TIMEOUT_SEC="${TORCH_NCCL_HEARTBEAT_TIMEOUT_SEC:-100
 # Logs/ckpts go to the persistent fswork tier (fsn1 purges after 30 days).
 export CONFIG_NAME="${CONFIG_NAME:-train_deltatok_geom_jeanzay}"
 export LOG_AND_CKPT_DIR="${LOG_AND_CKPT_DIR:-$TRG_WORK/deltatok_log}"
-export RESULTS_DIR="${RESULTS_DIR:-$TRG_WORK/code/OccAny/results}"
-
-cd /lustre/fswork/projects/rech/trg/uyl37fq/code/OccAny
+export RESULTS_DIR="${RESULTS_DIR:-$TRG_WORK/deltatok_log}"
 
 srun --cpu-bind=none bash sh/train_deltatok_geom.sh

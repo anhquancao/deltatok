@@ -12,7 +12,7 @@ from occany.utils.helpers import project_lidar_world2camera, get_ray_map_lsvm
 from dust3r.utils.geometry import depthmap_to_camera_coordinates
 import pickle
 from dust3r.datasets.base.easy_dataset import EasyDataset, CatDataset_MUSt3R, MulDataset_MUSt3R, ResizedDataset_MUSt3R
-from dust3r.datasets.base.batched_sampler import DatasetAwareBatchSamplerOccAny
+from dust3r.datasets.base.batched_sampler import DatasetAwareBatchSamplerOccAny, DatasetAwareBatchSamplerFixedViews
 from torchvision.transforms.functional import to_tensor
 from depth_anything_3.utils.io.input_processor import InputProcessor
 from depth_anything_3.utils.geometry import affine_inverse_np
@@ -35,9 +35,15 @@ class EasyDataset_OccAny(EasyDataset):
     def __rmatmul__(self, factor):
         return ResizedDataset_MUSt3R(factor, self)
 
-    def make_sampler(self, batch_size, shuffle=True, world_size=1, rank=0, drop_last=True, per_dataset_sampling=False):
+    def make_sampler(self, batch_size, shuffle=True, world_size=1, rank=0, drop_last=True,
+                     per_dataset_sampling=False, fixed_views_per_batch=False):
         if not (shuffle):
             raise NotImplementedError()  # cannot deal yet
+
+        if fixed_views_per_batch and hasattr(self, 'dataset_configs'):
+            return DatasetAwareBatchSamplerFixedViews(self, batch_size,
+                                                     dataset_configs=self.dataset_configs,
+                                                     world_size=world_size, rank=rank, drop_last=drop_last)
 
         if per_dataset_sampling and hasattr(self, 'dataset_configs'):
             return DatasetAwareBatchSamplerOccAny(self, batch_size,
@@ -284,7 +290,8 @@ class BaseSeqDatasetMultiView(BaseSeqDataset, EasyDataset_OccAny):
         rest = rng.choice(others, size=actual_vpt - 1, replace=False)
         return np.concatenate([[anchor], rest])
 
-    def _get_views(self, seq_idx, resolution, memory_num_views, rng, is_eval=False):
+    def _get_views(self, seq_idx, resolution, memory_num_views, rng, is_eval=False,
+                   views_per_timestep=None):
         # is_eval is preserved in the signature for caller compat but unused —
         # the unified algorithm behaves identically at train and eval time;
         # eval reproducibility comes from `seed=42` plus optional `fixed_cams`.
@@ -320,6 +327,18 @@ class BaseSeqDatasetMultiView(BaseSeqDataset, EasyDataset_OccAny):
                 f"{memory_num_views} only allows actual_vpt<={vpt_cap} to keep "
                 f"T >= min_num_timesteps={min_T}"
             )
+        elif views_per_timestep is not None:
+            # Fixed vpt from sampler — use directly. The sampler guarantees
+            # vpt <= dataset's num_views_per_timestep; if camera_pool is smaller
+            # (malformed short sequence), fail loudly rather than silently
+            # producing fewer views than the batch expects.
+            actual_vpt = int(views_per_timestep)
+            assert actual_vpt <= camera_pool, (
+                f"Sampler requested vpt={actual_vpt} but sequence only has "
+                f"camera_pool={camera_pool} (scene={scene_name}, seq_len={seq_len}). "
+                f"Filter short sequences from the dataset."
+            )
+            selected_cams = self._select_cameras(camera_pool, actual_vpt, rng)
         else:
             upper = min(camera_pool, memory_num_views, vpt_cap)
             actual_vpt = int(rng.integers(1, upper + 1))
@@ -455,7 +474,11 @@ class BaseSeqDatasetMultiView(BaseSeqDataset, EasyDataset_OccAny):
     def __getitem__(self, idx):
         if isinstance(idx, tuple):
             # the idx is specifying the aspect-ratio
-            idx, resolution_idx, memory_num_views, ray_map_idx = idx
+            if len(idx) == 5:
+                idx, resolution_idx, memory_num_views, ray_map_idx, views_per_timestep = idx
+            else:
+                idx, resolution_idx, memory_num_views, ray_map_idx = idx
+                views_per_timestep = None
             is_eval = False
         else:
             # This is used by test data as we don't implement the BatchSampler in test
@@ -465,6 +488,7 @@ class BaseSeqDatasetMultiView(BaseSeqDataset, EasyDataset_OccAny):
             memory_num_views = self.min_memory_num_views
             # assert len(self.ray_map_idx) != 0, "Evaluation needs to be done with fixed ray_map_idx"
             ray_map_idx = self.ray_map_idx
+            views_per_timestep = None
             is_eval = True
 
         assert all(ray_map_id < memory_num_views for ray_map_id in ray_map_idx), f"ray_map_idx should be smaller than memory_num_views ray_map_idx={ray_map_idx}, memory_num_views={memory_num_views}"
@@ -478,7 +502,8 @@ class BaseSeqDatasetMultiView(BaseSeqDataset, EasyDataset_OccAny):
 
         # over-loaded codez_far
         resolution = self._resolutions[resolution_idx]  # DO NOT CHANGE THIS (compatible with BatchedRandomSampler)
-        views = self._get_views(idx, resolution, memory_num_views, self._rng, is_eval=is_eval)
+        views = self._get_views(idx, resolution, memory_num_views, self._rng, is_eval=is_eval,
+                                views_per_timestep=views_per_timestep)
         # Sync to the actual returned count so view['idx'] and
         # view['memory_num_views'] reflect reality, and drop ray_map indices
         # that fall past it so gen_view_idx lookups stay in range.
