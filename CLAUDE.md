@@ -25,9 +25,152 @@ No local GPU. CPU-only Python is fine here. GPU work (train/eval/inference/featu
 ssh karolina "conda activate occany && <command>"
 ```
 
-Covers `train_*.py`, `extract_*.py`, `inference.py`, `test_occ_rae.py`, `infer_*.py`, `sh/{train,eval,extract}_*.sh`. Enforced by `.claude/hooks/block-claude-md-rules.py`.
+Covers `train_*.py`, `extract_*.py`, `eval_occ_rae.py`, `test_occ_rae.py`, `sh/{train,eval,extract}_*.sh`. Enforced by `.claude/hooks/block-claude-md-rules.py`.
 
 BSC is the secondary cluster, used only for jobs that explicitly target it — `slurm/bsc_*.slurm` and `sh/*_bsc.sh`. Reach it directly with `ssh bsc` (alias is configured locally; the two-hop `ssh karolina "ssh bsc ..."` also works).
+
+## Architecture
+
+This repo implements **DeltaTok** and **OccRAE**, a tokenization and prediction pipeline built on top of the OccAny DA3 reconstruction backbone.
+
+### Training pipeline (3 stages)
+
+The full pipeline trains three models in sequence:
+
+1. **Feature extraction** (`extract_occany_features.py` via `sh/extract_occany_features.sh`) — runs the frozen OccAny DA3-Giant backbone up to layer 18 and dumps cached tokens as `.pth` files per frame. This is a one-time batch job per dataset, not a training step.
+
+2. **Image decoder** (`train_occrae_img_decoder.py` via `sh/train_occrae_img_decoder.sh`) — trains an MAE-style decoder (`occrae/img_decoder_trainer.py`) on frozen OccRAE 3-level decode features to reconstruct RGB images. The trained checkpoint is used by DeltaTok eval to visualize predicted tokens as images.
+
+3. **DeltaTok tokenizer** (`train_deltatok.py` via `sh/train_deltatok.sh` or `sh/train_deltatok_geom.sh`) — trains a transformer tokenizer (`occrae/deltatok_trainer.py`) over the DA3 layer-18 features to predict next-frame tokens from previous-frame tokens (log-cosh loss on layer-18 features). Optionally adds geometric supervision losses (pointmap, depth, raymap) as regularizers.
+
+### OccRAE core (`occany/model/occ_rae.py`)
+
+Splits the DA3-Giant backbone at layer 18 into `encode()` (layers 0–18 → cached tokens) and `decode()` (layers 19+ → depth/pointmap/ray output). Layer 18 is a local-attention layer where `x == local_x`, so only one tensor is cached (halves storage vs. global-attention layers). See `docs/occrae.md`.
+
+### Key source files
+
+| Component | Files |
+|-----------|-------|
+| **DeltaTok trainer** | `occrae/deltatok_trainer.py` |
+| **OccRAE flow-matching trainer** | `occrae/occrae_trainer.py` |
+| **Image decoder trainer** | `occrae/img_decoder_trainer.py` |
+| **Base trainer** | `occrae/abstract_trainer.py` → `occrae/trainer.py` |
+| **DeltaTok network** | `occrae/network/efficient_transformer.py`, `occrae/network/transformer_block.py` |
+| **OccRAE model** | `occany/model/occ_rae.py` |
+| **Dataset loaders** | `occrae/dataset/preprocessed_sequence.py`, `occrae/dataset/occrae_tokens.py` |
+| **Loss / metrics** | `occrae/loss.py`, `occrae/metric.py` |
+| **Visualization** | `occrae/visualization_helper.py`, `occrae/evaluation_helper.py` |
+| **Feature extraction** | `extract_occany_features.py` |
+| **OccRAE eval** | `eval_occ_rae.py` |
+| **Roundtrip test** | `test_occ_rae.py` |
+| **OccAny DA3 backbone** | `occany/model/model_da3.py`, `occany/training_da3.py` |
+
+### Entrypoints
+
+| Script | Launcher | Purpose |
+|--------|----------|---------|
+| `train_deltatok.py` | `sh/train_deltatok.sh` | DeltaTok training (token-only loss) |
+| `train_deltatok.py` | `sh/train_deltatok_geom.sh` | DeltaTok + geometric supervision |
+| `train_occrae.py` | `sh/train_occrae.sh` | OccRAE flow-matching training |
+| `train_occrae_img_decoder.py` | `sh/train_occrae_img_decoder.sh` | Image decoder training |
+| `extract_occany_features.py` | `sh/extract_occany_features.sh` | Dataset-wide layer-18 token extraction |
+| `eval_occ_rae.py` | — | Evaluate trained OccRAE flow-matching model |
+| `test_occ_rae.py` | — | OccRAE encode/decode roundtrip test |
+
+### Hydra config hierarchy
+
+Configs use Hydra `defaults` layering. Base configs define the model/training; cluster variants override only dataset roots.
+
+```
+configs/train_deltatok.yaml           ← base (model arch, training params, BSC dataset roots)
+├── train_deltatok_karolina.yaml      ← Karolina dataset roots (inherits train_deltatok)
+├── train_deltatok_jeanzay.yaml       ← Jean Zay dataset roots (inherits train_deltatok)
+└── train_deltatok_geom.yaml          ← adds geometric loss weights (inherits train_deltatok)
+    ├── train_deltatok_geom_karolina.yaml   ← Karolina roots + geom (inherits both)
+    ├── train_deltatok_geom_jeanzay.yaml    ← Jean Zay roots + geom (H100: disables decode grad ckpt)
+    └── train_deltatok_geom_smoke.yaml      ← smoke test (inherits geom_karolina)
+
+configs/train_occrae.yaml             ← OccRAE flow-matching base
+├── train_occrae_fm.yaml              ← flow-matching variant
+│   ├── train_occrae_fm_karolina.yaml
+│   └── train_occrae_fm_overfit.yaml
+└── train_occrae_img_decoder.yaml     ← image decoder base
+    └── train_occrae_img_decoder_karolina.yaml
+```
+
+## Training commands
+
+### DeltaTok (token-only)
+
+```bash
+# Karolina (default)
+bash sh/train_deltatok.sh
+
+# Key env overrides:
+CONFIG_NAME=train_deltatok_karolina   # Hydra config (default)
+LOG_AND_CKPT_DIR=/mnt/proj1/eu-25-92/deltatok_log   # TB logs + checkpoints
+RUN_NAME=deltatok_surround_constGlobalRope           # subdirectory under LOG_AND_CKPT_DIR
+RESUME=1                              # resume from current.pth
+```
+
+### DeltaTok with geometric supervision
+
+```bash
+bash sh/train_deltatok_geom.sh
+# Default RUN_NAME: deltatok_surround_constGlobalRope_geom_recon100_pm0p01_d0p01_ray0p01
+```
+
+Geom supervision needs `training.use_decode_grad_checkpoint: true` on A100-40GB (Karolina) but disables it on H100-80GB (Jean Zay) for speed.
+
+### DeltaTok eval-only
+
+```bash
+EVAL_ONLY=1 RUN_NAME=deltatok bash sh/train_deltatok.sh
+EVAL_ONLY=1 RUN_NAME=deltatok_surround bash sh/train_deltatok.sh
+EVAL_ONLY=1 RUN_NAME=deltatok_surround_constGlobalRope bash sh/train_deltatok.sh
+```
+
+Eval outputs: `<RESULTS_DIR>/<RUN_NAME>/eval_only/eval_depth/<test_name>/<frame_id>_epoch<epoch>_concat.jpg`. SLURM job array for all 3 runs: `slurm/karolina_eval_deltatok.slurm`.
+
+### OccRAE flow-matching
+
+```bash
+bash sh/train_occrae.sh
+# CONFIG_NAME=train_occrae_fm, RESULTS_DIR=/gpfs/scratch/ehpc558/quan/occrae_output
+```
+
+### Image decoder
+
+```bash
+bash sh/train_occrae_img_decoder.sh
+# CONFIG_NAME=train_occrae_img_decoder_karolina
+```
+
+### Feature extraction
+
+```bash
+bash sh/extract_occany_features.sh
+# OUTPUT_DIR, PID/WORLD for sharding
+```
+
+## Checkpoint dependencies
+
+`train_deltatok.py` resolves `model.occany_recon_ckpt` and `model.img_decoder.ckpt_path` **relative to the repo root**, so both must live under `checkpoints/` on each cluster:
+
+- `checkpoints/occany_plus_recon_1B.pth` — frozen OccAny DA3 backbone
+- `checkpoints/occrae_img_decoder.pt` — trained image decoder (copy from `occrae_output/.../current.pt`)
+
+Set `model.img_decoder.ckpt_path: null` in config to skip RGB decode during eval.
+
+## SLURM scripts
+
+| Cluster | DeltaTok | DeltaTok+Geom | OccRAE | Img Decoder | Eval |
+|---------|----------|---------------|--------|-------------|------|
+| Karolina | `karolina_train_deltatok.slurm` | `karolina_train_deltatok_geom.slurm` | `karolina_train_occrae.slurm` | `karolina_train_occrae_img_decoder.slurm` | `karolina_eval_deltatok.slurm` |
+| Jean Zay | `jz_train_deltatok.slurm` | `jz_train_deltatok_geom.slurm` | — | — | — |
+| BSC | — | — | `bsc_train_occrae.slurm` | — | — |
+
+All under `slurm/`. Smoke test: `karolina_train_deltatok_geom_smoke.slurm`.
 
 ## Cluster paths
 
@@ -37,7 +180,7 @@ BSC is the secondary cluster, used only for jobs that explicitly target it — `
 | Account / partition   | `eu-25-92` / `qgpu`                                                 | `ehpc793` / `acc` (QoS `acc_ehpc`, debug `acc_debug`)          |
 | Repo checkout         | `/home/it4i-anhquan/OccAny`                                         | `/home/vale/vale352205/code/OccAny` (`$HOME/code/OccAny`)      |
 | Data root             | `/scratch/project/eu-25-92/data` (= `$SCRATCH/data`)                | `/gpfs/scratch/ehpc793/occany_data`                            |
-| Train logs / ckpts    | `$PROJECT/tb_log_occany/<EXP_NAME>` (= `/mnt/proj1/eu-25-92/...`)   | `/gpfs/scratch/ehpc793/tb_log_occany/<EXP_NAME>`               |
+| Train logs / ckpts    | `$PROJECT/tb_log_occany/<EXP_NAME>` or `$PROJECT/deltatok_log/<RUN_NAME>` | `/gpfs/scratch/ehpc793/tb_log_occany/<EXP_NAME>`               |
 | SLURM stdout / stderr | `slurm/output/*.{out,err}` in the repo                              | `slurm/output/*.{out,err}` in the repo                         |
 | Env activation        | `conda activate occany`                                             | `source env_bsc.sh` (loads venv `~/envs/maskgit`)              |
 | SLURM scripts         | `slurm/karolina_*.slurm`                                            | `slurm/bsc_*.slurm`                                            |
@@ -81,43 +224,11 @@ source env_bsc.sh        # BSC — module loads + activates ~/envs/maskgit venv
 source env_jz_h100.sh    # Jean Zay — module load arch/h100 + pytorch-gpu (no conda)
 ```
 
-On Karolina, `$PROJECT` (`/mnt/proj1/eu-25-92/`) and `$SCRATCH` (`/scratch/project/eu-25-92/`) are part of the contract — eval defaults to `$PROJECT/data/...` and `$SCRATCH/...`.
-
-## Evaluation
-
-Always via shell presets (`EXP_LIST` + `EXP_ID`), never ad-hoc:
-
-```bash
-EXP_LIST=occany_plus EXP_ID=1 bash sh/eval_occany.sh
-USE_MAJORITY_POOLING=1 POOLING_MODE=separate EXP_LIST=metric_occany_plus EXP_ID=1 bash sh/compute_metric.sh
-```
-
-New presets → `sh/exp_lists/*.sh`, not hardcoded. Recon metrics: `extract_recon.py` → `compute_recon_metrics.py --exp_dir ...`.
-
-Training wrappers: `sh/train_*.sh`; SLURM jobs: `slurm/{karolina,bsc,jz}_*.slurm` (per target cluster).
-
-## Architecture
-
-Script-driven. Root entrypoints (`inference.py`, `extract_output_occany.py`, `extract_recon.py`, `infer_trajectory.py`, `test_occ_rae.py`) orchestrate; reusable logic in `occany/`.
-
-**Model paths:**
-- **OccAny+ (DA3 + SAM3, primary):** `occany/model/model_da3.py`, `da3_inference.py`, `training_da3.py`, `semantic_inference.py`.
-- **OccAny (Must3R + SAM2):** `occany/model/model_must3r.py`, `must3r_inference.py`.
-- **DINOv3 ViT-H+/16 (recon-only, experimental):** `occany/model/{model_dinov3.py,dinov3_backbone.py}`, `training_dinov3.py`; wrappers `sh/train_occany_plus_recon_dinov3_vith16plus.sh` + matching `.slurm`. No semantic head.
-
-**Training launchers:** run `launch_da3.py` / `launch_dinov3.py` — never `occany/training_*.py` directly. They call `prepend_vendored_import_paths()` (required for `dust3r`/`croco`/DA3 imports).
-
-**Eval flow:** `extract_output_occany.py` (via `sh/eval_occany.sh`) saves voxels; `compute_metrics_from_saved_voxels.py` computes IoU/SSC. Loaders built by `prepare_eval_setting()` / `prepare_metric_eval_setting()` in `occany/datasets/eval_helper.py`. Voxel grids: KITTI 256×256×32 @ 0.2m, nuScenes 200×200×16 @ 0.4m.
-
-**Inference output contracts:** `pts3d_*.npy` (point cloud → `vis_viser.py`); `voxel_predictions.pkl` (voxels → `vis_voxel.py`, `compute_metrics_from_saved_voxels.py`).
-
-**OccRAE / DeltaTok:** caches DA3 layer-18 tokens for downstream training — see `docs/occrae.md`, `docs/deltatok.md`. Hydra configs in `configs/`; drivers `train_occrae.py`, `train_occrae_img_decoder.py`, `train_deltatok.py`. DeltaTok configs come in per-cluster variants (`configs/train_deltatok{,_geom}_{karolina,jeanzay}.yaml`) that override only dataset roots. `train_deltatok.py` resolves `model.occany_recon_ckpt` and `model.img_decoder.ckpt_path` **relative to the repo root**, so both must live under `checkpoints/` on each cluster — copy the img_decoder's `occrae_output/.../current.pt` → `checkpoints/occrae_img_decoder.pt`. Geom supervision (`*_geom*`) needs `training.use_decode_grad_checkpoint: true` on A100-40GB (Karolina) but disables it on H100-80GB (jean-zay).
-
-**Vendored deps:** `third_party/{dust3r,croco/curope,Depth-Anything-3,sam3,GLD,InfiniDepth,deltatok}`. Path setup: `occany.utils.runtime_paths.prepend_vendored_import_paths()` (Python) or `occany_prepend_pythonpath` in `sh/train_common.sh`. One-time: `cd third_party/croco/models/curope && python setup.py install`.
+On Karolina, `$PROJECT` (`/mnt/proj1/eu-25-92/`) and `$SCRATCH` (`/scratch/project/eu-25-92/`) are part of the contract — DeltaTok logs default to `$PROJECT/deltatok_log/`, data to `$SCRATCH/data/`.
 
 ## Key conventions
 
-- **Training dataset strings** in `sh/train_occany_plus_*.sh` are `eval()`'d by `occany.datasets.get_data_loader()` — must stay valid Python.
-- **Semantic mode strings:** `<source>@<model>` (e.g. `distill@SAM3`), parsed by `occany.utils.inference_helper.parse_semantic_mode()`.
-- **Output resolution** (DA3 path) is dataset-specific. Use `occany.utils.resolution.get_output_resolution()` or eval presets (nuScenes `518×294`, KITTI `518×168`).
-- **Sharded processing:** `--world` + `--pid` across extraction scripts.
+- **Training dataset strings** in configs and `sh/train_*.sh` are `eval()`'d by `occany.datasets.get_data_loader()` — must stay valid Python.
+- **Vendored deps:** `third_party/{dust3r,croco/curope,Depth-Anything-3,sam3,GLD,deltatok,pyTorchChamferDistance}`. Path setup: `occany.utils.runtime_paths.prepend_vendored_import_paths()` (Python) or `occany_prepend_pythonpath` in `sh/train_common.sh`. One-time: `cd third_party/croco/models/curope && python setup.py install`.
+- **Distributed launch:** all trainers support both torchrun and SLURM native (`SLURM_NTASKS` / `SLURM_PROCID`); `setup_cuda_distributed()` handles both.
+- **Sharded extraction:** `--world` + `--pid` across `extract_occany_features.py`.
