@@ -1,0 +1,41 @@
+exp_name: "base_xlarge"
+
+dataset:
+  preprocess_data_root: /gpfs/scratch/ehpc558/quan/occrae_data
+  subsampling_rate: 5
+  max_stride: 3
+  frame_stride: 1
+  cond_num: 2
+  processed_roots: []
+  max_train_samples: -1
+  max_val_samples: -1
+
+model:
+  vit_size: "xlarge"
+  num_views: 4  # must equal max_stride + 1; temporal_pos embedding has this many slots
+  pred_mode: "x"
+  loss_mode: "v"
+  mu: -0.7
+  sigma: 1.4
+  occany_recon_ckpt: "checkpoints/occany_plus_recon_1B.pth"
+  encode_layer: 18
+
+training:
+  lr: 1e-4
+  weight_decay: 0.05
+  optimizer: "adamw"
+  use_ema: false
+  dtype: "bfloat16"
+  global_epoch: 0
+  iter: 0
+  warm_up: 1000
+  max_iter: 100000
+  epoch: 100
+  bsize: 1
+  num_workers: 0
+  grad_cum: 1 # 16 gpus * 1 bsize = 16 effective bsize
+  grad_clip: 1.0
+  seed: 0
+  virtual_epoch: 1000
+  eval_num_items: 256
+  eval_num_steps: 50

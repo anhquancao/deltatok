@@ -1,0 +1,8 @@
+.env
+datasets/.cache/
+
+__pycache__/
+*.py[codz]
+.DS_Store
+core
+*.lock

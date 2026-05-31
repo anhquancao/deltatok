@@ -1,0 +1,27 @@
+model:
+  class_path: training.deltatok.DeltaTok
+  init_args:
+    network:
+      class_path: models.deltatok.DeltaTok
+      init_args:
+        backbone:
+          class_path: models.dinov3.DINOv3
+
+data:
+  class_path: datasets.module.DataModule
+  init_args:
+    frame_size: 512
+    train_dataset_cfg:
+      class_path: datasets.kinetics.KineticsTrain
+      init_args:
+        num_frames: 2
+    val_datasets_cfg:
+      vspw:
+        class_path: datasets.vspw.VSPWVal
+      cityscapes:
+        class_path: datasets.cityscapes.CityscapesVal
+      kitti:
+        class_path: datasets.kitti.KITTIVal
+
+trainer:
+  gradient_clip_val: 1e-2

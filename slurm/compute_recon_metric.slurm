@@ -1,0 +1,26 @@
+#!/bin/bash
+#SBATCH --job-name=compute_recon_metric
+#SBATCH --nodes=1
+#SBATCH --ntasks-per-node=1
+#SBATCH --gres=gpu:1
+#SBATCH --cpus-per-task=16
+#SBATCH --time=06:00:00
+# Array id is the EXP_ID: 8=KITTI, 9=nuScenes (synced e55 pseudo-depth-only).
+# One submission per setting; for nuScenes: sbatch --array=9 ...
+#SBATCH --array=8
+#SBATCH --hint=nomultithread
+#SBATCH -A eu-25-92
+#SBATCH --partition=qgpu
+#SBATCH --output=slurm/output/compute_recon_metric_%A_%a.out
+#SBATCH --error=slurm/output/compute_recon_metric_%A_%a.err
+
+mkdir -p slurm/output
+
+eval "$(conda shell.bash hook)"
+conda activate occany
+
+export PYTORCH_CUDA_ALLOC_CONF="${PYTORCH_CUDA_ALLOC_CONF:-expandable_segments:True}"
+export EXP_LIST="${EXP_LIST:-metric_recon}"
+export EXP_ID="${EXP_ID:-${SLURM_ARRAY_TASK_ID:-0}}"
+
+bash sh/compute_recon_metric.sh

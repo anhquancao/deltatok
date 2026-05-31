@@ -1,0 +1,3 @@
+defaults:
+  - train_deltatok_karolina
+  - train_deltatok_geom

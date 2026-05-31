@@ -1,0 +1,82 @@
+stage_2:
+  target: stage2.models.DDT.DiTwDDTHead
+  params:
+    patch_size: 1
+    in_channels: 1536
+    hidden_size: [768, 2048]
+    depth: [28, 6]
+    num_heads: [16, 16]
+    mlp_ratio: 4.0
+    use_qknorm: false
+    use_swiglu: true
+    use_rope: false
+    use_rmsnorm: true
+    wo_shift: false
+    use_pos_embed: false
+    use_prope: false
+    architecture_mode: "new"
+    cfg_mode: "new"
+    cam_input_size: 518
+    cam_patch_size: 14
+    cam_in_channels: 1
+    level: 18
+    predict_cls: true
+    is_concat_mode: true
+
+transport:
+  params:
+    path_type: "Linear"
+    prediction: "velocity"
+    loss_weight: null
+    time_dist_type: "uniform"
+
+sampler:
+  mode: ODE
+  params:
+    sampling_method: "euler"
+    num_steps: 50
+    atol: 1.0e-6
+    rtol: 1.0e-3
+    reverse: false
+
+training:
+  algorithm: "transport"
+  global_seed: 0
+  epochs: 100
+  global_batch_size: 16
+  grad_accum_steps: 1
+  ema_decay: 0.9995
+  num_workers: 4
+  log_every: 50
+  base_lr: 5.0e-5
+  final_lr: 5.0e-5
+  beta: [0.9, 0.95]
+  wd: 0.0
+  clip_grad: 1.0
+  scheduler:
+    type: "constant"
+  eval_num_items: 256
+  eval_num_steps: 50
+
+validation:
+  batch_size: 1
+  val_num_batches: 8
+  t_override: 0.5
+  ckpt_every: 2000
+  sample_every: 2000
+  save_latents: false
+
+dataset:
+  preprocess_data_root: /gpfs/scratch/ehpc558/quan/occrae_data
+  subsampling_rate: 5
+  max_stride: 9
+  frame_stride: 1
+  cond_num: 2
+  processed_roots: []
+  max_train_samples: -1
+  max_val_samples: -1
+
+model:
+  num_views: 10
+  occany_recon_ckpt: "checkpoints/occany_plus_recon_1B.pth"
+  encode_layer: 18

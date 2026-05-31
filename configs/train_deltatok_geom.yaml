@@ -1,0 +1,25 @@
+defaults:
+  - train_deltatok
+
+# DeltaTok variant with train-time geometric supervision. The pointmap,
+# depth, and raymap losses are added on top of the existing token-recon
+# loss; the token loss remains the PRIMARY signal (DeltaTok is a token
+# reconstruction model), and the geometric terms act as regularisers
+# that nudge the predicted tokens toward decode-consistent geometry.
+#
+# Observed magnitudes at plateau (see TB run deltatok_surround_constGlobalRope_geom):
+#   L_token ~= 0.5,  L_depth ~= 6,  L_pointmap ~= 20,  L_raymap ~= 20.
+# This variant pushes token recon hard (weight 100) while keeping the
+# geometric terms as light regularisers (all at 0.01), so token dominates
+# the gradient and geom only nudges decode-consistent geometry.
+training:
+  loss_weights:
+    token:    100.0
+    pointmap: 0.01
+    depth:    0.01
+    raymap:   0.01
+  # Gradient-checkpoint the DA3 decoder stack inside OccRAE.decode_grad.
+  # Required on A100-40GB: the un-checkpointed path stores activations
+  # across ~15 decoder layers of DA3-Giant and OOMs. Setting this to false
+  # is only safe on H100/80GB+ or when num_views_per_timestep is tiny.
+  use_decode_grad_checkpoint: true

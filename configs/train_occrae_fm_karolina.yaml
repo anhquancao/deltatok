@@ -1,0 +1,5 @@
+defaults:
+  - train_occrae_fm
+
+dataset:
+  preprocess_data_root: /scratch/project/eu-25-92/data

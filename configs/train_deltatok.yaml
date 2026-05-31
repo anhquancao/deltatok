@@ -1,0 +1,113 @@
+exp_name: "deltatok"
+
+dataset:
+  # Same dataset path as `train_occrae_img_decoder.yaml`: dust3r-style dataset
+  # expression strings evaluated by `occany.datasets.get_data_loader`.
+  per_dataset_sampling: true
+  train_dataset: "10000 @ WaymoSeqMultiView(ROOT='/gpfs/scratch/ehpc558/quan/occrae_data/waymo_processed', \
+      seq_pkl_name='seq_surround_temporal_sub5_stride9_all.pkl', \
+      min_memory_num_views=5, frame_interval=1, max_memory_num_views=20, \
+      num_views_per_timestep=5, min_views_per_timestep=1, ray_map_prob=-1, \
+      z_far=50, split='train', no_partial_views=True, \
+      resolution=[(518, 294), (518, 280), (518, 266), (518, 210), (518, 168)], \
+      reverse_seq=True, distill_model_name='SAM3', base_model='da3') + \
+      5000 @ VKittiSeqMultiView(VKITTI_PROCESSED_ROOT='/gpfs/scratch/ehpc558/quan/occrae_data/vkitti_processed', \
+      seq_pkl_name='seq_exact_len_sub5_stride9.pkl', \
+      min_memory_num_views=2, frame_interval=1, max_memory_num_views=10, ray_map_prob=-1, \
+      z_far=50, split='train', no_partial_views=True, \
+      resolution=[(518, 294), (518, 280), (518, 266), (518, 210), (518, 168)], \
+      reverse_seq=True, distill_model_name='SAM3', base_model='da3') + \
+      10000 @ DDADSeqMultiView(DDAD_PREPROCESSED_ROOT='/gpfs/scratch/ehpc558/quan/occrae_data/ddad_processed', \
+      seq_pkl_name='seq_surround_temporal_sub5_stride9_all.pkl', \
+      min_memory_num_views=6, frame_interval=1, max_memory_num_views=20, \
+      num_views_per_timestep=6, min_views_per_timestep=1, ray_map_prob=-1, \
+      z_far=50, split='train', no_partial_views=True, \
+      resolution=[(518, 294), (518, 280), (518, 266), (518, 210), (518, 168)], \
+      reverse_seq=True, distill_model_name='SAM3', base_model='da3') + \
+      10000 @ PandasetSeqMultiView(PANDASET_PREPROCESSED_ROOT='/gpfs/scratch/ehpc558/quan/occrae_data/pandaset_processed', \
+      seq_pkl_name='seq_surround_temporal_sub5_stride9_all.pkl', \
+      min_memory_num_views=6, frame_interval=1, max_memory_num_views=20, \
+      num_views_per_timestep=6, min_views_per_timestep=1, ray_map_prob=-1, \
+      z_far=50, split='train', no_partial_views=True, \
+      resolution=[(518, 294), (518, 280), (518, 266), (518, 210), (518, 168)], \
+      reverse_seq=True, distill_model_name='SAM3', base_model='da3') + \
+      10000 @ OnceSeqMultiView(ONCE_PREPROCESSED_ROOT='/gpfs/scratch/ehpc558/quan/occrae_data/once_processed', \
+      seq_pkl_name='seq_surround_temporal_sub5_stride9_all.pkl', \
+      min_memory_num_views=5, frame_interval=1, max_memory_num_views=20, \
+      num_views_per_timestep=5, min_views_per_timestep=1, ray_map_prob=-1, \
+      z_far=50, split='train', no_partial_views=True, \
+      resolution=[(518, 294), (518, 280), (518, 266), (518, 210), (518, 168)], \
+      reverse_seq=True, distill_model_name='SAM3', base_model='da3')"
+  test_dataset: "206 @ KittiSeqMultiView(KITTI_PREPROCESSED_ROOT='/gpfs/scratch/ehpc558/quan/occrae_data/kitti_processed', \
+      seq_pkl_name='seq_exact_len_sub5_stride9.pkl', frame_interval=1, \
+      min_memory_num_views=5, max_memory_num_views=5, reverse_seq=False, \
+      z_far=50, split='val', seed=42, no_partial_views=True, fixed_cams=[0], \
+      resolution=[(518, 168)], distill_model_name='SAM3', base_model='da3') + \
+      206 @ Occ3dNuscenesSeqMultiView(NUSCENES_PREPROCESSED_ROOT='/gpfs/scratch/ehpc558/quan/occrae_data/occ3d_nuscenes_processed', \
+      seq_pkl_name='seq_surround_temporal_sub1_stride9_all.pkl', frame_interval=1, \
+      min_memory_num_views=18, max_memory_num_views=18, num_views_per_timestep=6, \
+      z_far=50, split='val', seed=42, no_partial_views=True, fixed_cams=[0, 1, 2], \
+      resolution=[(518, 294)], distill_model_name='SAM3', base_model='da3')"
+
+model:
+  num_views: 4  # must equal max_stride + 1
+  occany_recon_ckpt: "checkpoints/occany_plus_recon_1B.pth"
+  encode_layer: 18
+
+  # Optional pretrained image decoder (occrae/img_decoder_trainer.py output).
+  # When ckpt_path is set, eval_one_epoch decodes RGB from predicted tokens and
+  # logs side-by-side panels alongside depth. Leave ckpt_path null to skip.
+  img_decoder:
+    # Repo-relative so it resolves on any cluster (training is launched from the
+    # repo root). Each cluster must have the img_decoder ckpt under checkpoints/;
+    # it is the train_occrae_img_decoder.py output (Karolina source:
+    #   /mnt/proj1/eu-25-92/occrae_output/occrae_img_decoder/ckpts/current.pt),
+    # copied to checkpoints/occrae_img_decoder.pt. Set null to skip RGB decode.
+    ckpt_path: checkpoints/occrae_img_decoder.pt
+    config_path: "third_party/GLD/configs/decoder/ViTXL"
+    hidden_size: 9216
+    patch_size: 14
+    use_ema: true
+    view_chunk_size: 0
+
+  # DeltaTok tokenizer architecture. hidden_size / num_heads / patch_size are
+  # inherited from the OccRAE/DA3 backbone and not configurable here.
+  deltatok:
+    num_hidden_layers: 12
+    use_delta: true
+    use_swiglu: true
+    use_qk_norm: true
+    use_gated_attn: true
+    use_rope_aug: false
+    mlp_ratio: 4
+    layer_scale_init: 1.0e-5
+    initializer_range: 0.02
+
+training:
+  lr: 1.0e-3
+  weight_decay: 0.01
+  dtype: "bfloat16"
+  global_epoch: 0
+  iter: 0
+  warm_up: 5000
+  max_iter: 100000
+  epoch: 100
+  bsize: 1
+  num_workers: 4
+  val_num_workers: 2
+  grad_cum: 2
+  # Cap on (frame_t, frame_{t+1}) pairs forwarded through the tokenizer per
+  # training step. With B*(T-1) pairs per item, this bounds the M dim of the
+  # tokenizer forward without changing the dataset / batch shape. 0 = use all.
+  pairs_per_batch: 1
+  grad_clip: 1.0
+  seed: 0
+  eval_num_items: 256
+  eval_num_visualizations: 4
+  # Log eval viz to TB only every `viz_every_n_epochs` epochs (set to 1 to log
+  # every epoch). Disk JPEGs under `eval_viz_dir` are still written every epoch.
+  viz_every_n_epochs: 5
+  sanity_check_num_items: 2
+  # Geometric-supervision regularizers (pointmap/depth/raymap) are opt-in:
+  # set training.loss_weights in a derived config (see train_deltatok_geom.yaml)
+  # to enable them. Without that key, train_one_epoch runs token loss only.
