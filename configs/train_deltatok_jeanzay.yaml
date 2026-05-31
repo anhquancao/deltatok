@@ -2,8 +2,8 @@ defaults:
   - train_deltatok
 
 training:
-  bsize: 4
-  grad_cum: 1
+  bsize: 2
+  grad_cum: 2
 
 dataset:
   fixed_views_per_batch: true
