@@ -51,6 +51,7 @@ def get_args_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument("--precision", type=str, choices=["fp32", "bf16"], default="bf16")
     parser.add_argument("--run-name", type=str, default="deltatok")
+    parser.add_argument("--resume", action="store_true", help="Resume from current.pth in ckpts dir.")
     parser.add_argument("--ckpt", type=str, default=None, help="Resume / pretrained checkpoint.")
     parser.add_argument("--occany_recon_ckpt", type=str, default=None)
     parser.add_argument("--encode_layer", type=int, default=None)

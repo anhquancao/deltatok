@@ -1,6 +1,10 @@
 defaults:
   - train_deltatok
 
+training:
+  bsize: 8
+  grad_cum: 1
+
 dataset:
   # Same dataset expression as train_deltatok_karolina.yaml, but with the
   # dataset roots on jean-zay's fsn1 working tier

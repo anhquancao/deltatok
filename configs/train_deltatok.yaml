@@ -89,12 +89,12 @@ training:
   dtype: "bfloat16"
   global_epoch: 0
   iter: 0
-  warm_up: 5000
+  warm_up: 1000
   max_iter: 100000
   epoch: 100
   bsize: 1
   num_workers: 4
-  val_num_workers: 2
+  val_num_workers: 4
   grad_cum: 2
   # Cap on (frame_t, frame_{t+1}) pairs forwarded through the tokenizer per
   # training step. With B*(T-1) pairs per item, this bounds the M dim of the

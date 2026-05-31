@@ -1,5 +1,6 @@
 data/*/
 demo_data/output/*
+demo_data/*
 demo_tmp
 davis_results*
 tmp/

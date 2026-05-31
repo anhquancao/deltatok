@@ -27,6 +27,10 @@ if [[ "$EVAL_ONLY" == "1" ]]; then
     ARGS+=(--eval-only --results-dir "$RESULTS_DIR")
 fi
 
+if [[ "${RESUME:-0}" == "1" ]]; then
+    ARGS+=(--resume)
+fi
+
 if [[ -n "${OCCANY_RECON_CKPT:-}" ]]; then
     ARGS+=(--occany_recon_ckpt "$OCCANY_RECON_CKPT")
 fi
