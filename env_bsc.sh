@@ -12,7 +12,8 @@ module load FFmpeg/6.0
 # breaks TensorBoard / SummaryWriter imports).
 export PYTHONNOUSERSITE=1
 
-VENV_DIR="${HOME}/envs/maskgit"
+: "${PROJECT:?Error: PROJECT is not set}"
+VENV_DIR="${PROJECT}/envs/maskgit"
 
 # shellcheck disable=SC1090
 source "${VENV_DIR}/bin/activate"

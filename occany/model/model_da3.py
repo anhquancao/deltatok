@@ -5,7 +5,6 @@ import logging
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from torch.utils.checkpoint import checkpoint as _grad_checkpoint
 from typing import Dict
 import os
 import numpy as np
@@ -648,8 +647,6 @@ class DA3Wrapper(DepthAnything3):
         point_from_depth_and_pose=False,
         images=None,
         head=None,  # Optional: use specific head (e.g., frozen aux_head)
-        sam_frame_idx=None,  # Optional 1-D LongTensor of frame indices to compute SAM features on
-        head_checkpoint=False,
     ):
         """
         Process depth head output and compute pointmap, pose, and SAM features.
@@ -666,16 +663,7 @@ class DA3Wrapper(DepthAnything3):
         """
         # Use provided head or default to main head
         depth_head = head if head is not None else self.model.head
-        if head_checkpoint:
-            # decode_grad path: recompute depth_head in backward instead of
-            # storing its DPT reassemble/fusion activations. Frozen weights →
-            # pure recompute candidate. Closes h/w/patch_start_idx since
-            # checkpoint() forwards *args to the function.
-            def _run_head(_feats):
-                return depth_head(_feats, h, w, patch_start_idx=0)
-            output = _grad_checkpoint(_run_head, feats, use_reentrant=False)
-        else:
-            output = depth_head(feats, h, w, patch_start_idx=0)
+        output = depth_head(feats, h, w, patch_start_idx=0)
 
         default_scale = 20
         # Extract depth and raymap from raw output
@@ -717,22 +705,7 @@ class DA3Wrapper(DepthAnything3):
         # Compute SAM features inside forward pass (important for DDP to avoid "marked ready twice" error)
         sam_feats = None
         if self.head_sam is not None:
-            if sam_frame_idx is not None and sam_frame_idx.numel() == 0:
-                # K=0: empty subset — skip the SAM3 head so downstream sees
-                # sam_feats=None and the distill loss / teacher pass are skipped.
-                sam_feats = None
-            elif sam_frame_idx is not None:
-                # Subsample backbone features along the T dimension to save memory on
-                # the SAM3 head (and matching teacher pass downstream).
-                sub_feats = []
-                for f in feats:
-                    if isinstance(f, (list, tuple)):
-                        sub_feats.append((f[0][:, sam_frame_idx],) + tuple(f[1:]))
-                    else:
-                        sub_feats.append(f[:, sam_frame_idx])
-                sam_feats = self.forward_sam_features(sub_feats, (h, w))
-            else:
-                sam_feats = self.forward_sam_features(feats, (h, w))
+            sam_feats = self.forward_sam_features(feats, (h, w))
 
         save_outputs = False
         if save_outputs:
@@ -807,7 +780,6 @@ class DA3Wrapper(DepthAnything3):
         pose_from_depth_ray=False,
         pose_from_cam_dec=False,
         point_from_depth_and_pose=False,
-        sam_frame_idx=None,
     ):
         b, t, c, h, w = images.size()
 
@@ -846,7 +818,6 @@ class DA3Wrapper(DepthAnything3):
             pose_from_cam_dec=pose_from_cam_dec,
             point_from_depth_and_pose=point_from_depth_and_pose,
             images=images,
-            sam_frame_idx=sam_frame_idx,
         )
 
         if aux_feats is not None:
@@ -865,7 +836,6 @@ class DA3Wrapper(DepthAnything3):
         pose_from_depth_ray=False,
         pose_from_cam_dec=False,
         point_from_depth_and_pose=False,
-        head_checkpoint=False,
     ):
         """Resume inference from a cached backbone layer state.
 
@@ -911,14 +881,13 @@ class DA3Wrapper(DepthAnything3):
             pose_from_depth_ray=pose_from_depth_ray,
             pose_from_cam_dec=pose_from_cam_dec,
             point_from_depth_and_pose=point_from_depth_and_pose,
-            head_checkpoint=head_checkpoint,
         )
 
         if aux_feats is not None:
             output["aux_feats"] = aux_feats
 
         return output
-
+    
     def inference_batch_gen(
         self,
         patch_tokens,
@@ -929,7 +898,6 @@ class DA3Wrapper(DepthAnything3):
         pose_from_depth_ray=False,
         point_from_depth_and_pose=False,
         return_aux_feats=True,
-        sam_frame_idx=None,
     ):
         """
         Inference for gen views using pre-computed patch tokens from RaymapEncoderDA3.
@@ -993,7 +961,6 @@ class DA3Wrapper(DepthAnything3):
             pose_from_depth_ray=pose_from_depth_ray,
             pose_from_cam_dec=False,
             point_from_depth_and_pose=point_from_depth_and_pose,
-            sam_frame_idx=sam_frame_idx,
         )
 
         if aux_feats is not None and return_aux_feats:

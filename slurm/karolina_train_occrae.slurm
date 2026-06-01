@@ -20,7 +20,7 @@ export PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
 export OMP_NUM_THREADS="${OMP_NUM_THREADS:-4}"
 export TORCH_NCCL_HEARTBEAT_TIMEOUT_SEC="${TORCH_NCCL_HEARTBEAT_TIMEOUT_SEC:-1000}"
 
-cd "$HOME/OccAny"
+cd "$HOME/code/OccAny"
 
 export CONFIG_NAME=train_occrae_fm_karolina
 export RESULTS_DIR="/mnt/proj1/eu-25-92/occrae_log"

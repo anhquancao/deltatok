@@ -13,7 +13,7 @@ set -euo pipefail
 # RESULTS_DIR is only used under EVAL_ONLY=1 — eval panels are written to
 # <RESULTS_DIR>/<RUN_NAME>/eval_only/.
 : "${RESULTS_DIR:=/home/it4i-anhquan/OccAny/results}"
-: "${RUN_NAME:=deltatok_surround_constGlobalRope}"
+: "${RUN_NAME:=deltatok}"
 : "${PRECISION:=bf16}"
 ARGS=(
     --config-dir "$CONFIG_DIR"

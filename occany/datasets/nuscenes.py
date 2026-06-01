@@ -832,7 +832,7 @@ class NuScenesDataset(Dataset):
             gt_depth = np.zeros((downscaled_img.height, downscaled_img.width), dtype=np.float32)
         
         # Transform images
-        if self.base_model in ('da3', 'dinov3'):
+        if self.base_model == 'da3':
             img_tensor = InputProcessor.NORMALIZE(to_tensor(downscaled_img))
         else:
             img_tensor = ImgNorm(np.array(downscaled_img))

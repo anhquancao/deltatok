@@ -14,7 +14,6 @@ _VENDORED_PATHS = (
     Path("third_party/sam3"),
     Path("third_party/Depth-Anything-3/src"),
     Path("third_party/InfiniDepth"),
-    Path("third_party/dinov3"),
 )
 
 

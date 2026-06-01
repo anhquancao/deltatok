@@ -71,22 +71,18 @@ class BaseSeqDataset (BaseStereoViewDataset):
         self.ROOT = ROOT
         self.base_model = base_model
         self.distill_model_name = distill_model_name
-        # SAM distillation is only constructed for models that consume `view['distill_img']`.
-        # The DINOv3 wrapper has no SAM head, so we skip the transform + per-view distill_img.
-        if base_model == 'dinov3':
-            self.distill_img_size = None
-            self.distill_img_transform = None
+        # resolve distillation image size based on model type
+        if distill_img_size is None:
+            if distill_model_name == "SAM2":
+                distill_img_size = img_size
+            elif distill_model_name == "SAM3":
+                distill_img_size = 518
+        self.distill_img_size = distill_img_size
+        # Create SAM2 transform with specified resolution if not provided
+        if distill_model_name == "SAM3":
+            self.distill_img_transform = get_SAM3_transforms(resolution=self.distill_img_size)
         else:
-            if distill_img_size is None:
-                if distill_model_name == "SAM2":
-                    distill_img_size = img_size
-                elif distill_model_name == "SAM3":
-                    distill_img_size = 518
-            self.distill_img_size = distill_img_size
-            if distill_model_name == "SAM3":
-                self.distill_img_transform = get_SAM3_transforms(resolution=self.distill_img_size)
-            else:
-                raise ValueError(f"Unsupported distill_model_name: {distill_model_name}")
+            raise ValueError(f"Unsupported distill_model_name: {distill_model_name}")
         self.seq_pkl_name = seq_pkl_name
         self.img_ext = ".jpg"
         self.num_views = 3
@@ -179,9 +175,9 @@ class BaseSeqDataset (BaseStereoViewDataset):
             # encode the image
             width, height = view['img'].size
             view['true_shape'] = np.int32((height, width))
-            if self.distill_img_transform is not None:
-                view['distill_img'] = self.distill_img_transform(view['img'])
-            if self.base_model in ('da3', 'dinov3'):
+            view['distill_img'] = self.distill_img_transform(view['img'])
+            if self.base_model == 'da3':
+                
                 view['img'] = InputProcessor.NORMALIZE(to_tensor(view['img']))
             else:
                 view['img'] = self.transform(view['img'])
@@ -234,13 +230,8 @@ class BaseSeqDatasetMultiView(BaseSeqDataset, EasyDataset_OccAny):
         self.max_memory_num_views = max_memory_num_views
         self.min_memory_num_views = min_memory_num_views
         self.num_views_per_timestep = num_views_per_timestep
-        # min_num_timesteps caps actual_vpt in _get_views so every sample yields
-        # at least this many timesteps (T = memory_num_views // actual_vpt). Set
-        # to 2 for pair trainers (DeltaTok); short scenes that can't satisfy it
-        # raise. Requires min_memory_num_views >= min_num_timesteps.
-        self.min_num_timesteps = min_num_timesteps
-        # DEPRECATED: legacy knob from seq_surround; ignored by unified _get_views.
         self.min_views_per_timestep = min_views_per_timestep
+        self.min_num_timesteps = min_num_timesteps
         self.anchor_cam = anchor_cam
         self.fixed_cams = list(fixed_cams) if fixed_cams is not None else None
         if self.fixed_cams is not None:
@@ -270,8 +261,7 @@ class BaseSeqDatasetMultiView(BaseSeqDataset, EasyDataset_OccAny):
 
 
     def _select_cameras(self, max_vpt, actual_vpt, rng):
-        # Always pick a random anchor per call; anchor occupies index 0.
-        anchor = int(rng.integers(0, max_vpt))
+        anchor = self.anchor_cam
         if actual_vpt >= max_vpt:
             others = np.arange(max_vpt)
             others = others[others != anchor]
@@ -284,109 +274,72 @@ class BaseSeqDatasetMultiView(BaseSeqDataset, EasyDataset_OccAny):
         rest = rng.choice(others, size=actual_vpt - 1, replace=False)
         return np.concatenate([[anchor], rest])
 
-    def _get_views(self, seq_idx, resolution, memory_num_views, rng, is_eval=False):
-        # is_eval is preserved in the signature for caller compat but unused —
-        # the unified algorithm behaves identically at train and eval time;
-        # eval reproducibility comes from `seed=42` plus optional `fixed_cams`.
+    def _build_view_indices(self, chosen_timesteps, selected_cams, max_vpt, partial, rng):
+        if partial:
+            partial_idx = int(rng.integers(1, len(chosen_timesteps))) if len(chosen_timesteps) > 1 else 0
+        else:
+            partial_idx = -1
+        indices = []
+        for i, t in enumerate(chosen_timesteps):
+            base = t * max_vpt
+            if i == partial_idx:
+                if i == 0:
+                    rest = rng.choice(selected_cams[1:], size=partial - 1, replace=False) if partial > 1 else np.array([], dtype=int)
+                    cams = np.concatenate([selected_cams[:1], rest])
+                else:
+                    cams = rng.choice(selected_cams, size=partial, replace=False)
+            else:
+                cams = selected_cams
+            indices.extend(int(base + c) for c in cams)
+        return indices
+
+    def _get_views(self, seq_idx, resolution, memory_num_views, rng):
         scene_idx, seq, ts = self.seqs[seq_idx]
         scene_name = self.scenes[scene_idx]
         preprocessed_scene_dir = osp.join(self.ROOT, scene_name)
 
         seq_len = len(seq)
         max_vpt = self.num_views_per_timestep
-        # Camera pool: a malformed/short sequence (seq_len < max_vpt) is treated
-        # as one short timestep with fewer physical cameras.
-        camera_pool = min(max_vpt, seq_len)
-        # At least one available timestep, even when seq_len < max_vpt.
-        num_avail_T = max(1, seq_len // max_vpt)
-
-        # 1. Choose cameras for this item. actual_vpt is capped by the camera
-        # pool AND by the budget — no point sampling more cameras per timestep
-        # than the budget allows. It is also capped at
-        # ``memory_num_views // min_num_timesteps`` so the resulting layout
-        # has T >= min_num_timesteps timesteps (pair trainers need T >= 2).
-        min_T = max(1, int(self.min_num_timesteps))
-        vpt_cap = memory_num_views // min_T
-        assert vpt_cap >= 1, (
-            f"memory_num_views ({memory_num_views}) < min_num_timesteps "
-            f"({min_T}); raise min_memory_num_views or lower min_num_timesteps "
-            f"in the dataset config (scene={scene_name})"
-        )
         if self.fixed_cams is not None:
             selected_cams = np.array(self.fixed_cams, dtype=int)
             actual_vpt = len(selected_cams)
-            assert actual_vpt <= vpt_cap, (
-                f"fixed_cams has {actual_vpt} cameras but memory_num_views="
-                f"{memory_num_views} only allows actual_vpt<={vpt_cap} to keep "
-                f"T >= min_num_timesteps={min_T}"
-            )
         else:
-            upper = min(camera_pool, memory_num_views, vpt_cap)
-            actual_vpt = int(rng.integers(1, upper + 1))
-            # _select_cameras' first arg is the camera pool size (the parameter
-            # is called max_vpt inside the function; we pass camera_pool because
-            # short sequences may have fewer cameras available than max_vpt).
-            selected_cams = self._select_cameras(camera_pool, actual_vpt, rng)
-
-        # 2. Decompose mem_views into full timesteps + optional partial last.
-        # When ``no_partial_views`` is set, drop the partial last timestep
-        # (and any "pad to memory_num_views" repetition that would otherwise
-        # land on a fractional timestep) so the returned views always satisfy
-        # ``V == T * actual_vpt``. Trainers that reshape to (B, T, num_cameras,
-        # ...) — DeltaTok, OccRAE-seq — rely on this invariant; without it a
-        # partial last timestep silently breaks the reshape in
-        # ``_extract_pair_feats``.
-        if self.no_partial_views:
-            memory_num_views = (memory_num_views // actual_vpt) * actual_vpt
-            if memory_num_views == 0:
-                memory_num_views = actual_vpt
-        num_full_T = memory_num_views // actual_vpt
-        partial = memory_num_views % actual_vpt
-        timesteps_needed = num_full_T + (1 if partial else 0)
-
-        # 3. Pick a contiguous window of timesteps.
-        if num_avail_T >= timesteps_needed:
-            start_T = int(rng.integers(0, num_avail_T - timesteps_needed + 1))
-            chosen_T = list(range(start_T, start_T + timesteps_needed))
-        else:
-            chosen_T = list(range(num_avail_T))
-            if self.no_partial_views:
-                # Shrink memory_num_views so the uniform-layout invariant holds
-                # even when the sequence couldn't supply enough timesteps —
-                # padding (step 6) would otherwise add a fractional timestep.
-                assert num_avail_T >= min_T, (
-                    f"scene {scene_name} has num_avail_T={num_avail_T} but "
-                    f"min_num_timesteps={min_T}; filter this scene out of the "
-                    f"sequence list or lower min_num_timesteps"
-                )
-                num_full_T = num_avail_T
-                partial = 0
-                timesteps_needed = num_full_T
-                memory_num_views = num_full_T * actual_vpt
-
-        # 4. Optional reversal (same coin per item).
-        if self.reverse_seq and rng.random() < 0.5:
-            chosen_T = list(reversed(chosen_T))
-
-        # 5. Build view indices. Same selected_cams (anchor first) across every
-        # full timestep; partial last timestep takes selected_cams[:partial],
-        # which always includes the anchor at index 0.
-        memory_view_indices = []
-        for i, t in enumerate(chosen_T):
-            base = t * max_vpt
-            cams = selected_cams if i < num_full_T else selected_cams[:partial]
-            memory_view_indices.extend(int(base + c) for c in cams)
-
-        # 6. Pad with random repetition if the sequence couldn't supply
-        # `timesteps_needed` timesteps (preserves uniform batch tensor shape).
-        if len(memory_view_indices) < memory_num_views:
-            num_repeats = memory_num_views - len(memory_view_indices)
-            repeated = rng.choice(memory_view_indices, size=num_repeats, replace=True)
-            memory_view_indices = list(memory_view_indices) + [int(i) for i in repeated]
-
-        assert len(memory_view_indices) == memory_num_views, (
-            f"expected exactly {memory_num_views} indices, got {len(memory_view_indices)}"
+            actual_vpt = rng.integers(self.min_views_per_timestep, max_vpt + 1)
+            selected_cams = self._select_cameras(max_vpt, actual_vpt, rng)
+        memory_num_views = max(memory_num_views, actual_vpt * self.min_num_timesteps)
+        num_timesteps = seq_len // max_vpt
+        assert num_timesteps > 0, (
+            f"seq_len ({seq_len}) must be >= num_views_per_timestep ({max_vpt})"
         )
+
+        do_reverse = self.reverse_seq and rng.random() < 0.5
+
+        if self.no_partial_views:
+            # Truncate memory_num_views down to a clean multiple of actual_vpt so
+            # every timestep is full (no partial-camera timestep).
+            effective_memory = (memory_num_views // actual_vpt) * actual_vpt
+            assert effective_memory > 0, (
+                f"no_partial_views=True requires memory_num_views ({memory_num_views}) "
+                f">= actual_vpt ({actual_vpt})"
+            )
+            partial = 0
+            timesteps_needed = min(effective_memory // actual_vpt, num_timesteps)
+            effective_memory = timesteps_needed * actual_vpt
+        else:
+            effective_memory = memory_num_views
+            partial = memory_num_views % actual_vpt
+            timesteps_needed = min(math.ceil(memory_num_views / actual_vpt), num_timesteps)
+
+        anchor = num_timesteps - 1 if do_reverse else 0
+        candidates = np.delete(np.arange(num_timesteps), anchor)
+
+        chosen_timesteps = [anchor]
+        if timesteps_needed > 1:
+            chosen_timesteps += list(rng.choice(candidates, size=timesteps_needed - 1, replace=False))
+        chosen_timesteps = sorted((int(t) for t in chosen_timesteps), reverse=do_reverse)
+
+        memory_view_indices = self._build_view_indices(chosen_timesteps, selected_cams, max_vpt, partial, rng)
+        memory_view_indices = memory_view_indices[:effective_memory]
 
         frames = [seq[i] for i in memory_view_indices]
         times = [ts[i] for i in memory_view_indices]
@@ -456,17 +409,15 @@ class BaseSeqDatasetMultiView(BaseSeqDataset, EasyDataset_OccAny):
         if isinstance(idx, tuple):
             # the idx is specifying the aspect-ratio
             idx, resolution_idx, memory_num_views, ray_map_idx = idx
-            is_eval = False
         else:
-            # This is used by test data as we don't implement the BatchSampler in test
+            # This is used by test data as we don't implement the BatchSampler in test 
             assert len(self._resolutions) == 1
             resolution_idx = 0
             assert self.min_memory_num_views == self.max_memory_num_views, "Evaluation needs to be done with a fixed number of views, which is equal to min_memory_num_views and  min_memory_num_views must equal max_memory_num_views"
             memory_num_views = self.min_memory_num_views
             # assert len(self.ray_map_idx) != 0, "Evaluation needs to be done with fixed ray_map_idx"
             ray_map_idx = self.ray_map_idx
-            is_eval = True
-
+        
         assert all(ray_map_id < memory_num_views for ray_map_id in ray_map_idx), f"ray_map_idx should be smaller than memory_num_views ray_map_idx={ray_map_idx}, memory_num_views={memory_num_views}"
         # idx, ar_idx, memory_num_views = 290, 0, 10 # TODO: remove later as this is only for overfitting 1 example
         # set-up the rng
@@ -478,8 +429,10 @@ class BaseSeqDatasetMultiView(BaseSeqDataset, EasyDataset_OccAny):
 
         # over-loaded codez_far
         resolution = self._resolutions[resolution_idx]  # DO NOT CHANGE THIS (compatible with BatchedRandomSampler)
-        views = self._get_views(idx, resolution, memory_num_views, self._rng, is_eval=is_eval)
-        # Sync to the actual returned count so view['idx'] and
+        views = self._get_views(idx, resolution, memory_num_views, self._rng)
+        # _get_views may bump memory_num_views up (min_num_timesteps) or return
+        # fewer views when the source sequence is shorter than the requested
+        # budget. Sync to the actual returned count so view['idx'] and
         # view['memory_num_views'] reflect reality, and drop ray_map indices
         # that fall past it so gen_view_idx lookups stay in range.
         memory_num_views = len(views)
@@ -498,10 +451,9 @@ class BaseSeqDatasetMultiView(BaseSeqDataset, EasyDataset_OccAny):
             # encode the image
             width, height = view['img'].size
             view['true_shape'] = np.int32((height, width))
-            if self.distill_img_transform is not None:
-                view['distill_img'] = self.distill_img_transform(view['img'])
+            view['distill_img'] = self.distill_img_transform(view['img'])
             img_pil = pil_jitter(view['img']) if pil_jitter is not None else view['img']
-            if self.base_model in ('da3', 'dinov3'):
+            if self.base_model == 'da3':
                 view['img'] = InputProcessor.NORMALIZE(to_tensor(img_pil))
             elif pil_jitter is not None:
                 view['img'] = ImgNorm(img_pil)

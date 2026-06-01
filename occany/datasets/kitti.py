@@ -51,6 +51,7 @@ def collate_kitti_identity(batch):
     """
     data = {
         'imgs': torch.stack([item['imgs'] for item in batch]),
+        "gdino_imgs": torch.stack([item['gdino_imgs'] for item in batch]),
         'sam3_imgs': torch.stack([item['sam3_imgs'] for item in batch]),
         'begin_frame_id': [item['begin_frame_id'] for item in batch],
         'sequence': [item['sequence'] for item in batch],
@@ -102,6 +103,8 @@ class KittiDataset(Dataset):
         self.semkitti_root = semkitti_root
         self.kittiodo_root = kittiodo_root
         self.novel_view_rgb_path = novel_view_rgb_path
+        sam2_output_resolution = min(1024, max(output_resolution))
+        self.SAM2_transforms = get_SAM2_transforms(resolution=sam2_output_resolution)
         self.sam3_output_resolution = sam3_resolution
         self.SAM3_transforms = get_SAM3_transforms(resolution=self.sam3_output_resolution)
         
@@ -459,7 +462,8 @@ class KittiDataset(Dataset):
         box_dicts = []
         gt_depths = []
         imgs = []
-
+        gdino_imgs = []
+        sam2_imgs = []
         sam3_imgs = []
         in_cam0 = np.linalg.inv(cam_poses[0])
         cam_poses_in_cam0 = [in_cam0 @ cam_pose for cam_pose in cam_poses]
@@ -486,11 +490,13 @@ class KittiDataset(Dataset):
                 intrinsics2,
             )
            
-            if self.base_model in ('da3', 'dinov3'):
+            if self.base_model == 'da3':
                 imgs.append(InputProcessor.NORMALIZE(to_tensor(downscaled_img)))
             else:
                 imgs.append(ImgNorm(np.array(downscaled_img)))
-
+            gdino_img, _ = GroundingDinoImgNorm(downscaled_img, None)
+            gdino_imgs.append(gdino_img)
+            sam2_imgs.append(self.SAM2_transforms(np.array(downscaled_img)))
             sam3_imgs.append(self.SAM3_transforms(downscaled_img))
             gt_depths.append(gt_depth)
             cam_k_resized.append(intrinsics2)
@@ -550,8 +556,11 @@ class KittiDataset(Dataset):
                     novel_view_rgbs = None
                 
               
+
         data = {
             "imgs": torch.stack(imgs),
+            "gdino_imgs": torch.stack(gdino_imgs),  
+            "sam2_imgs": torch.stack(sam2_imgs),
             "sam3_imgs": torch.stack(sam3_imgs),
             "begin_frame_id": begin_frame_id,
             "pose": video["pose"],

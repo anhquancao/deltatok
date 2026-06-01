@@ -18,26 +18,6 @@ from occany.utils.helpers import depth2rgb
 from torch_scatter import scatter_min
 
 
-# Empirical (T, K) memory table for SAM3 distillation on a 40 GiB GPU at 518x294
-# (see slurm/karolina_train_occany_plus_recon_1B_infinite_depth_sam3_distill.slurm).
-# The cap is T=28 -> K=0; spending one fewer memory view buys two more distill
-# frames, i.e. K = max(0, min(T, 2 * (DISTILL_K_T_CAP - T))).
-DISTILL_K_T_CAP = 28
-
-
-def resolve_distill_max_frames(distill_max_frames, distill_k_schedule, T):
-    """Pick the effective K (SAM3 distill frame count) for a batch with T memory views.
-
-    'constant'        -> return distill_max_frames unchanged.
-    'memory_budget'   -> K = max(0, min(T, 2 * (DISTILL_K_T_CAP - T))).
-    """
-    if distill_k_schedule is None or distill_k_schedule == 'constant':
-        return distill_max_frames
-    if distill_k_schedule == 'memory_budget':
-        return max(0, min(int(T), 2 * (DISTILL_K_T_CAP - int(T))))
-    raise ValueError(f"Unknown distill_k_schedule: {distill_k_schedule!r}")
-
-
 def _ensure_outputs_on_device(output, expected_device):
     expected_device = torch.device(expected_device)
 
@@ -604,17 +584,15 @@ def inference_occany_da3(img_views, model,
                      sam_model="SAM2",
                      pose_from_depth_ray=False,
                      point_from_depth_and_pose=False,
-                     sam_frame_idx=None,
                      **kwargs):
     with torch.autocast("cuda", dtype=dtype):
-
+       
         imgs, true_shape_img, mem_batches, img_timesteps = prepare_imgs_or_raymaps_and_true_shape_mem_batches(img_views, device, is_raymap=False)
 
         output = model(
             imgs,
             pose_from_depth_ray=pose_from_depth_ray,
             point_from_depth_and_pose=point_from_depth_and_pose,
-            sam_frame_idx=sam_frame_idx,
             **kwargs,
         )
 
@@ -855,9 +833,7 @@ def loss_of_one_batch_occany_da3(views, model,
                              lambda_pointmap_lidar=1.0,
                              lambda_pointmap_pseudo=1.0,
                              lambda_depth_lidar=1.0,
-                             lambda_depth_pseudo=1.0,
-                             distill_max_frames=-1,
-                             distill_k_schedule='constant'):
+                             lambda_depth_pseudo=1.0):
     """
     Compute loss for one batch with DA3 model.
     
@@ -898,37 +874,17 @@ def loss_of_one_batch_occany_da3(views, model,
 
     B = img_views[0]['img'].shape[0]
     n_gen_views, nimgs = len(gen_views), len(img_views)
-
-    # Pick a random subset of frames for SAM3 distillation when the sequence is
-    # longer than the effective K. Subsampling the SAM3 student head and the
-    # teacher pass to K frames keeps peak memory bounded as T grows. Under
-    # distill_k_schedule='memory_budget', K is derived per-batch from T (= nimgs)
-    # via the empirical (T, K) table so peak memory stays under the 40 GiB cap.
-    effective_distill_max_frames = resolve_distill_max_frames(
-        distill_max_frames, distill_k_schedule, nimgs
-    )
-    sam_frame_idx = None
-    if (
-        distill_criterion is not None
-        and distill_model is not None
-        and effective_distill_max_frames is not None
-        and effective_distill_max_frames >= 0
-        and nimgs > effective_distill_max_frames
-    ):
-        sam_frame_idx = torch.randperm(nimgs, device=device)[:effective_distill_max_frames]
-        sam_frame_idx, _ = torch.sort(sam_frame_idx)
-
+    
     # use_ray_pose determines whether to compute pointmap (for testing) or keep raw output (for training)
     # For training, we need raw depth/raymap for loss computation
     # For testing, we compute pointmap for evaluation metrics
-
+    
     output = inference_occany_da3(
                     img_views, model,
                      device,
                      dtype=dtype,
                      sam_model=sam_model,
-                     pose_from_depth_ray=pose_from_depth_ray,
-                     sam_frame_idx=sam_frame_idx)
+                     pose_from_depth_ray=pose_from_depth_ray)
     
     with torch.autocast("cuda", dtype=torch.float32):
         depth = output.get('depth')
@@ -1167,39 +1123,30 @@ def loss_of_one_batch_occany_da3(views, model,
         if distill_criterion is not None and distill_model is not None:
             # Use pre-computed sam_feats from output (computed inside model forward for DDP compatibility)
             sam_feats = output.get('sam_feats')
-
+            
             if sam_feats is not None:
                 # Get teacher features from SAM3
                 # SAM3 expects images normalized differently (not ImageNet normalized)
                 # First undo ImageNet normalization, then apply SAM3 preprocessing
                 distill_imgs = torch.stack([b['distill_img'] for b in img_views], dim=1).to(device)
-                # When the student forward was subsampled, match the teacher pass
-                # and the depth_conf used for confidence-weighted loss to the same
-                # frame indices so the loss aligns.
-                if sam_frame_idx is not None:
-                    distill_imgs = distill_imgs[:, sam_frame_idx]
                 B_distill, T_distill = distill_imgs.shape[:2]
-
+                
                 with torch.no_grad():
-                    with torch.autocast("cuda", dtype=dtype):
-                        # distill_model.forward_distill returns (feat_s0, feat_s1, feat_s2, pre_neck_feat)
-                        distill_feats = distill_model.forward_distill(
-                            distill_imgs.reshape(B_distill * T_distill, 3, *distill_imgs.shape[-2:])
-                        )
+                    # distill_model.forward_distill returns (feat_s0, feat_s1, feat_s2, pre_neck_feat)
+                    distill_feats = distill_model.forward_distill(
+                        distill_imgs.reshape(B_distill * T_distill, 3, *distill_imgs.shape[-2:])
+                    )
                 # Reshape back to (B, T, ...)
                 distill_feats = [f.view(B_distill, T_distill, *f.shape[1:]).detach() for f in distill_feats]
 
                 # Compute distillation loss
                 if distill_criterion.use_conf:
-                    distill_conf = depth_conf.detach()
-                    if sam_frame_idx is not None:
-                        distill_conf = distill_conf[:, sam_frame_idx]
                     loss_distill, distill_details = distill_criterion(
-                        sam_feats, distill_feats, distill_conf
+                        sam_feats, distill_feats, depth_conf.detach()
                     )
                 else:
                     loss_distill, distill_details = distill_criterion(sam_feats, distill_feats)
-
+                
                 total_loss = total_loss + loss_distill
                 details.update({f"distill_{k}": v for k, v in distill_details.items()})
 
@@ -1323,8 +1270,6 @@ def loss_of_one_batch_occany_da3_gen(
     pose_from_depth_ray=False,
     projection_features='pts3d_local,pts3d,rgb,conf',
     lambda_feat_matching=1.0,
-    distill_max_frames=-1,
-    distill_k_schedule='constant',
 ):
     """
     Compute loss for one batch with DA3 model including gen views.
@@ -1509,52 +1454,30 @@ def loss_of_one_batch_occany_da3_gen(
                 total_loss = total_loss + lambda_raymap * gen_raymap_loss
                 details.update({f"{k}_gen": v for k, v in gen_raymap_loss_details.items()})
         
-            # SAM3 distillation loss for gen views (skipped entirely when K=0).
-            # Under distill_k_schedule='memory_budget' K is recomputed per-batch
-            # from the gen-view sequence length T_total_gen using the same
-            # empirical (T, K) memory table.
-            sam_feats_pre = gen_output.get('sam_feats') if gen_output is not None else None
-            T_total_gen_for_k = sam_feats_pre[0].shape[1] if sam_feats_pre is not None else len(gen_views)
-            effective_distill_max_frames = resolve_distill_max_frames(
-                distill_max_frames, distill_k_schedule, T_total_gen_for_k
-            )
-            if (distill_criterion is not None and distill_model is not None
-                    and not (effective_distill_max_frames is not None and effective_distill_max_frames == 0)):
+            # SAM3 distillation loss for gen views
+            if distill_criterion is not None and distill_model is not None:
                 sam_feats = gen_output.get('sam_feats')
-
+                
                 if sam_feats is not None:
                     # Get teacher features from SAM3 for gen views
                     distill_imgs = torch.stack([b['distill_img'] for b in gen_views], dim=1).to(device)
-                    # Subsample to effective K if the sequence is longer; we cannot
-                    # easily plumb sam_frame_idx through forward_gen (which sub-batches gen
-                    # views), so we subsample post-hoc on the student side too.
-                    gen_sam_frame_idx = None
-                    T_total_gen = distill_imgs.shape[1]
-                    if effective_distill_max_frames is not None and 0 <= effective_distill_max_frames < T_total_gen:
-                        gen_sam_frame_idx = torch.randperm(T_total_gen, device=device)[:effective_distill_max_frames]
-                        gen_sam_frame_idx, _ = torch.sort(gen_sam_frame_idx)
-                        distill_imgs = distill_imgs[:, gen_sam_frame_idx]
-                        sam_feats = tuple(f[:, gen_sam_frame_idx] for f in sam_feats)
                     B_distill, T_distill = distill_imgs.shape[:2]
-
+                    
                     with torch.no_grad():
                         with torch.autocast("cuda", dtype=dtype):
                             distill_feats = distill_model.forward_distill(
                                 distill_imgs.reshape(B_distill * T_distill, 3, *distill_imgs.shape[-2:])
                             )
                     distill_feats = [f.view(B_distill, T_distill, *f.shape[1:]).detach() for f in distill_feats]
-
+                    
                     # Compute distillation loss
                     if distill_criterion.use_conf:
-                        gen_distill_conf = gen_depth_conf.detach()
-                        if gen_sam_frame_idx is not None:
-                            gen_distill_conf = gen_distill_conf[:, gen_sam_frame_idx]
                         loss_distill, distill_details = distill_criterion(
-                            sam_feats, distill_feats, gen_distill_conf
+                            sam_feats, distill_feats, gen_depth_conf.detach()
                         )
                     else:
                         loss_distill, distill_details = distill_criterion(sam_feats, distill_feats)
-
+                    
                     total_loss = total_loss + loss_distill
                     details.update({f"distill_{k}_gen": v for k, v in distill_details.items()})
 

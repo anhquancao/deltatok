@@ -2,7 +2,6 @@ import os
 
 import numpy as np
 import torch
-import torch.nn.functional as F
 from PIL import Image, ImageDraw, ImageFont
 
 from occany.utils.helpers import depth2rgb
@@ -41,24 +40,6 @@ def _add_column_titles(img_np, num_cols, titles):
     return titled
 
 
-def _resize_panel_long_side(panel: torch.Tensor, long_side: int) -> torch.Tensor:
-    """Resize each (H, W, 3) tile in a (V, H, W, 3) panel so the longer of (H, W)
-    equals ``long_side``, preserving aspect ratio. Bilinear, no align_corners.
-    """
-    if long_side is None or long_side <= 0:
-        return panel
-    V, H, W = panel.shape[:3]
-    longest = max(H, W)
-    if longest == long_side:
-        return panel
-    scale = long_side / longest
-    new_H, new_W = max(1, int(round(H * scale))), max(1, int(round(W * scale)))
-    # interpolate over all V tiles at once: (V, 3, H, W)
-    t = panel.permute(0, 3, 1, 2).float()
-    t = F.interpolate(t, size=(new_H, new_W), mode="bilinear", align_corners=False)
-    return t.permute(0, 2, 3, 1)
-
-
 def _log_viz_sample(
     batch,
     decoded,
@@ -74,7 +55,6 @@ def _log_viz_sample(
     context_mask=None,
     col_titles=None,
     pred_blank_views=None,
-    resize_long_side=None,
 ):
     """Log a side-by-side validation sample for OccRAE reconstructions."""
     gt_img = batch["imgs"][batch_idx].detach().cpu().permute(0, 2, 3, 1)
@@ -121,8 +101,6 @@ def _log_viz_sample(
                 pred_depth_color[t] = 30.0
 
     all_panels = [gt_img, pred_depth_color] + (extra_panels or [])
-    if resize_long_side:
-        all_panels = [_resize_panel_long_side(p, resize_long_side) for p in all_panels]
     cols = [torch.cat([panel[t] for t in range(num_views)], dim=0) for panel in all_panels]
     combined_np = torch.cat(cols, dim=1).numpy()
 

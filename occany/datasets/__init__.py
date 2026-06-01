@@ -56,5 +56,4 @@ def get_data_loader(dataset, batch_size, num_workers=8, shuffle=True, drop_last=
         num_workers=num_workers,
         pin_memory=pin_mem,
         drop_last=drop_last,
-        persistent_workers=num_workers > 0,
     )

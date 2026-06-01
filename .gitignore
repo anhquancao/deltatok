@@ -13,7 +13,6 @@ avg_error
 *.gif
 .vscode
 .gradio
-.claude/settings.local.json
 pyrightconfig.json
 results
 checkpoints

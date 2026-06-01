@@ -132,7 +132,6 @@ def main() -> None:
             cfg.exp_name = args.run_name
             cfg.training.vit_folder = str((run_root / "ckpts").resolve()) + "/"
             cfg.training.writer_log = str((run_root / "tb_logs").resolve()) + "/"
-            cfg.training.eval_viz_dir = str((run_root / "results" / "eval_viz").resolve())
 
             if args.eval_only:
                 # Print metrics, dump panels to disk, no TensorBoard.

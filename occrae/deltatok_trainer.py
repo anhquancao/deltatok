@@ -17,7 +17,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 import torch.distributed as dist
-import croco.utils.misc as misc  # MetricLogger for line-by-line, SLURM-friendly logs (matches training_da3.py)
+from tqdm import tqdm
 from torch.nn.parallel import DistributedDataParallel as DDP
 from torch.amp import autocast
 
@@ -441,21 +441,9 @@ class DeltaTokTrainer(Trainer):
             print(f"TensorBoard log dir: {self.args.writer_log}")
             self.log_add_txt("Parameters", str(self.cfg), self.cfg.training.iter)
 
-        # Eval criteria — keep at L2 / lambda_c=0 so eval scalars stay comparable
-        # to past TB runs. Do NOT touch these without coordinating an eval rerun.
         self.pointmap_criterion = PointmapLoss(lambda_c=0.0, gt_scale=True, loss_type="L2")
         self.depth_criterion = DepthLosses(lambda_c=0.0, gt_scale=True, alpha=0.0)
         self.raymap_criterion = RaymapLoss(lambda_c=0.0, gt_scale=True, loss_type="L2")
-
-        # Train criteria — mirror sh/train_occany_plus_recon_1B.sh
-        # (--lambda_pointmap 1.0 --lambda_depth 1.0). DepthLosses is L1 internally
-        # regardless of any switch (losses_da3.py:415), so the train depth
-        # criterion is functionally identical to the eval one; the duplicate
-        # exists for symmetry and so the train path doesn't reach across to
-        # "eval criteria".
-        self.train_pointmap_criterion = PointmapLoss(lambda_c=1.0, gt_scale=True, loss_type="L1")
-        self.train_depth_criterion = DepthLosses(lambda_c=0.0, gt_scale=True, alpha=0.0)
-        self.train_raymap_criterion = RaymapLoss(lambda_c=1.0, gt_scale=True, loss_type="L1")
 
     def _build_optimizer(self):
         """AdamW with DeltaTok-style param groups: weight decay applies only to
@@ -583,7 +571,7 @@ class DeltaTokTrainer(Trainer):
 
         model = model.to(self.device)
         if self.distributed:
-            model = DDP(model, device_ids=[self.device], gradient_as_bucket_view=True)
+            model = DDP(model, device_ids=[self.device])
 
         if self.is_master:
             print(
@@ -764,31 +752,13 @@ class DeltaTokTrainer(Trainer):
         epoch = int(self.cfg.training.global_epoch)
         self._set_train_loader_epoch(epoch)
 
-        # Line-by-line logger (matches training_da3.py) — prints one full
-        # message every `print_freq` iters with `flush=True`, plus
-        # `max mem: ...` from torch.cuda.max_memory_allocated().
-        print_freq = int(self.cfg.training.get("print_freq", 20))
-        if self.is_master:
-            metric_logger = misc.MetricLogger(delimiter="  ")
-            iterable = metric_logger.log_every(
-                self.train_loader, print_freq, header=f"Epoch: [{epoch}]"
-            )
-        else:
-            metric_logger = None
-            iterable = self.train_loader
+        pbar = tqdm(
+            self.train_loader,
+            desc=f"Training (Epoch {epoch})",
+            disable=not self.is_master,
+        )
 
-        # Geometric supervision (pointmap/depth/raymap) is opt-in via
-        # training.loss_weights. When absent we run the original token-only
-        # training path; with it set we add weighted geom losses computed
-        # through OccRAE.decode_grad. See configs/train_deltatok_geom.yaml.
-        w = self.cfg.training.get("loss_weights", None)
-        use_geom = w is not None
-        # Gradient-checkpoint the DA3 decoder inside decode_grad. Default ON
-        # because the un-checkpointed path OOMs on A100-40GB at the current
-        # token shapes (~15 decoder layers of DA3-Giant with bf16 activations).
-        use_decode_grad_checkpoint = self.cfg.training.get("use_decode_grad_checkpoint", True)
-
-        for batch in iterable:
+        for batch in pbar:
             if self.cfg.training.iter >= self.cfg.training.max_iter:
                 break
 
@@ -800,124 +770,28 @@ class DeltaTokTrainer(Trainer):
 
             imgs = batch["imgs"].to(self.device, non_blocking=True)
             num_cameras = batch.get("num_cameras", 1)
-            tokens, _feats, x_prev, x, H, W = self._extract_pair_feats(
-                imgs, num_cameras=num_cameras
-            )
-
-            # Pair-index tracking. After pairs_per_batch subsampling, each row i
-            # of (x_prev, x) corresponds to batch item pair_batch_idx[i] and
-            # timestep transition pair_t[i]-1 -> pair_t[i]. Needed to gather
-            # GT views matching x.
-            T = imgs.shape[1] // num_cameras
-            num_pairs = x_prev.shape[0]
-            pair_batch_idx = torch.arange(num_pairs, device=imgs.device) // (T - 1)
-            pair_t = torch.arange(num_pairs, device=imgs.device) % (T - 1) + 1
+            _, _, x_prev, x, H, W = self._extract_pair_feats(imgs, num_cameras=num_cameras)
 
             pairs_per_batch = int(self.cfg.training.get("pairs_per_batch", 0))
-            if pairs_per_batch > 0 and num_pairs > pairs_per_batch:
-                keep = torch.randperm(num_pairs, device=imgs.device)[:pairs_per_batch]
-                x_prev = x_prev[keep]
-                x = x[keep]
-                pair_batch_idx = pair_batch_idx[keep]
-                pair_t = pair_t[keep]
+            if pairs_per_batch > 0 and x_prev.shape[0] > pairs_per_batch:
+                idx = torch.randperm(x_prev.shape[0], device=x_prev.device)[:pairs_per_batch]
+                x_prev = x_prev[idx]
+                x = x[idx]
 
-            # 1. DeltaTok forward + token-residual loss.
             with self.autocast:
                 x_hat = self.tokenizer(x_prev, x, H, W, num_cameras=num_cameras)
 
             with torch.autocast(device_type="cuda", enabled=False):
-                L_token = _log_cosh(x_hat.float(), x.detach().float()).mean()
+                loss = _log_cosh(x_hat.float(), x.detach().float()).mean()
 
-            if use_geom:
-                # 2. Gather GT for the predicted views. Views are camera-major
-                # within each timestep (see _normalize_batch): view index =
-                # timestep * num_cameras + camera. GT tensors live on CPU
-                # (straight from the DataLoader), so move to device BEFORE
-                # advanced-indexing with CUDA index tensors.
-                cam_offsets = torch.arange(num_cameras, device=pair_t.device)
-                pair_view_start_x = pair_t * num_cameras
-                pair_views_x = pair_view_start_x[:, None] + cam_offsets[None, :]
-
-                def gather_x(tensor_BV):
-                    return tensor_BV.to(self.device, non_blocking=True)[
-                        pair_batch_idx[:, None], pair_views_x
-                    ]
-
-                gt_d = gather_x(batch["gt_depth"])
-                gt_pm = gather_x(batch["gt_pointmap"])
-                gt_ray = gather_x(batch["gt_raymap"])
-                gt_m = gather_x(batch["gt_mask"])
-                c2w = gather_x(batch["gt_c2w"])
-                intr = gather_x(batch["gt_intrinsics"])
-
-                # 3. Stitch GT CLS onto x_hat and decode through frozen DA3
-                # with grad. Anchor frames excluded — single decode over the
-                # predicted views only (spec D4). _num_prefix_tokens == 1 for
-                # DA3-Giant (CLS only).
-                prefix = self._num_prefix_tokens
-                B_full, V_full, N_tok, C_tok = tokens.shape
-                tokens_btnc = tokens.view(B_full, T, num_cameras, N_tok, C_tok)
-                gt_cls_x = tokens_btnc[
-                    pair_batch_idx[:, None],
-                    pair_t[:, None],
-                    cam_offsets[None, :],
-                    :prefix,
-                ]
-
-                full_tokens_x = torch.cat([gt_cls_x, x_hat.to(tokens.dtype)], dim=2)
-
-                with self.autocast:
-                    decoded = self.occ_rae.decode_grad(
-                        {"tokens": full_tokens_x, "H": H, "W": W},
-                        use_checkpoint=use_decode_grad_checkpoint,
-                    )
-                # decoded: depth (M, N, H, W), depth_conf (M, N, H, W),
-                #          pointmap (M, N, H, W, 3), ray (M, N, H, W, 6),
-                #          ray_conf (M, N, H, W).
-
-                # 4. Apply train criteria + weighted sum. Following the recon
-                # training convention (da3_inference.py:1055), depth_conf is
-                # reused as the pointmap confidence — DA3 does not produce a
-                # separate pointmap_conf head.
-                pointmap_conf = decoded.get("depth_conf")
-                with torch.autocast(device_type="cuda", enabled=False):
-                    L_pm, _ = self.train_pointmap_criterion(
-                        decoded["pointmap"].float(),
-                        gt_pm.float(),
-                        mask=gt_m,
-                        confidence=pointmap_conf.float() if pointmap_conf is not None else None,
-                    )
-                    L_d, _ = self.train_depth_criterion(
-                        decoded["depth"].float().reshape(-1, 1, H, W),
-                        gt_d.float().reshape(-1, 1, H, W),
-                        confidence=None,
-                        mask=gt_m.float().reshape(-1, 1, H, W),
-                    )
-                    L_ray, _ = self.train_raymap_criterion(
-                        decoded["ray"].float(),
-                        decoded.get("ray_conf"),
-                        c2w.float(),
-                        intr.float(),
-                        gt_ray.float(),
-                    )
-
-                    L_total = (
-                        w.token    * L_token
-                        + w.pointmap * L_pm
-                        + w.depth    * L_d
-                        + w.raymap   * L_ray
-                    )
-            else:
-                L_total = L_token
-
-            (L_total / self.cfg.training.grad_cum).backward()
+            (loss / self.cfg.training.grad_cum).backward()
 
             if update_grad:
                 nn.utils.clip_grad_norm_(self.tokenizer.parameters(), self.cfg.training.grad_clip)
                 self.optim.step()
                 self.optim.zero_grad(set_to_none=True)
 
-            loss_val = L_total.detach().item()
+            loss_val = loss.detach().item()
             cum_loss += loss_val
             window_loss.append(loss_val)
 
@@ -934,46 +808,29 @@ class DeltaTokTrainer(Trainer):
                     last_update_time = now
 
                     self.log_add_scalar('Train/LearningRate', self.optim.param_groups[0]['lr'], self.cfg.training.iter)
-                    # Train/LossRecon is the token loss alias kept for TB-run
-                    # continuity with the baseline (token-only) trainer.
-                    self.log_add_scalar('Train/LossRecon', L_token.detach(), self.cfg.training.iter)
-                    if use_geom:
-                        self.log_add_scalar('Train/LossToken',    L_token.detach(), self.cfg.training.iter)
-                        self.log_add_scalar('Train/LossPointmap', L_pm.detach(),    self.cfg.training.iter)
-                        self.log_add_scalar('Train/LossDepth',    L_d.detach(),     self.cfg.training.iter)
-                        self.log_add_scalar('Train/LossRaymap',   L_ray.detach(),   self.cfg.training.iter)
+                    self.log_add_scalar('Train/LossRecon', loss, self.cfg.training.iter)
                     self.log_add_scalar('Train/LossTot', mini_batch_loss, self.cfg.training.iter)
                     self.log_add_scalar('Train/SpeedSamplesPerSec', speed_samples_per_sec, self.cfg.training.iter)
 
-                    if use_geom:
-                        metric_logger.update(
-                            loss=mini_batch_loss.item(),
-                            tok=L_token.detach().item(),
-                            pm=L_pm.detach().item(),
-                            d=L_d.detach().item(),
-                            ray=L_ray.detach().item(),
-                        )
-                    else:
-                        metric_logger.update(loss=mini_batch_loss.item())
+                    pbar.set_postfix(loss=mini_batch_loss.item())
 
                 self.cfg.training.iter += 1
 
         return cum_loss / max(1, num_batches)
 
     @torch.no_grad()
-    def _compute_frame_losses(self, decoded, gt_dev, view_slice, ray_conf, B, height, width):
-        # gt_dev: pre-sliced, on-device GT tensors (see _stage_gt_for_views).
-        mask = gt_dev["mask"]
+    def _compute_frame_losses(self, decoded, batch, view_slice, ray_conf, B, height, width):
+        mask = batch["gt_mask"][:, view_slice].to(self.device)
         num_views = mask.shape[1]
 
         loss_pm, _ = self.pointmap_criterion(
             decoded["pointmap"][:, view_slice].float(),
-            gt_dev["pointmap"],
-            mask=mask,
+            batch["gt_pointmap"][:, view_slice].to(self.device).float(),
+            mask=mask
         )
 
         pred_d = decoded["depth"][:, view_slice].float().reshape(B * num_views, 1, height, width)
-        gt_d = gt_dev["depth"].reshape(B * num_views, 1, height, width)
+        gt_d = batch["gt_depth"][:, view_slice].to(self.device).float().reshape(B * num_views, 1, height, width)
         d_mask = mask.reshape(B * num_views, 1, height, width).float()
         loss_d, _ = self.depth_criterion(pred_d, gt_d, confidence=None, mask=d_mask)
 
@@ -981,9 +838,9 @@ class DeltaTokTrainer(Trainer):
         loss_ray, _ = self.raymap_criterion(
             decoded["ray"][:, view_slice].float(),
             rc,
-            gt_dev["c2w"],
-            gt_dev["intrinsics"],
-            gt_dev["raymap"],
+            batch["gt_c2w"][:, view_slice].to(self.device).float(),
+            batch["gt_intrinsics"][:, view_slice].to(self.device).float(),
+            batch["gt_raymap"][:, view_slice].to(self.device).float()
         )
 
         return loss_pm, loss_d, loss_ray
@@ -1081,18 +938,13 @@ class DeltaTokTrainer(Trainer):
             if ds is not None and hasattr(ds, "set_epoch"):
                 ds.set_epoch(0)
 
-            print_freq = int(self.cfg.training.get("print_freq", 20))
-            if self.is_master:
-                eval_logger = misc.MetricLogger(delimiter="  ")
-                iterable = eval_logger.log_every(
-                    loader, print_freq,
-                    header=f"Eval {test_name} [{self.cfg.training.global_epoch}]",
-                )
-            else:
-                eval_logger = None
-                iterable = loader
+            pbar = tqdm(
+                loader,
+                desc=f"Evaluating {test_name} (Epoch {self.cfg.training.global_epoch})",
+                disable=not self.is_master,
+            )
 
-            for batch in iterable:
+            for batch in pbar:
                 if items_seen >= eval_num_items:
                     break
                 batch = self._normalize_batch(batch)
@@ -1130,75 +982,95 @@ class DeltaTokTrainer(Trainer):
                         decoded = self._decode_tokens(full_tokens, height, width, num_cameras=num_cameras)
                         decoded_ar = self._decode_tokens(full_tokens_ar, height, width, num_cameras=num_cameras)
 
+                    ray_conf = decoded.get("ray_conf")
+                    ray_conf_ar = decoded_ar.get("ray_conf")
+
                     # For surround: timestep 0 (num_cameras views) is context; rest are predicted.
                     context_views = num_cameras if num_cameras > 1 else 1
                     pred_slice = slice(context_views, V)
+                    loss_pm, loss_d, loss_ray = self._compute_frame_losses(
+                        decoded, batch, pred_slice, ray_conf, B, height, width
+                    )
+                    loss_pm_ar, loss_d_ar, loss_ray_ar = self._compute_frame_losses(
+                        decoded_ar, batch, pred_slice, ray_conf_ar, B, height, width
+                    )
+                    batch_losses.update({
+                        "LossPointmap_PredVsGT": loss_pm.item(),
+                        "LossDepth_PredVsGT": loss_d.item(),
+                        "LossRaymap_PredVsGT": loss_ray.item(),
+                        "LossPointmap_PredVsGT_AR": loss_pm_ar.item(),
+                        "LossDepth_PredVsGT_AR": loss_d_ar.item(),
+                        "LossRaymap_PredVsGT_AR": loss_ray_ar.item(),
+                    })
+
+                    need_viz = self.is_master and num_vis < eval_num_visualizations
 
                     with torch.no_grad(), self.autocast:
                         decoded_gt = self._decode_tokens(tokens, height, width, num_cameras=num_cameras)
 
-                    # Stage predicted-view GT on device once; reused by all three
-                    # _compute_frame_losses calls below.
-                    gt_dev = {
-                        "mask":       batch["gt_mask"][:, pred_slice].to(self.device),
-                        "pointmap":   batch["gt_pointmap"][:, pred_slice].to(self.device).float(),
-                        "depth":      batch["gt_depth"][:, pred_slice].to(self.device).float(),
-                        "c2w":        batch["gt_c2w"][:, pred_slice].to(self.device).float(),
-                        "intrinsics": batch["gt_intrinsics"][:, pred_slice].to(self.device).float(),
-                        "raymap":     batch["gt_raymap"][:, pred_slice].to(self.device).float(),
-                    }
-
-                    for tag, dec in [("PredVsGT", decoded), ("PredVsGT_AR", decoded_ar), ("OrigVsGT", decoded_gt)]:
-                        L_pm, L_d, L_ray = self._compute_frame_losses(
-                            dec, gt_dev, pred_slice, dec.get("ray_conf"), B, height, width,
-                        )
-                        batch_losses[f"LossPointmap_{tag}"] = L_pm.item()
-                        batch_losses[f"LossDepth_{tag}"]    = L_d.item()
-                        batch_losses[f"LossRaymap_{tag}"]   = L_ray.item()
-
-                    # Throttle TB viz to every Nth epoch (disk JPEGs still written
-                    # every epoch via eval_viz_dir). Sanity-check pass runs at
-                    # global_epoch=0 which always passes the modulo gate.
-                    viz_every_n = max(1, int(self.cfg.training.get("viz_every_n_epochs", 1)))
-                    viz_epoch_ok = (int(self.cfg.training.global_epoch) % viz_every_n) == 0
-                    need_viz = (
-                        self.is_master
-                        and num_vis < eval_num_visualizations
-                        and viz_epoch_ok
+                    ray_conf_gt = decoded_gt.get("ray_conf")
+                    loss_pm_gt, loss_d_gt, loss_ray_gt = self._compute_frame_losses(
+                        decoded_gt, batch, pred_slice, ray_conf_gt, B, height, width
                     )
+                    batch_losses.update({
+                        "LossPointmap_OrigVsGT": loss_pm_gt.item(),
+                        "LossDepth_OrigVsGT": loss_d_gt.item(),
+                        "LossRaymap_OrigVsGT": loss_ray_gt.item(),
+                    })
+
+                    mask_u = batch["gt_mask"][:, pred_slice].to(self.device)
+                    nv = mask_u.shape[1]
+
+                    def _pred_vs_orig(decoded_pred):
+                        loss_pm_u, _ = self.pointmap_criterion(
+                            decoded_pred["pointmap"][:, pred_slice].float(),
+                            decoded_gt["pointmap"][:, pred_slice].float(),
+                            mask=mask_u,
+                        )
+                        pred_du = decoded_pred["depth"][:, pred_slice].float().reshape(B * nv, 1, height, width)
+                        tgt_du = decoded_gt["depth"][:, pred_slice].float().reshape(B * nv, 1, height, width)
+                        d_mask_u = mask_u.reshape(B * nv, 1, height, width).float()
+                        loss_d_u, _ = self.depth_criterion(pred_du, tgt_du, confidence=None, mask=d_mask_u)
+
+                        pred_ray_u = decoded_pred["ray"][:, pred_slice].float()
+                        tgt_ray_u = decoded_gt["ray"][:, pred_slice].float()
+                        dir_l2 = torch.norm(pred_ray_u[..., :3] - tgt_ray_u[..., :3], dim=-1).mean()
+                        org_l2 = torch.norm(pred_ray_u[..., 3:] - tgt_ray_u[..., 3:], dim=-1).mean()
+                        loss_ray_u = 10.0 * dir_l2 + org_l2
+                        return loss_pm_u, loss_d_u, loss_ray_u
+
+                    loss_pm_u, loss_d_u, loss_ray_u = _pred_vs_orig(decoded)
+                    loss_pm_u_ar, loss_d_u_ar, loss_ray_u_ar = _pred_vs_orig(decoded_ar)
+
+                    batch_losses.update({
+                        "LossPointmap_PredVsOrig": loss_pm_u.item(),
+                        "LossDepth_PredVsOrig": loss_d_u.item(),
+                        "LossRaymap_PredVsOrig": loss_ray_u.item(),
+                        "LossPointmap_PredVsOrig_AR": loss_pm_u_ar.item(),
+                        "LossDepth_PredVsOrig_AR": loss_d_u_ar.item(),
+                        "LossRaymap_PredVsOrig_AR": loss_ray_u_ar.item(),
+                    })
 
                     if need_viz:
+                        # Optional RGB decode via the pretrained MAE-style image decoder.
+                        # decode_to_image returns (B, V, 3, H, W) in [0, 1]; we permute to
+                        # HWC and scale to 0-255 to match the depth panels in _log_viz_sample.
                         have_img_dec = getattr(self.occ_rae, "img_decoder", None) is not None
                         if have_img_dec:
                             vcs = getattr(self, "_img_decoder_view_chunk", 0)
                             with torch.no_grad(), self.autocast:
-                                rgb_tf_full, rgb_ar_full, rgb_gt_full = [
-                                    self.occ_rae.decode_to_image(
-                                        {"tokens": t, "H": height, "W": width},
-                                        view_chunk_size=vcs,
-                                    )
-                                    for t in (full_tokens, full_tokens_ar, tokens)
-                                ]
-                            # Pull RGB tensors to CPU once; per-sample reindexing is free.
-                            rgb_tf_cpu = rgb_tf_full.detach().float().cpu()
-                            rgb_ar_cpu = rgb_ar_full.detach().float().cpu()
-                            rgb_gt_cpu = rgb_gt_full.detach().float().cpu()
-
-                        # One CUDA sync per tensor for the whole batch; view-order
-                        # reindexing for each sample happens on CPU below.
-                        ar_depth_cpu = decoded_ar["depth"].detach().float().cpu()
-                        gt_token_depth_cpu = decoded_gt["depth"].detach().float().cpu()
-
-                        def _depth_panel(depth_v, mask_np):
-                            return torch.stack([
-                                torch.from_numpy(depth2rgb(
-                                    depth_v[t].clamp(0, 50).numpy(),
-                                    valid_mask=mask_np[t],
-                                    min_depth=0.0,
-                                    max_depth=50.0,
-                                ).astype(np.float32))
-                                for t in range(V)
-                            ])
+                                rgb_tf_full = self.occ_rae.decode_to_image(
+                                    {"tokens": full_tokens, "H": height, "W": width},
+                                    view_chunk_size=vcs,
+                                )
+                                rgb_ar_full = self.occ_rae.decode_to_image(
+                                    {"tokens": full_tokens_ar, "H": height, "W": width},
+                                    view_chunk_size=vcs,
+                                )
+                                rgb_gt_full = self.occ_rae.decode_to_image(
+                                    {"tokens": tokens, "H": height, "W": width},
+                                    view_chunk_size=vcs,
+                                )
 
                         for batch_idx in range(B):
                             if num_vis >= eval_num_visualizations:
@@ -1211,12 +1083,43 @@ class DeltaTokTrainer(Trainer):
                             # Context views (timestep 0) carry GT tokens — blank their pred cells.
                             pred_blank_views = [v < context_views for v in view_order]
                             view_index = torch.as_tensor(view_order, dtype=torch.long)
-
-                            gt_token_depth = gt_token_depth_cpu[batch_idx][view_index]
-                            ar_pred_depth = ar_depth_cpu[batch_idx][view_index]
-
-                            gt_token_depth_color = _depth_panel(gt_token_depth, gt_token_depth.numpy() > 0)
-                            ar_pred_depth_color = _depth_panel(ar_pred_depth, ar_pred_depth.numpy() > 0)
+                            gt_depth = batch["gt_depth"][batch_idx].detach().cpu()[view_index]
+                            gt_mask = batch["gt_mask"][batch_idx].detach().cpu()[view_index]
+                            gt_depth_color = torch.stack([
+                                torch.from_numpy(
+                                    depth2rgb(
+                                        gt_depth[t].clamp(0, 50).numpy(),
+                                        valid_mask=gt_mask[t].numpy().astype(bool),
+                                        min_depth=0.0,
+                                        max_depth=50.0,
+                                    ).astype(np.float32)
+                                )
+                                for t in range(V)
+                            ])
+                            gt_token_depth = decoded_gt["depth"][batch_idx].detach().float().cpu()[view_index]
+                            gt_token_depth_color = torch.stack([
+                                torch.from_numpy(
+                                    depth2rgb(
+                                        gt_token_depth[t].clamp(0, 50).numpy(),
+                                        valid_mask=gt_token_depth[t].numpy() > 0,
+                                        min_depth=0.0,
+                                        max_depth=50.0,
+                                    ).astype(np.float32)
+                                )
+                                for t in range(V)
+                            ])
+                            ar_pred_depth = decoded_ar["depth"][batch_idx].detach().float().cpu()[view_index]
+                            ar_pred_depth_color = torch.stack([
+                                torch.from_numpy(
+                                    depth2rgb(
+                                        ar_pred_depth[t].clamp(0, 50).numpy(),
+                                        valid_mask=ar_pred_depth[t].numpy() > 0,
+                                        min_depth=0.0,
+                                        max_depth=50.0,
+                                    ).astype(np.float32)
+                                )
+                                for t in range(V)
+                            ])
                             for t, blank in enumerate(pred_blank_views):
                                 if blank:
                                     ar_pred_depth_color[t] = 30.0
@@ -1224,25 +1127,40 @@ class DeltaTokTrainer(Trainer):
                             extra_panels = [
                                 ar_pred_depth_color,
                                 gt_token_depth_color,
+                                gt_depth_color,
                             ]
                             col_titles = [
                                 "RGB",
                                 "Pred Depth (TF)",
                                 "Pred Depth (AR)",
                                 "GT Token Depth",
+                                "GT Depth",
                             ]
                             if have_img_dec:
-                                def _rgb_panel(t_cpu):
-                                    return t_cpu[batch_idx][view_index].permute(0, 2, 3, 1).contiguous() * 255.0
-                                rgb_tf_b = _rgb_panel(rgb_tf_cpu)
-                                rgb_ar_b = _rgb_panel(rgb_ar_cpu)
-                                rgb_gt_b = _rgb_panel(rgb_gt_cpu)
+                                # (V, 3, H, W) -> (V, H, W, 3) in [0, 255] float32.
+                                rgb_tf_b = (
+                                    rgb_tf_full[batch_idx].detach().float().cpu()[view_index]
+                                    .permute(0, 2, 3, 1).contiguous() * 255.0
+                                )
+                                rgb_ar_b = (
+                                    rgb_ar_full[batch_idx].detach().float().cpu()[view_index]
+                                    .permute(0, 2, 3, 1).contiguous() * 255.0
+                                )
+                                rgb_gt_b = (
+                                    rgb_gt_full[batch_idx].detach().float().cpu()[view_index]
+                                    .permute(0, 2, 3, 1).contiguous() * 255.0
+                                )
+                                # Blank context-view AR cells, matching ar_pred_depth_color.
                                 for t, blank in enumerate(pred_blank_views):
                                     if blank:
                                         rgb_ar_b[t] = 255.0
-                                # Order matches _log_viz_sample's fixed base layout
-                                # (gt_img, pred_depth_TF) — depth panels come first.
-                                extra_panels = extra_panels + [rgb_tf_b, rgb_ar_b, rgb_gt_b]
+                                # Append RGB panels after depth so col_titles align with the
+                                # fixed base layout in _log_viz_sample (gt_img, pred_depth_TF).
+                                extra_panels = extra_panels + [
+                                    rgb_tf_b,
+                                    rgb_ar_b,
+                                    rgb_gt_b,
+                                ]
                                 col_titles = col_titles + [
                                     "Pred RGB (TF)",
                                     "Pred RGB (AR)",
@@ -1263,7 +1181,6 @@ class DeltaTokTrainer(Trainer):
                                 max_depth=50.0,
                                 pred_blank_views=pred_blank_views,
                                 col_titles=col_titles,
-                                resize_long_side=300,
                             )
                             if saved_path is not None:
                                 print(f"Saved viz: {saved_path}")
@@ -1272,7 +1189,7 @@ class DeltaTokTrainer(Trainer):
                 metric.update(batch_size=B, **batch_losses)
                 items_seen += B
                 if self.is_master:
-                    eval_logger.update(loss=loss_recon.item())
+                    pbar.set_postfix(loss=loss_recon.item())
 
             if metric.count == 0:
                 continue
@@ -1334,20 +1251,6 @@ class DeltaTokTrainer(Trainer):
         train_dataset_str = str(self.cfg.dataset.train_dataset)
         test_dataset_str = self.cfg.dataset.get("test_dataset", None)
         per_dataset_sampling = bool(self.cfg.dataset.get("per_dataset_sampling", False))
-
-        # no_partial_views=True returns variable view counts per sample (rounded
-        # down to a multiple of actual_vpt — see base_seq_dataset.py _get_views).
-        # That breaks torch.stack at collate when bsize > 1, so enforce per-GPU
-        # bsize == 1 whenever any sub-dataset opts into it.
-        uses_no_partial = "no_partial_views=True" in train_dataset_str or (
-            test_dataset_str is not None and "no_partial_views=True" in str(test_dataset_str)
-        )
-        if uses_no_partial and int(self.cfg.training.bsize) != 1:
-            raise ValueError(
-                f"no_partial_views=True yields variable view counts per sample; "
-                f"per-GPU training.bsize must be 1 (got {self.cfg.training.bsize}). "
-                f"Lower bsize or remove no_partial_views=True from the dataset string."
-            )
 
         if self.is_master:
             print(f"Building train dataset: {train_dataset_str}")

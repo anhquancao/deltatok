@@ -4,11 +4,11 @@
 #SBATCH --ntasks-per-node=1
 #SBATCH --gres=gpu:1
 #SBATCH --cpus-per-task=16
-#SBATCH --time=01:00:00
-#SBATCH --array=0-3
+#SBATCH --time=06:00:00
+#SBATCH --array=0-19
 #SBATCH --hint=nomultithread
 #SBATCH -A eu-25-92
-#SBATCH --partition=qgpu_exp
+#SBATCH --partition=qgpu
 #SBATCH --output=slurm/output/extract_recon_%A_%a.out
 #SBATCH --error=slurm/output/extract_recon_%A_%a.err
 
@@ -20,9 +20,7 @@ conda activate occany
 export PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
 
 export EXP_LIST="${EXP_LIST:-recon}"
-# Synced e55 pseudo-depth-only checkpoint. One submission per setting (this is a
-# 4-job array over WORLD shards): EXP_ID=8 (KITTI, default), EXP_ID=9 (nuScenes).
-export EXP_ID="${EXP_ID:-8}"
-export WORLD="${WORLD:-4}"
+export EXP_ID="${EXP_ID:-0}"
+export WORLD="${WORLD:-20}"
 
 bash sh/extract_recon.sh

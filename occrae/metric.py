@@ -14,11 +14,13 @@ _EVAL_LOSS_KEYS = (
 	"LossRecon",
 	"LossPointmap_PredVsGT", "LossDepth_PredVsGT", "LossRaymap_PredVsGT",
 	"LossPointmap_OrigVsGT", "LossDepth_OrigVsGT", "LossRaymap_OrigVsGT",
+	"LossPointmap_PredVsOrig", "LossDepth_PredVsOrig", "LossRaymap_PredVsOrig",
 	# Autoregressive rollout: encoder still uses GT pairs (z_t = encode(GT_{t-1}, GT_t))
 	# but the decoder feeds back its own previous prediction. For surround mode the
 	# N cameras at each timestep are concatenated into one joint sequence.
 	"LossRecon_AR",
 	"LossPointmap_PredVsGT_AR", "LossDepth_PredVsGT_AR", "LossRaymap_PredVsGT_AR",
+	"LossPointmap_PredVsOrig_AR", "LossDepth_PredVsOrig_AR", "LossRaymap_PredVsOrig_AR",
 )
 
 

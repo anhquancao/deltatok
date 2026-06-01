@@ -13,7 +13,6 @@ import torch.nn as nn
 from typing import Dict, Optional, Tuple
 
 from occany.utils.io_da3 import load_da3_model_from_checkpoint
-from occany.model.checkpoint_utils import checkpointed_blocks
 
 
 IMAGENET_MEAN = torch.tensor([0.485, 0.456, 0.406])
@@ -162,57 +161,6 @@ class OccRAE(nn.Module):
             pose_from_cam_dec=pose_from_cam_dec,
             point_from_depth_and_pose=point_from_depth_and_pose,
         )
-
-    def decode_grad(
-        self,
-        latents: Dict[str, object],
-        pose_from_depth_ray: bool = False,
-        pose_from_cam_dec: bool = False,
-        point_from_depth_and_pose: bool = False,
-        use_checkpoint: bool = True,
-    ) -> Dict[str, torch.Tensor]:
-        """Same as :meth:`decode` but without ``@torch.no_grad`` so gradients
-        can flow back to ``latents['tokens']``. OccRAE weights stay frozen via
-        ``requires_grad_(False)``; this method only opens the autograd graph
-        into the inputs. Used by the DeltaTok train-time geometric loss; all
-        existing callers (inference, extraction, eval) keep using
-        :meth:`decode`.
-
-        Parameters
-        ----------
-        use_checkpoint : bool
-            When True (default), gradient-checkpoint every DA3 decoder block
-            walked by this call *and* the DPT depth_head. DA3 weights are
-            frozen so activations are pure recompute candidates —
-            checkpointing trades ~30% step time for ~5-7x lower peak memory.
-            Disable for benchmarking or when memory headroom is already
-            plentiful.
-        """
-        x = latents["tokens"]
-        h = latents["H"]
-        w = latents["W"]
-        start_layer = self.encode_layer + 1
-
-        if use_checkpoint:
-            backbone = self.model._get_pretrained_backbone()
-            ckpt_blocks = backbone.blocks[start_layer:]
-            ckpt_ctx = checkpointed_blocks(ckpt_blocks)
-        else:
-            from contextlib import nullcontext
-            ckpt_ctx = nullcontext()
-
-        with ckpt_ctx:
-            return self.model.inference_batch_from_layer(
-                x=x,
-                start_layer=start_layer,
-                h=h,
-                w=w,
-                local_x=None,  # layer 18 is local → x == local_x
-                pose_from_depth_ray=pose_from_depth_ray,
-                pose_from_cam_dec=pose_from_cam_dec,
-                point_from_depth_and_pose=point_from_depth_and_pose,
-                head_checkpoint=use_checkpoint,
-            )
 
     # ------------------------------------------------------------------
     # Decode to multi-level features (for image decoder training)

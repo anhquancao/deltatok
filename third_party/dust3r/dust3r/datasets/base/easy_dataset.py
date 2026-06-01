@@ -202,11 +202,7 @@ class CatDataset_MUSt3R(CatDataset, EasyDataset_MUSt3R):
 
     @property
     def min_memory_num_views(self):
-        # Max-of-mins so the shared sampler never picks below what any sub-dataset
-        # requires. With vpt=6 + no_partial_views=True, _get_views silently bumps
-        # memory_num_views up via max(memory_num_views, actual_vpt*min_num_timesteps),
-        # returning more views than peers in the batch and breaking collate.
-        return max(d.min_memory_num_views for d in self.datasets)
+        return self.datasets[0].min_memory_num_views
 
     @property
     def max_memory_num_views(self):

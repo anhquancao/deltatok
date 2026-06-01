@@ -10,7 +10,6 @@ occany_prepend_pythonpath() {
         "$repo_root/third_party/Grounded-SAM-2/grounding_dino"
         "$repo_root/third_party/sam3"
         "$repo_root/third_party/Depth-Anything-3/src"
-        "$repo_root/third_party/dinov3"
     )
     local prefix=""
     local vendored_path

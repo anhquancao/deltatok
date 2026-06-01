@@ -33,54 +33,47 @@ RAY_MAP_PROB=-1
 $CMD \
     --train_dataset="5000 @ WaymoSeqMultiView(ROOT='$SCRATCH/data/waymo_processed', \
         seq_pkl_name='seq_surround_temporal_sub5_stride9_all.pkl', \
-        min_memory_num_views=2, frame_interval=1, max_memory_num_views=30, \
-        num_views_per_timestep=5, ray_map_prob=-1, \
-        min_num_timesteps=1, no_partial_views=False, \
-        aug_crop=128, z_far=50, split='train', \
+        min_memory_num_views=5, frame_interval=1, max_memory_num_views=30, \
+        num_views_per_timestep=5, min_views_per_timestep=1, min_num_timesteps=2, ray_map_prob=-1, \
+        z_far=50, split='train', no_partial_views=True, \
         resolution=[(518, 294), (518, 280), (518, 266), (518, 210), (518, 168)], \
-        transform=SeqColorJitter, aug_focal=0.9, reverse_seq=True, distill_model_name='SAM3', base_model='da3', load_infinidepth_pseudo=True) + \
+        reverse_seq=True, distill_model_name='SAM3', base_model='da3', load_infinidepth_pseudo=True) + \
         2000 @ VKittiSeqMultiView(VKITTI_PROCESSED_ROOT='$SCRATCH/data/vkitti_processed', \
         seq_pkl_name='seq_exact_len_sub5_stride9.pkl', \
-        min_memory_num_views=2, frame_interval=1, max_memory_num_views=10, ray_map_prob=-1, \
-        min_num_timesteps=1, no_partial_views=False, \
-        aug_crop=128, z_far=50, split='train', \
+        min_memory_num_views=2, frame_interval=1, max_memory_num_views=10, min_num_timesteps=2, ray_map_prob=-1, \
+        z_far=50, split='train', no_partial_views=True, \
         resolution=[(518, 294), (518, 280), (518, 266), (518, 210), (518, 168)], \
-        transform=SeqColorJitter, aug_focal=0.9, reverse_seq=True, distill_model_name='SAM3', base_model='da3', load_infinidepth_pseudo=True) + \
+        reverse_seq=True, distill_model_name='SAM3', base_model='da3', load_infinidepth_pseudo=True) + \
         5000 @ DDADSeqMultiView(DDAD_PREPROCESSED_ROOT='$SCRATCH/data/ddad_processed', \
         seq_pkl_name='seq_surround_temporal_sub5_stride9_all.pkl', \
-        min_memory_num_views=2, frame_interval=1, max_memory_num_views=30, \
-        num_views_per_timestep=6, ray_map_prob=-1, \
-        min_num_timesteps=1, no_partial_views=False, \
-        aug_crop=128, z_far=50, split='train', \
+        min_memory_num_views=6, frame_interval=1, max_memory_num_views=30, \
+        num_views_per_timestep=6, min_views_per_timestep=1, min_num_timesteps=2, ray_map_prob=-1, \
+        z_far=50, split='train', no_partial_views=True, \
         resolution=[(518, 294), (518, 280), (518, 266), (518, 210), (518, 168)], \
-        transform=SeqColorJitter, aug_focal=0.9, reverse_seq=True, distill_model_name='SAM3', base_model='da3', load_infinidepth_pseudo=True) + \
+        reverse_seq=True, distill_model_name='SAM3', base_model='da3', load_infinidepth_pseudo=True) + \
         5000 @ PandasetSeqMultiView(PANDASET_PREPROCESSED_ROOT='$SCRATCH/data/pandaset_processed', \
         seq_pkl_name='seq_surround_temporal_sub5_stride9_all.pkl', \
-        min_memory_num_views=2, frame_interval=1, max_memory_num_views=30, \
-        num_views_per_timestep=6, ray_map_prob=-1, \
-        min_num_timesteps=1, no_partial_views=False, \
-        aug_crop=128, z_far=50, split='train', \
+        min_memory_num_views=6, frame_interval=1, max_memory_num_views=30, \
+        num_views_per_timestep=6, min_views_per_timestep=1, min_num_timesteps=2, ray_map_prob=-1, \
+        z_far=50, split='train', no_partial_views=True, \
         resolution=[(518, 294), (518, 280), (518, 266), (518, 210), (518, 168)], \
-        transform=SeqColorJitter, aug_focal=0.9, reverse_seq=True, distill_model_name='SAM3', base_model='da3', load_infinidepth_pseudo=True) + \
+        reverse_seq=True, distill_model_name='SAM3', base_model='da3', load_infinidepth_pseudo=True) + \
         5000 @ OnceSeqMultiView(ONCE_PREPROCESSED_ROOT='$SCRATCH/data/once_processed', \
         seq_pkl_name='seq_surround_temporal_sub5_stride9_all.pkl', \
-        min_memory_num_views=2, frame_interval=1, max_memory_num_views=30, \
-        num_views_per_timestep=5, ray_map_prob=-1, \
-        min_num_timesteps=1, no_partial_views=False, \
-        aug_crop=128, z_far=50, split='train', \
+        min_memory_num_views=5, frame_interval=1, max_memory_num_views=30, \
+        num_views_per_timestep=5, min_views_per_timestep=1, min_num_timesteps=2, ray_map_prob=-1, \
+        z_far=50, split='train', no_partial_views=True, \
         resolution=[(518, 294), (518, 280), (518, 266), (518, 210), (518, 168)], \
-        transform=SeqColorJitter, aug_focal=0.9, reverse_seq=True, distill_model_name='SAM3', base_model='da3', load_infinidepth_pseudo=True)"  \
-    --test_dataset="206 @ KittiSeqMultiView(KITTI_PREPROCESSED_ROOT='$SCRATCH/data/kitti_processed', \
+        reverse_seq=True, distill_model_name='SAM3', base_model='da3', load_infinidepth_pseudo=True)"  \
+    --test_dataset="200 @ KittiSeqMultiView(KITTI_PREPROCESSED_ROOT='$SCRATCH/data/kitti_processed', \
         seq_pkl_name='seq_exact_len_sub5_stride9.pkl', frame_interval=1, \
-        min_memory_num_views=10, max_memory_num_views=10, reverse_seq=False, \
-        min_num_timesteps=1, no_partial_views=False, \
-        z_far=50, split='val', seed=42, recon_view_idx=[0, 2, 4, 6, 8], ray_map_idx=[1, 3, 5, 7], \
+        min_memory_num_views=5, max_memory_num_views=5, reverse_seq=False, \
+        z_far=50, split='val', seed=42, no_partial_views=True, \
         resolution=[(518, 168)], distill_model_name='SAM3', base_model='da3') + \
-        206 @ Occ3dNuscenesSeqMultiView(NUSCENES_PREPROCESSED_ROOT='$SCRATCH/data/occ3d_nuscenes_processed', \
+        200 @ Occ3dNuscenesSeqMultiView(NUSCENES_PREPROCESSED_ROOT='$SCRATCH/data/occ3d_nuscenes_processed', \
         seq_pkl_name='seq_surround_temporal_sub1_stride9_all.pkl', frame_interval=1, \
         min_memory_num_views=10, max_memory_num_views=10, num_views_per_timestep=6, \
-        min_num_timesteps=1, no_partial_views=False, \
-        z_far=50, split='val', seed=42, fixed_cams=[0,1], \
+        z_far=50, split='val', seed=42, no_partial_views=True, fixed_cams=[0,1], \
         resolution=[(518, 266)], distill_model_name='SAM3', base_model='da3')" \
     --lr=5e-5 --min_lr=1e-6 --warmup_epochs=3 --epochs=$EPOCHS \
     --batch_size=$BATCH_SIZE --accum_iter=$ACCUM_ITER \

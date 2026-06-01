@@ -58,12 +58,10 @@ model:
   # When ckpt_path is set, eval_one_epoch decodes RGB from predicted tokens and
   # logs side-by-side panels alongside depth. Leave ckpt_path null to skip.
   img_decoder:
-    # Repo-relative so it resolves on any cluster (training is launched from the
-    # repo root). Each cluster must have the img_decoder ckpt under checkpoints/;
-    # it is the train_occrae_img_decoder.py output (Karolina source:
-    #   /mnt/proj1/eu-25-92/occrae_output/occrae_img_decoder/ckpts/current.pt),
-    # copied to checkpoints/occrae_img_decoder.pt. Set null to skip RGB decode.
-    ckpt_path: checkpoints/occrae_img_decoder.pt
+    # Resolved from train_occrae_img_decoder_karolina.yaml:
+    #   output_dir=/mnt/proj1/eu-25-92/occrae_output, exp_name=occrae_img_decoder
+    # → train_occrae_img_decoder.py writes ckpts to <output_dir>/<exp_name>/ckpts/.
+    ckpt_path: /mnt/proj1/eu-25-92/occrae_output/occrae_img_decoder/ckpts/current.pt
     config_path: "third_party/GLD/configs/decoder/ViTXL"
     hidden_size: 9216
     patch_size: 14
@@ -103,11 +101,5 @@ training:
   grad_clip: 1.0
   seed: 0
   eval_num_items: 256
-  eval_num_visualizations: 4
-  # Log eval viz to TB only every `viz_every_n_epochs` epochs (set to 1 to log
-  # every epoch). Disk JPEGs under `eval_viz_dir` are still written every epoch.
-  viz_every_n_epochs: 5
+  eval_num_visualizations: 8
   sanity_check_num_items: 2
-  # Geometric-supervision regularizers (pointmap/depth/raymap) are opt-in:
-  # set training.loss_weights in a derived config (see train_deltatok_geom.yaml)
-  # to enable them. Without that key, train_one_epoch runs token loss only.

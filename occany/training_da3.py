@@ -54,20 +54,6 @@ def get_args_parser():
     # distillation
     parser.add_argument('--distill_model', default=None, type=str, help="distillation model (e.g., SAM3)")
     parser.add_argument('--distill_criterion', default=None, type=str, help="distill criterion")
-    parser.add_argument('--distill_max_frames', default=10, type=int,
-                        help="Max frames per sequence used for SAM3 distillation. "
-                             "When T > K, K indices are sampled uniformly at random per batch. "
-                             "-1 disables subsampling (use all frames). Default 10. "
-                             "Ignored when --distill_k_schedule is not 'constant'.")
-    parser.add_argument('--distill_k_schedule', default='constant', type=str,
-                        choices=['constant', 'memory_budget'],
-                        help="How to choose K (SAM3 distill frame count) per batch. "
-                             "'constant': use --distill_max_frames as a fixed K. "
-                             "'memory_budget': derive K from per-batch T (number of memory views "
-                             "sampled by BatchedRandomSampler) via K = max(0, min(T, 2*(28 - T))). "
-                             "The cap T=28 -> K=0 and the slope (one fewer T buys two more K) come "
-                             "from the empirical (T, K) memory table for a 40 GiB GPU at 518x294; "
-                             "see the slurm wrapper for the full table.")
     
     # fine-tuning
     parser.add_argument('--finetune_dual_dpt_only', default=False, action='store_true', help="Only finetune the DualDPT head, freeze backbone")
@@ -596,8 +582,7 @@ def train(args):
         has_trainable_params = any(p.requires_grad for p in model.parameters())
         if has_trainable_params:
             model = torch.nn.parallel.DistributedDataParallel(
-                model, device_ids=[args.gpu], find_unused_parameters=True, static_graph=False,
-                gradient_as_bucket_view=True)
+                model, device_ids=[args.gpu], find_unused_parameters=True, static_graph=False)
             model_without_ddp = model.module
         else:
             print('Skipping DDP wrapping for model (no trainable parameters)')
@@ -819,7 +804,6 @@ def train(args):
         new_pose_best = False
         already_saved = False
         if (epoch >= args.start_epoch and args.eval_freq > 0 and epoch % args.eval_freq == 0) or args.eval_only:
-            torch.cuda.empty_cache()
             test_stats = {}
             for test_name, testset in data_loader_test.items():
                 if args.eval_only:
@@ -841,8 +825,7 @@ def train(args):
             # This prevents hangs when main process does extra visualization work
             if args.distributed:
                 torch.distributed.barrier()
-            torch.cuda.empty_cache()
-
+                
         # Train
         train_stats = train_one_epoch(
             model=model,
@@ -1041,8 +1024,6 @@ def train_one_epoch(model: torch.nn.Module,
                 pose_from_depth_ray=False,
                 projection_features=getattr(args, 'projection_features', 'pts3d_local,pts3d,rgb,conf'),
                 lambda_feat_matching=args.lambda_feat_matching,
-                distill_max_frames=args.distill_max_frames,
-                distill_k_schedule=args.distill_k_schedule,
             )
         else:
 
@@ -1093,9 +1074,7 @@ def train_one_epoch(model: torch.nn.Module,
                                                     lambda_pointmap_lidar=args.lambda_pointmap_lidar,
                                                     lambda_pointmap_pseudo=args.lambda_pointmap_pseudo,
                                                     lambda_depth_lidar=args.lambda_depth_lidar,
-                                                    lambda_depth_pseudo=args.lambda_depth_pseudo,
-                                                    distill_max_frames=args.distill_max_frames,
-                                                    distill_k_schedule=args.distill_k_schedule)
+                                                    lambda_depth_pseudo=args.lambda_depth_pseudo)
         
 
         loss, loss_details = batch_result['loss']  # criterion returns two values
@@ -1222,8 +1201,6 @@ def test_one_epoch(model: torch.nn.Module,
                 pose_from_depth_ray=True,
                 projection_features=getattr(args, 'projection_features', 'pts3d_local,pts3d,rgb,conf'),
                 lambda_feat_matching=getattr(args, 'lambda_feat_matching', 1.0),
-                distill_max_frames=getattr(args, 'distill_max_frames', -1),
-                distill_k_schedule=getattr(args, 'distill_k_schedule', 'constant'),
             )
         else:
             batch_result = loss_of_one_batch_occany_da3(views=batch,
@@ -1239,9 +1216,7 @@ def test_one_epoch(model: torch.nn.Module,
                                                     lambda_raymap=1.0,
                                                     lambda_pointmap=1.0,
                                                     pose_from_depth_ray=True,
-                                                    aux_metric_pseudo_supervision=False,
-                                                    distill_max_frames=getattr(args, 'distill_max_frames', -1),
-                                                    distill_k_schedule=getattr(args, 'distill_k_schedule', 'constant'))
+                                                    aux_metric_pseudo_supervision=False)
 
         loss_tuple = batch_result['loss']
         loss_value, loss_details = loss_tuple  # criterion returns two values

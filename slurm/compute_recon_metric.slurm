@@ -5,9 +5,7 @@
 #SBATCH --gres=gpu:1
 #SBATCH --cpus-per-task=16
 #SBATCH --time=06:00:00
-# Array id is the EXP_ID: 8=KITTI, 9=nuScenes (synced e55 pseudo-depth-only).
-# One submission per setting; for nuScenes: sbatch --array=9 ...
-#SBATCH --array=8
+#SBATCH --array=0-0
 #SBATCH --hint=nomultithread
 #SBATCH -A eu-25-92
 #SBATCH --partition=qgpu
