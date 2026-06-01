@@ -40,7 +40,7 @@ fi
 
 EXP_NAME="${EXP_NAME:-da3_gtscale_depth}"
 DA3_MODEL_NAME="${DA3_MODEL_NAME:-depth-anything/DA3-GIANT-1.1}"
-INFINIDEPTH_CKPT="${INFINIDEPTH_CKPT:-/home/it4i-anhquan/OccAny/checkpoints/infinidepth_depthsensor.ckpt}"
+INFINIDEPTH_CKPT="${INFINIDEPTH_CKPT:-/home/it4i-anhquan/deltatok/checkpoints/infinidepth_depthsensor.ckpt}"
 
 LITE_FLAG=""
 if [ "${LITE:-0}" = "1" ]; then

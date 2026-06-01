@@ -5,8 +5,8 @@
 #SBATCH --gres=gpu:8
 #SBATCH --cpus-per-task=16
 #SBATCH --hint=nomultithread
-#SBATCH --time=48:00:00
-#SBATCH --partition=qgpu
+#SBATCH --time=1:00:00
+#SBATCH --partition=qgpu_exp
 #SBATCH -A eu-25-92
 #SBATCH --output=slurm/output/karolina_train_deltatok_%j.out
 #SBATCH --error=slurm/output/karolina_train_deltatok_%j.err
@@ -20,10 +20,17 @@ export PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
 export OMP_NUM_THREADS="${OMP_NUM_THREADS:-4}"
 export TORCH_NCCL_HEARTBEAT_TIMEOUT_SEC="${TORCH_NCCL_HEARTBEAT_TIMEOUT_SEC:-1000}"
 
-cd "$HOME/code/OccAny"
+cd "$HOME/deltatok"
 
 export CONFIG_NAME=train_deltatok_karolina
 export RESULTS_DIR="/mnt/proj1/eu-25-92/deltatok_log"
-export RUN_NAME=deltatok_surround_constGlobalRope
+export RUN_NAME=deltatok_surround_constGlobalRope_reproduce
+export RESUME=1
+
+echo "PWD=$(pwd)"
+echo "CONFIG_NAME=$CONFIG_NAME"
+echo "RESULTS_DIR=$RESULTS_DIR"
+echo "RUN_NAME=$RUN_NAME"
+echo "RESUME=$RESUME"
 
 srun --cpu-bind=none bash sh/train_deltatok.sh

@@ -92,6 +92,14 @@ sbatch slurm/train_occany_plus.slurm
 sbatch slurm/eval_occany.slurm
 ```
 
+## Critical: Verify cluster files before submitting SLURM jobs
+
+Before submitting any SLURM job on a cluster, always verify that the script on the cluster matches the local version. The user syncs files manually — never assume a local edit has been pushed. Check with e.g.:
+```bash
+ssh karolina "bash -lc 'grep -E \"partition|time\" ~/deltatok/slurm/<script>.slurm'"
+```
+If the file is stale, tell the user to sync before submitting.
+
 ## Architecture
 
 The repo is **script-driven**. Root entrypoints (`inference.py`, `extract_output_occany.py`, `extract_recon.py`, `infer_trajectory.py`, `test_occ_rae.py`) orchestrate workflows; reusable logic lives under `occany/`.
