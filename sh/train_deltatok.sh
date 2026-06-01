@@ -6,6 +6,7 @@ set -euo pipefail
 : "${CONFIG_DIR:=configs}"
 : "${CONFIG_NAME:=train_deltatok_karolina}"
 : "${EVAL_ONLY:=0}"
+: "${RESUME:=0}"
 # LOG_AND_CKPT_DIR is the training root: TB logs at <LOG_AND_CKPT_DIR>/<RUN_NAME>/
 # tb_logs/, checkpoints at <LOG_AND_CKPT_DIR>/<RUN_NAME>/ckpts/. Eval-only loads
 # from the same ckpts dir.
@@ -25,6 +26,10 @@ ARGS=(
 
 if [[ "$EVAL_ONLY" == "1" ]]; then
     ARGS+=(--eval-only --results-dir "$RESULTS_DIR")
+fi
+
+if [[ "$RESUME" == "1" ]]; then
+    ARGS+=(--resume)
 fi
 
 if [[ -n "${OCCANY_RECON_CKPT:-}" ]]; then
