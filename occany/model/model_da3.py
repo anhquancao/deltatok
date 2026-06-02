@@ -825,6 +825,67 @@ class DA3Wrapper(DepthAnything3):
 
         return output
 
+    @torch.no_grad()
+    def encode_to_layer(self, images: torch.Tensor, encode_layer: int) -> torch.Tensor:
+        """Partial backbone forward: patchify + run local blocks 0..encode_layer.
+
+        Returns the same token state the full forward would snapshot via
+        ``export_feat_layers=[encode_layer]`` (the raw, un-normed ``x``), but
+        without running blocks ``encode_layer+1..end`` — which is the whole point,
+        since those include the expensive global blocks (13/15/17/19/...).
+
+        Only valid for a pre-fusion local layer (``encode_layer < alt_start``):
+        every block run here is local attention, so there is nothing to replicate
+        from the global regime — the camera-token swap (``i == alt_start``),
+        reference-view selection (``i == alt_start - 1``), and global attention
+        (``i >= alt_start and i % 2 == 1``) are all gated past this point. (The
+        ref-view reorder is also a no-op under OccRAE's ``ref_view_strategy="first"``.)
+
+        images : (B, S, 3, H, W)
+        returns x : (B, S, N, C) — token state with cls/register tokens at the
+                    front; equals ``local_x`` at this layer.
+        """
+        backbone = self._get_pretrained_backbone()
+        if backbone.alt_start != -1 and encode_layer >= backbone.alt_start:
+            raise ValueError(
+                f"encode_to_layer only supports pre-fusion local layers "
+                f"(< alt_start={backbone.alt_start}); got {encode_layer}. Layers "
+                f">= alt_start need the camera-token/ref-view/global machinery."
+            )
+        B, S = images.shape[0], images.shape[1]
+        H, W = images.shape[-2], images.shape[-1]
+        x = backbone.prepare_tokens_with_masks(images)          # (B, S, N, C)
+        pos, _pos_nodiff = backbone._prepare_rope(B, S, H, W, x.device)  # local rope (B, S, N, 2)
+        for i in range(encode_layer + 1):
+            l_pos = None if (i < backbone.rope_start or backbone.rope is None) else pos
+            x = backbone.process_attention(x, backbone.blocks[i], "local", pos=l_pos)  # (B, S, N, C)
+        return x
+
+    def _maybe_inject_camera_token(self, x: torch.Tensor, start_layer: int) -> torch.Tensor:
+        """Replicate the encode-path camera-token swap when resuming *at* alt_start.
+
+        The full forward injects learned camera tokens into the CLS slot exactly
+        at ``i == alt_start`` (vision_transformer.py: ``x[:, :, 0] = cam_token``)
+        right before the first global block. The decode-resume helper
+        ``forward_from_layer`` omits this, which is fine when caching post-fusion
+        (layer 18 -> resume at 19, token already baked in) but wrong when caching
+        a pre-fusion local layer (alt_start-1 -> resume at alt_start). This is a
+        no-op unless ``start_layer == alt_start``, so the legacy layer-18 path is
+        unaffected. Mirrors inference_batch_individual's swap (lines ~323-328).
+
+        x : (B, S, N, C) cached token state with cls/register tokens at the front.
+        """
+        backbone = self._get_pretrained_backbone()
+        if backbone.alt_start == -1 or start_layer != backbone.alt_start:
+            return x
+        B, S = x.shape[:2]
+        ref_token = backbone.camera_token[:, :1].expand(B, -1, -1)   # (B, 1, C)
+        src_token = backbone.camera_token[:, 1:].expand(B, S - 1, -1)  # (B, S-1, C)
+        cam_token = torch.cat([ref_token, src_token], dim=1).to(x.dtype)  # (B, S, C)
+        x = x.clone()
+        x[:, :, 0] = cam_token  # overwrite cls slot per view -> (B, S, N, C)
+        return x
+
     def inference_batch_from_layer(
         self,
         x: torch.Tensor,
@@ -854,7 +915,11 @@ class DA3Wrapper(DepthAnything3):
             Same dict as ``inference_batch``.
         """
         if local_x is None:
-            local_x = x
+            local_x = x  # (B, S, N, C); keep the pre-injection local stream
+
+        # Resuming at alt_start needs the camera-token swap the encode path does;
+        # local_x stays un-injected (cam token only enters the global stream x).
+        x = self._maybe_inject_camera_token(x, start_layer)  # (B, S, N, C)
 
         if export_feat_layers is None:
             export_feat_layers = list(self.get_backbone_metadata()['out_layers'])

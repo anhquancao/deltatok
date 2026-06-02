@@ -1,11 +1,20 @@
 """OccRAE: Encode/Decode OccAny via cached backbone layer tokens.
 
-Encode extracts backbone token state at a configurable layer (default 18).
+Encode extracts backbone token state at a configurable layer.
 Decode resumes the backbone from that layer through the DPT head, reproducing
 the full OccAny output (pointmap, depth, depth_conf, ray, …).
 
-Layer 18 is local attention in DA3-Giant (18 >= alt_start=13, 18 % 2 == 0),
-so x == local_x after the block and only a single tensor needs to be stored.
+Two cache points are supported for DA3-Giant:
+  * encode_layer=12 (default): pre-fusion local cache at alt_start-1. Encode is
+    a partial forward (patchify + local blocks 0..12), skipping all global
+    blocks; decode resumes at alt_start=13 re-applying the camera-token swap.
+  * encode_layer=18: post-fusion local cache (18 >= alt_start=13, 18 % 2 == 0).
+    Encode runs the full backbone with export_feat_layers=[18] and snapshots
+    the raw token state; decode resumes at 19 with the camera token already
+    baked in (camera-token swap is a no-op).
+
+In both cases x == local_x at the cached layer, so only a single tensor is
+stored.
 """
 
 import torch
@@ -39,15 +48,17 @@ class OccRAE(nn.Module):
         weights_path: Optional[str] = None,
         img_size: int = 518,
         device: str = "cuda",
-        encode_layer: int = 18,
+        encode_layer: int = 12,
         model_name: str = "da3-giant",
         da3_pretrained_path: Optional[str] = None,
-    ): 
+    ):
         super().__init__()
-        if encode_layer != 18 and model_name == "da3-giant":
+        # Both supported cache points (12 pre-fusion, 18 post-fusion) are local
+        # blocks at which x == local_x, so a single tensor suffices. Layer 12
+        # also skips the global blocks during encode (partial forward).
+        if model_name == "da3-giant" and encode_layer not in (12, 18):
             raise ValueError(
-                f"OccRAE currently supports only encode_layer=18 for da3-giant, got {encode_layer}. "
-                "Layer 18 is required because decode assumes local_x == x."
+                f"OccRAE supports encode_layer in (12, 18) for da3-giant, got {encode_layer}."
             )
         self.encode_layer = encode_layer
 
@@ -104,19 +115,27 @@ class OccRAE(nn.Module):
         """
         b, s, c, h, w = images.shape
 
-        export_feat_layers = [self.encode_layer]
+        backbone = self.model._get_pretrained_backbone()
+        is_pre_fusion = backbone.alt_start == -1 or self.encode_layer < backbone.alt_start
 
-        ref_view_strategy = "first"
-        _feats, aux_feats = self.model.model.backbone(
-            images,
-            cam_token=None,
-            export_feat_layers=export_feat_layers,
-            ref_view_strategy=ref_view_strategy,
-        )
-
-        # aux_feats[0] = (processed_feat, raw_state)  where raw_state = (x, local_x)
-        raw_state = aux_feats[0][1]
-        x = raw_state[0]  # (B, S, N, embed_dim)
+        if is_pre_fusion:
+            # Partial forward: stop at encode_layer (a pre-fusion local block),
+            # so global blocks at encode_layer+1..end never run. Returns the same
+            # raw, un-normed token state the full forward would snapshot via
+            # export_feat_layers=[encode_layer].
+            x = self.model.encode_to_layer(images, self.encode_layer)  # (B, S, N, embed_dim)
+        else:
+            # Post-fusion cache (e.g. layer 18): full forward, snapshot token
+            # state at encode_layer.
+            _feats, aux_feats = self.model.model.backbone(
+                images,
+                cam_token=None,
+                export_feat_layers=[self.encode_layer],
+                ref_view_strategy="first",
+            )
+            # aux_feats[0] = (processed_feat, raw_state) where raw_state = (x, local_x)
+            raw_state = aux_feats[0][1]
+            x = raw_state[0]  # (B, S, N, embed_dim)
 
         return {"tokens": x, "H": h, "W": w}
 
@@ -156,7 +175,7 @@ class OccRAE(nn.Module):
             start_layer=start_layer,
             h=h,
             w=w,
-            local_x=None,  # layer 18 is local → x == local_x
+            local_x=None,  # cached layer is local → x == local_x
             pose_from_depth_ray=pose_from_depth_ray,
             pose_from_cam_dec=pose_from_cam_dec,
             point_from_depth_and_pose=point_from_depth_and_pose,
@@ -189,8 +208,11 @@ class OccRAE(nn.Module):
         h, w = latents["H"], latents["W"]
         start_layer = self.encode_layer + 1
 
+        # Resuming at alt_start needs the camera-token swap (no-op otherwise);
+        # local_x (2nd arg) stays the un-injected stream.
+        x_inj = self.model._maybe_inject_camera_token(x, start_layer)  # (B, S, N, C)
         feats, _aux = self.model.model.backbone.forward_from_layer(
-            x, x,
+            x_inj, x,
             start_layer, h, w,
             ref_view_strategy="first",
         )
@@ -223,9 +245,12 @@ class OccRAE(nn.Module):
             If True (default) load the EMA weights; fall back to live weights
             if EMA missing.
         """
-        if self.encode_layer != 18:
+        # The GLD decoder consumes decode-side features (layers 19/27/33),
+        # produced by decode_to_features regardless of the cache layer, so any
+        # supported encode_layer is valid here.
+        if self.encode_layer not in (12, 18):
             raise ValueError(
-                f"Image decoder was trained with encode_layer=18; got {self.encode_layer}."
+                f"Image decoder expects encode_layer in (12, 18); got {self.encode_layer}."
             )
 
         from transformers import AutoConfig

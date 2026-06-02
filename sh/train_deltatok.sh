@@ -36,6 +36,10 @@ if [[ -n "${OCCANY_RECON_CKPT:-}" ]]; then
     ARGS+=(--occany_recon_ckpt "$OCCANY_RECON_CKPT")
 fi
 
+if [[ -n "${ENCODE_LAYER:-}" ]]; then
+    ARGS+=(--encode_layer "$ENCODE_LAYER")
+fi
+
 CMD=(python train_deltatok.py)
 
 if [[ "${SLURM_PROCID:-0}" == "0" ]]; then
