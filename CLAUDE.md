@@ -94,7 +94,7 @@ sbatch slurm/eval_occany.slurm
 
 ## Critical: Verify cluster files before submitting SLURM jobs
 
-Before submitting any SLURM job on a cluster, always verify that the script on the cluster matches the local version. The user syncs files manually — never assume a local edit has been pushed. Check with e.g.:
+Before submitting any SLURM job on a cluster, always verify that the script on the cluster matches the local version. The user syncs files manually — never assume a local edit has been pushed, and never sync files to the cluster yourself (no scp/rsync); always ask the user to sync. Check with e.g.:
 ```bash
 ssh karolina "bash -lc 'grep -E \"partition|time\" ~/deltatok/slurm/<script>.slurm'"
 ```
@@ -151,6 +151,7 @@ cd third_party/croco/models/curope && python setup.py install
 
 - **Clarifying questions:** when the request is ambiguous or has multiple reasonable interpretations, use the `AskUserQuestion` tool to confirm before acting.
 - **Task tracking:** any task with more than one step must be tracked with the `TodoWrite` tool. Create todos up front and mark each one completed as soon as it's done.
+- **Edits:** surgical and explainable — change only what the task requires (no drive-by refactors, renames, or reformatting), and explain each edit so a human can verify it easily.
 
 ## Key conventions
 
