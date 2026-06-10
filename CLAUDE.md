@@ -10,6 +10,7 @@ Guidance for Claude Code in this repo.
 - **Clarifying questions:** use `AskUserQuestion`, not inline text.
 - **Multi-step tasks:** track with `TaskCreate`; complete one at a time.
 - **Code search:** prefer `grep` over `rg`.
+- **Edits:** surgical and explainable — change only what the task requires (no drive-by refactors, renames, or reformatting), and explain each edit so a human can verify it easily.
 
 ## Skills (`Skill` tool)
 
