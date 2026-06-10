@@ -5,8 +5,8 @@
 #SBATCH --gres=gpu:8
 #SBATCH --cpus-per-task=16
 #SBATCH --hint=nomultithread
-#SBATCH --time=1:00:00
-#SBATCH --partition=qgpu_exp
+#SBATCH --time=48:00:00
+#SBATCH --partition=qgpu
 #SBATCH -A eu-25-92
 #SBATCH --output=slurm/output/karolina_train_deltatok_layer12_%j.out
 #SBATCH --error=slurm/output/karolina_train_deltatok_layer12_%j.err
