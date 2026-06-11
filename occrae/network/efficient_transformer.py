@@ -104,7 +104,8 @@ class Block(nn.Module):
         x = torch.cat([x_reg, x_video], dim=1) if n_reg > 0 else x_video
 
         # --- Cross-attention ---
-        # x = x + alpha_cross * self.cross_attn(modulate(self.ln_cross(x), gamma_cross), cross_cond, cross_mask)
+        if self.cross_attn is not None and cross_cond is not None:
+            x = x + alpha_cross * self.cross_attn(modulate(self.ln_cross(x), gamma_cross), cross_cond, cross_mask)
 
         # --- Feed-forward with AdaLN modulation ---
         x = x + alpha_mlp * self.ff(modulate(self.ln_mlp(x), gamma_mlp))
@@ -113,11 +114,11 @@ class Block(nn.Module):
         
 
 class TransformerEncoder(nn.Module):
-    def __init__(self, dim, depth, heads, mlp_dim, dropout=0.):
+    def __init__(self, dim, depth, heads, mlp_dim, dropout=0., use_cross_attn=False):
         super().__init__()
         self.layers = nn.ModuleList([])
         for _ in range(depth):
-            self.layers.append(Block(dim, heads, mlp_dim, dropout=dropout))
+            self.layers.append(Block(dim, heads, mlp_dim, dropout=dropout, use_cross_attn=use_cross_attn))
 
     def forward(self, x, ada_cond, cross_cond, t, s, temporal_mask=None, cross_mask=None):
         feat = None
@@ -172,13 +173,20 @@ class Transformer(nn.Module):
                 nn.SiLU(),
                 nn.Linear(hidden_dim * 4, hidden_dim)
             )
+            # Positional embeddings for token-sequence (5-D) cross conditioning:
+            # interpolated spatial grid + per-camera embedding.
+            self.cross_ref_spatial_size = (37, 37)
+            ref_ch, ref_cw = self.cross_ref_spatial_size
+            self.cross_spatial_pos = nn.Parameter(torch.zeros(1, ref_ch * ref_cw, hidden_dim))
+            self.cross_camera_pos = nn.Embedding(16, hidden_dim)
 
         # project the input to a smaller space
         self.in_proj = nn.Conv2d(self.c, hidden_dim, kernel_size=self.proj, stride=self.proj)
         self.out_proj = nn.Linear(hidden_dim, self.c*proj**2)
 
         # The Transformer Encoder a la BERT :)
-        self.transformer = TransformerEncoder(dim=hidden_dim, depth=depth, heads=heads, mlp_dim=mlp_dim, dropout=dropout)
+        self.transformer = TransformerEncoder(dim=hidden_dim, depth=depth, heads=heads, mlp_dim=mlp_dim,
+                                              dropout=dropout, use_cross_attn=cross_dim is not None)
 
         self.last_norm = RMSNorm(dim=hidden_dim, linear=True, bias=True)
 
@@ -200,6 +208,9 @@ class Transformer(nn.Module):
         # Init embedding
         nn.init.normal_(self.temporal_pos.weight, std=0.02)
         nn.init.trunc_normal_(self.spatial_pos, std=0.02)
+        if hasattr(self, "cross_spatial_pos"):
+            nn.init.trunc_normal_(self.cross_spatial_pos, std=0.02)
+            nn.init.normal_(self.cross_camera_pos.weight, std=0.02)
 
         # Init proj layer
         if self.proj > 1:
@@ -238,8 +249,19 @@ class Transformer(nn.Module):
             align_corners=False,
         )
         patch_pos_embed = patch_pos_embed.permute(0, 2, 3, 1).flatten(1, 2)
-        
+
         return torch.cat((cls_pos_embed, patch_pos_embed), dim=1)
+
+    def interpolate_cross_pos_encoding(self, h, w):
+        """Same as interpolate_pos_encoding but for cross_spatial_pos (no CLS slot)."""
+        ref_h, ref_w = self.cross_ref_spatial_size
+        if h == ref_h and w == ref_w:
+            return self.cross_spatial_pos
+
+        dim = self.cross_spatial_pos.shape[-1]
+        pos = self.cross_spatial_pos.reshape(1, ref_h, ref_w, dim).permute(0, 3, 1, 2)
+        pos = F.interpolate(pos, size=(h, w), mode='bicubic', align_corners=False)
+        return pos.permute(0, 2, 3, 1).flatten(1, 2)
 
     def forward(self, x, ada_cond, cross_cond=None, return_feat=False, trajectory_cond=None, trajectory_keep_mask=None):
         b, c, t, h, w = x.size()
