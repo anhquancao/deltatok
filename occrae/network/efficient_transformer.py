@@ -6,7 +6,7 @@ import torch.nn.functional as F
 from einops import rearrange, repeat
 
 # from transformer_block import RMSNorm, Attention, FeedForward, TimestepEmbedder
-from occrae.network.transformer_block import RMSNorm, Attention, FeedForward, TimestepEmbedder
+from occrae.network.transformer_block import RMSNorm, Attention, CrossAttention, FeedForward, TimestepEmbedder
 
 def modulate(x, gamma):
     return x * (1 + gamma)
@@ -43,7 +43,7 @@ def gem_timestep_embedding(timesteps, dim, max_period=10000, repeat_only=False):
 
 
 class Block(nn.Module):
-    def __init__(self, dim, heads, mlp_dim, dropout=0.):
+    def __init__(self, dim, heads, mlp_dim, dropout=0., use_cross_attn=False):
         super().__init__()
 
         self.spatial_attn = Attention(dim, heads, dropout=dropout)
@@ -52,8 +52,11 @@ class Block(nn.Module):
         self.temporal_attn = Attention(dim, heads, dropout=dropout)
         self.ln_temporal = RMSNorm(dim, linear=True, bias=False, eps=1e-5)
 
-        # self.cross_attn = CrossAttention(dim, heads, dropout=dropout)
-        # self.ln_cross = RMSNorm(dim, linear=True, bias=False, eps=1e-5)
+        if use_cross_attn:
+            self.cross_attn = CrossAttention(dim, heads, dropout=dropout)
+            self.ln_cross = RMSNorm(dim, linear=True, bias=False, eps=1e-5)
+        else:
+            self.cross_attn = None
 
         self.ff = FeedForward(dim, mlp_dim, dropout=dropout)
         self.ln_mlp = RMSNorm(dim, linear=True, bias=False, eps=1e-5)
