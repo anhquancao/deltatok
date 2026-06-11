@@ -163,6 +163,8 @@ def main() -> None:
     if not test_dataset_str:
         raise RuntimeError("Config has no dataset.test_dataset to draw scenes from.")
 
+    saved_test_dirs = []
+
     have_img_dec = getattr(trainer.occ_rae, "img_decoder", None) is not None
 
     for sub in str(test_dataset_str).split("+"):
@@ -260,9 +262,12 @@ def main() -> None:
                 scenes_saved += 1
 
         print(f"[INFO] {test_name}: saved {scenes_saved} scene(s) under {test_dir}")
+        if scenes_saved > 0:
+            saved_test_dirs.append(test_dir)
 
-    print(f"\n[INFO] Done. Visualise with:\n"
-          f"python vis_viser.py --input_folder {output_dir}/<test_name>/<scene>")
+    print("\n[INFO] Done. Visualise with:")
+    for test_dir in saved_test_dirs:
+        print(f"python vis_viser.py --input_folder {test_dir}")
 
 
 if __name__ == "__main__":

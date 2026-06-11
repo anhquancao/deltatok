@@ -1,5 +1,5 @@
 #!/bin/bash
-#SBATCH --job-name=occrae
+#SBATCH --job-name=deltatok_flow
 #SBATCH --nodes=2
 #SBATCH --ntasks-per-node=8
 #SBATCH --gres=gpu:8
@@ -8,8 +8,8 @@
 #SBATCH --time=48:00:00
 #SBATCH --partition=qgpu
 #SBATCH -A eu-25-92
-#SBATCH --output=slurm/output/karolina_train_occrae_%j.out
-#SBATCH --error=slurm/output/karolina_train_occrae_%j.err
+#SBATCH --output=slurm/output/karolina_train_deltatok_flow_%j.out
+#SBATCH --error=slurm/output/karolina_train_deltatok_flow_%j.err
 
 mkdir -p slurm/output
 
@@ -22,7 +22,7 @@ export TORCH_NCCL_HEARTBEAT_TIMEOUT_SEC="${TORCH_NCCL_HEARTBEAT_TIMEOUT_SEC:-100
 
 cd "$HOME/deltatok"
 
-export CONFIG_NAME=train_occrae_fm_karolina
+export CONFIG_NAME=train_deltatok_flow_karolina
 export RESULTS_DIR="/mnt/proj1/eu-25-92/occrae_log"
 
-srun --cpu-bind=none bash sh/train_occrae.sh
+srun --cpu-bind=none bash sh/train_deltatok_flow.sh

@@ -1,10 +1,10 @@
 #!/bin/bash
-#SBATCH --job-name=bsc_occrae
+#SBATCH --job-name=bsc_deltatok_flow
 #SBATCH --cpus-per-task=20
 #SBATCH --account=ehpc551
 #SBATCH --partition=acc
-#SBATCH --output=slurm/output/bsc_train_occrae_%j.out
-#SBATCH --error=slurm/output/bsc_train_occrae_%j.err
+#SBATCH --output=slurm/output/bsc_train_deltatok_flow_%j.out
+#SBATCH --error=slurm/output/bsc_train_deltatok_flow_%j.err
 
 
 ##SBATCH --time=2:00:00
@@ -27,7 +27,7 @@ export TORCH_NCCL_HEARTBEAT_TIMEOUT_SEC="${TORCH_NCCL_HEARTBEAT_TIMEOUT_SEC:-100
 cd "$HOME/code/OccAny"
 source env_bsc.sh
 
-# srun --cpu-bind=none bash sh/train_occrae.sh
+# srun --cpu-bind=none bash sh/train_deltatok_flow.sh
 # Overfit command:
-# CONFIG_NAME=train_occrae_fm_overfit RUN_NAME=overfit srun --cpu-bind=none bash sh/train_occrae.sh
-srun --cpu-bind=none bash sh/train_occrae.sh
+# CONFIG_NAME=train_deltatok_flow_overfit RUN_NAME=overfit srun --cpu-bind=none bash sh/train_deltatok_flow.sh
+srun --cpu-bind=none bash sh/train_deltatok_flow.sh

@@ -133,7 +133,7 @@ def collate_preprocessed(batch):
         })
 
     return out
-class OccRAEFlowMatchingTrainer(Trainer):
+class DeltaTokFlowMatchingTrainer(Trainer):
     def __init__(self, args, cfg, device, rank, world_size, distributed):
         """ Initialize model, optimizer, loss function, and data loaders."""
         args.is_master = rank == 0

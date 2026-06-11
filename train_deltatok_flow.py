@@ -35,7 +35,7 @@ for vendored_path in reversed(VENDORED_IMPORT_PATHS):
 torch.backends.cuda.matmul.allow_tf32 = True
 torch.backends.cudnn.allow_tf32 = True
 
-from occrae.occrae_trainer import OccRAEFlowMatchingTrainer  # noqa: E402
+from occrae.deltatok_flow_trainer import DeltaTokFlowMatchingTrainer  # noqa: E402
 
 
 def get_args_parser() -> argparse.ArgumentParser:
@@ -49,8 +49,8 @@ def get_args_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--config-name",
         type=str,
-        default="train_occrae_overfit",
-        help="Hydra config name (without .yaml, default: train_occrae_overfit).",
+        default="train_deltatok_flow_overfit",
+        help="Hydra config name (without .yaml, default: train_deltatok_flow_overfit).",
     )
     parser.add_argument(
         "--cfg",
@@ -171,7 +171,7 @@ def main() -> None:
             cfg.training.vit_folder = str((run_root / "ckpts").resolve()) + "/"
             cfg.training.writer_log = str((run_root / "tb_logs").resolve()) + "/"
 
-        trainer = OccRAEFlowMatchingTrainer(
+        trainer = DeltaTokFlowMatchingTrainer(
             args=args,
             cfg=cfg,
             device=device,

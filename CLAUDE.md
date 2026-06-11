@@ -81,7 +81,7 @@ conda activate occany && source env_bsc.sh && python compute_recon_metrics.py \
 bash sh/train_occany_plus_recon.sh        # Stage 1: reconstruction
 bash sh/train_occany_plus_gen.sh          # Stage 2: novel-view rendering
 bash sh/train_occany_plus_recon_1B.sh     # 1.1B variant
-bash sh/train_occrae.sh                   # OccRAE flow matching
+bash sh/train_deltatok_flow.sh            # OccRAE flow matching
 bash sh/train_occrae_img_decoder.sh       # OccRAE image decoder (MAE-style)
 bash sh/train_deltatok.sh                 # DeltaTok tokenizer
 ```
@@ -131,12 +131,12 @@ KITTI/nuScenes voxel grids differ: KITTI is 256×256×32 at 0.2 m; nuScenes is 2
 
 Caches DA3 intermediate tokens at **layer 18** (local-attention layer) to enable downstream flow-matching training and feature reuse. See `docs/occrae.md`. Components:
 - `extract_occany_features.py` — dump tokens dataset-wide
-- `occrae/occrae_trainer.py` — flow-matching trainer
+- `occrae/deltatok_flow_trainer.py` — flow-matching trainer
 - `occrae/img_decoder_trainer.py` — MAE-style image decoder trainer on frozen OccRAE 3-level features
 - `occrae/deltatok_trainer.py` — DeltaTok tokenizer trainer over layer-18 frame features
 - `occrae/dataset/occrae_tokens.py` — OccRAETokenDataset
 
-Training entrypoints: `train_occrae.py` (flow matching), `train_occrae_img_decoder.py` (image decoder), `train_deltatok.py` (DeltaTok). All use Hydra configs under `configs/` and support SLURM distributed training.
+Training entrypoints: `train_deltatok_flow.py` (flow matching), `train_occrae_img_decoder.py` (image decoder), `train_deltatok.py` (DeltaTok). All use Hydra configs under `configs/` and support SLURM distributed training.
 
 ### Vendored third-party dependencies
 

@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Evaluate a trained OccRAE flow-matching model on pre-extracted token dumps.
 
-Loads a checkpoint produced by train_occrae.py (via bsc_train_occrae.slurm),
+Loads a checkpoint produced by train_deltatok_flow.py (via bsc_train_deltatok_flow.slurm),
 runs flow-matching Euler sampling to generate target-view tokens conditioned
 on the first ``cond_num`` reference views, decodes the sampled tokens through
 OccRAE into 3D outputs, and saves vis_viser-compatible .npy files.
@@ -10,7 +10,7 @@ Usage
 -----
 # Sample from a trained model and decode to 3D:
 python eval_occ_rae.py \
-    --config configs/train_occrae_fm_overfit.yaml \
+    --config configs/train_deltatok_flow_overfit.yaml \
     --ckpt /gpfs/scratch/ehpc551/occrae_exps/overfit/ckpts/current.pth \
     --latent_path /gpfs/scratch/ehpc558/quan/occrae_emb_overfit/ddad_processed/val_0/000000_0.pth \
     --occany_recon_ckpt checkpoints/occany_plus_recon_1B.pth \
@@ -18,7 +18,7 @@ python eval_occ_rae.py \
 
 # Also decode ground-truth tokens for side-by-side comparison:
 python eval_occ_rae.py \\
-    --config configs/train_occrae_fm_overfit.yaml \\
+    --config configs/train_deltatok_flow_overfit.yaml \\
     --ckpt /path/to/checkpoints/current.pth \\
     --latent_path /path/to/occrae_emb/dataset/scene/sample.pth \\
     --save_target
@@ -77,7 +77,7 @@ def get_args_parser() -> argparse.ArgumentParser:
         "--config",
         type=str,
         required=True,
-        help="Path to the YAML config used for training (e.g. configs/train_occrae_fm_overfit.yaml).",
+        help="Path to the YAML config used for training (e.g. configs/train_deltatok_flow_overfit.yaml).",
     )
     parser.add_argument(
         "--ckpt",
@@ -245,7 +245,7 @@ def main():
     from omegaconf import OmegaConf
 
     cfg = OmegaConf.load(args.config)
-    # output_resolution may live under dataset (train_occrae_overfit) or model (train_occrae_fm_overfit)
+    # output_resolution may live under dataset (train_occrae_overfit) or model (train_deltatok_flow_overfit)
     _res = cfg.model.get("output_resolution")
     if _res is None:
         raise ValueError("output_resolution not found in cfg.model")
