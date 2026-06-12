@@ -88,48 +88,71 @@ loss = self.flow_loss(pred, x_spatial, z_t, e, t, context=0)
 7. Viz: keep `_log_viz_sample` block; `context_set = set(range(num_cameras))`;
    `batch["timesteps"]` is a `(B,V)` tensor from `_normalize_batch` — indexing works.
 
+## Design update (after user review): per-camera cross-attention, no camera IDs
+
+`_compute_global_rope` is DA3 `pos_nodiff` (all positions identical) — DeltaTok is
+**camera-permutation-equivariant**; the z_i <-> camera_i binding is structural (local
+layers attend per-camera strips), not positional. The flow model mirrors that:
+- NO camera embedding anywhere.
+- In `Block.forward`, cross-attention folds the spatial-slot axis (cameras) into the
+  batch — delta slot i only attends to camera i's frame-0 patches:
+  queries `(B*s, t, D)` x kv `(B*s, L, D)`. Cross-camera mixing still happens via the
+  spatial self-attention over the N delta slots. Bonus: cross-attn is N x cheaper.
+- `Transformer.forward` 5-D path reshapes context to `(B*S, Hp*Wp, D)` (asserts the
+  slot count matches S); legacy 2-D vector conditioning broadcasts to `(B*S, 1, D)`.
+
+Also adopted (now in CLAUDE.md): comment each tensor-manipulation line and annotate the
+resulting tensor shape inline.
+
 ## Work completed so far
 
-### `occrae/network/efficient_transformer.py` (partially done)
-- DONE: import `CrossAttention` from `occrae.network.transformer_block` (line 9).
-- DONE: `Block.__init__` takes `use_cross_attn=False`; builds `self.cross_attn =
-  CrossAttention(dim, heads, dropout)` + `self.ln_cross = RMSNorm(...)` when True, else
-  `self.cross_attn = None` (replaced the commented-out lines).
+### `occrae/network/efficient_transformer.py` — DONE (all edits applied)
+- Import `CrossAttention` from `occrae.network.transformer_block`.
+- `Block.__init__(..., use_cross_attn=False)`: builds `cross_attn` + `ln_cross` when True.
+- `Block.forward`: per-slot cross branch between temporal attn and the register
+  re-concat (operates on `x_video` only; AdaLN-zero `alpha_cross` gates it off at init);
+  docstring documents `t`/`s` semantics.
+- `TransformerEncoder(..., use_cross_attn)` passthrough to `Block`.
+- `Transformer.__init__`: when `cross_dim is not None`, `cross_ref_spatial_size=(37, 37)`
+  + `cross_spatial_pos` parameter `(1, 37*37, D)`; `use_cross_attn=cross_dim is not None`
+  into the encoder; trunc_normal init.
+- `interpolate_cross_pos_encoding(h, w)` (bicubic, no CLS slot).
+- `Transformer.forward`: 5-D per-slot path + legacy 2-D broadcast path as described in
+  the design update above.
 
-Nothing else has been edited yet.
+## Status update (current session)
+
+Sections 2-4 below are DONE, with these deviations from the original spec:
+- **Shared mixin instead of bound-method aliases**: new `occrae/deltatok_shared.py`
+  hosts `DeltaTokSharedMixin` (`_set_train_loader_epoch`, `_normalize_batch`,
+  `_extract_pair_feats`, `_compute_frame_losses`, `_decode_tokens`,
+  `_reconstruct_full_tokens`, `_build_occ_rae` — moved verbatim from
+  `DeltaTokTrainer` — plus new `_encode_pair_deltas` / `_rollout_from_z`,
+  factored out of `_autoregressive_rollout`, which is now a 3-line composition).
+  Both trainers inherit the mixin.
+- **`ref_spatial_size=(1, 1)`** for the flow Transformer (not `(max_num_cameras, 1)`):
+  a 1x1 grid broadcasts one shared spatial embedding to every camera slot — no
+  camera identity, permutation equivariance preserved, and it generalizes if a
+  camera later carries >1 token. No `model.max_num_cameras` config key.
+- **Eval has NO teacher-forced flow loss** (user request) — eval = sample →
+  rollout → pointmap/depth/ray metrics only. No `LossFlow`, no `*_ctx` losses
+  (timestep-0 views are GT tokens; measuring them is just OccRAE roundtrip).
+  Eval returns the mean sampled-rollout `LossPointmap`.
+- **Viz**: no blanking of timestep-0 cells; `context_mask` draws colored borders
+  (GT-seed vs generated views) via `_log_viz_sample`/`_draw_left_borders`.
+- Helpers take only what they need: `_rollout_from_z(net, x0, z_seq, ...)` and
+  `_build_cross_cond(x0, H, W)` take the first frame `(B, N, P, C)`, not full feats.
+- Configs: base `train_deltatok_flow.yaml` now carries the Karolina dataset
+  strings directly (`num_views: 16` slot capacity); `_karolina.yaml` is a
+  trivial overlay; `_overfit.yaml` = `2 @ Occ3dNuscenesSeqMultiView(val)`.
+  `sh/train_deltatok_flow.sh` defaults: `RESULTS_DIR=/mnt/proj1/eu-25-92/deltatok_flow_log`,
+  `RUN_NAME=deltatok_flow`.
+
+Remaining: section 5 (verification on Karolina, after the user syncs).
 
 ## Remaining work (in order)
 
-### 1. Finish `efficient_transformer.py`
-- `Block.forward`: replace the commented cross-attention line (~:104) with:
-  ```python
-  if self.cross_attn is not None and cross_cond is not None:
-      x = x + alpha_cross * self.cross_attn(modulate(self.ln_cross(x), gamma_cross), cross_cond, cross_mask)
-  ```
-  (applies to full x incl. register token; `gamma_cross/alpha_cross` rows for registers
-  are zero — fine).
-- `TransformerEncoder.__init__(..., use_cross_attn=False)` → pass through to `Block`.
-- `Transformer.__init__`: when `cross_dim is not None`:
-  - keep `self.cross_cond_emb` (the existing Linear/SiLU/Linear works on the last dim of
-    `(B, N, Hp, Wp, cross_dim)` tensors);
-  - add `self.cross_ref_spatial_size = (37, 37)` (or param), `self.cross_spatial_pos =
-    nn.Parameter(zeros(1, 37*37, hidden))`, `self.cross_camera_pos = nn.Embedding(16, hidden)`;
-  - pass `use_cross_attn=cross_dim is not None` into `TransformerEncoder`;
-  - init: `trunc_normal_(cross_spatial_pos, std=0.02)`, `normal_(cross_camera_pos.weight, std=0.02)`.
-- Add `interpolate_cross_pos_encoding(self, h, w)`: like `interpolate_pos_encoding`
-  (:217) but no CLS slot, over `cross_spatial_pos` with ref `cross_ref_spatial_size`.
-- `Transformer.forward` cross handling (replace the `.unsqueeze(1)` block at :309-310):
-  ```python
-  if cross_cond is not None:
-      if cross_cond.dim() == 5:   # (B, N_cam, Hp, Wp, cross_dim) token-sequence conditioning
-          bc, n_cam, ch, cw, _ = cross_cond.shape
-          cc = self.cross_cond_emb(cross_cond)                                   # (B,N,Hp,Wp,D)
-          cc = cc + self.interpolate_cross_pos_encoding(ch, cw).view(1, 1, ch, cw, -1)
-          cam = self.cross_camera_pos(torch.arange(n_cam, device=cc.device)).view(1, n_cam, 1, 1, -1)
-          cross_cond = (cc + cam).reshape(bc, n_cam * ch * cw, -1)
-      else:                        # legacy (B, cross_dim) single-vector conditioning
-          cross_cond = self.cross_cond_emb(cross_cond).unsqueeze(1)
-  ```
+### 1. ~~Finish `efficient_transformer.py`~~ DONE (see "Work completed so far")
 
 ### 2. Rewrite `occrae/deltatok_flow_trainer.py`
 Per the design above. Key points:

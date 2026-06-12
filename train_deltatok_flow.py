@@ -1,36 +1,40 @@
 #!/usr/bin/env python3
-"""Train a token-only multiview flow model over OccRAE layer-18 feature dumps."""
+"""Train a flow-matching model over DeltaTok delta tokens.
+
+The flow model diffuses the per-camera delta tokens produced by a frozen
+DeltaTok tokenizer over frozen-OccRAE patch features, conditioned on the first
+frame via per-camera cross-attention. See occrae/deltatok_flow_trainer.py.
+"""
 
 from __future__ import annotations
 
 import argparse
 import os
 import subprocess
-import sys
+import warnings
 from pathlib import Path
+
+# Paramiko (pulled in transitively) warns about deprecated TripleDES/Blowfish
+# ciphers in the cluster's cryptography version; not actionable here.
+warnings.filterwarnings("ignore", module=r"paramiko\..*")
 
 import torch
 import torch.distributed as dist
 from hydra import compose, initialize_config_dir
 from omegaconf import open_dict
 
+from occany.utils.runtime_paths import prepend_vendored_import_paths
 
-REPO_ROOT = Path(__file__).resolve().parent
-VENDORED_IMPORT_PATHS = [
-    REPO_ROOT / "third_party",
-    REPO_ROOT / "third_party" / "dust3r",
-    REPO_ROOT / "third_party" / "croco" / "models" / "curope",
-    # REPO_ROOT / "third_party" / "Grounded-SAM-2",
-    # REPO_ROOT / "third_party" / "Grounded-SAM-2" / "grounding_dino",
-    REPO_ROOT / "third_party" / "sam3",
-    REPO_ROOT / "third_party" / "Depth-Anything-3" / "src",
-    REPO_ROOT / "third_party" / "pyTorchChamferDistance",
-    REPO_ROOT / "third_party" / "GLD" / "src",
-]
-for vendored_path in reversed(VENDORED_IMPORT_PATHS):
-    vendored_path_str = str(vendored_path)
-    if vendored_path.exists() and vendored_path_str not in sys.path:
-        sys.path.insert(0, vendored_path_str)
+# third_party/deltatok is required: occrae.deltatok_trainer imports
+# models.gated_attn / models.qk_norm from it.
+REPO_ROOT = prepend_vendored_import_paths(
+    Path(__file__).resolve().parent,
+    extra=[
+        "third_party/pyTorchChamferDistance",
+        "third_party/GLD/src",
+        "third_party/deltatok",
+    ],
+)
 
 torch.backends.cuda.matmul.allow_tf32 = True
 torch.backends.cudnn.allow_tf32 = True
@@ -49,8 +53,8 @@ def get_args_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--config-name",
         type=str,
-        default="train_deltatok_flow_overfit",
-        help="Hydra config name (without .yaml, default: train_deltatok_flow_overfit).",
+        default="train_deltatok_flow",
+        help="Hydra config name (without .yaml, default: train_deltatok_flow).",
     )
     parser.add_argument(
         "--cfg",
@@ -72,13 +76,12 @@ def get_args_parser() -> argparse.ArgumentParser:
         default="fp32",
         help="Compute precision for training.",
     )
-    parser.add_argument("--run-name", type=str, default="occrae_token_flow", help="Run name prefix.")
-    parser.add_argument("--ckpt", type=str, default=None, help="Resume from a full training checkpoint.")
+    parser.add_argument("--run-name", type=str, default="deltatok_flow", help="Run name prefix.")
+    parser.add_argument("--ckpt", type=str, default=None, help="Pretrained-init checkpoint (weights only).")
     parser.add_argument(
-        "--preprocess_data_root",
-        type=str,
-        default=None,
-        help="Override dataset.preprocess_data_root.",
+        "--resume",
+        action="store_true",
+        help="Resume training from <results-dir>/<run-name>/ckpts/current.pth if it exists.",
     )
     parser.add_argument(
         "--occany_recon_ckpt",
@@ -87,12 +90,17 @@ def get_args_parser() -> argparse.ArgumentParser:
         help="Override model.occany_recon_ckpt.",
     )
     parser.add_argument(
+        "--deltatok_ckpt",
+        type=str,
+        default=None,
+        help="Override model.deltatok_ckpt (frozen DeltaTok tokenizer checkpoint).",
+    )
+    parser.add_argument(
         "--encode_layer",
         type=int,
         default=None,
         help="Override model.encode_layer.",
     )
-    parser.add_argument("--overfit", action="store_true", help="Overfit on a single training example.")
     return parser
 
 
@@ -135,6 +143,12 @@ def setup_cuda_distributed() -> tuple[torch.device, int, int]:
 
 
 def main() -> None:
+    # PyTorch 2.5 defaults SDPA to the experimental cuDNN backend on H100
+    # (sm90), which fails in backward with "cuDNN Frontend error: No valid
+    # execution plans built" for this model's attention shapes. Fall back to
+    # the flash / memory-efficient backends instead.
+    torch.backends.cuda.enable_cudnn_sdp(False)
+
     args = get_args_parser().parse_args()
 
     world_size = get_world_size()
@@ -156,15 +170,12 @@ def main() -> None:
             cfg = compose(config_name=args.config_name, overrides=args.cfg)
 
         with open_dict(cfg):
-            if args.preprocess_data_root:
-                cfg.dataset.preprocess_data_root = args.preprocess_data_root
             if args.occany_recon_ckpt:
                 cfg.model.occany_recon_ckpt = args.occany_recon_ckpt
+            if args.deltatok_ckpt:
+                cfg.model.deltatok_ckpt = args.deltatok_ckpt
             if args.encode_layer:
                 cfg.model.encode_layer = args.encode_layer
-            if args.overfit:
-                cfg.dataset.max_train_samples = 1
-                cfg.dataset.max_val_samples = 1
 
             run_root = Path(args.results_dir).expanduser().resolve() / args.run_name
             cfg.exp_name = args.run_name

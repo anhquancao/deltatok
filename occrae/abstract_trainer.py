@@ -10,6 +10,13 @@ import math
 
 import torch.distributed as dist
 import torchvision.utils as vutils
+
+# TensorBoard imports the real TensorFlow (slow, spams cuFFT/cuDNN/cuBLAS
+# factory errors) whenever it is installed, unless the `tensorboard.compat.notf`
+# marker module is importable — register it so TB uses its TF-free stub.
+import sys
+import types
+sys.modules.setdefault("tensorboard.compat.notf", types.ModuleType("tensorboard.compat.notf"))
 from torch.utils.tensorboard import SummaryWriter
 
 

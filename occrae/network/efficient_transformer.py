@@ -64,10 +64,13 @@ class Block(nn.Module):
     def forward(self, x, ada_cond, cross_cond, t, s, temporal_mask=None, cross_mask=None):
         """
         Args:
-            x: main hidden states [B, N, D]
-            text_cond: optional key/values for cross-attention
-            style: optional conditioning tensor [B, D] if ada_ln=True
-        """ 
+            x: main hidden states [B, N, D] with N = n_reg + t*s video tokens
+            ada_cond: 8-tuple of per-token AdaLN modulation tensors [B, N, D]
+            cross_cond: optional key/values for per-slot cross-attention [(B*s), L, D]
+            t: number of temporal slots (frames; for delta-token flow: T-1 transitions)
+            s: number of spatial tokens per temporal slot (h_p*w_p; for delta-token
+               flow: N_cam — one delta token per camera)
+        """
 
         # Generate all modulation parameters from style
         (
@@ -101,11 +104,18 @@ class Block(nn.Module):
         x_temporal = rearrange(x_temporal, '(b s) t d -> b (t s) d', b=b, t=t, s=s)
         x_video = x_video + alpha_temporal[:, n_reg:] * x_temporal
 
-        x = torch.cat([x_reg, x_video], dim=1) if n_reg > 0 else x_video
-
-        # --- Cross-attention ---
+        # --- Cross-attention (per spatial slot, camera-permutation-equivariant) ---
+        # cross_cond is (B*s, L, D) with L context tokens per slot: slot i (camera i)
+        # only attends to its own context, mirroring DeltaTok's structural
+        # z_i <-> camera_i binding (no camera IDs needed).
         if self.cross_attn is not None and cross_cond is not None:
-            x = x + alpha_cross * self.cross_attn(modulate(self.ln_cross(x), gamma_cross), cross_cond, cross_mask)
+            x_cross = modulate(self.ln_cross(x_video), gamma_cross[:, n_reg:])      # (B, t*s, D) normalized + AdaLN-scaled queries
+            x_cross = rearrange(x_cross, 'b (t s) d -> (b s) t d', t=t, s=s)        # (B*s, t, D) fold slots into batch
+            x_cross = self.cross_attn(x_cross, cross_cond, cross_mask)              # (B*s, t, D) q=x_cross, kv=cross_cond (B*s, L, D)
+            x_cross = rearrange(x_cross, '(b s) t d -> b (t s) d', b=b, t=t, s=s)   # (B, t*s, D) back to token layout
+            x_video = x_video + alpha_cross[:, n_reg:] * x_cross                    # (B, t*s, D) gated residual (alpha_cross starts at 0)
+
+        x = torch.cat([x_reg, x_video], dim=1) if n_reg > 0 else x_video
 
         # --- Feed-forward with AdaLN modulation ---
         x = x + alpha_mlp * self.ff(modulate(self.ln_mlp(x), gamma_mlp))
@@ -173,12 +183,12 @@ class Transformer(nn.Module):
                 nn.SiLU(),
                 nn.Linear(hidden_dim * 4, hidden_dim)
             )
-            # Positional embeddings for token-sequence (5-D) cross conditioning:
-            # interpolated spatial grid + per-camera embedding.
-            self.cross_ref_spatial_size = (37, 37)
+            # Interpolated spatial grid pos-embed for token-sequence (5-D) cross
+            # conditioning. Per-slot only — no camera embedding: the slot<->camera
+            # binding is structural (per-slot cross-attention in Block).
+            self.cross_ref_spatial_size = (37, 37)                                            # reference (Hp, Wp) patch grid
             ref_ch, ref_cw = self.cross_ref_spatial_size
-            self.cross_spatial_pos = nn.Parameter(torch.zeros(1, ref_ch * ref_cw, hidden_dim))
-            self.cross_camera_pos = nn.Embedding(16, hidden_dim)
+            self.cross_spatial_pos = nn.Parameter(torch.zeros(1, ref_ch * ref_cw, hidden_dim))  # (1, Hp*Wp, D), no CLS slot
 
         # project the input to a smaller space
         self.in_proj = nn.Conv2d(self.c, hidden_dim, kernel_size=self.proj, stride=self.proj)
@@ -210,7 +220,6 @@ class Transformer(nn.Module):
         nn.init.trunc_normal_(self.spatial_pos, std=0.02)
         if hasattr(self, "cross_spatial_pos"):
             nn.init.trunc_normal_(self.cross_spatial_pos, std=0.02)
-            nn.init.normal_(self.cross_camera_pos.weight, std=0.02)
 
         # Init proj layer
         if self.proj > 1:
@@ -256,12 +265,12 @@ class Transformer(nn.Module):
         """Same as interpolate_pos_encoding but for cross_spatial_pos (no CLS slot)."""
         ref_h, ref_w = self.cross_ref_spatial_size
         if h == ref_h and w == ref_w:
-            return self.cross_spatial_pos
+            return self.cross_spatial_pos                                           # (1, ref_h*ref_w, D) no resize needed
 
         dim = self.cross_spatial_pos.shape[-1]
-        pos = self.cross_spatial_pos.reshape(1, ref_h, ref_w, dim).permute(0, 3, 1, 2)
-        pos = F.interpolate(pos, size=(h, w), mode='bicubic', align_corners=False)
-        return pos.permute(0, 2, 3, 1).flatten(1, 2)
+        pos = self.cross_spatial_pos.reshape(1, ref_h, ref_w, dim).permute(0, 3, 1, 2)  # (1, D, ref_h, ref_w) channels-first for interpolate
+        pos = F.interpolate(pos, size=(h, w), mode='bicubic', align_corners=False)      # (1, D, h, w) bicubic resize to target grid
+        return pos.permute(0, 2, 3, 1).flatten(1, 2)                                    # (1, h*w, D) back to token sequence
 
     def forward(self, x, ada_cond, cross_cond=None, return_feat=False, trajectory_cond=None, trajectory_keep_mask=None):
         b, c, t, h, w = x.size()
@@ -330,9 +339,22 @@ class Transformer(nn.Module):
 
         t_emb_expanded = [e.repeat_interleave(S, dim=1) for e in t_emb]  # (B, N, D)
 
-        # Clip embedding
+        # Cross-attention conditioning
         if cross_cond is not None:
-            cross_cond = self.cross_cond_emb(cross_cond).unsqueeze(1)
+            if cross_cond.dim() == 5:
+                # Per-slot token conditioning: one (Hp, Wp) context grid per spatial
+                # slot (S slots per frame; for delta-token flow S = N_cam). Slot i
+                # only sees its own grid in Block -> camera-permutation-equivariant.
+                bc, n_cond, ch, cw, _ = cross_cond.shape                                       # (B, S, Hp, Wp, cross_dim)
+                if n_cond != S:
+                    raise ValueError(f"cross_cond has {n_cond} slots, expected S={S}")
+                cc = self.cross_cond_emb(cross_cond)                                           # (B, S, Hp, Wp, D) project to hidden dim
+                cc = cc + self.interpolate_cross_pos_encoding(ch, cw).view(1, 1, ch, cw, -1)   # (B, S, Hp, Wp, D) add spatial pos-embed
+                cross_cond = rearrange(cc, 'b n h w d -> (b n) (h w) d')                       # (B*S, Hp*Wp, D) per-slot kv sequence
+            else:
+                # Legacy single-vector conditioning (e.g. CLIP embedding).
+                cc = self.cross_cond_emb(cross_cond)                                           # (B, D)
+                cross_cond = cc[:, None, None, :].expand(b, S, 1, -1).reshape(b * S, 1, -1)    # (B*S, 1, D) broadcast same vector to every slot
         
         if self.register > 0:
             reg = torch.arange(0, self.register, dtype=torch.long, device=x.device)

@@ -1,145 +1,48 @@
-# Trainer for Token Flow Matching
+# Trainer for DeltaTok delta-token Flow Matching
+import datetime
 import os
 import time
-import random
 from collections import deque
 from contextlib import nullcontext, contextmanager
-from pathlib import Path
 
 import numpy as np
 import torch
-from PIL import Image
 import torch.nn as nn
+import torch.nn.functional as F
 import torch.distributed as dist
-from tqdm import tqdm
 from torch.nn.parallel import DistributedDataParallel as DDP
 from torch.amp import autocast
-from torch.utils.data import DataLoader
-from torchvision.transforms.functional import to_tensor
+
+from occrae.metric_logger import (  # SLURM-friendly line-per-print logging (no tqdm carriage returns)
+    MetricLogger, SmoothedValue, max_cpu_mem_mb, total_cpu_mem_mb, total_gpu_mem_mb,
+)
 
 from occrae.abstract_trainer import Trainer
 from occrae.network.efficient_transformer import Transformer
 from occrae.network.ema import EMA
-from occrae.dataset.occrae_tokens import ProcessedRootBatchSampler
-from occrae.dataset.preprocessed_sequence import (
-    PreprocessedSequenceDataset,
-    build_sequence_records,
-    _normalize_resolutions,
-)
+from occrae.deltatok_shared import DeltaTokSharedMixin
 from occrae.visualization_helper import _log_viz_sample
-from occany.model.occ_rae import OccRAE
-from depth_anything_3.utils.io.input_processor import InputProcessor
-from occany.utils.helpers import crop_resize_if_necessary, intrinsics_c2w_to_raymap
+from occany.datasets import get_data_loader
 from occany.utils.helpers import depth2rgb
 from occany.loss import PointmapLoss, DepthLosses, RaymapLoss
 from occrae.generation_helper import flow_euler_sample
 
 
-def collate_preprocessed(batch):
-    # Each item has: split, processed_root, scene_name, frame_stems, timesteps, output_resolution, imgs
-    # Optional GT: depthmaps, intrinsics, cam2worlds
-    # imgs is a List[np.ndarray]; output_resolution is a ResolutionList (List[Tuple[int, int]]).
-    # ProcessedRootBatchSampler guarantees all items in a batch share the same processed_root,
-    # so taking the first item's allowed-resolution list is safe.
+# Fixed eval-loss key order so every rank reduces the same-sized vector even
+# when some ranks see batches without GT (missing keys contribute 0).
+_EVAL_KEYS = (
+    "LossPointmap", "LossDepth", "LossRaymap",                # sampled-delta rollout vs GT (forecast frames)
+    "LossPointmap_tok", "LossDepth_tok", "LossRaymap_tok",    # GT-delta rollout (tokenizer upper bound)
+)
 
-    first = batch[0]
-    allowed_resolutions_hw = _normalize_resolutions(first["output_resolution"])
 
-    # Pick one (H, W) for the entire batch so all encoded inputs share dimensions.
-    output_resolution_hw = random.choice(allowed_resolutions_hw)
-    height, width = output_resolution_hw
-    resolution_wh = (width, height)
-
-    all_imgs = []
-    all_gt_depth = []
-    all_gt_intrinsics = []
-    all_gt_c2w = []
-    has_gt = "depthmaps" in first
-
-    for item in batch:
-        item_imgs = []
-        item_depth = []
-        item_intrinsics = []
-        item_c2w = []
-        
-        for i in range(len(item["imgs"])):
-            img = item["imgs"][i]
-            if has_gt:
-                depth = item["depthmaps"][i]
-                intrinsics = item["intrinsics"][i]
-                c2w = item["cam2worlds"][i]
-            else:
-                depth = np.zeros(img.shape[:2], dtype=np.float32)
-                intrinsics = np.eye(3, dtype=np.float32)
-                if isinstance(img, Image.Image):
-                    W, H = img.size
-                else:
-                    H, W = img.shape[:2]
-                intrinsics[0, 2] = W / 2
-                intrinsics[1, 2] = H / 2
-                c2w = np.eye(4, dtype=np.float32)
-
-            cropped_img, cropped_depth, cropped_intrinsics = crop_resize_if_necessary(
-                img,
-                depth,
-                intrinsics,
-                resolution=resolution_wh,
-                rng=None,
-                info=f"{item['scene_name']}",
-            )
-            item_imgs.append(InputProcessor.NORMALIZE(to_tensor(cropped_img)))
-            if has_gt:
-                item_depth.append(torch.from_numpy(cropped_depth).float())
-                item_intrinsics.append(torch.from_numpy(cropped_intrinsics).float())
-                item_c2w.append(torch.from_numpy(c2w).float())
-
-        all_imgs.append(torch.stack(item_imgs)) # (V, C, H, W)
-        if has_gt:
-            all_gt_depth.append(torch.stack(item_depth)) # (V, H, W)
-            all_gt_intrinsics.append(torch.stack(item_intrinsics)) # (V, 3, 3)
-            all_gt_c2w.append(torch.stack(item_c2w)) # (V, 4, 4)
-
-    imgs = torch.stack(all_imgs) # (B, V, C, H, W)
-    assert imgs.shape[-2:] == (height, width)
-
-    out = {
-        "imgs": imgs,
-        "output_resolution_hw": output_resolution_hw,
-        "processed_root": [item["processed_root"] for item in batch],
-        "timesteps": [item["timesteps"] for item in batch],
-        "scene_name": [item["scene_name"] for item in batch],
-        "frame_stems": [item["frame_stems"] for item in batch],
-        "num_cameras": first.get("num_cameras", 1),
-    }
-
-    if has_gt:
-        gt_depth = torch.stack(all_gt_depth) # (B, V, H, W)
-        gt_intrinsics = torch.stack(all_gt_intrinsics) # (B, V, 3, 3)
-        gt_c2w = torch.stack(all_gt_c2w) # (B, V, 4, 4)
-        
-        # Compute raymap and pointmap
-        B, V, H, W = gt_depth.shape
-        gt_raymap = intrinsics_c2w_to_raymap(gt_intrinsics, gt_c2w, H, W) # (B, V, H, W, 6)
-        gt_pointmap = gt_depth.unsqueeze(-1) * gt_raymap[..., :3] + gt_raymap[..., 3:]
-        gt_mask = gt_depth > 0
-
-        out.update({
-            "gt_depth": gt_depth,
-            "gt_intrinsics": gt_intrinsics,
-            "gt_c2w": gt_c2w,
-            "gt_raymap": gt_raymap,
-            "gt_pointmap": gt_pointmap,
-            "gt_mask": gt_mask,
-        })
-
-    return out
-class DeltaTokFlowMatchingTrainer(Trainer):
+class DeltaTokFlowMatchingTrainer(DeltaTokSharedMixin, Trainer):
     def __init__(self, args, cfg, device, rank, world_size, distributed):
         """ Initialize model, optimizer, loss function, and data loaders."""
         args.is_master = rank == 0
         args.writer_log = str(cfg.training.get("writer_log", ""))
         super().__init__(args)
-        print(f"Init Token Flow Matching on [GPU{rank}]")
+        print(f"Init DeltaTok Flow Matching on [GPU{rank}]")
 
         self.args = args
         self.cfg = cfg
@@ -147,38 +50,59 @@ class DeltaTokFlowMatchingTrainer(Trainer):
         self.rank = rank
         self.world_size = world_size
         self.distributed = distributed
+        self.is_master = (self.rank == 0)
+
+        # Gradient accumulation is derived, not configured:
+        # effective_bsize = world_size * bsize * grad_cum.
+        bsize = int(self.cfg.training.bsize)
+        effective_bsize = int(self.cfg.training.effective_bsize)
+        denom = self.world_size * bsize
+        assert effective_bsize % denom == 0, (
+            f"training.effective_bsize={effective_bsize} must be divisible by "
+            f"world_size * bsize = {self.world_size} * {bsize} = {denom}"
+        )
+        self.grad_cum = effective_bsize // denom
+        if self.is_master:
+            print(f"effective_bsize={effective_bsize} = {self.world_size} rank(s) "
+                  f"x bsize {bsize} x grad_cum {self.grad_cum}")
 
         self._ema_state = None
-        self.occ_rae = None
 
-        # Determine architecture params from config
-        self.num_views = self.cfg.model["num_views"]
-        print(f"Number of views: {self.num_views}")
-        self.patch_h = 518 // 14
-        self.patch_w = 518 // 14
-
-        # Load transformer (Bidirectional Transformer)
-        self.vit = self.get_network("vit")
-        print(f"Number of parameters: {sum(p.numel() for p in self.vit.parameters())/1e6:.2f}M")
-
-        # Define optimizer
-        self.optim = self.get_optim(
-            self.vit, self.cfg.training.lr, betas=(0.9, 0.999), 
-            weight_decay=self.cfg.training.weight_decay, mode=self.cfg.training.optimizer
-        ) 
-
-        # Set up Exponential Moving Average (EMA) for model parameters
-        self.ema = EMA(self._ema_model()) if self.cfg.training.use_ema else None
-        if self.cfg.training.use_ema and self._ema_state is not None:
-            self.ema.load_state_dict(self._ema_state, self._ema_model())
-
-        # Set up automatic mixed precision for training efficiency
+        # Set up automatic mixed precision BEFORE the frozen models: the mixin
+        # helpers (_extract_pair_feats, _build_occ_rae) read it / cfg dtype.
         if self.device.type != 'cpu' and self.cfg.training.dtype == "bfloat16":
             self.autocast = autocast("cuda", dtype=torch.bfloat16)
         else:
             self.autocast = nullcontext()
 
-        self.is_master = (self.rank == 0)
+        # Temporal slot capacity of the flow transformer: max T-1 frame transitions.
+        self.num_views = self.cfg.model["num_views"]
+        print(f"Number of temporal slots (max T-1): {self.num_views}")
+
+        # Frozen OccRAE encoder/decoder (mixin; never DDP-wrapped, no optimizer).
+        self._build_occ_rae()
+        backbone = self.occ_rae.model._get_pretrained_backbone()
+        # Strip CLS + register tokens from OccRAE features before DeltaTok.
+        self._num_prefix_tokens = 1 + int(backbone.num_register_tokens)
+        self._patch_size = int(backbone.patch_size)
+
+        # Frozen DeltaTok tokenizer (never DDP-wrapped, no optimizer).
+        self.deltatok = self._build_deltatok(backbone)
+
+        # Load transformer (the only trainable network)
+        self.vit = self.get_network("vit")
+        print(f"Number of parameters: {sum(p.numel() for p in self.vit.parameters())/1e6:.2f}M")
+
+        # Define optimizer
+        self.optim = self.get_optim(
+            self.vit, self.cfg.training.lr, betas=(0.9, 0.999),
+            weight_decay=self.cfg.training.weight_decay, mode=self.cfg.training.optimizer
+        )
+
+        # Set up Exponential Moving Average (EMA) for model parameters
+        self.ema = EMA(self._ema_model()) if self.cfg.training.use_ema else None
+        if self.cfg.training.use_ema and self._ema_state is not None:
+            self.ema.load_state_dict(self._ema_state, self._ema_model())
 
         # print logs
         if self.is_master:
@@ -214,8 +138,7 @@ class DeltaTokFlowMatchingTrainer(Trainer):
             self.ema.restore(model)
 
     def _reset_train_iterator(self):
-        if self.distributed and hasattr(self.train_sampler, "set_epoch"):
-            self.train_sampler.set_epoch(self._train_sampler_epoch)
+        self._set_train_loader_epoch(self._train_sampler_epoch)
         self._train_iter = iter(self.train_loader)
         self._train_sampler_epoch += 1
 
@@ -228,6 +151,32 @@ class DeltaTokFlowMatchingTrainer(Trainer):
                 return next(self._train_iter)
             except StopIteration:
                 self._reset_train_iterator()
+
+    def _build_deltatok(self, backbone):
+        """Build the frozen DeltaTok tokenizer and load its checkpoint.
+
+        Mirrors `DeltaTokTrainer.get_network("deltatok")` minus DDP: the module
+        is frozen here, so it must never be DDP-wrapped nor enter the optimizer.
+        """
+        model = self._make_deltatok_module(backbone)  # shared factory (mixin)
+
+        ckpt_path = str(self.cfg.model.deltatok_ckpt)
+        if not os.path.isfile(ckpt_path):
+            raise FileNotFoundError(f"DeltaTok checkpoint not found: {ckpt_path}")
+        ckpt = torch.load(ckpt_path, map_location="cpu", weights_only=False)
+        state_dict = {
+            k.replace("module.", "").replace("_orig_mod.", ""): v
+            for k, v in ckpt["model_state_dict"].items()
+        }
+        model.load_state_dict(state_dict, strict=True)
+        if self.is_master:
+            print(f"[INFO] Loaded frozen DeltaTok from: {ckpt_path}")
+
+        model = model.to(self.device).eval()
+        model.requires_grad_(False)
+        if self.cfg.training.dtype == "bfloat16":
+            model.to(torch.bfloat16)
+        return model
 
     def get_network(self, archi):
         """ return the network, load checkpoint if resuming or using pretrained weights """
@@ -243,16 +192,20 @@ class DeltaTokFlowMatchingTrainer(Trainer):
             model = Transformer(
                 out_dim=1536,
                 num_views=self.num_views,
-                hidden_dim=hidden_dim, 
+                cross_dim=1536,  # enable per-camera cross-attention on frame-0 patch tokens
+                hidden_dim=hidden_dim,
                 proj=1,
-                depth=depth, 
-                heads=heads, 
+                depth=depth,
+                heads=heads,
                 mlp_dim=hidden_dim * 4,
-                dropout=self.cfg.model.get("dropout", 0.0), 
+                dropout=self.cfg.model.get("dropout", 0.0),
                 is_causal=self.cfg.model.get("is_causal", False),
                 use_trajectory_cond=False,
                 trajectory_length=0,
-                ref_spatial_size=(self.patch_h, self.patch_w)
+                # Spatial slots = cameras (one delta token per camera). A (1, 1)
+                # reference grid broadcasts ONE shared embedding to every slot:
+                # no camera identity -> camera-permutation equivariance holds.
+                ref_spatial_size=(1, 1),
             )
 
             # Load model checkpoint for resume or pretrained initialization.
@@ -330,13 +283,51 @@ class DeltaTokFlowMatchingTrainer(Trainer):
             base_lr = group.get('initial_lr', group['lr'])
             group['lr'] = base_lr * scale
 
-    def _tokens_to_spatial(self, x):
-        """ (B, V, C, S, 1) -> (B, C, V, S, 1) """
-        return x.permute(0, 2, 1, 3, 4).contiguous()
+    def _encode_deltas(self, feats, H, W):
+        """Frozen-DeltaTok encode of all GT frame pairs (the flow target).
 
-    def _spatial_to_tokens(self, x):
-        """ (B, C, V, S, 1) -> (B, V, C, S, 1) """
-        return x.permute(0, 2, 1, 3, 4).contiguous()
+        Thin wrapper over the shared ``_encode_pair_deltas``: adds the temporal
+        slot-capacity check and the no-grad/autocast guards for the frozen net.
+
+        Args:
+            feats: spatial-only patch features (B, T, N, P, C).
+
+        Returns:
+            z: delta tokens (B, T-1, N, C).
+        """
+        T = feats.shape[1]
+        assert T - 1 <= self.num_views, (
+            f"T-1={T - 1} transitions exceed temporal slot capacity model.num_views={self.num_views}"
+        )
+        with torch.no_grad(), self.autocast:
+            return self._encode_pair_deltas(self.deltatok, feats, H, W)  # (B, T-1, N, C)
+
+    def _build_cross_cond(self, x0, H, W):
+        """Build the frame-0 conditioning grids fed to the flow transformer.
+
+        Delta tokens exit DeltaTok through a LayerNorm (~unit scale); raw DA3
+        feats are not — `model.ctx_norm: layernorm` applies a parameter-free
+        layer norm so both streams live at comparable scale. Callers keep the
+        un-normalized first frame for the DeltaTok decode rollout.
+
+        Args:
+            x0: GT first-frame patch features (B, N, P, C).
+
+        Returns:
+            ctx: (B, N, Hp, Wp, C) — per-camera frame-0 patch grids; camera i's
+                 grid is only seen by delta slot i (per-slot cross-attention).
+        """
+        B, N, P, C = x0.shape
+        Hp, Wp = H // self._patch_size, W // self._patch_size   # patch grid size; P = Hp*Wp
+        ctx = x0                                                # (B, N, P, C) frame-0 patch feats
+        ctx_norm = str(self.cfg.model.get("ctx_norm", "layernorm"))
+        if ctx_norm not in ("layernorm", "none"):
+            # Fail loudly: an unknown value (e.g. a typo) silently skipping the
+            # norm would change the conditioning scale with no error signal.
+            raise ValueError(f"model.ctx_norm must be 'layernorm' or 'none', got {ctx_norm!r}")
+        if ctx_norm == "layernorm":
+            ctx = F.layer_norm(ctx.float(), (C,)).to(x0.dtype)  # (B, N, P, C) unit-scale per token
+        return ctx.view(B, N, Hp, Wp, C)                        # (B, N, Hp, Wp, C) unflatten patch grid
 
     def flow_noising(self, x, context=None, mu=-0.6, sigma=1):
         device = x.device
@@ -407,14 +398,24 @@ class DeltaTokFlowMatchingTrainer(Trainer):
 
     def train_one_epoch(self, log_iter=1000, virtual_epoch=5_000):
         self.vit.train()
-        cum_loss = 0.
         num_batches = 0
         iter_start = int(self.cfg.training.iter)
         last_update_time = time.time()
-        window_loss = deque(maxlen=self.cfg.training.grad_cum)
         self.optim.zero_grad(set_to_none=True)
 
-        pbar = tqdm(total=virtual_epoch, desc=f"Training (Epoch {self.cfg.training.global_epoch})", disable=not self.is_master)
+        # SLURM-friendly progress: one flushed print line every `print_freq`
+        # optimizer updates (tqdm carriage returns garble batch logs).
+        print_freq = int(self.cfg.training.get("print_freq", 20))
+        # Loss bookkeeping stays on-GPU between prints: .cpu()/.item() every
+        # micro-batch forces a GPU->CPU sync, so scalars are materialized only
+        # every `print_freq` optimizer updates. The window spans everything
+        # since the last print.
+        cum_loss = torch.zeros((), device=self.device)            # () running sum of un-scaled losses
+        window_loss = deque(maxlen=self.grad_cum * print_freq)    # detached () GPU scalars
+        window_grad = deque(maxlen=print_freq)                    # () pre-clip grad norms, on GPU
+        header = f"Training (Epoch {self.cfg.training.global_epoch})"
+        update_time = SmoothedValue(fmt='{avg:.4f}')  # seconds per optimizer update
+        updates_done = 0
 
         while True:
             if self.cfg.training.iter >= self.cfg.training.max_iter:
@@ -422,70 +423,99 @@ class DeltaTokFlowMatchingTrainer(Trainer):
             if (self.cfg.training.iter - iter_start) >= virtual_epoch:
                 break
 
-            batch = self._next_train_batch()
+            batch = self._normalize_batch(self._next_train_batch())
             num_batches += 1
-            update_grad = (num_batches % self.cfg.training.grad_cum) == 0
+            update_grad = (num_batches % self.grad_cum) == 0
 
             self.adapt_learning_rate("cosine")
 
-            # Online encoding using the shared frozen OccRAE.
-            imgs = batch["imgs"].to(self.device)
+            imgs = batch["imgs"].to(self.device, non_blocking=True)  # (B, V, 3, H, W) with V = T*N views
+            num_cameras = int(batch.get("num_cameras", 1))
 
-            with torch.no_grad():
-                latents = self.occ_rae.encode(imgs)
-                # Convert (B, V, S, C) -> (B, V, C, S, 1)
-                x_tokens = latents["tokens"].permute(0, 1, 3, 2).unsqueeze(-1).contiguous()
-                if self.cfg.training.dtype == "bfloat16":
-                    x_tokens = x_tokens.to(torch.bfloat16)
+            # Frozen OccRAE encode -> spatial-only patch feats per timestep/camera.
+            _, feats, _, _, H, W = self._extract_pair_feats(imgs, num_cameras=num_cameras, return_pairs=False)  # feats (B, T, N, P, C)
 
-            B = x_tokens.shape[0]
+            # Frozen DeltaTok encode -> the flow target.
+            z = self._encode_deltas(feats, H, W)                          # (B, T-1, N, C) delta tokens
+            x_spatial = z.permute(0, 3, 1, 2).unsqueeze(-1).contiguous()  # (B, C, T-1, N, 1) flow latent layout
+            cross_cond = self._build_cross_cond(feats[:, 0], H, W)        # (B, N, Hp, Wp, C) frame-0 conditioning
 
-            x_spatial = self._tokens_to_spatial(x_tokens) # (B, C, V, S, 1)
-
-            cond_num = int(self.cfg.dataset.cond_num)
-            z_t, e, timestep = self.flow_noising(x_spatial, context=cond_num, mu=self.cfg.model.mu, sigma=self.cfg.model.sigma)
+            # No in-sequence context slots: conditioning is purely cross-attention.
+            z_t, e, timestep = self.flow_noising(x_spatial, context=0, mu=self.cfg.model.mu, sigma=self.cfg.model.sigma)
 
             with self.autocast:
                 pred = self.vit(
                     x=z_t,
                     ada_cond=timestep,
-                    cross_cond=None,
+                    cross_cond=cross_cond,
                     return_feat=False,
                 )
-                loss_flow_total = self.flow_loss(pred=pred, x=x_spatial, z_t=z_t, e=e, t=timestep, context=cond_num)
+                loss_flow_total = self.flow_loss(pred=pred, x=x_spatial, z_t=z_t, e=e, t=timestep, context=0)
 
-            loss = loss_flow_total / self.cfg.training.grad_cum
+            loss = loss_flow_total / self.grad_cum
             loss.backward()
 
             if update_grad:
-                nn.utils.clip_grad_norm_(self.vit.parameters(), self.cfg.training.grad_clip)
+                # clip_grad_norm_ returns the pre-clip total norm — the direct
+                # gradient-explosion signal; keep it on GPU for the log window.
+                grad_norm = nn.utils.clip_grad_norm_(self.vit.parameters(), self.cfg.training.grad_clip)
+                window_grad.append(grad_norm.detach())
                 self.optim.step()
                 self.optim.zero_grad(set_to_none=True)
                 if self.cfg.training.use_ema:
                     self.ema.update(self._ema_model())
 
-            cum_loss += loss.cpu().item() * self.cfg.training.grad_cum
-            window_loss.append(loss.cpu().item() * self.cfg.training.grad_cum)
-            
-            if update_grad:
-                if self.distributed:
-                    mini_batch_loss = self.all_gather(torch.tensor(window_loss).mean())
-                else:
-                    mini_batch_loss = torch.tensor(window_loss).mean()
+            loss_detached = loss_flow_total.detach()  # () un-scaled flow loss, kept on GPU (no sync)
+            cum_loss = cum_loss + loss_detached
+            window_loss.append(loss_detached)
 
+            if update_grad:
+                updates_done += 1
                 if self.is_master:
                     now = time.time()
                     elapsed = max(now - last_update_time, 1e-6)
-                    speed_samples_per_sec = self.cfg.training.bsize / elapsed
                     last_update_time = now
+                    update_time.update(elapsed)
 
-                    self.log_add_scalar('Train/LearningRate', self.optim.param_groups[0]['lr'], self.cfg.training.iter)
-                    self.log_add_scalar('Train/LossFlow', loss_flow_total, self.cfg.training.iter)
-                    self.log_add_scalar('Train/LossTot', mini_batch_loss, self.cfg.training.iter)
-                    self.log_add_scalar('Train/SpeedSamplesPerSec', speed_samples_per_sec, self.cfg.training.iter)
-                
-                    pbar.update(1)
-                    pbar.set_postfix(loss=mini_batch_loss.item())
+                # Same condition on every rank: the all_reduce below is a
+                # collective and must be entered by all ranks together.
+                if updates_done % print_freq == 0 or updates_done == virtual_epoch:
+                    window = torch.stack(tuple(window_loss)).float()  # (W,) losses since last print, W = grad_cum*print_freq
+                    loss_mean = window.mean()                         # () convergence signal: cross-rank mean below
+                    # (2,) [window-max loss, window-max pre-clip grad norm]:
+                    # spike detectors, so reduced with MAX (worst rank wins).
+                    peaks = torch.stack((window.max(), torch.stack(tuple(window_grad)).float().max()))
+                    if self.distributed:
+                        # On-GPU NCCL reduces; the old all_gather_object pickled
+                        # tensors through the CPU every optimizer update.
+                        dist.all_reduce(loss_mean, op=dist.ReduceOp.SUM)
+                        loss_mean = loss_mean / self.world_size
+                        dist.all_reduce(peaks, op=dist.ReduceOp.MAX)
+
+                    if self.is_master:
+                        loss_val = loss_mean.item()        # the GPU->CPU syncs: once per print_freq updates
+                        loss_max, grad_max = peaks.tolist()
+                        speed_samples_per_sec = self.cfg.training.bsize / max(update_time.avg, 1e-6)
+
+                        self.log_add_scalar('Train/LearningRate', self.optim.param_groups[0]['lr'], self.cfg.training.iter)
+                        self.log_add_scalar('Train/LossMean', loss_val, self.cfg.training.iter)
+                        self.log_add_scalar('Train/LossMax', loss_max, self.cfg.training.iter)
+                        self.log_add_scalar('Train/GradNorm', grad_max, self.cfg.training.iter)
+                        self.log_add_scalar('Train/SpeedSamplesPerSec', speed_samples_per_sec, self.cfg.training.iter)
+
+                        eta_seconds = update_time.avg * (virtual_epoch - updates_done)
+                        eta = str(datetime.timedelta(seconds=int(eta_seconds)))
+                        gpu_mem_mb = torch.cuda.max_memory_allocated() / (1024.0 * 1024.0) if torch.cuda.is_available() else 0.0
+                        print(
+                            f"{header}  [{updates_done}/{virtual_epoch}]  eta: {eta}  "
+                            f"loss: {loss_val:.4f} (max {loss_max:.4f})  "
+                            f"grad: {grad_max:.2f}  "
+                            f"lr: {self.optim.param_groups[0]['lr']:.6f}  "
+                            f"time: {update_time.avg:.4f}  "
+                            f"max gpu mem: {gpu_mem_mb:.0f} ({total_gpu_mem_mb():.0f})  "
+                            f"max cpu mem: {max_cpu_mem_mb():.0f} ({total_cpu_mem_mb():.0f})",
+                            flush=True,
+                        )
 
                 if self.cfg.training.iter % log_iter == 0 and self.is_master:
                     if self.cfg.training.iter > 0:
@@ -507,42 +537,17 @@ class DeltaTokFlowMatchingTrainer(Trainer):
                         ema_state=self.ema.state_dict() if self.cfg.training.use_ema else None,
                     )
         
-        pbar.close()
-        return cum_loss / max(1, num_batches)
+        return (cum_loss / max(1, num_batches)).item()
+
+    # _compute_frame_losses comes from DeltaTokSharedMixin.
 
     @torch.no_grad()
-    def _compute_frame_losses(self, decoded, batch, view_slice, ray_conf, B, height, width):
-        mask = batch["gt_mask"][:, view_slice].to(self.device)
-        num_views = mask.shape[1]
-
-        loss_pm, _ = self.pointmap_criterion(
-            decoded["pointmap"][:, view_slice].float(),
-            batch["gt_pointmap"][:, view_slice].to(self.device).float(),
-            mask=mask
-        )
-
-        pred_d = decoded["depth"][:, view_slice].float().reshape(B * num_views, 1, height, width)
-        gt_d = batch["gt_depth"][:, view_slice].to(self.device).float().reshape(B * num_views, 1, height, width)
-        d_mask = mask.reshape(B * num_views, 1, height, width).float()
-        loss_d, _ = self.depth_criterion(pred_d, gt_d, confidence=None, mask=d_mask)
-
-        rc = ray_conf[:, view_slice] if ray_conf is not None else None
-        loss_ray, _ = self.raymap_criterion(
-            decoded["ray"][:, view_slice].float(),
-            rc,
-            batch["gt_c2w"][:, view_slice].to(self.device).float(),
-            batch["gt_intrinsics"][:, view_slice].to(self.device).float(),
-            batch["gt_raymap"][:, view_slice].to(self.device).float()
-        )
-
-        return loss_pm, loss_d, loss_ray
-
     def eval_one_epoch(self, sanity_check: bool = False):
-        if not hasattr(self, "test_loader") or self.test_loader is None:
+        if not getattr(self, "test_loaders", None):
             return torch.tensor(0.0, device=self.device)
-            
+
         self.vit.eval()
-        
+
         if sanity_check:
             eval_num_items_global = int(self.cfg.training.get("sanity_check_num_items", 4))
             eval_num_visualizations = 2
@@ -557,285 +562,261 @@ class DeltaTokFlowMatchingTrainer(Trainer):
                 os.path.join(self.cfg.training.vit_folder, "eval_viz"),
             )
         )
-        
-        items_seen = 0
-        num_visualizations = 0
-        total_loss_flow = 0.0
-        total_loss_pm = 0.0
-        total_loss_d = 0.0
-        total_loss_ray = 0.0
-        total_loss_pm_ctx = 0.0
-        total_loss_d_ctx = 0.0
-        total_loss_ray_ctx = 0.0
-        
-        B_val = self.cfg.training.bsize # Assume bsize is used for val
-        total_batches = min(len(self.test_loader), (eval_num_items + B_val - 1) // B_val)
-        pbar = tqdm(self.test_loader, total=total_batches, desc=f"Evaluating (Epoch {self.cfg.training.global_epoch})", disable=not self.is_master)
+
+        # Overall eval scalar = sampled-rollout pointmap loss across loaders.
+        overall_loss = 0.0
+        overall_n = 0
 
         with self.ema_scope():
-            for batch in pbar:
-                if items_seen >= eval_num_items:
-                    break
-                    
-                imgs = batch["imgs"].to(self.device)
-                B, V, C, H, W = imgs.shape
+            # Run eval on each test loader independently; per-loader metrics are
+            # logged under `Eval/<test_name>/...` and viz under `eval_depth/<test_name>`.
+            for test_name, loader in self.test_loaders.items():
+                sums = {k: 0.0 for k in _EVAL_KEYS}
+                items_seen = 0  # all items (drives the eval-item budget)
+                gt_items = 0    # items with GT only (metric denominator)
+                num_vis = 0
 
-                with torch.no_grad():
-                    latents = self.occ_rae.encode(imgs)
-                    # Convert (B, V, S, C) -> (B, V, C, S, 1)
-                    x_tokens = latents["tokens"].permute(0, 1, 3, 2).unsqueeze(-1).contiguous()
-                    if self.cfg.training.dtype == "bfloat16":
-                        x_tokens = x_tokens.to(torch.bfloat16)
+                # Pin the eval loader to epoch 0 so each eval pass sees the same
+                # samples in the same order.
+                sampler = getattr(loader, "sampler", None)
+                if sampler is not None and hasattr(sampler, "set_epoch"):
+                    sampler.set_epoch(0)
+                ds = getattr(loader, "dataset", None)
+                if ds is not None and hasattr(ds, "set_epoch"):
+                    ds.set_epoch(0)
 
-                x_spatial = self._tokens_to_spatial(x_tokens)
-
-                # 1. Existing flow loss
-                cond_num = int(self.cfg.dataset.cond_num)
-                z_t, e, timestep = self.flow_noising(x_spatial, context=cond_num, mu=self.cfg.model.mu, sigma=self.cfg.model.sigma)
-
-                with self.autocast:
-                    pred = self.vit(x=z_t, ada_cond=timestep, cross_cond=None, return_feat=False)
-                    loss_flow = self.flow_loss(pred=pred, x=x_spatial, z_t=z_t, e=e, t=timestep, context=cond_num)
-
-                total_loss_flow += loss_flow.detach().float().item() * B
-
-                # 2. Sample spatial tokens (condition on first cond_num frames)
-                z = torch.randn_like(x_spatial)
-                z[:, :, :cond_num] = x_spatial[:, :, :cond_num]
-                gen_spatial = flow_euler_sample(
-                    self._ema_model(), z,
-                    pred_mode=self.cfg.model.pred_mode,
-                    context=cond_num,
-                    num_steps=eval_num_steps,
-                    autocast_ctx=self.autocast
-                )
-                
-                # 3. Convert back to tokens
-                gen = self._spatial_to_tokens(gen_spatial)
-                gen = gen.squeeze(-1).transpose(-1, -2).contiguous() # (B, V, S, C)
-                
-                # 4. Decode
-                height, width = batch["output_resolution_hw"]
-                decoded = self.occ_rae.decode({"tokens": gen, "H": height, "W": width})
-                
-                # 5. Compute metrics (forecast frames only)
-                if "gt_mask" in batch:
-                    ray_conf = decoded.get("ray_conf")
-
-                    loss_pm, loss_d, loss_ray = self._compute_frame_losses(
-                        decoded, batch, slice(cond_num, None), ray_conf, B, height, width
-                    )
-                    total_loss_pm += loss_pm.item() * B
-                    total_loss_d += loss_d.item() * B
-                    total_loss_ray += loss_ray.item() * B
-
-                    # Context frame losses
-                    if cond_num > 0:
-                        loss_pm_ctx, loss_d_ctx, loss_ray_ctx = self._compute_frame_losses(
-                            decoded, batch, slice(0, cond_num), ray_conf, B, height, width
-                        )
-                        total_loss_pm_ctx += loss_pm_ctx.item() * B
-                        total_loss_d_ctx += loss_d_ctx.item() * B
-                        total_loss_ray_ctx += loss_ray_ctx.item() * B
-
-                    if self.is_master and num_visualizations < eval_num_visualizations:
-                        for batch_idx in range(B):
-                            if num_visualizations >= eval_num_visualizations:
-                                break
-
-                            view_order = sorted(
-                                range(V),
-                                key=lambda idx: batch["timesteps"][batch_idx][idx],
-                            )
-                            view_index = torch.as_tensor(view_order, dtype=torch.long)
-                            gt_depth = batch["gt_depth"][batch_idx].detach().cpu()[view_index]
-                            gt_mask = batch["gt_mask"][batch_idx].detach().cpu()[view_index]
-                            gt_depth_color = torch.stack([
-                                torch.from_numpy(
-                                    depth2rgb(
-                                        gt_depth[t].clamp(0, 50).numpy(),
-                                        valid_mask=gt_mask[t].numpy().astype(bool),
-                                        min_depth=0.0,
-                                        max_depth=50.0,
-                                    ).astype(np.float32)
-                                )
-                                for t in range(V)
-                            ])
-                            context_set = set(range(cond_num))
-                            ctx_mask = [v in context_set for v in view_order]
-                            _log_viz_sample(
-                                batch=batch,
-                                decoded=decoded,
-                                batch_idx=batch_idx,
-                                epoch=self.cfg.training.global_epoch,
-                                epoch_step=self.cfg.training.iter,
-                                output_dir=eval_viz_dir,
-                                log_writer=self.writer,
-                                tb_prefix="eval_depth",
-                                extra_panels=[gt_depth_color],
-                                view_order=view_order,
-                                max_depth=50.0,
-                                context_mask=ctx_mask,
-                            )
-                            num_visualizations += 1
-
-                items_seen += B
+                # SLURM-friendly progress: MetricLogger prints one flushed line
+                # per print_freq batches (master only, matching tqdm's disable).
                 if self.is_master:
-                    pbar.set_postfix(loss=loss_flow.item())
+                    metric_logger = MetricLogger(delimiter="  ")
+                    batch_iter = metric_logger.log_every(
+                        loader,
+                        int(self.cfg.training.get("print_freq", 20)),
+                        header=f"Evaluating {test_name} (Epoch {self.cfg.training.global_epoch})",
+                    )
+                else:
+                    batch_iter = loader
 
-        # Final reduction
-        metrics_sum = torch.tensor([
-            total_loss_flow, total_loss_pm, total_loss_d, total_loss_ray,
-            total_loss_pm_ctx, total_loss_d_ctx, total_loss_ray_ctx,
-            float(items_seen),
-        ], device=self.device)
-        if self.distributed:
-            dist.all_reduce(metrics_sum, op=dist.ReduceOp.SUM)
+                for batch in batch_iter:
+                    if items_seen >= eval_num_items:
+                        break
+                    batch = self._normalize_batch(batch)
 
-        n = metrics_sum[7]
-        final_loss_flow = (metrics_sum[0] / n).item()
-        final_loss_pm = (metrics_sum[1] / n).item()
-        final_loss_d = (metrics_sum[2] / n).item()
-        final_loss_ray = (metrics_sum[3] / n).item()
-        final_loss_pm_ctx = (metrics_sum[4] / n).item()
-        final_loss_d_ctx = (metrics_sum[5] / n).item()
-        final_loss_ray_ctx = (metrics_sum[6] / n).item()
+                    imgs = batch["imgs"].to(self.device, non_blocking=True)  # (B, V, 3, H, W)
+                    B, V = imgs.shape[:2]
+                    num_cameras = int(batch.get("num_cameras", 1))
 
-        if self.is_master and not sanity_check:
-            self.log_add_scalar('Eval/LossFlow', final_loss_flow, self.cfg.training.iter)
-            self.log_add_scalar('Eval/LossPointmap', final_loss_pm, self.cfg.training.iter)
-            self.log_add_scalar('Eval/LossDepth', final_loss_d, self.cfg.training.iter)
-            self.log_add_scalar('Eval/LossRaymap', final_loss_ray, self.cfg.training.iter)
-            self.log_add_scalar('Eval/LossPointmap_ctx', final_loss_pm_ctx, self.cfg.training.iter)
-            self.log_add_scalar('Eval/LossDepth_ctx', final_loss_d_ctx, self.cfg.training.iter)
-            self.log_add_scalar('Eval/LossRaymap_ctx', final_loss_ray_ctx, self.cfg.training.iter)
+                    tokens, feats, _, _, H, W = self._extract_pair_feats(imgs, num_cameras=num_cameras, return_pairs=False)  # tokens (B, V, N_tok, C); feats (B, T, N, P, C)
+
+                    z = self._encode_deltas(feats, H, W)                          # (B, T-1, N, C) GT delta tokens
+                    x_spatial = z.permute(0, 3, 1, 2).unsqueeze(-1).contiguous()  # (B, C, T-1, N, 1) flow latent layout
+                    cross_cond = self._build_cross_cond(feats[:, 0], H, W)        # (B, N, Hp, Wp, C) frame-0 conditioning
+
+                    batch_losses = {}
+
+                    # 1. Sample delta tokens from pure noise (conditioning only via cross_cond).
+                    zr = torch.randn_like(x_spatial)                              # (B, C, T-1, N, 1) init noise
+                    gen = flow_euler_sample(
+                        self._ema_model(), zr,
+                        pred_mode=self.cfg.model.pred_mode,
+                        context=0,
+                        num_steps=eval_num_steps,
+                        cross_cond=cross_cond,
+                        autocast_ctx=self.autocast,
+                    )
+                    z_hat = gen.squeeze(-1).permute(0, 2, 3, 1).contiguous()      # (B, T-1, N, C) sampled deltas
+
+                    if "gt_mask" in batch:
+                        height, width = batch["output_resolution_hw"]
+
+                        # 2. Autoregressive DeltaTok decode from the GT first frame:
+                        #    sampled deltas + GT-delta upper bound (tokenizer-only error).
+                        with self.autocast:
+                            x_hat = self._rollout_from_z(self.deltatok, feats[:, 0], z_hat, H, W, num_cameras)     # (B*(T-1), N, P, C)
+                            x_hat_tok = self._rollout_from_z(self.deltatok, feats[:, 0], z, H, W, num_cameras)     # (B*(T-1), N, P, C)
+
+                        # 3. Stitch into full token tensors (GT timestep 0 + prefix tokens), decode with OccRAE.
+                        full_tokens = self._reconstruct_full_tokens(tokens, x_hat, B, V, num_cameras=num_cameras)          # (B, V, N_tok, C)
+                        full_tokens_tok = self._reconstruct_full_tokens(tokens, x_hat_tok, B, V, num_cameras=num_cameras)  # (B, V, N_tok, C)
+                        with self.autocast:
+                            decoded = self._decode_tokens(full_tokens, height, width, num_cameras=num_cameras)
+                            decoded_tok = self._decode_tokens(full_tokens_tok, height, width, num_cameras=num_cameras)
+
+                        ray_conf = decoded.get("ray_conf")
+                        ray_conf_tok = decoded_tok.get("ray_conf")
+
+                        # 4. Losses on forecast views only: timestep 0 (num_cameras
+                        # views) carries GT tokens (the rollout seed), not predictions.
+                        pred_slice = slice(num_cameras, V)
+                        loss_pm, loss_d, loss_ray = self._compute_frame_losses(
+                            decoded, batch, pred_slice, ray_conf, B, height, width
+                        )
+                        loss_pm_tok, loss_d_tok, loss_ray_tok = self._compute_frame_losses(
+                            decoded_tok, batch, pred_slice, ray_conf_tok, B, height, width
+                        )
+                        batch_losses.update({
+                            "LossPointmap": loss_pm.item(),
+                            "LossDepth": loss_d.item(),
+                            "LossRaymap": loss_ray.item(),
+                            "LossPointmap_tok": loss_pm_tok.item(),
+                            "LossDepth_tok": loss_d_tok.item(),
+                            "LossRaymap_tok": loss_ray_tok.item(),
+                        })
+
+                        if self.is_master and num_vis < eval_num_visualizations:
+                            for batch_idx in range(B):
+                                if num_vis >= eval_num_visualizations:
+                                    break
+
+                                view_order = sorted(
+                                    range(V),
+                                    key=lambda idx: batch["timesteps"][batch_idx][idx],
+                                )
+                                # Timestep-0 views carry GT tokens (rollout seed); mark them
+                                # with a colored border instead of blanking them.
+                                ctx_mask = [v < num_cameras for v in view_order]
+                                view_index = torch.as_tensor(view_order, dtype=torch.long)
+                                gt_depth = batch["gt_depth"][batch_idx].detach().cpu()[view_index]   # (V, H, W) time-ordered
+                                gt_mask = batch["gt_mask"][batch_idx].detach().cpu()[view_index]     # (V, H, W)
+                                gt_depth_color = torch.stack([
+                                    torch.from_numpy(
+                                        depth2rgb(
+                                            gt_depth[t].clamp(0, 50).numpy(),
+                                            valid_mask=gt_mask[t].numpy().astype(bool),
+                                            min_depth=0.0,
+                                            max_depth=50.0,
+                                        ).astype(np.float32)
+                                    )
+                                    for t in range(V)
+                                ])
+                                tok_depth = decoded_tok["depth"][batch_idx].detach().float().cpu()[view_index]  # (V, H, W)
+                                tok_depth_color = torch.stack([
+                                    torch.from_numpy(
+                                        depth2rgb(
+                                            tok_depth[t].clamp(0, 50).numpy(),
+                                            valid_mask=tok_depth[t].numpy() > 0,
+                                            min_depth=0.0,
+                                            max_depth=50.0,
+                                        ).astype(np.float32)
+                                    )
+                                    for t in range(V)
+                                ])
+
+                                saved_path = _log_viz_sample(
+                                    batch=batch,
+                                    decoded=decoded,
+                                    batch_idx=batch_idx,
+                                    epoch=self.cfg.training.global_epoch,
+                                    epoch_step=self.cfg.training.iter,
+                                    output_dir=eval_viz_dir,
+                                    log_writer=self.writer,
+                                    tb_prefix=f"eval_depth/{test_name}",
+                                    extra_panels=[tok_depth_color, gt_depth_color],
+                                    view_order=view_order,
+                                    max_depth=50.0,
+                                    context_mask=ctx_mask,
+                                    col_titles=[
+                                        "RGB",
+                                        "Pred Depth (Flow)",
+                                        "Pred Depth (GT-z)",
+                                        "GT Depth",
+                                    ],
+                                )
+                                if saved_path is not None:
+                                    print(f"Saved viz: {saved_path}")
+                                num_vis += 1
+
+                    # Only GT batches enter the metric sums AND the denominator;
+                    # counting GT-less batches would silently dilute metrics to 0.
+                    if batch_losses:
+                        for key, val in batch_losses.items():
+                            sums[key] += val * B
+                        gt_items += B
+                    items_seen += B
+                    if self.is_master and "LossPointmap" in batch_losses:
+                        metric_logger.update(loss=batch_losses["LossPointmap"])
+
+                # Per-loader reduction over a fixed key vector (DDP-safe: every
+                # rank reduces the same shape even if some saw no GT batches).
+                vec = torch.tensor(
+                    [sums[k] for k in _EVAL_KEYS] + [float(gt_items)],
+                    device=self.device, dtype=torch.float64,
+                )
+                if self.distributed:
+                    dist.all_reduce(vec, op=dist.ReduceOp.SUM)
+                n = vec[-1].item()
+                if n == 0:
+                    continue
+                results = {k: (vec[i] / n).item() for i, k in enumerate(_EVAL_KEYS)}
+
+                overall_loss += results["LossPointmap"] * n
+                overall_n += n
+
+                if self.is_master and not sanity_check:
+                    for key, val in results.items():
+                        self.log_add_scalar(f"Eval/{test_name}/{key}", val, self.cfg.training.iter)
+                    if self.writer is None:
+                        metrics_str = ", ".join(f"{k}={v:.4f}" for k, v in results.items())
+                        print(f"[Eval/{test_name}] {metrics_str}")
+
+        final_loss = overall_loss / overall_n if overall_n > 0 else 0.0
 
         self.vit.train()
-        return final_loss_flow
+        return final_loss
 
-    def _build_occ_rae(self):
-        if self.occ_rae is not None:
-            return
-        self.occ_rae = OccRAE(
-            weights_path=self.cfg.model.occany_recon_ckpt,
-            device=str(self.device),
-            encode_layer=int(self.cfg.model.encode_layer),
-        )
-        self.occ_rae.eval()
-        if self.is_master:
-            print(f"[INFO] Built shared OccRAE encoder at 518x518, "
-                  f"encode_layer={int(self.cfg.model.encode_layer)}")
+    # _build_occ_rae comes from DeltaTokSharedMixin (frozen + bf16 cast).
 
     def fit(self, log_iter=1000):
-        # Build sequence records and load PreprocessedSequenceDataset
-        preprocess_data_root = Path(self.cfg.dataset.preprocess_data_root).expanduser().resolve()
-        
-        train_processed_roots = self.cfg.dataset.get("processed_roots")
-        if not train_processed_roots:
-            from occrae.dataset.preprocessed_sequence import DEFAULT_TRAIN_PROCESSED_ROOTS
-            train_processed_roots = list(DEFAULT_TRAIN_PROCESSED_ROOTS)
-            
-        use_seq_cache = True
-        train_records, train_stats = build_sequence_records(
-            preprocess_data_root=preprocess_data_root,
-            processed_roots=train_processed_roots,
-            subsampling_rate=self.cfg.dataset.subsampling_rate,
-            max_stride=self.cfg.dataset.max_stride,
-            frame_stride=self.cfg.dataset.get("frame_stride"),
-            use_cache=use_seq_cache,
-        )
+        # Build train/test loaders via `get_data_loader` (dust3r-style dataset
+        # expression strings), mirroring DeltaTokTrainer.fit.
+        train_dataset_str = str(self.cfg.dataset.train_dataset)
+        test_dataset_str = self.cfg.dataset.get("test_dataset", None)
+        per_dataset_sampling = bool(self.cfg.dataset.get("per_dataset_sampling", False))
+
         if self.is_master:
-            print(f"Train dataset stats: {train_stats}")
-
-        max_train = int(self.cfg.dataset.get("max_train_samples", -1))
-        if max_train > 0:
-            train_records = train_records[:max_train]
-            repeat_count = max(1, self.cfg.training.virtual_epoch * self.world_size)
-            train_records = train_records * repeat_count
-            if self.is_master:
-                print(f"[OVERFIT] Limiting to {max_train} train sample(s), repeated {repeat_count}x -> {len(train_records)} records")
-
-        self.train_data = PreprocessedSequenceDataset(
-            preprocess_data_root=preprocess_data_root,
-            records=train_records,
-            load_gt=True,
-        )
-        self.train_sampler = ProcessedRootBatchSampler(
-            self.train_data,
+            print(f"Building train dataset: {train_dataset_str}")
+            print(f"Per-dataset sampling: {per_dataset_sampling}")
+        self.train_loader = get_data_loader(
+            train_dataset_str,
             batch_size=self.cfg.training.bsize,
+            num_workers=self.cfg.training.num_workers,
             shuffle=True,
             drop_last=True,
-            seed=self.cfg.training.seed,
-            rank=self.rank,
-            world_size=self.world_size
-        )
-        
-        self.train_loader = DataLoader(
-            self.train_data,
-            batch_sampler=self.train_sampler,
-            num_workers=self.cfg.training.num_workers,
-            pin_memory=True,
-            collate_fn=collate_preprocessed,
+            per_dataset_sampling=per_dataset_sampling,
         )
 
-        try:
-            val_processed_roots = self.cfg.dataset.get("val_processed_roots", self.cfg.dataset.get("processed_roots"))
-            if not val_processed_roots:
-                from occrae.dataset.preprocessed_sequence import DEFAULT_VAL_PROCESSED_ROOTS
-                val_processed_roots = list(DEFAULT_VAL_PROCESSED_ROOTS)
-                
-            val_records, val_stats = build_sequence_records(
-                preprocess_data_root=preprocess_data_root,
-                processed_roots=val_processed_roots,
-                subsampling_rate=self.cfg.dataset.subsampling_rate,
-                max_stride=self.cfg.dataset.max_stride,
-                frame_stride=self.cfg.dataset.get("frame_stride"),
-                use_cache=use_seq_cache,
-            )
+        # One DataLoader per `+`-separated sub-dataset so each test set runs in
+        # its own eval pass and logs under its own TensorBoard prefix.
+        self.test_loaders: dict = {}
+        if test_dataset_str:
+            test_dataset_str = str(test_dataset_str)
             if self.is_master:
-                print(f"Val dataset stats: {val_stats}")
-
-            max_val = int(self.cfg.dataset.get("max_val_samples", -1))
-            if max_val > 0:
-                val_records = val_records[:max_val]
-                repeat_count = max(1, self.world_size)
-                val_records = val_records * repeat_count
-                if self.is_master:
-                    print(f"[OVERFIT] Limiting to {max_val} val sample(s), repeated {repeat_count}x -> {len(val_records)} records")
-
-            self.test_data = PreprocessedSequenceDataset(
-                preprocess_data_root=preprocess_data_root,
-                records=val_records,
-                load_gt=True,
-            )
-            self.test_sampler = ProcessedRootBatchSampler(
-                self.test_data,
-                batch_size=self.cfg.training.bsize,
-                shuffle=False,
-                drop_last=False,
-                seed=self.cfg.training.seed,
-                rank=self.rank,
-                world_size=self.world_size,
-            )
-            self.test_loader = DataLoader(
-                self.test_data,
-                batch_sampler=self.test_sampler,
-                num_workers=self.cfg.training.num_workers,
-                pin_memory=True,
-                collate_fn=collate_preprocessed,
-            )
-        except Exception as e:
-            print(f"Eval dataset not loaded or error: {e}")
-            self.test_loader = None
-
-        # Build the shared frozen OccRAE encoder once for online token extraction.
-        self._build_occ_rae()
+                print(f"Building test datasets: {test_dataset_str}")
+            for sub in test_dataset_str.split("+"):
+                sub = sub.strip()
+                if not sub:
+                    continue
+                test_name = sub.split("(")[0].strip()
+                try:
+                    loader = get_data_loader(
+                        sub,
+                        batch_size=self.cfg.training.bsize,
+                        num_workers=int(self.cfg.training.get("val_num_workers", 2)),
+                        shuffle=False,
+                        drop_last=False,
+                    )
+                    self.test_loaders[test_name] = loader
+                    if self.is_master:
+                        print(f"  - {test_name}: {len(loader)} batches")
+                except Exception as e:
+                    if self.is_master:
+                        print(f"  - {test_name}: failed to build ({e})")
 
         if self.is_master:
             print("Start training:")
 
         # Initial evaluation for sanity check
-        if self.test_loader is not None:
+        if self.test_loaders:
             if self.is_master:
                 print("Running initial evaluation for sanity check...")
             self.eval_one_epoch(sanity_check=True)
@@ -846,10 +827,8 @@ class DeltaTokFlowMatchingTrainer(Trainer):
             if self.cfg.training.iter >= self.cfg.training.max_iter:
                 print("End of training: reached max iterations")
                 break
-            
-            if self.distributed:
-                self.train_sampler.set_epoch(e)
 
+            # Train-sampler epochs are advanced by _reset_train_iterator.
             train_loss = self.train_one_epoch(log_iter=log_iter, virtual_epoch=self.cfg.training.virtual_epoch)
             test_loss = self.eval_one_epoch()
 

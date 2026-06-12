@@ -23,6 +23,6 @@ export TORCH_NCCL_HEARTBEAT_TIMEOUT_SEC="${TORCH_NCCL_HEARTBEAT_TIMEOUT_SEC:-100
 cd "$HOME/deltatok"
 
 export CONFIG_NAME=train_deltatok_flow_karolina
-export RESULTS_DIR="/mnt/proj1/eu-25-92/occrae_log"
+export RESULTS_DIR="/mnt/proj1/eu-25-92/deltatok_flow_log"
 
 srun --cpu-bind=none bash sh/train_deltatok_flow.sh

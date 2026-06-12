@@ -3,8 +3,8 @@ set -euo pipefail
 
 : "${CONFIG_DIR:=configs}"
 : "${CONFIG_NAME:=train_deltatok_flow}"
-: "${RESULTS_DIR:=/gpfs/scratch/ehpc558/quan/occrae_output}"
-: "${RUN_NAME:=occrae_flow}"
+: "${RESULTS_DIR:=/mnt/proj1/eu-25-92/deltatok_flow_log}"
+: "${RUN_NAME:=deltatok_flow}"
 : "${PRECISION:=bf16}"
 : "${NUM_GPU_PER_NODE:=${SLURM_GPUS_ON_NODE:-1}}"
 

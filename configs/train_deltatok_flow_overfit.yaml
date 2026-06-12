@@ -1,42 +1,29 @@
-exp_name: "overfit_ctx2pred2"
+defaults:
+  - train_deltatok_flow
+  - _self_
+
+exp_name: "deltatok_flow_overfit"
 
 dataset:
-  preprocess_data_root: /gpfs/scratch/ehpc558/quan/occrae_data
-  subsampling_rate: 5
-  max_stride: 3
-  frame_stride: 1
-  cond_num: 2
-  processed_roots: ["ddad_processed"]
-  val_processed_roots: ["ddad_processed"]
-  max_train_samples: 1
-  max_val_samples: 1
-
-model:
-  vit_size: "xlarge"
-  num_views: 4
-  pred_mode: "x"
-  loss_mode: "v"
-  mu: -0.7
-  sigma: 1.4
-  occany_recon_ckpt: "checkpoints/occany_plus_recon_1B.pth"
-  encode_layer: 18
+  # Tiny fixed subset (nuScenes val, surround) for overfit smoke tests; the
+  # same items are used for train and eval.
+  train_dataset: "2 @ Occ3dNuscenesSeqMultiView(NUSCENES_PREPROCESSED_ROOT='/scratch/project/eu-25-92/data/occ3d_nuscenes_processed', \
+      seq_pkl_name='seq_surround_temporal_sub1_stride9_all.pkl', frame_interval=1, \
+      min_memory_num_views=10, max_memory_num_views=10, num_views_per_timestep=6, \
+      z_far=50, split='val', seed=42, no_partial_views=True, fixed_cams=[0,1], \
+      resolution=[(518, 266)], distill_model_name='SAM3', base_model='da3')"
+  test_dataset: "2 @ Occ3dNuscenesSeqMultiView(NUSCENES_PREPROCESSED_ROOT='/scratch/project/eu-25-92/data/occ3d_nuscenes_processed', \
+      seq_pkl_name='seq_surround_temporal_sub1_stride9_all.pkl', frame_interval=1, \
+      min_memory_num_views=10, max_memory_num_views=10, num_views_per_timestep=6, \
+      z_far=50, split='val', seed=42, no_partial_views=True, fixed_cams=[0,1], \
+      resolution=[(518, 266)], distill_model_name='SAM3', base_model='da3')"
 
 training:
-  lr: 1e-4
-  weight_decay: 0.05
-  optimizer: "adamw"
-  use_ema: false
-  dtype: "bfloat16"
-  global_epoch: 0
-  iter: 0
+  # Single-GPU smoke: no accumulation (grad_cum = 1 / (1 * 1)).
+  effective_bsize: 1
   warm_up: 0
-  max_iter: 100000
-  epoch: 100
-  bsize: 1
   num_workers: 0
-  grad_cum: 1
-  grad_clip: 1.0
-  seed: 0
   virtual_epoch: 200
-  eval_num_items: 256
-  eval_num_steps: 50
+  eval_num_items: 2
+  sanity_check_num_items: 2
+  eval_num_visualizations: 2
