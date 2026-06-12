@@ -7,7 +7,8 @@
 #SBATCH --hint=nomultithread
 #SBATCH -C h100
 #SBATCH --account=lwy@h100
-#SBATCH --time=20:00:00
+#SBATCH --qos=qos_gpu_h100-dev
+#SBATCH --time=02:00:00
 #SBATCH --output=slurm/output/jz_train_deltatok_flow_%j.out
 #SBATCH --error=slurm/output/jz_train_deltatok_flow_%j.err
 
@@ -38,5 +39,7 @@ ulimit -n "$(ulimit -Hn)"
 
 export CONFIG_NAME=train_deltatok_flow_jeanzay
 export RESULTS_DIR="/lustre/fswork/projects/rech/trg/uyl37fq/deltatok_flow_log"
+# Resume from <RESULTS_DIR>/deltatok_flow/ckpts/current.pth (fresh start if absent).
+export RESUME=1
 
 srun --cpu-bind=none bash sh/train_deltatok_flow.sh
