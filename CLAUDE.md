@@ -152,6 +152,7 @@ cd third_party/croco/models/curope && python setup.py install
 - **Clarifying questions:** when the request is ambiguous or has multiple reasonable interpretations, use the `AskUserQuestion` tool to confirm before acting.
 - **Task tracking:** any task with more than one step must be tracked with the `TodoWrite` tool. Create todos up front and mark each one completed as soon as it's done.
 - **Edits:** surgical and explainable — change only what the task requires (no drive-by refactors, renames, or reformatting), and explain each edit so a human can verify it easily.
+- **New variant scripts:** when a new script is a variant of an existing one (e.g. a new `visualize_*`/`test_*` entrypoint), copy the closest existing file first (`cp old.py new.py`) and apply surgical edits to it — do not rewrite from scratch. This keeps the shared structure identical and makes the diff reviewable.
 - **Tensor code comments:** comment each line of tensor-manipulation code, and always annotate the resulting tensor shape inline, e.g. `x = rearrange(x, 'b (t s) d -> (b s) t d', t=t, s=s)  # (B*S, T, D)`. Also state what each shape symbol means when it first appears.
 
 ## Key conventions
