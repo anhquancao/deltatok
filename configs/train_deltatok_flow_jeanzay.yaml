@@ -63,5 +63,6 @@ training:
   # trainer derives grad_cum (2 nodes x 4 H100 = 8 ranks x bsize 4 -> grad_cum 1).
   bsize: 16
   # Each batch decodes up to bsize*24 high-res JPEGs per rank; the base
-  # config's 4 workers starve the GPU. gpu_p6 gives 24 cpus/task, so use 16.
-  num_workers: 16
+  # config's 4 workers starve the GPU. gpu_p6 gives 24 cpus/task; 12 workers
+  # keeps prefetch RAM within the per-GPU memory share (24 OOM'd the node).
+  num_workers: 12

@@ -14,7 +14,7 @@ from torch.nn.parallel import DistributedDataParallel as DDP
 from torch.amp import autocast
 
 from occrae.metric_logger import (  # SLURM-friendly line-per-print logging (no tqdm carriage returns)
-    MetricLogger, SmoothedValue, max_cpu_mem_mb, total_cpu_mem_mb, total_gpu_mem_mb,
+    MetricLogger, SmoothedValue, rank_cpu_mem_mb, rank_cpu_budget_mb, total_gpu_mem_mb,
 )
 
 from occrae.abstract_trainer import Trainer
@@ -513,7 +513,7 @@ class DeltaTokFlowMatchingTrainer(DeltaTokSharedMixin, Trainer):
                             f"lr: {self.optim.param_groups[0]['lr']:.6f}  "
                             f"time: {update_time.avg:.4f}  "
                             f"max gpu mem: {gpu_mem_mb:.0f} ({total_gpu_mem_mb():.0f})  "
-                            f"max cpu mem: {max_cpu_mem_mb():.0f} ({total_cpu_mem_mb():.0f})",
+                            f"cpu mem: {rank_cpu_mem_mb():.0f} ({rank_cpu_budget_mb():.0f})",
                             flush=True,
                         )
 

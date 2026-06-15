@@ -1,6 +1,7 @@
 # SLURM-friendly metric logging (one flushed print line per print_freq steps).
 # Copied from third_party/croco/utils/misc.py (MAE-derived), with log_every
-# extended to print peak CPU RSS next to the peak GPU memory.
+# extended to print this rank's CPU RSS (process + its dataloader workers)
+# next to the peak GPU memory.
 import datetime
 import os
 import resource
@@ -172,6 +173,49 @@ def total_cpu_mem_mb():
     return _TOTAL_CPU_MEM_MB
 
 
+def rank_cpu_mem_mb():
+    """Current RSS of this rank's process tree in MB.
+
+    Sums this process plus its children (the rank's own dataloader workers),
+    so the number scales with the per-GPU `num_workers` setting — unlike the
+    cgroup peak, which aggregates every rank co-located on the node. Pages
+    shared copy-on-write between workers are counted once per process, so
+    this slightly overestimates.
+    """
+    try:
+        import psutil
+        proc = psutil.Process()
+        rss = proc.memory_info().rss
+        for child in proc.children(recursive=True):
+            try:
+                rss += child.memory_info().rss
+            except (psutil.NoSuchProcess, psutil.AccessDenied):
+                pass
+        return rss / (1024.0 * 1024.0)
+    except ImportError:
+        # ru_maxrss is this process's lifetime peak (KB on Linux), workers excluded.
+        return resource.getrusage(resource.RUSAGE_SELF).ru_maxrss / 1024.0
+
+
+def rank_cpu_budget_mb():
+    """This rank's share of the job memory limit in MB (limit / local ranks).
+
+    The OOM killer enforces the node-level job limit, so one rank may borrow
+    another's headroom — this is the fair-share guideline, not a hard cap.
+    """
+    local_ranks = 1
+    # torchrun sets LOCAL_WORLD_SIZE; srun-launched DDP sets SLURM_NTASKS_PER_NODE
+    # (which can look like '2(x4)' for multi-node jobs).
+    # SLURM_GPUS_ON_NODE last: one rank per GPU is this repo's launch contract.
+    for var in ('LOCAL_WORLD_SIZE', 'SLURM_NTASKS_PER_NODE', 'SLURM_GPUS_ON_NODE'):
+        raw = os.environ.get(var, '')
+        digits = raw.split('(')[0]
+        if digits.isdigit():
+            local_ranks = max(1, int(digits))
+            break
+    return total_cpu_mem_mb() / local_ranks
+
+
 def total_gpu_mem_mb():
     """Total memory of the current CUDA device in MB (0 if no CUDA)."""
     if not torch.cuda.is_available():
@@ -236,7 +280,7 @@ class MetricLogger(object):
         ]
         if torch.cuda.is_available():
             log_msg.append('max gpu mem: {gpu_memory:.0f} ({gpu_total:.0f})')
-        log_msg.append('max cpu mem: {cpu_memory:.0f} ({cpu_total:.0f})')
+        log_msg.append('cpu mem: {cpu_rank:.0f} ({cpu_rank_budget:.0f})')
         log_msg = self.delimiter.join(log_msg)
         MB = 1024.0 * 1024.0
         for it, obj in enumerate(iterable):
@@ -253,15 +297,15 @@ class MetricLogger(object):
                         time=str(iter_time), data=str(data_time),
                         gpu_memory=torch.cuda.max_memory_allocated() / MB,
                         gpu_total=total_gpu_mem_mb(),
-                        cpu_memory=max_cpu_mem_mb(),
-                        cpu_total=total_cpu_mem_mb()), flush=True)
+                        cpu_rank=rank_cpu_mem_mb(),
+                        cpu_rank_budget=rank_cpu_budget_mb()), flush=True)
                 else:
                     print(log_msg.format(
                         i, len_iterable, eta=eta_string,
                         meters=str(self),
                         time=str(iter_time), data=str(data_time),
-                        cpu_memory=max_cpu_mem_mb(),
-                        cpu_total=total_cpu_mem_mb()), flush=True)
+                        cpu_rank=rank_cpu_mem_mb(),
+                        cpu_rank_budget=rank_cpu_budget_mb()), flush=True)
             i += 1
             end = time.time()
             if max_iter and it >= max_iter:
