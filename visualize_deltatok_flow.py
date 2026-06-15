@@ -24,12 +24,14 @@ views are decoded jointly here so the whole sequence shares one coordinate
 frame (DA3 ``ref_view_strategy="first"``), which is what viser needs.
 
 Usage (on Karolina, from ~/deltatok):
-  conda activate occany
+  conda activate occany && source env_bsc.sh
   python visualize_deltatok_flow.py \
       --config-name train_deltatok_flow_karolina \
       --ckpt /mnt/proj1/eu-25-92/deltatok_flow_log/deltatok_flow/ckpts/iter_050000.pth \
       --output_dir results/deltatok_flow_viser \
       --num_scenes 2 --num_steps 50
+  # Flow generation always decodes per-variant RGB with the OccRAE MAE image
+  # decoder (point colours + saved PNGs).
 
 Then locally:
   python vis_viser.py --input_folder results/deltatok_flow_viser/<test_name>
@@ -96,11 +98,30 @@ def get_args_parser() -> argparse.ArgumentParser:
         help="Only run test datasets whose name contains this substring "
              "(e.g. 'Kitti' or 'Nuscenes').",
     )
+    # Image-decoder spec. Flow generation ALWAYS decodes RGB with the OccRAE MAE
+    # image decoder (per-variant point colours + saved PNGs); the flow config has
+    # no img_decoder block (unlike the tokenizer config), so it is supplied here.
+    # These mirror the img_decoder block of configs/train_deltatok.yaml /
+    # test_occ_rae.py flags.
     parser.add_argument(
-        "--use_img_decoder", action="store_true", default=False,
-        help="Keep the config's pretrained image decoder and use the RGB it "
-             "reconstructs from each token variant as point colours (also saves "
-             "PNGs). Off by default: colours come from the GT input images.",
+        "--img_decoder_ckpt", type=str,
+        default="/mnt/proj1/eu-25-92/occrae_output/occrae_img_decoder/ckpts/current.pt",
+        help="MAE image-decoder checkpoint (occrae_img_decoder current.pt).",
+    )
+    parser.add_argument(
+        "--img_decoder_config_path", type=str,
+        default="third_party/GLD/configs/decoder/ViTXL",
+    )
+    parser.add_argument("--img_decoder_hidden_size", type=int, default=9216)
+    parser.add_argument("--img_decoder_patch_size", type=int, default=14)
+    parser.add_argument(
+        "--no_ema_decoder", action="store_true", default=False,
+        help="Use the raw (non-EMA) image-decoder weights.",
+    )
+    parser.add_argument(
+        "--img_decoder_view_chunk", type=int, default=0,
+        help="Decode RGB in chunks of this many views (0 = all at once). "
+             "Raise it if surround decode_to_image OOMs.",
     )
     return parser
 
@@ -147,8 +168,18 @@ def main() -> None:
         if args.occany_recon_ckpt:
             cfg.model.occany_recon_ckpt = args.occany_recon_ckpt
         cfg.model.encode_layer = int(args.encode_layer)
-        if not args.use_img_decoder and cfg.model.get("img_decoder", None) is not None:
-            cfg.model.img_decoder.ckpt_path = None
+        # Flow generation always decodes RGB: the flow config has no img_decoder
+        # block (unlike the tokenizer config), so inject one from the CLI args —
+        # OccRAE._build_occ_rae then loads the MAE decoder and decode_to_image
+        # yields per-variant RGB. Defaults mirror configs/train_deltatok.yaml.
+        cfg.model.img_decoder = {
+            "ckpt_path": args.img_decoder_ckpt,
+            "config_path": args.img_decoder_config_path,
+            "hidden_size": int(args.img_decoder_hidden_size),
+            "patch_size": int(args.img_decoder_patch_size),
+            "use_ema": not args.no_ema_decoder,
+            "view_chunk_size": int(args.img_decoder_view_chunk),
+        }
         # No TensorBoard; vit_folder is only used by get_network's makedirs and
         # the (unused, resume=False) resume path — keep it inside output_dir.
         cfg.training.writer_log = ""
