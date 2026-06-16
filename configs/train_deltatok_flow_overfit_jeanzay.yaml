@@ -5,17 +5,18 @@ defaults:
 exp_name: "deltatok_flow_overfit"
 
 dataset:
-  # Same tiny 2-item nuScenes overfit subset as train_deltatok_flow_overfit, but
-  # on the Jean Zay fsn1 root (the Karolina /scratch path is not mounted on JZ).
-  train_dataset: "2 @ Occ3dNuscenesSeqMultiView(NUSCENES_PREPROCESSED_ROOT='/lustre/fsn1/projects/rech/trg/uyl37fq/occany_data/occ3d_nuscenes_processed', \
+  # Single fixed nuScenes sample (max_seqs=1) repeated 256x for train, on the
+  # Jean Zay fsn1 root (the Karolina /scratch path is not mounted on JZ).
+  # training.bsize/effective_bsize=32 is inherited from train_deltatok_flow_overfit.
+  train_dataset: "256 @ Occ3dNuscenesSeqMultiView(NUSCENES_PREPROCESSED_ROOT='/lustre/fsn1/projects/rech/trg/uyl37fq/occany_data/occ3d_nuscenes_processed', \
       seq_pkl_name='seq_surround_temporal_sub1_stride9_all.pkl', frame_interval=1, \
       min_memory_num_views=10, max_memory_num_views=10, num_views_per_timestep=6, \
-      z_far=50, split='val', seed=42, no_partial_views=True, fixed_cams=[0,1], \
+      z_far=50, split='val', seed=42, no_partial_views=True, fixed_cams=[0,1], max_seqs=1, \
       resolution=[(518, 266)], distill_model_name='SAM3', base_model='da3')"
   test_dataset: "2 @ Occ3dNuscenesSeqMultiView(NUSCENES_PREPROCESSED_ROOT='/lustre/fsn1/projects/rech/trg/uyl37fq/occany_data/occ3d_nuscenes_processed', \
       seq_pkl_name='seq_surround_temporal_sub1_stride9_all.pkl', frame_interval=1, \
       min_memory_num_views=10, max_memory_num_views=10, num_views_per_timestep=6, \
-      z_far=50, split='val', seed=42, no_partial_views=True, fixed_cams=[0,1], \
+      z_far=50, split='val', seed=42, no_partial_views=True, fixed_cams=[0,1], max_seqs=1, \
       resolution=[(518, 266)], distill_model_name='SAM3', base_model='da3')"
 
 model:
