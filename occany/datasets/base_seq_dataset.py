@@ -63,8 +63,9 @@ class EasyDataset_OccAny(EasyDataset):
 class BaseSeqDataset (BaseStereoViewDataset):
 
     def __init__(self, *args, ROOT, seq_pkl_name,
-                 distill_model_name="SAM2", distill_img_size=None, img_size=512, 
+                 distill_model_name="SAM2", distill_img_size=None, img_size=512,
                  base_model="must3r",
+                 max_seqs=None,
                  **kwargs):
 
         super().__init__(*args, **kwargs)
@@ -87,6 +88,10 @@ class BaseSeqDataset (BaseStereoViewDataset):
         self.img_ext = ".jpg"
         self.num_views = 3
         self._load_data()
+        if max_seqs is not None:
+            # Overfit/smoke knob: keep only the first `max_seqs` sequences so the
+            # dataset can be pinned to a tiny fixed subset.
+            self.seqs = self.seqs[:max_seqs]
         self.is_metric_scale = True
     
     def __len__(self):
