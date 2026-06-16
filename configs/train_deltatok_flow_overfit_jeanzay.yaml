@@ -1,0 +1,35 @@
+defaults:
+  - train_deltatok_flow_overfit
+  - _self_
+
+exp_name: "deltatok_flow_overfit"
+
+dataset:
+  # Same tiny 2-item nuScenes overfit subset as train_deltatok_flow_overfit, but
+  # on the Jean Zay fsn1 root (the Karolina /scratch path is not mounted on JZ).
+  train_dataset: "2 @ Occ3dNuscenesSeqMultiView(NUSCENES_PREPROCESSED_ROOT='/lustre/fsn1/projects/rech/trg/uyl37fq/occany_data/occ3d_nuscenes_processed', \
+      seq_pkl_name='seq_surround_temporal_sub1_stride9_all.pkl', frame_interval=1, \
+      min_memory_num_views=10, max_memory_num_views=10, num_views_per_timestep=6, \
+      z_far=50, split='val', seed=42, no_partial_views=True, fixed_cams=[0,1], \
+      resolution=[(518, 266)], distill_model_name='SAM3', base_model='da3')"
+  test_dataset: "2 @ Occ3dNuscenesSeqMultiView(NUSCENES_PREPROCESSED_ROOT='/lustre/fsn1/projects/rech/trg/uyl37fq/occany_data/occ3d_nuscenes_processed', \
+      seq_pkl_name='seq_surround_temporal_sub1_stride9_all.pkl', frame_interval=1, \
+      min_memory_num_views=10, max_memory_num_views=10, num_views_per_timestep=6, \
+      z_far=50, split='val', seed=42, no_partial_views=True, fixed_cams=[0,1], \
+      resolution=[(518, 266)], distill_model_name='SAM3', base_model='da3')"
+
+model:
+  # Frozen tokenizer ckpt, copied into the repo on Jean Zay (same as the JZ base
+  # config train_deltatok_flow_jeanzay.yaml). encode_layer: 12 is inherited.
+  deltatok_ckpt: "checkpoints/deltatok_surround_constGlobalRope_layer12.pth"
+  # MAE-style image decoder for eval-time RGB viz. Synced from Karolina's
+  # /mnt/proj1/eu-25-92/occrae_output/occrae_img_decoder/ckpts/current.pt to
+  # checkpoints/occrae_img_decoder.pt on Jean Zay. When ckpt_path is set,
+  # eval_one_epoch decodes RGB (and BEV poses) alongside the depth panels.
+  img_decoder:
+    ckpt_path: "checkpoints/occrae_img_decoder.pt"
+    config_path: "third_party/GLD/configs/decoder/ViTXL"
+    hidden_size: 9216
+    patch_size: 14
+    use_ema: true
+    view_chunk_size: 0

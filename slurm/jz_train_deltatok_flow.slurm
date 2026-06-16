@@ -1,8 +1,8 @@
 #!/bin/bash
 #SBATCH --job-name=deltatok_flow
 #SBATCH --nodes=1
-#SBATCH --ntasks-per-node=2
-#SBATCH --gres=gpu:2
+#SBATCH --ntasks-per-node=1
+#SBATCH --gres=gpu:1
 #SBATCH --cpus-per-task=24
 #SBATCH --hint=nomultithread
 #SBATCH -C h100
@@ -37,9 +37,14 @@ export TORCH_NCCL_HEARTBEAT_TIMEOUT_SEC="${TORCH_NCCL_HEARTBEAT_TIMEOUT_SEC:-100
 # file_descriptor shm strategy holds an fd per shared tensor per worker
 ulimit -n "$(ulimit -Hn)"
 
-export CONFIG_NAME=train_deltatok_flow_jeanzay
+# Overfit debug run: tiny 2-item nuScenes subset, single GPU (effective_bsize=1
+# requires world_size==1, else the grad_cum assertion in the trainer fails).
+export CONFIG_NAME=train_deltatok_flow_overfit_jeanzay
 export RESULTS_DIR="/lustre/fswork/projects/rech/trg/uyl37fq/deltatok_flow_log"
-# Resume from <RESULTS_DIR>/deltatok_flow/ckpts/current.pth (fresh start if absent).
-export RESUME=1
+# Distinct run name so the overfit ckpts/viz land in their own subdir and don't
+# clobber the real deltatok_flow run.
+export RUN_NAME=deltatok_flow_overfit_v2
+# Fresh start each debug run (don't resume a prior overfit ckpt).
+export RESUME=0
 
 srun --cpu-bind=none bash sh/train_deltatok_flow.sh

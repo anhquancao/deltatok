@@ -21,7 +21,7 @@ from occrae.abstract_trainer import Trainer
 from occrae.network.efficient_transformer import Transformer
 from occrae.network.ema import EMA
 from occrae.deltatok_shared import DeltaTokSharedMixin
-from occrae.visualization_helper import _log_viz_sample
+from occrae.visualization_helper import _build_bev_panel, _log_viz_sample
 from occany.datasets import get_data_loader
 from occany.utils.helpers import depth2rgb
 from occany.loss import PointmapLoss, DepthLosses, RaymapLoss
@@ -31,6 +31,7 @@ from occrae.generation_helper import flow_euler_sample
 # Fixed eval-loss key order so every rank reduces the same-sized vector even
 # when some ranks see batches without GT (missing keys contribute 0).
 _EVAL_KEYS = (
+    "LossFlow",                                              # flow-matching loss (SAME objective as Train/Loss)
     "LossPointmap", "LossDepth", "LossRaymap",                # sampled-delta rollout vs GT (forecast frames)
     "LossPointmap_tok", "LossDepth_tok", "LossRaymap_tok",    # GT-delta rollout (tokenizer upper bound)
 )
@@ -563,7 +564,8 @@ class DeltaTokFlowMatchingTrainer(DeltaTokSharedMixin, Trainer):
             )
         )
 
-        # Overall eval scalar = sampled-rollout pointmap loss across loaders.
+        # Overall eval scalar (-> Eval/Loss) = flow-matching loss across loaders,
+        # the SAME objective as Train/Loss so the two curves are comparable.
         overall_loss = 0.0
         overall_n = 0
 
@@ -663,7 +665,56 @@ class DeltaTokFlowMatchingTrainer(DeltaTokSharedMixin, Trainer):
                             "LossRaymap_tok": loss_ray_tok.item(),
                         })
 
+                        # Flow-matching loss on the eval set: the SAME objective
+                        # as Train/Loss (teacher-forced velocity MSE in delta-token
+                        # space), computed exactly as train_one_epoch does — so
+                        # Eval/Loss is directly comparable to Train/Loss. The
+                        # sampled-rollout pointmap/raymap metrics above measure
+                        # generation quality and stay logged separately per loader.
+                        z_noised, e_noise, t_flow = self.flow_noising(
+                            x_spatial, context=0, mu=self.cfg.model.mu, sigma=self.cfg.model.sigma
+                        )
+                        with self.autocast:
+                            pred_flow = self._ema_model()(
+                                x=z_noised, ada_cond=t_flow, cross_cond=cross_cond, return_feat=False,
+                            )
+                            loss_flow = self.flow_loss(
+                                pred=pred_flow, x=x_spatial, z_t=z_noised, e=e_noise, t=t_flow, context=0,
+                            )
+                        batch_losses["LossFlow"] = loss_flow.item()
+
                         if self.is_master and num_vis < eval_num_visualizations:
+                            # Decode once per visualized batch (skipped on non-viz
+                            # eval batches to avoid the extra cost):
+                            #  - joint poses (all V views in ONE coordinate frame) so
+                            #    the BEV trajectory is consistent; per-timestep
+                            #    `_decode_tokens` poses are NOT (each in its own frame).
+                            #  - RGB via the MAE image decoder when one is loaded.
+                            have_img_dec = getattr(self.occ_rae, "img_decoder", None) is not None
+                            with torch.no_grad(), self.autocast:
+                                pose_flow = self.occ_rae.decode(
+                                    {"tokens": full_tokens, "H": height, "W": width},
+                                    pose_from_depth_ray=True,
+                                )
+                                pose_tok = self.occ_rae.decode(
+                                    {"tokens": full_tokens_tok, "H": height, "W": width},
+                                    pose_from_depth_ray=True,
+                                )
+                            c2w_flow = pose_flow.get("c2w")   # (B, V, 3, 4) or None
+                            c2w_tok = pose_tok.get("c2w")     # (B, V, 3, 4) or None
+                            if have_img_dec:
+                                vcs = getattr(self, "_img_decoder_view_chunk", 0)
+                                with torch.no_grad(), self.autocast:
+                                    rgb_flow_full = self.occ_rae.decode_to_image(
+                                        {"tokens": full_tokens, "H": height, "W": width}, view_chunk_size=vcs
+                                    )                          # (B, V, 3, H, W) in [0, 1]
+                                    rgb_tok_full = self.occ_rae.decode_to_image(
+                                        {"tokens": full_tokens_tok, "H": height, "W": width}, view_chunk_size=vcs
+                                    )
+                                    rgb_gt_full = self.occ_rae.decode_to_image(
+                                        {"tokens": tokens, "H": height, "W": width}, view_chunk_size=vcs
+                                    )
+
                             for batch_idx in range(B):
                                 if num_vis >= eval_num_visualizations:
                                     break
@@ -676,19 +727,6 @@ class DeltaTokFlowMatchingTrainer(DeltaTokSharedMixin, Trainer):
                                 # with a colored border instead of blanking them.
                                 ctx_mask = [v < num_cameras for v in view_order]
                                 view_index = torch.as_tensor(view_order, dtype=torch.long)
-                                gt_depth = batch["gt_depth"][batch_idx].detach().cpu()[view_index]   # (V, H, W) time-ordered
-                                gt_mask = batch["gt_mask"][batch_idx].detach().cpu()[view_index]     # (V, H, W)
-                                gt_depth_color = torch.stack([
-                                    torch.from_numpy(
-                                        depth2rgb(
-                                            gt_depth[t].clamp(0, 50).numpy(),
-                                            valid_mask=gt_mask[t].numpy().astype(bool),
-                                            min_depth=0.0,
-                                            max_depth=50.0,
-                                        ).astype(np.float32)
-                                    )
-                                    for t in range(V)
-                                ])
                                 tok_depth = decoded_tok["depth"][batch_idx].detach().float().cpu()[view_index]  # (V, H, W)
                                 tok_depth_color = torch.stack([
                                     torch.from_numpy(
@@ -702,6 +740,37 @@ class DeltaTokFlowMatchingTrainer(DeltaTokSharedMixin, Trainer):
                                     for t in range(V)
                                 ])
 
+                                # Decoded-RGB panels (Flow / GT-z / GT), pre-indexed to
+                                # time order like the depth panels: (V, 3, H, W) [0,1]
+                                # -> (V, H, W, 3) in [0, 255].
+                                rgb_panels = []
+                                rgb_titles = []
+                                if have_img_dec:
+                                    rgb_flow_b = (rgb_flow_full[batch_idx].detach().float().cpu()[view_index]
+                                                  .permute(0, 2, 3, 1).contiguous() * 255.0)  # (V, H, W, 3)
+                                    rgb_tok_b = (rgb_tok_full[batch_idx].detach().float().cpu()[view_index]
+                                                 .permute(0, 2, 3, 1).contiguous() * 255.0)    # (V, H, W, 3)
+                                    rgb_gt_b = (rgb_gt_full[batch_idx].detach().float().cpu()[view_index]
+                                                .permute(0, 2, 3, 1).contiguous() * 255.0)      # (V, H, W, 3)
+                                    rgb_panels = [rgb_flow_b, rgb_tok_b, rgb_gt_b]
+                                    rgb_titles = ["Pred RGB (Flow)", "Pred RGB (GT-z)", "GT RGB"]
+
+                                # Top-down (BEV) pose panels (Flow / GT-z / GT). Square
+                                # tiles at the view height so per-view heights match the
+                                # depth/RGB panels; _build_bev_panel reorders by view_order
+                                # internally, so pass the RAW (V, *, *) c2w (not indexed).
+                                img_h = int(height)
+                                bev_panels = []
+                                bev_titles = []
+                                if c2w_flow is not None:
+                                    bev_panels.append(_build_bev_panel(c2w_flow[batch_idx], view_order, img_h, img_h))
+                                    bev_titles.append("BEV (Flow)")
+                                if c2w_tok is not None:
+                                    bev_panels.append(_build_bev_panel(c2w_tok[batch_idx], view_order, img_h, img_h))
+                                    bev_titles.append("BEV (GT-z)")
+                                bev_panels.append(_build_bev_panel(batch["gt_c2w"][batch_idx], view_order, img_h, img_h))
+                                bev_titles.append("BEV (GT)")
+
                                 saved_path = _log_viz_sample(
                                     batch=batch,
                                     decoded=decoded,
@@ -711,16 +780,15 @@ class DeltaTokFlowMatchingTrainer(DeltaTokSharedMixin, Trainer):
                                     output_dir=eval_viz_dir,
                                     log_writer=self.writer,
                                     tb_prefix=f"eval_depth/{test_name}",
-                                    extra_panels=[tok_depth_color, gt_depth_color],
+                                    extra_panels=[tok_depth_color] + rgb_panels + bev_panels,
                                     view_order=view_order,
                                     max_depth=50.0,
                                     context_mask=ctx_mask,
                                     col_titles=[
-                                        "RGB",
                                         "Pred Depth (Flow)",
                                         "Pred Depth (GT-z)",
-                                        "GT Depth",
-                                    ],
+                                    ] + rgb_titles + bev_titles,
+                                    include_input_rgb=False,
                                 )
                                 if saved_path is not None:
                                     print(f"Saved viz: {saved_path}")
@@ -749,15 +817,23 @@ class DeltaTokFlowMatchingTrainer(DeltaTokSharedMixin, Trainer):
                     continue
                 results = {k: (vec[i] / n).item() for i, k in enumerate(_EVAL_KEYS)}
 
-                overall_loss += results["LossPointmap"] * n
+                overall_loss += results["LossFlow"] * n
                 overall_n += n
 
-                if self.is_master and not sanity_check:
-                    for key, val in results.items():
-                        self.log_add_scalar(f"Eval/{test_name}/{key}", val, self.cfg.training.iter)
-                    if self.writer is None:
-                        metrics_str = ", ".join(f"{k}={v:.4f}" for k, v in results.items())
-                        print(f"[Eval/{test_name}] {metrics_str}")
+                if self.is_master:
+                    # Mirror every per-component eval metric to the .out log once
+                    # per loader, after the full eval pass finishes (TB-only
+                    # logging hid these behind the dashboard). The sanity-check
+                    # pass prints too — the epoch-0 baseline — but stays out of TB.
+                    metrics_str = "  ".join(f"{k}: {v:.4f}" for k, v in results.items())
+                    tag = "Eval (sanity)" if sanity_check else "Eval"
+                    print(
+                        f"[{tag}/{test_name}] (Epoch {self.cfg.training.global_epoch})  {metrics_str}",
+                        flush=True,
+                    )
+                    if not sanity_check:
+                        for key, val in results.items():
+                            self.log_add_scalar(f"Eval/{test_name}/{key}", val, self.cfg.training.iter)
 
         final_loss = overall_loss / overall_n if overall_n > 0 else 0.0
 
