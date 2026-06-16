@@ -44,7 +44,9 @@ export RESULTS_DIR="/lustre/fswork/projects/rech/trg/uyl37fq/deltatok_flow_log"
 # Distinct run name so the overfit ckpts/viz land in their own subdir and don't
 # clobber the real deltatok_flow run.
 export RUN_NAME=deltatok_flow_overfit_v2
-# Fresh start each debug run (don't resume a prior overfit ckpt).
-export RESUME=0
+# Fresh start each debug run by default; override for chained resume jobs via
+#   sbatch --dependency=afterany:<prev_jobid> --export=ALL,RESUME=1 <this script>
+# RESUME=1 makes sh/train_deltatok_flow.sh pass --resume (loads ckpts/current.pth).
+export RESUME="${RESUME:-0}"
 
 srun --cpu-bind=none bash sh/train_deltatok_flow.sh
