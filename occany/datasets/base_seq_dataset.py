@@ -88,11 +88,21 @@ class BaseSeqDataset (BaseStereoViewDataset):
         self.img_ext = ".jpg"
         self.num_views = 3
         self._load_data()
-        if max_seqs is not None:
-            # Overfit/smoke knob: keep only the first `max_seqs` sequences so the
-            # dataset can be pinned to a tiny fixed subset.
-            self.seqs = self.seqs[:max_seqs]
+        # `max_seqs` is applied later via `_truncate_to_max_seqs()` so it runs
+        # AFTER any split-based scene selection a subclass performs in its own
+        # __init__ (e.g. Occ3dNuscenesSeqMultiView). Truncating here would keep
+        # the first sequences across all scenes, which the split filter then
+        # drops, yielding an empty dataset.
+        self.max_seqs = max_seqs
         self.is_metric_scale = True
+
+    def _truncate_to_max_seqs(self):
+        # Overfit/smoke knob: keep only the first `max_seqs` sequences so the
+        # dataset can be pinned to a tiny fixed subset. Call this AFTER all
+        # scene/split selection so the kept sequences come from the final set.
+        if self.max_seqs is not None:
+            self.seqs = self.seqs[: self.max_seqs]
+            print(f"Truncated to {len(self.seqs)} seqs (max_seqs={self.max_seqs})")
     
     def __len__(self):
         return len(self.seqs)

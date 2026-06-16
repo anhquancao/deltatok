@@ -29,18 +29,19 @@ class Occ3dNuscenesSeqMultiView(BaseSeqDatasetMultiView):
         self.is_metric_scale = True
         # self.img_ext = ".jpg"  # Use default from base class (will be overridden by .npz loading)
 
-        if self.split is None:
-            return
+        if self.split is not None:
+            if self.split not in ('train', 'val', 'vis'):
+                raise ValueError(f"bad split: {self.split}")
 
-        if self.split not in ('train', 'val', 'vis'):
-            raise ValueError(f"bad split: {self.split}")
+            if self.split == 'vis':
+                self.select_scene(self.VIS_SCENES)
+            else:
+                split_scenes = self._load_split_scenes(NUSCENES_PREPROCESSED_ROOT, self.split)
+                self.select_scene(split_scenes)
 
-        if self.split == 'vis':
-            self.select_scene(self.VIS_SCENES)
-            return
-
-        split_scenes = self._load_split_scenes(NUSCENES_PREPROCESSED_ROOT, self.split)
-        self.select_scene(split_scenes)
+        # Apply max_seqs AFTER split-based scene selection so the kept sequences
+        # are actually drawn from the requested split (not the full scene set).
+        self._truncate_to_max_seqs()
 
     @staticmethod
     def _resolve_annotations_path(preprocessed_root):
