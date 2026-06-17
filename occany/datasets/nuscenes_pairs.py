@@ -22,6 +22,7 @@ class Occ3dNuscenesSeqMultiView(BaseSeqDatasetMultiView):
 
     def __init__(self, *args,
                  NUSCENES_PREPROCESSED_ROOT,
+                 select_scenes=None,
                  seq_pkl_name='seq_surround_surround.pkl', **kwargs):
 
         super().__init__(*args, ROOT=NUSCENES_PREPROCESSED_ROOT,
@@ -39,8 +40,14 @@ class Occ3dNuscenesSeqMultiView(BaseSeqDatasetMultiView):
                 split_scenes = self._load_split_scenes(NUSCENES_PREPROCESSED_ROOT, self.split)
                 self.select_scene(split_scenes)
 
-        # Apply max_seqs AFTER split-based scene selection so the kept sequences
-        # are actually drawn from the requested split (not the full scene set).
+        # Optional pin to specific scene name(s), applied AFTER the split filter so
+        # the kept sequences are the intersection (e.g. a single dynamic scene for
+        # overfit smoke tests). No-op when None.
+        if select_scenes is not None:
+            self.select_scene(select_scenes)
+
+        # Apply max_seqs AFTER split/scene selection so the kept sequences are
+        # actually drawn from the requested subset (not the full scene set).
         self._truncate_to_max_seqs()
 
     @staticmethod

@@ -37,13 +37,13 @@ export TORCH_NCCL_HEARTBEAT_TIMEOUT_SEC="${TORCH_NCCL_HEARTBEAT_TIMEOUT_SEC:-100
 # file_descriptor shm strategy holds an fd per shared tensor per worker
 ulimit -n "$(ulimit -Hn)"
 
-# Overfit debug run: tiny 2-item nuScenes subset, single GPU (effective_bsize=1
-# requires world_size==1, else the grad_cum assertion in the trainer fails).
+# Overfit debug run: single dynamic nuScenes scene (scene-0625) repeated 256x,
+# single GPU (config bsize=32, effective_bsize=32 -> grad_cum 1; needs world_size==1).
 export CONFIG_NAME=train_deltatok_flow_overfit_jeanzay
 export RESULTS_DIR="/lustre/fswork/projects/rech/trg/uyl37fq/deltatok_flow_log"
 # Distinct run name so the overfit ckpts/viz land in their own subdir and don't
 # clobber the real deltatok_flow run.
-export RUN_NAME=deltatok_flow_overfit_v2
+export RUN_NAME=deltatok_flow_overfit_v3
 # Fresh start each debug run by default; override for chained resume jobs via
 #   sbatch --dependency=afterany:<prev_jobid> --export=ALL,RESUME=1 <this script>
 # RESUME=1 makes sh/train_deltatok_flow.sh pass --resume (loads ckpts/current.pth).

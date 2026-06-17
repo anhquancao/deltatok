@@ -6,16 +6,21 @@ exp_name: "deltatok_flow_overfit"
 
 dataset:
   # Tiny fixed subset (nuScenes val, surround) for overfit smoke tests; the
-  # same items are used for train and eval.
+  # same items are used for train and eval. select_scenes pins scene-0625 (a
+  # reasonably dynamic, daytime surround drive, ~26.5 m ego displacement over
+  # the 10-timestep window) instead of the near-static (~1.9 m) default first
+  # val seq, so the flow model has real temporal motion to overfit.
   train_dataset: "256 @ Occ3dNuscenesSeqMultiView(NUSCENES_PREPROCESSED_ROOT='/scratch/project/eu-25-92/data/occ3d_nuscenes_processed', \
       seq_pkl_name='seq_surround_temporal_sub1_stride9_all.pkl', frame_interval=1, \
       min_memory_num_views=10, max_memory_num_views=10, num_views_per_timestep=6, \
-      z_far=50, split='val', seed=42, no_partial_views=True, fixed_cams=[0,1], max_seqs=1, \
+      z_far=50, split='val', seed=42, no_partial_views=True, fixed_cams=[0,1], \
+      select_scenes=['scene-0625'], max_seqs=1, \
       resolution=[(518, 266)], distill_model_name='SAM3', base_model='da3')"
   test_dataset: "2 @ Occ3dNuscenesSeqMultiView(NUSCENES_PREPROCESSED_ROOT='/scratch/project/eu-25-92/data/occ3d_nuscenes_processed', \
       seq_pkl_name='seq_surround_temporal_sub1_stride9_all.pkl', frame_interval=1, \
       min_memory_num_views=10, max_memory_num_views=10, num_views_per_timestep=6, \
-      z_far=50, split='val', seed=42, no_partial_views=True, fixed_cams=[0,1], max_seqs=1, \
+      z_far=50, split='val', seed=42, no_partial_views=True, fixed_cams=[0,1], \
+      select_scenes=['scene-0625'], max_seqs=1, \
       resolution=[(518, 266)], distill_model_name='SAM3', base_model='da3')"
 
 training:

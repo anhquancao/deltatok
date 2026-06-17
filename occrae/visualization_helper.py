@@ -107,11 +107,6 @@ def cameras_bev(
         spine.set_color(_BEV_PANEL_FRAME)
         spine.set_alpha(0.28)
 
-    # Glowing trajectory line.
-    if n_frames >= 2:
-        ax.plot(px, pz, color=_BEV_PANEL_TRAJ_OUTLINE, linewidth=6.0, alpha=0.95, zorder=2)
-        ax.plot(px, pz, color=_BEV_PANEL_TRAJ_INNER, linewidth=2.8, alpha=1.0, zorder=3)
-
     # Frustums.
     half_angle = math.radians(fov_deg / 2)
     flen_world = frustum_len * span
