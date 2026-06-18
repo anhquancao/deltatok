@@ -26,12 +26,13 @@ Cluster context: project work runs on **Karolina** (account `eu-25-92`, partitio
 
 ## Environment bootstrap
 
-Before any `python ...` command, activate the conda env and source the environment:
+Before any `python ...` command on Karolina, activate the conda env:
 
 ```bash
 conda activate occany
-source env_bsc.sh
 ```
+
+Do NOT `source env_bsc.sh` on Karolina. It is the deprecated BSC script (it `module purge`es, activates a non-existent `maskgit` venv, and clobbers `PYTHONPATH`), which breaks the `occany` env (e.g. `transformers` import fails on a missing `httpx`). Clean `occany` already has everything (transformers, httpx, ...); vendored `third_party/` paths come from entrypoints / `occany.utils.runtime_paths.prepend_vendored_import_paths()`.
 
 `PROJECT` and `SCRATCH` env vars are part of the repo contract — evaluation helpers default datasets under `$PROJECT/data/...` and processed artifacts under `$SCRATCH/...`.
 
@@ -39,7 +40,7 @@ source env_bsc.sh
 
 **Smoke test (OccRAE roundtrip):**
 ```bash
-conda activate occany && source env_bsc.sh && python test_occ_rae.py \
+conda activate occany && python test_occ_rae.py \
   --occany_recon_ckpt checkpoints/occany_plus_recon_1B.pth \
   --input_dir ./demo_data/input \
   --output_dir ./demo_data/output_occ_rae
@@ -49,7 +50,7 @@ Add `--compare` to compare roundtrip output against direct model inference.
 
 **Demo inference:**
 ```bash
-conda activate occany && source env_bsc.sh && python inference.py \
+conda activate occany && python inference.py \
   --batch_gen_view 2 --view_batch_size 2 \
   --semantic distill@SAM3 --compute_segmentation_masks \
   --gen -rot 30 -vpi 2 -fwd 5 \
@@ -67,12 +68,12 @@ USE_MAJORITY_POOLING=1 POOLING_MODE=separate EXP_LIST=metric_occany_plus EXP_ID=
 
 **Reconstruction metrics:**
 ```bash
-conda activate occany && source env_bsc.sh && python extract_recon.py \
+conda activate occany && python extract_recon.py \
   --model occany_da3 --dataset nuscenes --setting surround \
   --exp_name occany_plus_recon_1B \
   --occany_recon_ckpt ./checkpoints/occany_plus_recon_1B.pth
 
-conda activate occany && source env_bsc.sh && python compute_recon_metrics.py \
+conda activate occany && python compute_recon_metrics.py \
   --exp_dir ./outputs/occany_plus_recon_1B_occany_da3_nuscenes_surround_img512
 ```
 
@@ -152,6 +153,7 @@ cd third_party/croco/models/curope && python setup.py install
 - **Clarifying questions:** when the request is ambiguous or has multiple reasonable interpretations, use the `AskUserQuestion` tool to confirm before acting.
 - **Task tracking:** any task with more than one step must be tracked with the `TodoWrite` tool. Create todos up front and mark each one completed as soon as it's done.
 - **Edits:** surgical and explainable — change only what the task requires (no drive-by refactors, renames, or reformatting), and explain each edit so a human can verify it easily.
+- **Comments:** keep them concise. Explain *why*, not *what*; no long prose blocks or multi-line docstring essays. A one-line rationale plus the inline shape annotations below is enough.
 - **New variant scripts:** when a new script is a variant of an existing one (e.g. a new `visualize_*`/`test_*` entrypoint), copy the closest existing file first (`cp old.py new.py`) and apply surgical edits to it — do not rewrite from scratch. This keeps the shared structure identical and makes the diff reviewable.
 - **Tensor code comments:** comment each line of tensor-manipulation code, and always annotate the resulting tensor shape inline, e.g. `x = rearrange(x, 'b (t s) d -> (b s) t d', t=t, s=s)  # (B*S, T, D)`. Also state what each shape symbol means when it first appears.
 

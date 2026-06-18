@@ -64,11 +64,18 @@ class DeltaTokModule(nn.Module):
         use_gated_attn: bool = True,
         use_swiglu: bool = True,
         use_rope_aug: bool = False,
+        use_camera_rope: bool = False,
         mlp_ratio: int = 4,
         alt_start: int = 4,
     ):
         super().__init__()
         self._use_rope_aug = use_rope_aug
+        # When True, global (cross-camera) layers give each camera one distinct
+        # rope position (shared by its patches, identical in prev & next) so the
+        # network can link the same physical camera across the two timesteps;
+        # see ``_compute_global_rope``. Default False keeps the DA3 pos_nodiff
+        # behavior (non-parametric flag — existing checkpoints load unchanged).
+        self._use_camera_rope = bool(use_camera_rope)
         # DA3-style local/global alternation. Blocks at index i are global iff
         # ``i >= alt_start and i % 2 == 1``; otherwise they run per-camera.
         # Set ``alt_start = num_hidden_layers`` (or any value >= layer count) to
@@ -154,19 +161,37 @@ class DeltaTokModule(nn.Module):
         rope at patch coordinate ``(1, 1)`` (index ``Wp + 1``) rather than
         ``(0, 0)`` so the patch rope is non-identity and z↔patch attention
         keeps a non-trivial relative rotation.
+
+        With ``self._use_camera_rope``, each camera instead gets one distinct
+        position (shared by its patches, identical in prev & next) so the model
+        can link the same camera across timesteps (same-camera offset 0). The
+        camera↔position assignment is shuffled per forward while training to
+        stay permutation-invariant; eval is deterministic.
         """
         Hp = int(height) // self.rope_embeddings.config.patch_size
         Wp = int(width) // self.rope_embeddings.config.patch_size
-        num_positions = int(num_cameras) * Hp * Wp
-        cos, sin = self._compute_rope(height, width, device, dtype)
-        # Index Wp + 1 = patch coordinate (1, 1) in row-major order, matching
-        # DA3's pos_nodiff = 1. Index 0 would be (0, 0) / identity rotation,
-        # which would also collapse z↔patch rope.
-        idx = Wp + 1
-        return (
-            cos[idx : idx + 1].expand(num_positions, -1).contiguous(),
-            sin[idx : idx + 1].expand(num_positions, -1).contiguous(),
-        )
+        num_grid = Hp * Wp                          # = P, patches per camera
+        N = int(num_cameras)
+        cos, sin = self._compute_rope(height, width, device, dtype)  # (num_grid, head_dim)
+
+        if not self._use_camera_rope:
+            # DA3 pos_nodiff: every patch at index Wp+1 = coord (1,1).
+            idx = Wp + 1
+            num_positions = N * num_grid
+            return (
+                cos[idx : idx + 1].expand(num_positions, -1).contiguous(),
+                sin[idx : idx + 1].expand(num_positions, -1).contiguous(),
+            )
+
+        # N camera slots spread evenly across the normalized [-1,1] grid.
+        assert num_grid >= N, f"need >= {N} distinct rope positions, grid has {num_grid}"
+        base_idx = torch.linspace(0, num_grid - 1, N, device=device).round().long()  # (N,)
+        if self.training:
+            base_idx = base_idx[torch.randperm(N, device=device)]  # shuffle camera↔slot
+        # cam-major repeat to match encode/decode reshape(M, N*P, C): [slot(c0)xP, slot(c1)xP, ...]
+        cos_cam = cos[base_idx].repeat_interleave(num_grid, dim=0).contiguous()  # (N*P, head_dim)
+        sin_cam = sin[base_idx].repeat_interleave(num_grid, dim=0).contiguous()  # (N*P, head_dim)
+        return cos_cam, sin_cam
 
     def _is_global_layer(self, i: int) -> bool:
         return i >= self.alt_start and (i % 2 == 1)

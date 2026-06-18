@@ -5,8 +5,8 @@
 #SBATCH --gres=gpu:8
 #SBATCH --cpus-per-task=16
 #SBATCH --hint=nomultithread
-#SBATCH --time=1:00:00
-#SBATCH --partition=qgpu_exp
+#SBATCH --time=2-00:00:00
+#SBATCH --partition=qgpu
 #SBATCH -A eu-25-92
 #SBATCH --output=slurm/output/karolina_train_deltatok_%j.out
 #SBATCH --error=slurm/output/karolina_train_deltatok_%j.err
@@ -24,7 +24,7 @@ cd "$HOME/deltatok"
 
 export CONFIG_NAME=train_deltatok_karolina
 export RESULTS_DIR="/mnt/proj1/eu-25-92/deltatok_log"
-export RUN_NAME=deltatok_surround_constGlobalRope_reproduce
+export RUN_NAME=deltatok_surround_camRope
 export RESUME=1
 
 echo "PWD=$(pwd)"

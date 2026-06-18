@@ -282,6 +282,7 @@ class DeltaTokSharedMixin:
             use_gated_attn=bool(deltatok_cfg.get("use_gated_attn", True)),
             use_swiglu=bool(deltatok_cfg.get("use_swiglu", True)),
             use_rope_aug=bool(deltatok_cfg.get("use_rope_aug", False)),
+            use_camera_rope=bool(deltatok_cfg.get("use_camera_rope", False)),
             mlp_ratio=int(deltatok_cfg.get("mlp_ratio", 4)),
             alt_start=int(deltatok_cfg.get("alt_start", 4)),
         )

@@ -34,11 +34,20 @@ The `-N` flag means "don't open a shell" — the session just holds the tunnel o
 The tunnel will drop if Computer 2 disconnects or the session times out. To keep it alive automatically, use `autossh`:
 
 ```bash
-autossh -M 0 -N -o "ServerAliveInterval 30" -o "ServerAliveCountMax 3" \
-  -R 2222:jean-zay3.idris.fr:22 \
+autossh -M 0 -N \
+  -o "ServerAliveInterval 30" -o "ServerAliveCountMax 3" \
+  -o "ExitOnForwardFailure=yes" \
+  -R 2222:jean-zay2.idris.fr:22 \
   -R 2223:localhost:22 \
   karolina
 ```
+
+`ExitOnForwardFailure=yes` is important: without it, if a remote forward fails to
+bind (e.g. the port is still held on Karolina by a stale session after a network
+blip), ssh keeps the session alive *without* the forwards. autossh then sees a
+"healthy" ssh and never restarts it — a silent deadlock where autossh is running
+but the tunnel is dead. With this option, a failed forward makes ssh exit, so
+autossh retries until Karolina reaps the stale forward and the bind succeeds.
 
 Optionally, create a systemd service at `~/.config/systemd/user/tunnel-jeanzay.service`:
 

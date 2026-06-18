@@ -77,6 +77,7 @@ model:
     use_qk_norm: true
     use_gated_attn: true
     use_rope_aug: false
+    use_camera_rope: true
     mlp_ratio: 4
     layer_scale_init: 1.0e-5
     initializer_range: 0.02
