@@ -100,9 +100,9 @@ def get_args_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--encode_layer",
         type=int,
-        default=18,
-        choices=[18],
-        help="Backbone layer at which to capture tokens. Only layer 18 is currently supported.",
+        default=12,
+        choices=[12, 18],
+        help="Backbone layer at which to capture tokens (12 pre-fusion, 18 post-fusion).",
     )
     parser.add_argument(
         "--frame_interval",

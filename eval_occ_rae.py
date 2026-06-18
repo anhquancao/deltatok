@@ -400,7 +400,7 @@ def main():
         weights_path=args.occany_recon_ckpt,
         output_resolution=(model_input_size, model_input_size),
         device=args.device,
-        encode_layer=18,
+        encode_layer=12,
     )
     occ_rae.eval()
 

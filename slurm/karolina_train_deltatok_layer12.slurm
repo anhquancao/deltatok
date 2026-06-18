@@ -24,15 +24,15 @@ cd "$HOME/deltatok"
 
 export CONFIG_NAME=train_deltatok_karolina
 export RESULTS_DIR="/mnt/proj1/eu-25-92/deltatok_log"
-export RUN_NAME=deltatok_surround_constGlobalRope_layer12
+export RUN_NAME=deltatok_surround_camRope_layer12
 export RESUME=1
-export ENCODE_LAYER=12
+export EXTRA_CFG="model.deltatok.use_camera_rope=true"
 
 echo "PWD=$(pwd)"
 echo "CONFIG_NAME=$CONFIG_NAME"
 echo "RESULTS_DIR=$RESULTS_DIR"
 echo "RUN_NAME=$RUN_NAME"
 echo "RESUME=$RESUME"
-echo "ENCODE_LAYER=$ENCODE_LAYER"
+echo "EXTRA_CFG=$EXTRA_CFG"
 
 srun --cpu-bind=none bash sh/train_deltatok.sh

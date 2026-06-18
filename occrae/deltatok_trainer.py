@@ -439,6 +439,23 @@ class DeltaTokTrainer(DeltaTokSharedMixin, Trainer):
         if self.is_master:
             print(f"Init DeltaTok tokenizer on [GPU{rank}]")
 
+        # Gradient accumulation is derived, not configured:
+        # effective_bsize = world_size * bsize * pairs_per_seq * grad_cum.
+        bsize = int(self.cfg.training.bsize)
+        pairs_per_seq = int(self.cfg.training.get("pairs_per_seq", 0))
+        assert pairs_per_seq > 0, "training.pairs_per_seq must be > 0 to derive grad_cum"
+        effective_bsize = int(self.cfg.training.effective_bsize)
+        denom = self.world_size * bsize * pairs_per_seq
+        assert effective_bsize % denom == 0, (
+            f"training.effective_bsize={effective_bsize} must be divisible by "
+            f"world_size * bsize * pairs_per_seq = "
+            f"{self.world_size} * {bsize} * {pairs_per_seq} = {denom}"
+        )
+        self.grad_cum = effective_bsize // denom
+        if self.is_master:
+            print(f"effective_bsize={effective_bsize} = {self.world_size} rank(s) "
+                  f"x bsize {bsize} x pairs_per_seq {pairs_per_seq} x grad_cum {self.grad_cum}")
+
         # DeltaTok needs the OccRAE backbone's hidden_size / num_heads / patch_size
         # at construction time, so build the shared frozen encoder first.
         self._build_occ_rae()
@@ -650,7 +667,7 @@ class DeltaTokTrainer(DeltaTokSharedMixin, Trainer):
         cum_loss = 0.
         num_batches = 0
         last_update_time = time.time()
-        window_loss = deque(maxlen=self.cfg.training.grad_cum)
+        window_loss = deque(maxlen=self.grad_cum)
         self.optim.zero_grad(set_to_none=True)
 
         epoch = int(self.cfg.training.global_epoch)
@@ -668,7 +685,7 @@ class DeltaTokTrainer(DeltaTokSharedMixin, Trainer):
 
             batch = self._normalize_batch(batch)
             num_batches += 1
-            update_grad = (num_batches % self.cfg.training.grad_cum) == 0
+            update_grad = (num_batches % self.grad_cum) == 0
 
             self.adapt_learning_rate()
 
@@ -676,9 +693,9 @@ class DeltaTokTrainer(DeltaTokSharedMixin, Trainer):
             num_cameras = batch.get("num_cameras", 1)
             _, _, x_prev, x, H, W = self._extract_pair_feats(imgs, num_cameras=num_cameras)
 
-            pairs_per_batch = int(self.cfg.training.get("pairs_per_batch", 0))
-            if pairs_per_batch > 0 and x_prev.shape[0] > pairs_per_batch:
-                idx = torch.randperm(x_prev.shape[0], device=x_prev.device)[:pairs_per_batch]
+            pairs_per_seq = int(self.cfg.training.get("pairs_per_seq", 0))
+            if pairs_per_seq > 0 and x_prev.shape[0] > pairs_per_seq:
+                idx = torch.randperm(x_prev.shape[0], device=x_prev.device)[:pairs_per_seq]
                 x_prev = x_prev[idx]
                 x = x[idx]
 
@@ -688,7 +705,7 @@ class DeltaTokTrainer(DeltaTokSharedMixin, Trainer):
             with torch.autocast(device_type="cuda", enabled=False):
                 loss = _log_cosh(x_hat.float(), x.detach().float()).mean()
 
-            (loss / self.cfg.training.grad_cum).backward()
+            (loss / self.grad_cum).backward()
 
             if update_grad:
                 nn.utils.clip_grad_norm_(self.tokenizer.parameters(), self.cfg.training.grad_clip)

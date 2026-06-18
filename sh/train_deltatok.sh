@@ -40,6 +40,12 @@ if [[ -n "${ENCODE_LAYER:-}" ]]; then
     ARGS+=(--encode_layer "$ENCODE_LAYER")
 fi
 
+# Forward extra Hydra overrides (space-separated, e.g. "model.deltatok.use_camera_rope=true").
+# Unquoted on purpose so each override becomes a separate arg to --cfg (nargs="*").
+if [[ -n "${EXTRA_CFG:-}" ]]; then
+    ARGS+=(--cfg $EXTRA_CFG)
+fi
+
 CMD=(python train_deltatok.py)
 
 if [[ "${SLURM_PROCID:-0}" == "0" ]]; then

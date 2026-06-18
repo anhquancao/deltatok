@@ -40,7 +40,7 @@ $CMD \
         transform=SeqColorJitter, aug_focal=0.9, reverse_seq=True, distill_model_name='SAM3', base_model='da3') + \
         5000 @ VKittiSeqMultiView(VKITTI_PROCESSED_ROOT='$SCRATCH/data/vkitti_processed', \
         seq_pkl_name='seq_exact_len_sub5_stride9.pkl', \
-        min_memory_num_views=2, frame_interval=1, max_memory_num_views=20, ray_map_prob=$RAY_MAP_PROB, \
+        min_memory_num_views=5, frame_interval=1, max_memory_num_views=20, ray_map_prob=$RAY_MAP_PROB, \
         aug_crop=128, z_far=50, split='train', \
         resolution=[(518, 294), (518, 280), (518, 266), (518, 210), (518, 168)], \
         transform=SeqColorJitter, aug_focal=0.9, reverse_seq=True, distill_model_name='SAM3', base_model='da3') + \

@@ -15,7 +15,7 @@ dataset:
       reverse_seq=True, distill_model_name='SAM3', base_model='da3') + \
       5000 @ VKittiSeqMultiView(VKITTI_PROCESSED_ROOT='/gpfs/scratch/ehpc558/quan/occrae_data/vkitti_processed', \
       seq_pkl_name='seq_exact_len_sub5_stride9.pkl', \
-      min_memory_num_views=2, frame_interval=1, max_memory_num_views=10, ray_map_prob=-1, \
+      min_memory_num_views=5, frame_interval=1, max_memory_num_views=10, ray_map_prob=-1, \
       z_far=50, split='train', \
       resolution=[(518, 294), (518, 280), (518, 266), (518, 210), (518, 168)], \
       reverse_seq=True, distill_model_name='SAM3', base_model='da3') + \
@@ -53,7 +53,7 @@ dataset:
 
 occrae:
   weights_path: checkpoints/occany_plus_recon_1B.pth
-  encode_layer: 18
+  encode_layer: 12
 
 decoder:
   config_path: third_party/GLD/configs/decoder/ViTXL

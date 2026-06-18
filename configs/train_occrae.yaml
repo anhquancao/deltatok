@@ -79,4 +79,4 @@ dataset:
 model:
   num_views: 10
   occany_recon_ckpt: "checkpoints/occany_plus_recon_1B.pth"
-  encode_layer: 18
+  encode_layer: 12

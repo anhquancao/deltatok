@@ -233,7 +233,7 @@ class BaseSeqDatasetMultiView(BaseSeqDataset, EasyDataset_OccAny):
         transform=ImgNorm,
         frame_interval=1,
         max_memory_num_views=10,
-        min_memory_num_views=2,
+        min_memory_num_views=5,
         num_views_per_timestep=1,
         min_views_per_timestep=1,
         min_num_timesteps=1,

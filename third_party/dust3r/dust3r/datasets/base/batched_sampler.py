@@ -78,7 +78,7 @@ class BatchedRandomSampleOccAny(BatchedRandomSampler):
     def __init__(self, dataset, 
                  batch_size,
                  num_of_aspect_ratios,
-                 min_memory_num_views=2, 
+                 min_memory_num_views=5, 
                  max_memory_num_views=10, 
                  ray_map_prob=0.0, 
                  ray_map_idx=[],
