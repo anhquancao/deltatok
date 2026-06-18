@@ -212,6 +212,8 @@ class DatasetAwareBatchSamplerOccAny(BatchedRandomSampler):
             num_of_aspect_ratios = config['num_of_aspect_ratios']
             min_memory_num_views = config['min_memory_num_views']
             max_memory_num_views = config['max_memory_num_views']
+            min_views_per_timestep = config.get('min_views_per_timestep', 1)
+            num_views_per_timestep = config.get('num_views_per_timestep', 1)
             resolutions = config['resolutions']
             max_pixels = max(w * h for w, h in resolutions)
             for b_idx in range(n_dataset_batches):
@@ -223,8 +225,15 @@ class DatasetAwareBatchSamplerOccAny(BatchedRandomSampler):
                 # scaled_max = int(max_memory_num_views * max_pixels / cur_pixels)
                 # mem_views = rng.integers(min_memory_num_views, scaled_max + 1)
                 mem_views = rng.integers(min_memory_num_views, max_memory_num_views + 1)
-        
-                
+
+                # Pin views-per-timestep (cameras) per batch so every item returns
+                # the same total view count. `_get_views` otherwise draws actual_vpt
+                # per item, making batch items differ in size -> default_collate
+                # fails for batch_size > 1. (num_timesteps is uniform per dataset,
+                # so a shared vpt makes the derived view count identical.)
+                vpt = int(rng.integers(min_views_per_timestep, num_views_per_timestep + 1))
+
+
                 explicit_view_idx = config.get('ray_map_idx', [])
                 view_prob = config.get('ray_map_prob', 0.0)
 
@@ -243,7 +252,7 @@ class DatasetAwareBatchSamplerOccAny(BatchedRandomSampler):
 
                 batch_tuples = []
                 for s_idx in batch_sample_idxs:
-                    batch_tuples.append((s_idx, res_idx, mem_views, np.array(ray_map_idx)))
+                    batch_tuples.append((s_idx, res_idx, mem_views, vpt, np.array(ray_map_idx)))
                 all_batches.append(batch_tuples)
 
             start_idx = end_idx

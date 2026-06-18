@@ -308,7 +308,7 @@ class BaseSeqDatasetMultiView(BaseSeqDataset, EasyDataset_OccAny):
             indices.extend(int(base + c) for c in cams)
         return indices
 
-    def _get_views(self, seq_idx, resolution, memory_num_views, rng):
+    def _get_views(self, seq_idx, resolution, memory_num_views, rng, views_per_timestep=None):
         scene_idx, seq, ts = self.seqs[seq_idx]
         scene_name = self.scenes[scene_idx]
         preprocessed_scene_dir = osp.join(self.ROOT, scene_name)
@@ -318,6 +318,12 @@ class BaseSeqDatasetMultiView(BaseSeqDataset, EasyDataset_OccAny):
         if self.fixed_cams is not None:
             selected_cams = np.array(self.fixed_cams, dtype=int)
             actual_vpt = len(selected_cams)
+        elif views_per_timestep is not None:
+            # Per-batch pinned count (clamped to the configured range): drawing it
+            # per item here is what made batch items differ in size and broke
+            # default_collate for batch_size > 1. The chosen cameras still vary.
+            actual_vpt = int(np.clip(views_per_timestep, self.min_views_per_timestep, max_vpt))
+            selected_cams = self._select_cameras(max_vpt, actual_vpt, rng)
         else:
             actual_vpt = rng.integers(self.min_views_per_timestep, max_vpt + 1)
             selected_cams = self._select_cameras(max_vpt, actual_vpt, rng)
@@ -421,11 +427,18 @@ class BaseSeqDatasetMultiView(BaseSeqDataset, EasyDataset_OccAny):
         return views
 
     def __getitem__(self, idx):
+        # views_per_timestep is pinned per batch by DatasetAwareBatchSamplerOccAny
+        # (5-tuple) so all items in a batch return the same view count; None means
+        # the legacy 4-tuple / eval int path, where _get_views draws it per item.
+        views_per_timestep = None
         if isinstance(idx, tuple):
-            # the idx is specifying the aspect-ratio
-            idx, resolution_idx, memory_num_views, ray_map_idx = idx
+            # the idx is specifying the aspect-ratio (+ per-batch view budget)
+            if len(idx) == 5:
+                idx, resolution_idx, memory_num_views, views_per_timestep, ray_map_idx = idx
+            else:
+                idx, resolution_idx, memory_num_views, ray_map_idx = idx
         else:
-            # This is used by test data as we don't implement the BatchSampler in test 
+            # This is used by test data as we don't implement the BatchSampler in test
             assert len(self._resolutions) == 1
             resolution_idx = 0
             assert self.min_memory_num_views == self.max_memory_num_views, "Evaluation needs to be done with a fixed number of views, which is equal to min_memory_num_views and  min_memory_num_views must equal max_memory_num_views"
@@ -444,7 +457,7 @@ class BaseSeqDatasetMultiView(BaseSeqDataset, EasyDataset_OccAny):
 
         # over-loaded codez_far
         resolution = self._resolutions[resolution_idx]  # DO NOT CHANGE THIS (compatible with BatchedRandomSampler)
-        views = self._get_views(idx, resolution, memory_num_views, self._rng)
+        views = self._get_views(idx, resolution, memory_num_views, self._rng, views_per_timestep=views_per_timestep)
         # _get_views may bump memory_num_views up (min_num_timesteps) or return
         # fewer views when the source sequence is shorter than the requested
         # budget. Sync to the actual returned count so view['idx'] and
