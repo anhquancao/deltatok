@@ -697,10 +697,6 @@ class DeltaTokTrainer(DeltaTokSharedMixin, Trainer):
 
             imgs = batch["imgs"].to(self.device, non_blocking=True)
             num_cameras = batch.get("num_cameras", 1)
-            if self.is_master and num_batches <= 20:
-                sampled_vpt = batch.get("sampled_vpt")
-                print(f"[vpt-check] sampled_vpt={sampled_vpt} num_cameras={num_cameras} "
-                      f"match={sampled_vpt == num_cameras}")
             _, _, x_prev, x, H, W = self._extract_pair_feats(imgs, num_cameras=num_cameras)
 
             # Subsample to `pairs_per_seq` transitions PER sequence (not per micro-batch
@@ -835,10 +831,6 @@ class DeltaTokTrainer(DeltaTokSharedMixin, Trainer):
                 imgs = batch["imgs"].to(self.device, non_blocking=True)
                 B, V, _, _, _ = imgs.shape
                 num_cameras = batch.get("num_cameras", 1)
-                if self.is_master:
-                    sampled_vpt = batch.get("sampled_vpt")
-                    print(f"[vpt-check] sampled_vpt={sampled_vpt} num_cameras={num_cameras} "
-                          f"match={sampled_vpt == num_cameras}")
                 tokens, feats, x_prev, x, H, W = self._extract_pair_feats(imgs, num_cameras=num_cameras)
                 with self.autocast:
                     x_hat = self.tokenizer(x_prev, x, H, W, num_cameras=num_cameras)
