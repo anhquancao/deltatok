@@ -1,0 +1,95 @@
+---
+name: chain-slurm-jobs
+description: Submit N chained SLURM training jobs that each resume from the previous job's checkpoint, on Jean Zay or Karolina. Use when the user asks to "run N more chained training jobs", "chain N jobs", "queue follow-on resume jobs", or otherwise wants a dependency chain of resume jobs for a long-running training run that exceeds a single walltime.
+---
+
+# Chain SLURM resume jobs
+
+Long training runs outlive a single SLURM walltime (the Jean Zay `qos_gpu_h100-dev`
+QoS caps at 2h). The pattern is to submit a chain of jobs where each one waits for
+the previous to finish, then resumes from the checkpoint it left behind. The result
+is uninterrupted training across many short allocations.
+
+The mechanism is two flags on each `sbatch`:
+
+- `--dependency=afterany:<prev_jobid>` — start only after `<prev_jobid>` ends, for
+  **any** reason (success, failure, or walltime timeout). `afterany` (not `afterok`)
+  is what you want: a job hitting its walltime is the normal case, and the chain must
+  continue regardless.
+- `--export=ALL,RESUME=1` — `RESUME=1` makes `sh/train_deltatok_flow.sh` pass
+  `--resume`, loading `<RESULTS_DIR>/<RUN_NAME>/ckpts/current.pth`. `ALL` keeps the
+  rest of the submitting environment.
+
+## Cluster access
+
+These training scripts run on **Jean Zay** (SSH alias `jean-zay`), not Karolina.
+`module` is login-only, so always submit through a login shell: `ssh jean-zay "bash -lc '...'"`.
+
+- Working dir on JZ: `/lustre/fswork/projects/rech/trg/uyl37fq/code/deltatok` (`$TRG_WORK/code/deltatok`).
+- Example script: `slurm/jz_train_deltatok_flow.slurm` (`RESULTS_DIR`, `RUN_NAME`,
+  `RESUME` are set near the bottom; `RESUME` defaults to `0` for fresh runs).
+
+## Pre-flight checks (do these every time)
+
+1. **Verify the cluster script matches local.** The user syncs files manually; never
+   sync yourself. Compare checksums and stop if they differ — tell the user to sync first.
+   ```bash
+   md5sum slurm/jz_train_deltatok_flow.slurm
+   ssh jean-zay "bash -lc 'cd /lustre/fswork/projects/rech/trg/uyl37fq/code/deltatok && md5sum slurm/jz_train_deltatok_flow.slurm'"
+   ```
+2. **Check the queue for an existing tail job.** "N *more*" chained jobs should chain
+   after whatever is already queued, not start a parallel chain. If a job is queued/running,
+   set `prev` to its job id before the loop; if the queue is empty, the first job starts
+   immediately.
+   ```bash
+   ssh jean-zay "bash -lc 'squeue -u \$USER -o \"%.10i %.22j %.9T %.11M %.18E %R\"'"
+   ```
+3. **Confirm a checkpoint exists** so `RESUME=1` has something to load (no-op if absent,
+   which would silently start from scratch):
+   ```bash
+   ssh jean-zay "bash -lc 'ls -la /lustre/fswork/projects/rech/trg/uyl37fq/deltatok_flow_log/<RUN_NAME>/ckpts/'"
+   ```
+
+## Submit the chain
+
+Submit each job depending on the previous, capturing each job id (last field of
+`Submitted batch job <id>`). Set `prev` to an existing tail job id to chain after it,
+or leave it empty so the first job starts as soon as resources are free.
+
+```bash
+ssh jean-zay "bash -lc '
+cd /lustre/fswork/projects/rech/trg/uyl37fq/code/deltatok || exit 1
+prev=\"\"                      # set to an existing tail job id to chain after it
+for i in 1 2 3 4; do          # N = number of chained jobs
+  if [ -z \"\$prev\" ]; then
+    out=\$(sbatch --export=ALL,RESUME=1 slurm/jz_train_deltatok_flow.slurm)
+  else
+    out=\$(sbatch --dependency=afterany:\$prev --export=ALL,RESUME=1 slurm/jz_train_deltatok_flow.slurm)
+  fi
+  echo \"job \$i: \$out (dep=\${prev:-none})\"
+  prev=\$(echo \"\$out\" | awk \"{print \\\$NF}\")
+done
+'"
+```
+
+## Verify
+
+Confirm each job past the first shows `afterany:<prev>(unfulfilled)` in the DEPENDENCY
+column:
+
+```bash
+ssh jean-zay "bash -lc 'squeue -u \$USER -o \"%.10i %.22j %.9T %.11M %.18E %R\"'"
+```
+
+Report the job ids and their dependency edges back to the user as a table.
+
+## Notes
+
+- All jobs in a "continue training" chain use `RESUME=1` (including the first — it
+  resumes the existing run). Use a fresh run (`RESUME=0`, the default) only when
+  explicitly starting over.
+- To chain after a job submitted in a previous session, pass its id as the initial
+  `prev`.
+- `afterany` keeps the chain alive through timeouts/crashes. If you ever want the chain
+  to stop on failure instead, switch to `afterok` — but that is not the default for
+  walltime-bounded training.
