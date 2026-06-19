@@ -7,10 +7,10 @@
 #SBATCH --hint=nomultithread
 #SBATCH -C h100
 #SBATCH --account=lwy@h100
-##SBATCH --qos=qos_gpu_h100-t3
-##SBATCH --time=20:00:00
-#SBATCH --qos=qos_gpu_h100-dev
-#SBATCH --time=02:00:00
+#SBATCH --qos=qos_gpu_h100-t3
+#SBATCH --time=20:00:00
+##SBATCH --qos=qos_gpu_h100-dev
+##SBATCH --time=02:00:00
 #SBATCH --output=slurm/output/jz_train_deltatok_%j.out
 #SBATCH --error=slurm/output/jz_train_deltatok_%j.err
 
