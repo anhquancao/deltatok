@@ -225,6 +225,9 @@ class CatDataset_MUSt3R(CatDataset, EasyDataset_MUSt3R):
                 'max_memory_num_views': getattr(dataset, 'max_memory_num_views', 10),
                 'ray_map_prob': getattr(dataset, 'ray_map_prob', 0.0),
                 'ray_map_idx': getattr(dataset, 'ray_map_idx', []),
+                # Pin views-per-timestep per batch so all items collate to one size.
+                'min_views_per_timestep': getattr(dataset, 'min_views_per_timestep', 1),
+                'num_views_per_timestep': getattr(dataset, 'num_views_per_timestep', 1),
                 'num_of_aspect_ratios': len(dataset._resolutions) if hasattr(dataset, '_resolutions') else 1,
                 'resolutions': list(dataset._resolutions) if hasattr(dataset, '_resolutions') else [(512, 512)],
             }
@@ -266,6 +269,14 @@ class MulDataset_MUSt3R(MulDataset, EasyDataset_MUSt3R):
     def ray_map_idx(self):
         return self.dataset.ray_map_idx
 
+    @property
+    def min_views_per_timestep(self):
+        return self.dataset.min_views_per_timestep
+
+    @property
+    def num_views_per_timestep(self):
+        return self.dataset.num_views_per_timestep
+
     def __getitem__(self, idx):
         if isinstance(idx, tuple):
             return self.dataset[idx[0] // self.multiplicator, *idx[1:]]
@@ -290,6 +301,14 @@ class ResizedDataset_MUSt3R(ResizedDataset, EasyDataset_MUSt3R):
     @property
     def ray_map_idx(self):
         return self.dataset.ray_map_idx
+
+    @property
+    def min_views_per_timestep(self):
+        return self.dataset.min_views_per_timestep
+
+    @property
+    def num_views_per_timestep(self):
+        return self.dataset.num_views_per_timestep
 
     def __getitem__(self, idx):
         assert hasattr(self, '_idxs_mapping'), 'You need to call dataset.set_epoch() to use ResizedDataset.__getitem__()'
