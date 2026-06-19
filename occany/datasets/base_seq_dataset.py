@@ -412,6 +412,7 @@ class BaseSeqDatasetMultiView(BaseSeqDataset, EasyDataset_OccAny):
             view = dict(
                 img=image,
                 timestep=t,
+                views_per_timestep=int(actual_vpt),  # sampler-pinned vpt; for num_cameras verification
                 depthmap=depthmap,
                 camera_pose=camera_pose,  # cam2world
                 camera_intrinsics=intrinsics,

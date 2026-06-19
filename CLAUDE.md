@@ -93,6 +93,8 @@ sbatch slurm/train_occany_plus.slurm
 sbatch slurm/eval_occany.slurm
 ```
 
+When submitting chained training jobs (a dependency chain of resume jobs for a long run), use the `chain-slurm-jobs` skill rather than hand-rolling the submission.
+
 ## Critical: Verify cluster files before submitting SLURM jobs
 
 Before submitting any SLURM job on a cluster, always verify that the script on the cluster matches the local version. The user syncs files manually — never assume a local edit has been pushed, and never sync files to the cluster yourself (no scp/rsync); always ask the user to sync. Check with e.g.:

@@ -56,8 +56,8 @@ model:
     ckpt_path: checkpoints/occrae_img_decoder.pt
 
 training:
-  # bsize 1 + pairs_per_seq 4: forward 4 frame-pairs from one sequence per rank.
-  # 4 GPU x bsize 1 x pairs_per_seq 4 = 16 = effective_bsize -> grad_cum 1.
+  # bsize 4 + pairs_per_seq 1: forward 4 sequences (one frame-pair each) per rank.
+  # 4 GPU x bsize 4 x pairs_per_seq 1 = 16; effective_bsize 16 / 16 -> grad_cum 1.
   bsize: 4
   pairs_per_seq: 1
   # gpu_p6 gives 24 cpus/task; the base 4 workers starve the GPU on JZ

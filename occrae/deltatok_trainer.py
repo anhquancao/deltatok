@@ -17,7 +17,6 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 import torch.distributed as dist
-from tqdm import tqdm
 from torch.nn.parallel import DistributedDataParallel as DDP
 from torch.amp import autocast
 
@@ -35,6 +34,7 @@ from models.qk_norm import enable_dinov3_qk_norm
 
 from occrae.abstract_trainer import Trainer
 from occrae.deltatok_shared import DeltaTokSharedMixin
+from occrae.metric_logger import MetricLogger, SmoothedValue  # SLURM-friendly line-per-print logging (no tqdm)
 from occrae.metric import DeltaTokEvalMetric
 from occrae.visualization_helper import _log_viz_sample
 from occany.datasets import get_data_loader
@@ -673,13 +673,19 @@ class DeltaTokTrainer(DeltaTokSharedMixin, Trainer):
         epoch = int(self.cfg.training.global_epoch)
         self._set_train_loader_epoch(epoch)
 
-        pbar = tqdm(
-            self.train_loader,
-            desc=f"Training (Epoch {epoch})",
-            disable=not self.is_master,
-        )
+        # SLURM-friendly progress: one flushed print line every `print_freq`
+        # batches (master only), instead of tqdm's carriage-return bar.
+        print_freq = int(self.cfg.training.get("print_freq", 20))
+        if self.is_master:
+            metric_logger = MetricLogger(delimiter="  ")
+            metric_logger.add_meter('lr', SmoothedValue(window_size=1, fmt='{value:.6f}'))
+            batch_iter = metric_logger.log_every(
+                self.train_loader, print_freq, header=f"Training (Epoch {epoch})"
+            )
+        else:
+            batch_iter = self.train_loader
 
-        for batch in pbar:
+        for batch in batch_iter:
             if self.cfg.training.iter >= self.cfg.training.max_iter:
                 break
 
@@ -691,11 +697,29 @@ class DeltaTokTrainer(DeltaTokSharedMixin, Trainer):
 
             imgs = batch["imgs"].to(self.device, non_blocking=True)
             num_cameras = batch.get("num_cameras", 1)
+            if self.is_master and num_batches <= 20:
+                sampled_vpt = batch.get("sampled_vpt")
+                print(f"[vpt-check] sampled_vpt={sampled_vpt} num_cameras={num_cameras} "
+                      f"match={sampled_vpt == num_cameras}")
             _, _, x_prev, x, H, W = self._extract_pair_feats(imgs, num_cameras=num_cameras)
 
+            # Subsample to `pairs_per_seq` transitions PER sequence (not per micro-batch
+            # total), so the pairs actually used == bsize * pairs_per_seq and match the
+            # grad_cum accounting (effective_bsize = world_size * bsize * pairs_per_seq *
+            # grad_cum). x_prev is (B*(T-1), N, P, C), batch-major: row b*(T-1)+t is
+            # sequence b, transition t. B=bsize, T=timesteps, N=cameras, P=patches/view.
             pairs_per_seq = int(self.cfg.training.get("pairs_per_seq", 0))
-            if pairs_per_seq > 0 and x_prev.shape[0] > pairs_per_seq:
-                idx = torch.randperm(x_prev.shape[0], device=x_prev.device)[:pairs_per_seq]
+            B = imgs.shape[0]                                   # sequences in this micro-batch
+            T_minus_1 = x_prev.shape[0] // B                    # transitions per seq (T-1), uniform across the batch
+            if pairs_per_seq > 0 and T_minus_1 > pairs_per_seq:
+                # argsort of per-row random keys = an independent random permutation of the
+                # T-1 transitions for each of the B sequences (vectorized B-way randperm);
+                # the prefix is then a without-replacement sample of pairs_per_seq per seq.
+                perm = torch.argsort(
+                    torch.rand(B, T_minus_1, device=x_prev.device), dim=1
+                )[:, :pairs_per_seq]                           # (B, pairs_per_seq) transition idx within each seq
+                base = (torch.arange(B, device=x_prev.device) * T_minus_1).unsqueeze(1)  # (B, 1) seq offsets
+                idx = (base + perm).reshape(-1)               # (B*pairs_per_seq,) flat rows into x_prev
                 x_prev = x_prev[idx]
                 x = x[idx]
 
@@ -716,6 +740,11 @@ class DeltaTokTrainer(DeltaTokSharedMixin, Trainer):
             cum_loss += loss_val
             window_loss.append(loss_val)
 
+            # Update the console meters every batch (matches OccAny) so the first
+            # log_every line at step 0 has populated `loss`/`lr` meters.
+            if self.is_master:
+                metric_logger.update(loss=loss_val, lr=self.optim.param_groups[0]['lr'])
+
             if update_grad:
                 if self.distributed:
                     mini_batch_loss = self.all_gather(torch.tensor(window_loss).mean())
@@ -732,8 +761,6 @@ class DeltaTokTrainer(DeltaTokSharedMixin, Trainer):
                     self.log_add_scalar('Train/LossRecon', loss, self.cfg.training.iter)
                     self.log_add_scalar('Train/LossTot', mini_batch_loss, self.cfg.training.iter)
                     self.log_add_scalar('Train/SpeedSamplesPerSec', speed_samples_per_sec, self.cfg.training.iter)
-
-                    pbar.set_postfix(loss=mini_batch_loss.item())
 
                 self.cfg.training.iter += 1
 
@@ -788,13 +815,19 @@ class DeltaTokTrainer(DeltaTokSharedMixin, Trainer):
             if ds is not None and hasattr(ds, "set_epoch"):
                 ds.set_epoch(0)
 
-            pbar = tqdm(
-                loader,
-                desc=f"Evaluating {test_name} (Epoch {self.cfg.training.global_epoch})",
-                disable=not self.is_master,
-            )
+            # SLURM-friendly progress: MetricLogger prints one flushed line per
+            # print_freq batches (master only, matching tqdm's disable).
+            if self.is_master:
+                metric_logger = MetricLogger(delimiter="  ")
+                batch_iter = metric_logger.log_every(
+                    loader,
+                    int(self.cfg.training.get("print_freq", 20)),
+                    header=f"Evaluating {test_name} (Epoch {self.cfg.training.global_epoch})",
+                )
+            else:
+                batch_iter = loader
 
-            for batch in pbar:
+            for batch in batch_iter:
                 if items_seen >= eval_num_items:
                     break
                 batch = self._normalize_batch(batch)
@@ -802,7 +835,10 @@ class DeltaTokTrainer(DeltaTokSharedMixin, Trainer):
                 imgs = batch["imgs"].to(self.device, non_blocking=True)
                 B, V, _, _, _ = imgs.shape
                 num_cameras = batch.get("num_cameras", 1)
-
+                if self.is_master:
+                    sampled_vpt = batch.get("sampled_vpt")
+                    print(f"[vpt-check] sampled_vpt={sampled_vpt} num_cameras={num_cameras} "
+                          f"match={sampled_vpt == num_cameras}")
                 tokens, feats, x_prev, x, H, W = self._extract_pair_feats(imgs, num_cameras=num_cameras)
                 with self.autocast:
                     x_hat = self.tokenizer(x_prev, x, H, W, num_cameras=num_cameras)
@@ -1039,7 +1075,7 @@ class DeltaTokTrainer(DeltaTokSharedMixin, Trainer):
                 metric.update(batch_size=B, **batch_losses)
                 items_seen += B
                 if self.is_master:
-                    pbar.set_postfix(loss=loss_recon.item())
+                    metric_logger.update(loss=loss_recon.item())
 
             if metric.count == 0:
                 continue
