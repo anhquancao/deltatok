@@ -961,19 +961,6 @@ class DeltaTokTrainer(DeltaTokSharedMixin, Trainer):
                             # Context views (timestep 0) carry GT tokens — blank their pred cells.
                             pred_blank_views = [v < context_views for v in view_order]
                             view_index = torch.as_tensor(view_order, dtype=torch.long)
-                            gt_depth = batch["gt_depth"][batch_idx].detach().cpu()[view_index]
-                            gt_mask = batch["gt_mask"][batch_idx].detach().cpu()[view_index]
-                            gt_depth_color = torch.stack([
-                                torch.from_numpy(
-                                    depth2rgb(
-                                        gt_depth[t].clamp(0, 50).numpy(),
-                                        valid_mask=gt_mask[t].numpy().astype(bool),
-                                        min_depth=0.0,
-                                        max_depth=50.0,
-                                    ).astype(np.float32)
-                                )
-                                for t in range(V)
-                            ])
                             gt_token_depth = decoded_gt["depth"][batch_idx].detach().float().cpu()[view_index]
                             gt_token_depth_color = torch.stack([
                                 torch.from_numpy(
@@ -1005,14 +992,12 @@ class DeltaTokTrainer(DeltaTokSharedMixin, Trainer):
                             extra_panels = [
                                 ar_pred_depth_color,
                                 gt_token_depth_color,
-                                gt_depth_color,
                             ]
                             col_titles = [
                                 "RGB",
                                 "Pred Depth (TF)",
                                 "Pred Depth (AR)",
                                 "GT Token Depth",
-                                "GT Depth",
                             ]
                             if have_img_dec:
                                 # (V, 3, H, W) -> (V, H, W, 3) in [0, 255] float32.
