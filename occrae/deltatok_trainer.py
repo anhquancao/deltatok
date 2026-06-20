@@ -145,6 +145,28 @@ class DeltaTokModule(nn.Module):
             self._rope_cache[key] = rope
         return rope
 
+    def _compute_camera_rope(self, max_cameras: int, device, dtype):
+        """Resolution-independent rope over camera positions 0..max_cameras-1.
+
+        Lays the camera slots along a synthetic ``1 x max_cameras`` patch grid so the
+        coord normalization (DINOv3 divides patch coords by the grid) uses a FIXED
+        ``max_cameras`` instead of the image's ``Hp x Wp``; a camera idx therefore maps
+        to the same rotation at any image resolution. Only the width (x) coord varies —
+        the row-0 y coord is constant, so the y-half of head_dim is identity here.
+        Returns (cos, sin) of shape (max_cameras, head_dim).
+        """
+        ps = self.rope_embeddings.config.patch_size
+        key = ("camera", int(max_cameras), device, dtype, self.rope_embeddings.training)
+        cached = self._rope_cache.get(key)
+        if cached is not None:
+            return cached
+        # 1 x max_cameras grid: Hp=1, Wp=max_cameras -> max_cameras grid positions.
+        dummy = torch.zeros(1, 3, ps, ps * int(max_cameras), device=device, dtype=dtype)  # (1,3,ps,ps*32)
+        rope = self.rope_embeddings(dummy)  # (max_cameras, head_dim) cos/sin
+        if not self.rope_embeddings.training:
+            self._rope_cache[key] = rope
+        return rope
+
     def _compute_global_rope(self, height: int, width: int, num_cameras: int, device, dtype):
         """DA3-style ``pos_nodiff`` rope for global (cross-camera) attention.
 
@@ -165,8 +187,11 @@ class DeltaTokModule(nn.Module):
         With ``self._use_camera_rope``, each camera instead gets one distinct
         position (shared by its patches, identical in prev & next) so the model
         can link the same camera across timesteps (same-camera offset 0). The
-        camera↔position assignment is shuffled per forward while training to
-        stay permutation-invariant; eval is deterministic.
+        positions come from a dedicated, resolution-independent camera rope of a
+        fixed maximum of 32 slots (``_compute_camera_rope``); camera idx maps to
+        position idx ``0,1,2,...``. The camera↔position assignment is shuffled
+        per forward while training to stay permutation-invariant; eval is
+        deterministic.
         """
         Hp = int(height) // self.rope_embeddings.config.patch_size
         Wp = int(width) // self.rope_embeddings.config.patch_size
@@ -183,14 +208,17 @@ class DeltaTokModule(nn.Module):
                 sin[idx : idx + 1].expand(num_positions, -1).contiguous(),
             )
 
-        # N camera slots spread evenly across the normalized [-1,1] grid.
-        assert num_grid >= N, f"need >= {N} distinct rope positions, grid has {num_grid}"
-        base_idx = torch.linspace(0, num_grid - 1, N, device=device).round().long()  # (N,)
+        # Dedicated, resolution-independent camera rope: camera idx 0..N-1 over a
+        # fixed max of MAX_CAMERAS positions (not the image grid).
+        MAX_CAMERAS = 32
+        assert N <= MAX_CAMERAS, f"camera rope supports <= {MAX_CAMERAS} cameras, got {N}"
+        cam_cos, cam_sin = self._compute_camera_rope(MAX_CAMERAS, device, dtype)  # (MAX_CAMERAS, head_dim)
+        base_idx = torch.arange(N, device=device)  # camera idx 0,1,2,...,N-1
         if self.training:
-            base_idx = base_idx[torch.randperm(N, device=device)]  # shuffle camera↔slot
-        # cam-major repeat to match encode/decode reshape(M, N*P, C): [slot(c0)xP, slot(c1)xP, ...]
-        cos_cam = cos[base_idx].repeat_interleave(num_grid, dim=0).contiguous()  # (N*P, head_dim)
-        sin_cam = sin[base_idx].repeat_interleave(num_grid, dim=0).contiguous()  # (N*P, head_dim)
+            base_idx = base_idx[torch.randperm(N, device=device)]  # shuffle camera↔position (perm-invariance)
+        # cam-major repeat to match encode/decode reshape(M, N*P, C): [pos(c0)xP, pos(c1)xP, ...]
+        cos_cam = cam_cos[base_idx].repeat_interleave(num_grid, dim=0).contiguous()  # (N*P, head_dim)
+        sin_cam = cam_sin[base_idx].repeat_interleave(num_grid, dim=0).contiguous()  # (N*P, head_dim)
         return cos_cam, sin_cam
 
     def _is_global_layer(self, i: int) -> bool:
