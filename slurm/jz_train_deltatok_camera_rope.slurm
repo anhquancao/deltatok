@@ -45,7 +45,7 @@ ulimit -n "$(ulimit -Hn)"
 export CONFIG_NAME=train_deltatok_jeanzay
 export LOG_AND_CKPT_DIR="/lustre/fswork/projects/rech/trg/uyl37fq/deltatok_log"
 export RESULTS_DIR="$LOG_AND_CKPT_DIR"
-export RUN_NAME=deltatok_surround_layer12_bsize2_cameraRope
+export RUN_NAME=deltatok_surround_layer12_bsize2_cameraRope32
 export RESUME=1
 export EXTRA_CFG="model.deltatok.use_camera_rope=true"
 
