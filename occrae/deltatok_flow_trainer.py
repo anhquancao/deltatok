@@ -175,8 +175,11 @@ class DeltaTokFlowMatchingTrainer(DeltaTokSharedMixin, Trainer):
 
         model = model.to(self.device).eval()
         model.requires_grad_(False)
-        if self.cfg.training.dtype == "bfloat16":
-            model.to(torch.bfloat16)
+        # Keep the frozen tokenizer in fp32 and let autocast handle bf16 at the call
+        # sites (every self.deltatok call is wrapped in self.autocast) — exactly the
+        # regime it trained under (DeltaTokTrainer uses fp32 params + autocast too).
+        # A model.to(bfloat16) here would also downcast the rope inv_freq buffer,
+        # degrading the fp32 `position * inv_freq` angle math (bf16 has 7 mantissa bits).
         return model
 
     def get_network(self, archi):
@@ -207,6 +210,7 @@ class DeltaTokFlowMatchingTrainer(DeltaTokSharedMixin, Trainer):
                 # reference grid broadcasts ONE shared embedding to every slot:
                 # no camera identity -> camera-permutation equivariance holds.
                 ref_spatial_size=(1, 1),
+                use_camera_rope=bool(self.cfg.model.get("vit_use_camera_rope", False)),
             )
 
             # Load model checkpoint for resume or pretrained initialization.

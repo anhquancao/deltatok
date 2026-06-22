@@ -7,10 +7,10 @@
 #SBATCH --hint=nomultithread
 #SBATCH -C h100
 #SBATCH --account=lwy@h100
-#SBATCH --qos=qos_gpu_h100-t3
-#SBATCH --time=20:00:00
-##SBATCH --qos=qos_gpu_h100-dev
-##SBATCH --time=02:00:00
+##SBATCH --qos=qos_gpu_h100-t3
+##SBATCH --time=20:00:00
+#SBATCH --qos=qos_gpu_h100-dev
+#SBATCH --time=02:00:00
 #SBATCH --output=slurm/output/jz_train_deltatok_%j.out
 #SBATCH --error=slurm/output/jz_train_deltatok_%j.err
 
@@ -45,9 +45,9 @@ ulimit -n "$(ulimit -Hn)"
 export CONFIG_NAME=train_deltatok_jeanzay
 export LOG_AND_CKPT_DIR="/lustre/fswork/projects/rech/trg/uyl37fq/deltatok_log"
 export RESULTS_DIR="$LOG_AND_CKPT_DIR"
-export RUN_NAME=deltatok_surround_layer12_bsize2_cameraRope32
+export RUN_NAME=deltatok_surround_layer12_bsize1_cameraRope32
 export RESUME=1
-export EXTRA_CFG="model.deltatok.use_camera_rope=true"
+export EXTRA_CFG="model.deltatok.use_camera_rope=true training.bsize=1"
 
 echo "PWD=$(pwd)"
 echo "CONFIG_NAME=$CONFIG_NAME"

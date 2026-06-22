@@ -51,6 +51,8 @@ dataset:
 
 model:
   vit_size: "xlarge"
+  vit_use_camera_rope: false   # rotary over the camera (spatial) axis in the flow ViT; enable via EXTRA_CFG
+
   # Temporal slot capacity: must be >= max T-1 transitions per item (worst case
   # above: max_memory_num_views=24 with min_views_per_timestep=1 -> T-1 = 23).
   # Only the first T-1 rows of the temporal embedding are looked up per forward,
@@ -76,6 +78,7 @@ model:
     use_qk_norm: true
     use_gated_attn: true
     use_rope_aug: false
+    use_camera_rope: false   # enable via EXTRA_CFG=model.deltatok.use_camera_rope=true (tokenizer must match)
     mlp_ratio: 4
     layer_scale_init: 1.0e-5
     initializer_range: 0.02

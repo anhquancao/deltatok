@@ -23,6 +23,13 @@ if [[ "$RESUME" == "1" ]]; then
     ARGS+=(--resume)
 fi
 
+# Forward extra Hydra overrides (space-separated, e.g.
+# "model.deltatok.use_camera_rope=true"). Unquoted on purpose so each override
+# becomes a separate arg to --cfg (nargs="*").
+if [[ -n "${EXTRA_CFG:-}" ]]; then
+    ARGS+=(--cfg $EXTRA_CFG)
+fi
+
 if [[ "${SLURM_NTASKS:-1}" -gt 1 ]]; then
     CMD=(python train_deltatok_flow.py)
     echo "Launching: local_rank=${SLURM_LOCALID:-0}, global_rank=${SLURM_PROCID:-0}, nodes=${SLURM_NNODES:-1}, world_size=${SLURM_NTASKS}, gpus_per_node=${SLURM_NTASKS_PER_NODE:-unknown}"

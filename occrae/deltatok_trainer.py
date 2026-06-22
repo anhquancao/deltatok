@@ -34,6 +34,7 @@ from models.qk_norm import enable_dinov3_qk_norm
 
 from occrae.abstract_trainer import Trainer
 from occrae.deltatok_shared import DeltaTokSharedMixin
+from occrae.network.rope_utils import compute_camera_rope  # shared 1xN camera-grid rope build
 from occrae.metric_logger import MetricLogger, SmoothedValue  # SLURM-friendly line-per-print logging (no tqdm)
 from occrae.metric import DeltaTokEvalMetric
 from occrae.visualization_helper import _log_viz_sample
@@ -91,6 +92,10 @@ class DeltaTokModule(nn.Module):
         cfg.patch_size = int(patch_size)
         cfg.initializer_range = float(initializer_range)
         cfg.intermediate_size = int(mlp_ratio * cfg.hidden_size)
+        # Disable rope coord augmentation (rescale) defensively. It only fires when
+        # the rope runs in train mode (use_rope_aug=true; else train() forces eval),
+        # so None keeps the coords un-augmented even if rope aug is later enabled.
+        cfg.pos_embed_rescale = None
 
         if use_swiglu:
             cfg.use_gated_mlp = True
@@ -155,14 +160,11 @@ class DeltaTokModule(nn.Module):
         the row-0 y coord is constant, so the y-half of head_dim is identity here.
         Returns (cos, sin) of shape (max_cameras, head_dim).
         """
-        ps = self.rope_embeddings.config.patch_size
         key = ("camera", int(max_cameras), device, dtype, self.rope_embeddings.training)
         cached = self._rope_cache.get(key)
         if cached is not None:
             return cached
-        # 1 x max_cameras grid: Hp=1, Wp=max_cameras -> max_cameras grid positions.
-        dummy = torch.zeros(1, 3, ps, ps * int(max_cameras), device=device, dtype=dtype)  # (1,3,ps,ps*32)
-        rope = self.rope_embeddings(dummy)  # (max_cameras, head_dim) cos/sin
+        rope = compute_camera_rope(self.rope_embeddings, max_cameras, device, dtype)  # shared 1xN grid build
         if not self.rope_embeddings.training:
             self._rope_cache[key] = rope
         return rope

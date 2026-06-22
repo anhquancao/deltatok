@@ -3,6 +3,11 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
+# DINOv3's rotary apply (same helper the DeltaTok tokenizer's blocks use), so the
+# flow ViT's camera rope matches the tokenizer's bit-for-bit. With no prefix tokens
+# (num_tokens == num_patches) it rotates every q/k token along the sequence axis.
+from transformers.models.dinov3_vit.modeling_dinov3_vit import apply_rotary_pos_emb
+
 
 def modulate(x, shift, scale):
     return x * (1 + scale.unsqueeze(1)) + shift.unsqueeze(1)
@@ -78,7 +83,7 @@ class Attention(nn.Module):
         # will be KVCache object managed by inference context manager
         self.cache = None
 
-    def forward(self, x, mask=None, return_attn=False):
+    def forward(self, x, mask=None, return_attn=False, rope=None):
         b, h_w, _ = x.shape
         # calculate query, key, value and split out heads
         xq, xk, xv = self.wq(x), self.wk(x), self.wv(x)
@@ -89,7 +94,12 @@ class Attention(nn.Module):
         xv = xv.view(b, h_w, self.n_local_heads, self.head_dim)
 
         # make heads be a batch dim
-        xq, xk, xv = (x.transpose(1, 2) for x in (xq, xk, xv))
+        xq, xk, xv = (x.transpose(1, 2) for x in (xq, xk, xv))  # (b, H, L, head_dim)
+        # rotary over the attended (sequence) axis — cos/sin (L, head_dim) broadcast
+        # over batch & heads; rotates q/k only, leaving v untouched.
+        if rope is not None:
+            cos, sin = rope
+            xq, xk = apply_rotary_pos_emb(xq, xk, cos, sin)
         # attention
         if self.flash:
             if mask is not None:

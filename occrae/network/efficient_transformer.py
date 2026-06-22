@@ -8,6 +8,12 @@ from einops import rearrange, repeat
 # from transformer_block import RMSNorm, Attention, FeedForward, TimestepEmbedder
 from occrae.network.transformer_block import RMSNorm, Attention, CrossAttention, FeedForward, TimestepEmbedder
 
+# Reuse DINOv3's rope embedding so the flow ViT's optional camera rope is built from
+# the exact same axial-rope frequencies / 1xN camera-grid as the DeltaTok tokenizer.
+from transformers.models.dinov3_vit.configuration_dinov3_vit import DINOv3ViTConfig
+from transformers.models.dinov3_vit.modeling_dinov3_vit import DINOv3ViTRopePositionEmbedding
+from occrae.network.rope_utils import compute_camera_rope  # shared 1xN camera-grid rope build
+
 def modulate(x, gamma):
     return x * (1 + gamma)
 
@@ -61,7 +67,7 @@ class Block(nn.Module):
         self.ff = FeedForward(dim, mlp_dim, dropout=dropout)
         self.ln_mlp = RMSNorm(dim, linear=True, bias=False, eps=1e-5)
 
-    def forward(self, x, ada_cond, cross_cond, t, s, temporal_mask=None, cross_mask=None):
+    def forward(self, x, ada_cond, cross_cond, t, s, temporal_mask=None, cross_mask=None, spatial_rope=None):
         """
         Args:
             x: main hidden states [B, N, D] with N = n_reg + t*s video tokens
@@ -70,6 +76,8 @@ class Block(nn.Module):
             t: number of temporal slots (frames; for delta-token flow: T-1 transitions)
             s: number of spatial tokens per temporal slot (h_p*w_p; for delta-token
                flow: N_cam — one delta token per camera)
+            spatial_rope: optional (cos, sin), each (s, head_dim), rotary over the
+               camera (spatial) axis. Applied in spatial (cross-camera) attention only.
         """
 
         # Generate all modulation parameters from style
@@ -90,10 +98,10 @@ class Block(nn.Module):
         x_reg = x[:, :n_reg] if n_reg > 0 else None
         x_video = x[:, n_reg:]
 
-        # --- Spatial self-attention (within frame) ---
+        # --- Spatial self-attention (within frame; = cross-camera for delta-token flow) ---
         x_spatial = modulate(self.ln_spatial(x_video), gamma_spatial[:, n_reg:])
         x_spatial = rearrange(x_spatial, 'b (t s) d -> (b t) s d', t=t, s=s)
-        x_spatial = self.spatial_attn(x_spatial)
+        x_spatial = self.spatial_attn(x_spatial, rope=spatial_rope)  # camera rope over the s axis
         x_spatial = rearrange(x_spatial, '(b t) s d -> b (t s) d', b=b, t=t, s=s)
         x_video = x_video + alpha_spatial[:, n_reg:] * x_spatial
 
@@ -130,10 +138,10 @@ class TransformerEncoder(nn.Module):
         for _ in range(depth):
             self.layers.append(Block(dim, heads, mlp_dim, dropout=dropout, use_cross_attn=use_cross_attn))
 
-    def forward(self, x, ada_cond, cross_cond, t, s, temporal_mask=None, cross_mask=None):
+    def forward(self, x, ada_cond, cross_cond, t, s, temporal_mask=None, cross_mask=None, spatial_rope=None):
         feat = None
         for i, block in enumerate(self.layers):
-            x = block(x, ada_cond=ada_cond, cross_cond=cross_cond, t=t, s=s, temporal_mask=temporal_mask, cross_mask=cross_mask)
+            x = block(x, ada_cond=ada_cond, cross_cond=cross_cond, t=t, s=s, temporal_mask=temporal_mask, cross_mask=cross_mask, spatial_rope=spatial_rope)
             if i == 8:
                 feat = x
         return x, feat
@@ -143,9 +151,9 @@ class Transformer(nn.Module):
     """ DiT-like transformer with adaLayerNorm with zero initializations """
     def __init__(self, out_dim=1536, num_views=10, cross_dim=None, hidden_dim=768,
                  depth=12, heads=16, mlp_dim=3072, dropout=0.,
-                 register=1, proj=1, is_causal=False, 
+                 register=1, proj=1, is_causal=False,
                  use_trajectory_cond=False, trajectory_length=25,
-                 ref_spatial_size=(16, 16)):
+                 ref_spatial_size=(16, 16), use_camera_rope=False, max_cameras=32):
         super().__init__()
 
         self.c = out_dim                                                # Number of channels as input
@@ -157,6 +165,22 @@ class Transformer(nn.Module):
         self.use_trajectory_cond = use_trajectory_cond                  # fuse trajectory into ada conditioning
         self.trajectory_length = trajectory_length                      # expected trajectory temporal length
         self.ref_spatial_size = ref_spatial_size                        # reference spatial size for positional embeddings
+        self.use_camera_rope = use_camera_rope                          # rotary over the camera (spatial) axis in spatial attn
+        self.max_cameras = max_cameras                                  # rope slot cap (matches tokenizer MAX_CAMERAS=32)
+
+        if self.use_camera_rope:
+            head_dim = hidden_dim // heads
+            assert head_dim % 2 == 0, f"camera rope needs even head_dim, got {head_dim}"
+            # Same DINOv3 rope module the tokenizer uses, sized to THIS ViT's head_dim
+            # (hidden_dim // heads). Kept in eval (no coord augmentation) — the
+            # per-forward camera<->position shuffle gives permutation invariance.
+            rope_cfg = DINOv3ViTConfig()
+            rope_cfg.hidden_size = hidden_dim
+            rope_cfg.num_attention_heads = heads
+            rope_cfg.patch_size = 16                                    # only sizes the synthetic 1xN grid; cancels out
+            self.rope_embeddings = DINOv3ViTRopePositionEmbedding(rope_cfg)
+            self.rope_embeddings.eval()
+            self._rope_cache = {}                                       # (device, dtype) -> (cos, sin) over max_cameras
 
         # Separate temporal and spatial positional embeddings
         # Temporal: Learned embedding (nn.Embedding)
@@ -236,6 +260,37 @@ class Transformer(nn.Module):
         if self.use_trajectory_cond:
             nn.init.constant_(self.trajectory_embed.mlp[-1].weight, 0)
             nn.init.constant_(self.trajectory_embed.mlp[-1].bias, 0)
+
+    def train(self, mode: bool = True):
+        super().train(mode)
+        # Keep DINOv3 rope coords un-augmented (deterministic) regardless of train
+        # mode; the per-forward camera<->position shuffle in _camera_rope is what
+        # provides permutation invariance.
+        if self.use_camera_rope:
+            self.rope_embeddings.eval()
+        return self
+
+    def _camera_rope(self, num_cameras, device, dtype):
+        """Rotary cos/sin over camera slots, mirroring DeltaTokModule camera rope.
+
+        Lays cameras on a synthetic 1 x max_cameras DINOv3 patch grid (resolution
+        -independent), then maps camera slot c -> position ``base_idx[c]``. base_idx
+        is 0..N-1, shuffled per forward while training (permutation invariance) and
+        identity at eval. Returns (cos, sin) of shape (num_cameras, head_dim).
+        """
+        assert num_cameras <= self.max_cameras, (
+            f"camera rope supports <= {self.max_cameras} cameras, got {num_cameras}")
+        cache_key = (device, dtype)
+        cam = self._rope_cache.get(cache_key)
+        if cam is None:
+            # eval mode => deterministic coords (no jitter), so cache per (device, dtype).
+            cam = compute_camera_rope(self.rope_embeddings, self.max_cameras, device, dtype)
+            self._rope_cache[cache_key] = cam
+        cam_cos, cam_sin = cam
+        base_idx = torch.arange(num_cameras, device=device)            # camera slot c -> position c
+        if self.training:
+            base_idx = base_idx[torch.randperm(num_cameras, device=device)]  # shuffle (perm-invariance)
+        return cam_cos[base_idx], cam_sin[base_idx]                     # (num_cameras, head_dim) each
 
     def interpolate_pos_encoding(self, h, w, device):
         """
@@ -362,7 +417,11 @@ class Transformer(nn.Module):
             t_emb_expanded = [torch.cat([torch.zeros(b, self.register, self.hidden_dim, dtype=x.dtype, device=x.device), e], dim=1)
                                 for e in t_emb_expanded]
 
-        x, feat = self.transformer(x=x, ada_cond=t_emb_expanded, cross_cond=cross_cond, t=t, s=S, temporal_mask=temporal_mask)
+        # Camera rope over the spatial axis (= cameras for delta-token flow, S = N_cam);
+        # gives each camera a distinct rotation in the cross-camera (spatial) attention.
+        spatial_rope = self._camera_rope(S, x.device, x.dtype) if self.use_camera_rope else None
+
+        x, feat = self.transformer(x=x, ada_cond=t_emb_expanded, cross_cond=cross_cond, t=t, s=S, temporal_mask=temporal_mask, spatial_rope=spatial_rope)
 
         # drop the register(s)
         x = x[:, self.register:].contiguous()
