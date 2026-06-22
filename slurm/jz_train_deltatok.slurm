@@ -47,7 +47,11 @@ export LOG_AND_CKPT_DIR="/lustre/fswork/projects/rech/trg/uyl37fq/deltatok_log"
 export RESULTS_DIR="$LOG_AND_CKPT_DIR"
 export RUN_NAME=deltatok_surround_layer12_bsize2_fixedBug
 export RESUME=1
-export EXTRA_CFG="model.deltatok.use_camera_rope=false"
+EXTRA_CFG_ARGS=(
+    model.deltatok.use_camera_rope=false       # no-camera-rope layer-12 run
+    training.exit_before_time_limit=true       # stop after a ckpt when SLURM wall is near (chain-resume safe)
+)
+export EXTRA_CFG="${EXTRA_CFG_ARGS[*]}"
 
 echo "PWD=$(pwd)"
 echo "CONFIG_NAME=$CONFIG_NAME"

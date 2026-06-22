@@ -624,6 +624,10 @@ class DeltaTokTrainer(DeltaTokSharedMixin, Trainer):
             os.replace(path, f"{root}_backup{ext}")
         torch.save(state, path)
 
+    def _save_current_checkpoint(self) -> None:
+        """current.pth save used by ``DeltaTokSharedMixin._end_of_epoch``."""
+        self._save_checkpoint(os.path.join(self.cfg.training.vit_folder, "current.pth"))
+
     def _load_checkpoint(self, path: str, *, restore_train_state: bool) -> None:
         """Load model weights from ``path``. If ``restore_train_state`` is True,
         also restore optimizer state and ``iter``/``global_epoch`` counters
@@ -1182,6 +1186,7 @@ class DeltaTokTrainer(DeltaTokSharedMixin, Trainer):
         start = time.time()
 
         for e in range(self.cfg.training.global_epoch, self.cfg.training.epoch + 1):
+            epoch_wall_t0 = time.time()  # full-epoch wall (train + eval + save) for the time-limit guard
             if self.cfg.training.iter >= self.cfg.training.max_iter:
                 if self.is_master:
                     print("End of training: reached max iterations")
@@ -1207,10 +1212,7 @@ class DeltaTokTrainer(DeltaTokSharedMixin, Trainer):
 
             self.cfg.training.global_epoch += 1
 
-            if self.is_master:
-                self._save_checkpoint(
-                    os.path.join(self.cfg.training.vit_folder, "current.pth")
-                )
+            self._end_of_epoch(epoch_wall_t0)
 
     def evaluate(self):
         """One-shot evaluation: build only test loaders, load checkpoint, run

@@ -846,6 +846,17 @@ class DeltaTokFlowMatchingTrainer(DeltaTokSharedMixin, Trainer):
 
     # _build_occ_rae comes from DeltaTokSharedMixin (frozen + bf16 cast).
 
+    def _save_current_checkpoint(self) -> None:
+        """current.pth save used by ``DeltaTokSharedMixin._end_of_epoch``."""
+        self.save_network(
+            model=self.vit,
+            path=os.path.join(self.cfg.training.vit_folder, "current.pth"),
+            optimizer=self.optim,
+            iter=self.cfg.training.iter,
+            global_epoch=self.cfg.training.global_epoch,
+            ema_state=self.ema.state_dict() if self.cfg.training.use_ema else None,
+        )
+
     def fit(self, log_iter=1000):
         # Build train/test loaders via `get_data_loader` (dust3r-style dataset
         # expression strings), mirroring DeltaTokTrainer.fit.
@@ -904,6 +915,7 @@ class DeltaTokFlowMatchingTrainer(DeltaTokSharedMixin, Trainer):
         start = time.time()
 
         for e in range(self.cfg.training.global_epoch, self.cfg.training.epoch + 1):
+            epoch_wall_t0 = time.time()  # virtual-epoch wall (train + eval + save) for the time-limit guard
             if self.cfg.training.iter >= self.cfg.training.max_iter:
                 print("End of training: reached max iterations")
                 break
@@ -928,6 +940,10 @@ class DeltaTokFlowMatchingTrainer(DeltaTokSharedMixin, Trainer):
                       f" Date: {now}")
 
             self.cfg.training.global_epoch += 1
+
+            # train_one_epoch only saves periodically; persist current.pth at
+            # every epoch end so the time-limit guard exits after a fresh ckpt.
+            self._end_of_epoch(epoch_wall_t0)
 
     def run(self):
         self.fit()

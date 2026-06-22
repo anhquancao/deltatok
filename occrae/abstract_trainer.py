@@ -340,6 +340,11 @@ class Trainer(object):
         """
         state_dict = model.module.state_dict() if self.args.is_multi_gpus else model.state_dict()
 
+        # Back up any existing file first so a crash mid-save can't truncate it.
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        if os.path.isfile(path):
+            root, ext = os.path.splitext(path)
+            os.replace(path, f"{root}_backup{ext}")
         torch.save({'iter': iter,
                 'global_epoch': global_epoch,
                 'model_state_dict': state_dict,

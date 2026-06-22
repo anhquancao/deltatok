@@ -54,6 +54,7 @@ EXTRA_CFG_ARGS=(
     model.deltatok.use_camera_rope=true        # tokenizer camera rope
     model.vit_use_camera_rope=true             # flow ViT camera rope
     model.deltatok_ckpt="$DELTATOK_CKPT"       # frozen camera-rope tokenizer
+    training.exit_before_time_limit=true       # stop after a ckpt when SLURM wall is near (chain-resume safe)
 )
 export EXTRA_CFG="${EXTRA_CFG_ARGS[*]}"
 # Fresh start each debug run by default; override for chained resume jobs via

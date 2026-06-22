@@ -2,21 +2,71 @@
 
 ``DeltaTokSharedMixin`` hosts the batch/feature plumbing used by both
 ``DeltaTokTrainer`` (tokenizer training) and ``DeltaTokFlowMatchingTrainer``
-(flow matching over delta tokens). All method bodies are copied verbatim from
-``occrae/deltatok_trainer.py``.
+(flow matching over delta tokens). The batch/feature method bodies are copied
+verbatim from ``occrae/deltatok_trainer.py``.
 
 The host class must provide: ``self.cfg``, ``self.device``, ``self.is_master``,
-``self.autocast``, ``self._num_prefix_tokens``, ``self.train_loader`` and the
+``self.distributed``, ``self.autocast``, ``self._num_prefix_tokens``,
+``self.train_loader``, a ``_save_current_checkpoint()`` method and the
 ``pointmap/depth/raymap_criterion`` attributes. ``_build_occ_rae`` sets
 ``self.occ_rae`` (frozen — never DDP-wrapped, never in the optimizer).
 """
 
+import sys
+import time
+
 import torch
 
 from occany.model.occ_rae import OccRAE
+from occany.utils.slurm import slurm_time_remaining_sec
 
 
 class DeltaTokSharedMixin:
+
+    def _end_of_epoch(self, epoch_wall_t0):
+        """Per-epoch tail shared by both trainers: persist current.pth on rank 0,
+        then maybe stop before the SLURM wall limit for a clean chain resume.
+        ``epoch_wall_t0`` is the wall start of the epoch just finished."""
+        if self.is_master:
+            self._save_current_checkpoint()
+        self._maybe_exit_before_time_limit(epoch_wall_t0)
+
+    def _maybe_exit_before_time_limit(self, epoch_wall_t0):
+        """Stop cleanly after the epoch checkpoint when the SLURM wall is near so
+        a chained resume picks up current.pth instead of dying mid-epoch. Decide
+        on rank 0 and broadcast so all ranks exit together. ``epoch_wall_t0`` is
+        the start of the epoch just finished; its duration estimates the next."""
+        if not bool(self.cfg.training.get("exit_before_time_limit", False)):
+            return
+        safety_min = float(self.cfg.training.get("time_limit_safety_min", 2.0))
+        stop_run = False
+        if self.is_master:
+            remaining = slurm_time_remaining_sec()
+            if remaining is None:
+                # Flag is on but the limit is unknown (no scontrol?): warn once
+                # so the silent no-op is visible, then keep training.
+                if not getattr(self, "_time_limit_unknown_warned", False):
+                    print(">> exit_before_time_limit is on but the SLURM time "
+                          "limit could not be determined; the guard will not "
+                          "fire.", flush=True)
+                    self._time_limit_unknown_warned = True
+            else:
+                epoch_dur = time.time() - epoch_wall_t0          # est. of the next epoch's wall
+                needed = epoch_dur + safety_min * 60.0
+                if remaining < needed:
+                    print(f">> {remaining / 60:.1f} min left in SLURM allocation < "
+                          f"{needed / 60:.1f} min needed (epoch took {epoch_dur / 60:.1f} "
+                          f"min + {safety_min:.1f} min safety); exiting cleanly after "
+                          f"checkpoint for chain resume.", flush=True)
+                    stop_run = True
+        if self.distributed:
+            stop_flag = torch.tensor([1 if stop_run else 0], device=self.device)
+            torch.distributed.broadcast(stop_flag, src=0)
+            stop_run = bool(stop_flag.item())
+        if stop_run:
+            if self.distributed:
+                torch.distributed.barrier()
+            sys.exit(0)
 
     def _set_train_loader_epoch(self, epoch: int):
         sampler = getattr(self.train_loader, "sampler", None)

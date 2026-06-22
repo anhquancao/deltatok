@@ -109,3 +109,7 @@ training:
   eval_num_items: 256
   eval_num_visualizations: 8
   sanity_check_num_items: 2
+  # Stop cleanly after an epoch ckpt when the SLURM wall is near (chain-resume
+  # safe). Off here; enabled via EXTRA_CFG in the JZ SLURM scripts.
+  exit_before_time_limit: false
+  time_limit_safety_min: 2.0  # extra margin (min) beyond one epoch's duration
