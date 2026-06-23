@@ -211,6 +211,7 @@ class DeltaTokFlowMatchingTrainer(DeltaTokSharedMixin, Trainer):
                 # no camera identity -> camera-permutation equivariance holds.
                 ref_spatial_size=(1, 1),
                 use_camera_rope=bool(self.cfg.model.get("vit_use_camera_rope", False)),
+                use_camera_embed=bool(self.cfg.model.get("vit_use_camera_embed", False)),
             )
 
             # Load model checkpoint for resume or pretrained initialization.

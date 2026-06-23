@@ -37,19 +37,17 @@ export TORCH_NCCL_HEARTBEAT_TIMEOUT_SEC="${TORCH_NCCL_HEARTBEAT_TIMEOUT_SEC:-100
 # file_descriptor shm strategy holds an fd per shared tensor per worker
 ulimit -n "$(ulimit -Hn)"
 
-# Overfit debug run (tokenizer-rope-only variant): single dynamic nuScenes scene
+# Overfit debug run (camera-embed variant): single dynamic nuScenes scene
 # (scene-0625) repeated 256x, single GPU (config bsize=32, effective_bsize=32 ->
 # grad_cum 1; needs world_size==1).
 export CONFIG_NAME=train_deltatok_flow_overfit_jeanzay
 export RESULTS_DIR="/lustre/fswork/projects/rech/trg/uyl37fq/deltatok_flow_log"
-# Distinct name so this run doesn't clobber deltatok_flow_overfit_cameraRope32 (flow-ViT rope on).
-export RUN_NAME=deltatok_flow_overfit_tokRope32
-# Camera rope on the frozen tokenizer only; flow ViT runs without it. Tokenizer
-# repointed at the cameraRope32 run (live current.pth, snapshotted at job start).
-DELTATOK_CKPT="/lustre/fswork/projects/rech/trg/uyl37fq/deltatok_log/deltatok_surround_layer12_bsize2_cameraRope32/ckpts/current.pth"
+# Distinct name so this run lands in its own subdir.
+export RUN_NAME=deltatok_flow_overfit_camEmbed
+# Frozen tokenizer = const-global-rope (config-default ckpt + use_camera_rope=false).
+# Flow ViT gets an absolute learned per-camera embedding to stop the slot swap.
 EXTRA_CFG_ARGS=(
-    model.deltatok.use_camera_rope=true        # tokenizer camera rope
-    model.deltatok_ckpt="$DELTATOK_CKPT"       # frozen tokenizer
+    model.vit_use_camera_embed=true            # absolute per-camera identity in the flow ViT
     training.exit_before_time_limit=true       # clean exit near SLURM wall (chain-resume safe)
 )
 export EXTRA_CFG="${EXTRA_CFG_ARGS[*]}"

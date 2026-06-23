@@ -153,7 +153,8 @@ class Transformer(nn.Module):
                  depth=12, heads=16, mlp_dim=3072, dropout=0.,
                  register=1, proj=1, is_causal=False,
                  use_trajectory_cond=False, trajectory_length=25,
-                 ref_spatial_size=(16, 16), use_camera_rope=False, max_cameras=32):
+                 ref_spatial_size=(16, 16), use_camera_rope=False, max_cameras=32,
+                 use_camera_embed=False):
         super().__init__()
 
         self.c = out_dim                                                # Number of channels as input
@@ -166,7 +167,8 @@ class Transformer(nn.Module):
         self.trajectory_length = trajectory_length                      # expected trajectory temporal length
         self.ref_spatial_size = ref_spatial_size                        # reference spatial size for positional embeddings
         self.use_camera_rope = use_camera_rope                          # rotary over the camera (spatial) axis in spatial attn
-        self.max_cameras = max_cameras                                  # rope slot cap (matches tokenizer MAX_CAMERAS=32)
+        self.max_cameras = max_cameras                                  # rope/embed slot cap (matches tokenizer MAX_CAMERAS=32)
+        self.use_camera_embed = use_camera_embed                        # absolute learned per-camera identity (additive, ungated)
 
         if self.use_camera_rope:
             head_dim = hidden_dim // heads
@@ -188,6 +190,11 @@ class Transformer(nn.Module):
         ref_h, ref_w = self.ref_spatial_size
         self.temporal_pos = nn.Embedding(self.t, hidden_dim)
         self.spatial_pos = nn.Parameter(torch.zeros(1, ref_h * ref_w + 1, hidden_dim))
+
+        # Absolute per-camera identity over the spatial (camera) axis: one learned
+        # vector per slot, added ungated so each generated delta binds to its camera.
+        if self.use_camera_embed:
+            self.camera_embed = nn.Embedding(max_cameras, hidden_dim)
 
         # number of spatial tokens (including CLS if present in spatial_pos, but here we use it for reference)
         self.num_spatial = ref_h * ref_w + 1
@@ -242,6 +249,8 @@ class Transformer(nn.Module):
         # Init embedding
         nn.init.normal_(self.temporal_pos.weight, std=0.02)
         nn.init.trunc_normal_(self.spatial_pos, std=0.02)
+        if self.use_camera_embed:
+            nn.init.normal_(self.camera_embed.weight, std=0.02)
         if hasattr(self, "cross_spatial_pos"):
             nn.init.trunc_normal_(self.cross_spatial_pos, std=0.02)
 
@@ -355,6 +364,15 @@ class Transformer(nn.Module):
         s_pos_embed = repeat(s_pos_embed, '1 s d -> (t s) d', t=t) # (t*s, D)
 
         pos = t_pos_embed + s_pos_embed
+
+        # 3. Absolute per-camera identity (S = N_cam for delta-token flow), shared
+        # across t and laid out in the same (t s) token order as the embeds above.
+        if self.use_camera_embed:
+            assert S <= self.max_cameras, f"camera embed supports <= {self.max_cameras} cameras, got S={S}"
+            cam_idx = torch.arange(S, device=x.device)                            # camera slot 0..S-1
+            cam_embed = repeat(self.camera_embed(cam_idx), 's d -> (t s) d', t=t)  # (t*S, D) per-camera, tiled over t
+            pos = pos + cam_embed
+
         x = x + pos
 
         # timestep embeddings

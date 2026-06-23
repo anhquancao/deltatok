@@ -52,6 +52,7 @@ dataset:
 model:
   vit_size: "xlarge"
   vit_use_camera_rope: false   # rotary over the camera (spatial) axis in the flow ViT; enable via EXTRA_CFG
+  vit_use_camera_embed: false  # absolute learned per-camera identity over the flow-ViT camera axis; enable via EXTRA_CFG
 
   # Temporal slot capacity: must be >= max T-1 transitions per item (worst case
   # above: max_memory_num_views=24 with min_views_per_timestep=1 -> T-1 = 23).
