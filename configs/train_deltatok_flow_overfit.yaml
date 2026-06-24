@@ -31,7 +31,6 @@ training:
   effective_bsize: 32
   warm_up: 0
   num_workers: 16
-  virtual_epoch: 200
   eval_num_items: 2
   sanity_check_num_items: 2
   eval_num_visualizations: 2

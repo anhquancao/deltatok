@@ -301,6 +301,8 @@ def main():
         use_trajectory_cond=False,
         trajectory_length=0,
         ref_spatial_size=(patch_h, patch_w),
+        use_camera_embed=bool(cfg.model.get("vit_use_camera_embed", False)),
+        attn_mode=str(cfg.model.get("attn_mode", "factorized")),
     )
     model = model.to(args.device)
 

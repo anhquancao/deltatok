@@ -1,11 +1,11 @@
 ---
 name: jeanzay-job
-description: Submit, monitor, and tail SLURM jobs on the Jean Zay (IDRIS) H100 cluster for OccAny. Use whenever running training, evaluation, or feature extraction on Jean Zay — the tertiary GPU site used for H100 training and data backup.
+description: Submit, monitor, and tail SLURM jobs on the Jean Zay (IDRIS) H100 cluster for the DeltaTok/OccRAE project. Use whenever running training, evaluation, or feature extraction on Jean Zay — the tertiary GPU site used for H100 training and data backup.
 ---
 
 # Running work on Jean Zay (IDRIS)
 
-Jean Zay is the tertiary GPU site for OccAny — H100 training plus a data-backup tier. Primary GPU work goes to Karolina (`karolina-job` skill); Jean Zay is used for jobs that explicitly target it (`slurm/jz_*.slurm`, `env_jz_*.sh`). This skill captures the conventions.
+Jean Zay is the tertiary GPU site for the DeltaTok/OccRAE project — H100 training plus a data-backup tier. Primary GPU work goes to Karolina (`karolina-job` skill); Jean Zay is used for jobs that explicitly target it (`slurm/jz_*.slurm`, `env_jz_*.sh`). This skill captures the conventions.
 
 ## Cluster context
 
@@ -15,7 +15,7 @@ Jean Zay is the tertiary GPU site for OccAny — H100 training plus a data-backu
 | Login node | `jean-zay3.idris.fr`, user `uyl37fq` |
 | Compute account | `lwy@h100` (H100), partition `gpu_p6` (`-C h100`) |
 | Storage group | `trg` (checkout + data live here — **separate** from the `lwy` compute allocation) |
-| Repo path on cluster | `$TRG_WORK/code/OccAny` = `/lustre/fswork/projects/rech/trg/uyl37fq/code/OccAny` |
+| Repo path on cluster | `$TRG_WORK/code/deltatok` = `/lustre/fswork/projects/rech/trg/uyl37fq/code/deltatok` |
 | Env activation | `source env_jz_h100.sh` (no conda — `module load arch/h100` + `pytorch-gpu/py3/2.5.0`) |
 
 `$TRG_WORK` = `/lustre/fswork/projects/rech/trg/uyl37fq`; HOME is `/linkhome/rech/genini01/uyl37fq`.
@@ -29,7 +29,7 @@ Jean Zay is the tertiary GPU site for OccAny — H100 training plus a data-backu
 No conda — source the H100 env. Storage group `trg` vs compute account `lwy` is intentional; don't "fix" it.
 
 ```bash
-ssh jean-zay "cd \$TRG_WORK/code/OccAny && source env_jz_h100.sh && <command>"
+ssh jean-zay "cd \$TRG_WORK/code/deltatok && source env_jz_h100.sh && <command>"
 ```
 
 There are also `env_jz_a100.sh` and `env_jz_v100.sh` for the other partitions; default to H100 (`env_jz_h100.sh`) unless the job targets A100/V100.
@@ -41,13 +41,15 @@ SLURM scripts live under `slurm/jz_*.slurm`. They `source env_jz_h100.sh` and `c
 **Always submit from a login shell — wrap the remote command in `bash -lc`:**
 
 ```bash
-ssh jean-zay "bash -lc 'cd \$TRG_WORK/code/OccAny && sbatch slurm/jz_<name>.slurm'"
+ssh jean-zay "bash -lc 'cd \$TRG_WORK/code/deltatok && sbatch slurm/jz_<name>.slurm'"
 ```
 
 A bare `ssh jean-zay "... sbatch ..."` runs **non-login**, so the `module` shell function (defined only by the login profile) is never initialized in the submission shell and does **not** propagate into the job via `--export=ALL`. The batch script's `source ~/.bashrc` does **not** rescue this — `.bashrc` early-returns for non-interactive shells, so `module` stays undefined. Symptom: the job starts then dies in ~1s with `module: command not found` (in `*.err`) followed by `ModuleNotFoundError: No module named 'torch'` — `env_jz_h100.sh`'s trailing `echo`s still print to `*.out`, so the OUT log looks like the env was set even though no module loaded. Fix: resubmit with `bash -lc`.
 
 Current scripts:
-- `jz_train_deltatok_geom.slurm` — DeltaTok geom-supervision trainer (H100, 2 nodes × 4 GPU)
+- `jz_train_deltatok.slurm` — DeltaTok tokenizer trainer
+- `jz_train_deltatok_camera_rope.slurm` — DeltaTok tokenizer with camera rope
+- `jz_train_deltatok_flow.slurm` — DeltaTok flow-matching trainer (overfit-debug variant)
 
 ### H100 partition (gpu_p6) conventions
 
@@ -67,7 +69,7 @@ ssh jean-zay "squeue -u \$USER"
 ssh jean-zay "sacct -u \$USER --format=JobID,JobName,State,Elapsed,ExitCode,Start,End -X | tail -30"
 
 # Tail a running job's log (path is the slurm script's --output= line, under the fswork checkout)
-ssh jean-zay "tail -f \$TRG_WORK/code/OccAny/slurm/output/<name>_<jobid>.out"
+ssh jean-zay "tail -f \$TRG_WORK/code/deltatok/slurm/output/<name>_<jobid>.out"
 ```
 
 ## Data tiers and sync
@@ -75,7 +77,7 @@ ssh jean-zay "tail -f \$TRG_WORK/code/OccAny/slurm/output/<name>_<jobid>.out"
 - `/lustre/fsstor/projects/rech/trg/uyl37fq/datasets_preprocess_backup` — **backup** tier (fsstor), fed from Karolina via `sh/sync_karolina_to_jeanzay.sh` (run **on Karolina**; rsyncs through the tunnel on port 2222).
 - `/lustre/fsn1/projects/rech/trg/uyl37fq/occany_data` — **working** tier (fsn1), fed from cougar via `sh/push_data_from_cougar_to_jeanzay.py` (run **on cougar**; uses `--no-times --size-only` to dodge the 30-day purge). **fsn1 purges files untouched for 30 days.**
 - Checkpoints: `sh/pull_checkpoints_karolina_to_jeanzay.sh` (run **locally**), or Karolina pushes straight through the tunnel:
-  `rsync -e 'ssh -p 2222' <ckpt> uyl37fq@localhost:$TRG_WORK/code/OccAny/checkpoints/`
+  `rsync -e 'ssh -p 2222' <ckpt> uyl37fq@localhost:$TRG_WORK/code/deltatok/checkpoints/`
 
 ## Hard rules (from CLAUDE.md)
 

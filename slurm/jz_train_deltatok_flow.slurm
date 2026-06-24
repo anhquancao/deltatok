@@ -43,10 +43,14 @@ ulimit -n "$(ulimit -Hn)"
 export CONFIG_NAME=train_deltatok_flow_overfit_jeanzay
 export RESULTS_DIR="/lustre/fswork/projects/rech/trg/uyl37fq/deltatok_flow_log"
 # Distinct name so this run lands in its own subdir.
-export RUN_NAME=deltatok_flow_overfit_camEmbed
+export RUN_NAME=deltatok_flow_overfit_deltaCtx_global
 # Frozen tokenizer = const-global-rope (config-default ckpt + use_camera_rope=false).
-# Flow ViT gets an absolute learned per-camera embedding to stop the slot swap.
+# delta_ctx: first delta token (frame 0->1) is the clean in-seq context, no cross-attn.
+# global: one attention over all delta tokens. camera_embed gives per-camera identity
+# (required in global mode — the spatial-fold camera binding is gone).
 EXTRA_CFG_ARGS=(
+    model.cond_mode=delta_ctx                  # first delta token as clean in-seq context (no cross-attn)
+    model.attn_mode=global                     # single global attention over all delta tokens
     model.vit_use_camera_embed=true            # absolute per-camera identity in the flow ViT
     training.exit_before_time_limit=true       # clean exit near SLURM wall (chain-resume safe)
 )

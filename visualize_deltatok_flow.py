@@ -256,15 +256,18 @@ def main() -> None:
                 # target / tokenizer upper bound).
                 z = trainer._encode_deltas(feats, H, W)                       # (B, T-1, N, C)
                 x_spatial = z.permute(0, 3, 1, 2).unsqueeze(-1).contiguous()  # (B, C, T-1, N, 1)
-                cross_cond = trainer._build_cross_cond(feats[:, 0], H, W)     # (B, N, Hp, Wp, C)
+                cross_cond = trainer._build_cross_cond(feats[:, 0], H, W) if trainer.cond_mode == "cross" else None  # (B, N, Hp, Wp, C) or None
 
-                # Sample delta tokens from pure noise; conditioning is purely the
-                # frame-0 cross-attention grids (no in-sequence context slots).
+                # Sample delta tokens from pure noise. cross mode: frame-0 cross-attention
+                # grids. delta_ctx: the first n_ctx delta tokens are the clean context (GT,
+                # kept fixed by flow_euler_sample's context handling).
                 zr = torch.randn_like(x_spatial)                             # (B, C, T-1, N, 1)
+                if trainer.cond_mode == "delta_ctx":
+                    zr[:, :, :trainer.n_ctx] = x_spatial[:, :, :trainer.n_ctx]  # GT first delta = clean context
                 gen = flow_euler_sample(
                     trainer._ema_model(), zr,
                     pred_mode=cfg.model.pred_mode,
-                    context=0,
+                    context=trainer.n_ctx,
                     num_steps=int(args.num_steps),
                     cross_cond=cross_cond,
                     autocast_ctx=trainer.autocast,

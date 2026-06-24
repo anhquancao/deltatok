@@ -80,6 +80,15 @@ class DeltaTokFlowMatchingTrainer(DeltaTokSharedMixin, Trainer):
         self.num_views = self.cfg.model["num_views"]
         print(f"Number of temporal slots (max T-1): {self.num_views}")
 
+        # Conditioning / attention modes (default to legacy cross + factorized).
+        # delta_ctx: first delta token (frame 0->1) is the clean in-seq context
+        # (timestep 1, no loss), no cross-attn. global: one attention over all deltas.
+        self.cond_mode = str(self.cfg.model.get("cond_mode", "cross"))
+        assert self.cond_mode in ("cross", "delta_ctx"), f"bad cond_mode={self.cond_mode!r}"
+        self.attn_mode = str(self.cfg.model.get("attn_mode", "factorized"))
+        assert self.attn_mode in ("factorized", "global"), f"bad attn_mode={self.attn_mode!r}"
+        self.n_ctx = 1 if self.cond_mode == "delta_ctx" else 0   # clean leading delta-token slots
+
         # Frozen OccRAE encoder/decoder (mixin; never DDP-wrapped, no optimizer).
         self._build_occ_rae()
         backbone = self.occ_rae.model._get_pretrained_backbone()
@@ -113,9 +122,6 @@ class DeltaTokFlowMatchingTrainer(DeltaTokSharedMixin, Trainer):
             cfg_str = str(self.cfg)
             self.log_add_txt("Parameters", cfg_str, self.cfg.training.iter)
 
-        self._train_iter = None
-        self._train_sampler_epoch = int(self.cfg.training.global_epoch)
-
         # Initialize evaluation criteria for sampled spatial tokens
         self.pointmap_criterion = PointmapLoss(lambda_c=0.0, gt_scale=True, loss_type="L2")
         self.depth_criterion = DepthLosses(lambda_c=0.0, gt_scale=True, alpha=0.0)
@@ -137,21 +143,6 @@ class DeltaTokFlowMatchingTrainer(DeltaTokSharedMixin, Trainer):
             yield
         finally:
             self.ema.restore(model)
-
-    def _reset_train_iterator(self):
-        self._set_train_loader_epoch(self._train_sampler_epoch)
-        self._train_iter = iter(self.train_loader)
-        self._train_sampler_epoch += 1
-
-    def _next_train_batch(self):
-        if self._train_iter is None:
-            self._reset_train_iterator()
-
-        while True:
-            try:
-                return next(self._train_iter)
-            except StopIteration:
-                self._reset_train_iterator()
 
     def _build_deltatok(self, backbone):
         """Build the frozen DeltaTok tokenizer and load its checkpoint.
@@ -193,10 +184,14 @@ class DeltaTokFlowMatchingTrainer(DeltaTokSharedMixin, Trainer):
             # Define transformer architecture parameters
             hidden_dim, depth, heads = self.transformer_size(self.cfg.model.get("vit_size", "base"))
 
+            # cross mode conditions on frame-0 patch grids via per-camera cross-attention;
+            # delta_ctx mode has no cross-attn (the first delta token is the context).
+            cross_dim = 1536 if self.cond_mode == "cross" else None
+
             model = Transformer(
                 out_dim=1536,
                 num_views=self.num_views,
-                cross_dim=1536,  # enable per-camera cross-attention on frame-0 patch tokens
+                cross_dim=cross_dim,
                 hidden_dim=hidden_dim,
                 proj=1,
                 depth=depth,
@@ -212,6 +207,7 @@ class DeltaTokFlowMatchingTrainer(DeltaTokSharedMixin, Trainer):
                 ref_spatial_size=(1, 1),
                 use_camera_rope=bool(self.cfg.model.get("vit_use_camera_rope", False)),
                 use_camera_embed=bool(self.cfg.model.get("vit_use_camera_embed", False)),
+                attn_mode=self.attn_mode,
             )
 
             # Load model checkpoint for resume or pretrained initialization.
@@ -402,10 +398,15 @@ class DeltaTokFlowMatchingTrainer(DeltaTokSharedMixin, Trainer):
             
         return loss
 
-    def train_one_epoch(self, log_iter=1000, virtual_epoch=5_000):
+    def train_one_epoch(self, log_iter=1000):
         self.vit.train()
+
+        # One real pass over the train loader (epoch == full dataset pass, like OccAny).
+        # Advance the sampler/dataset epoch so shuffling differs across epochs.
+        self._set_train_loader_epoch(self.cfg.training.global_epoch)
+        updates_per_epoch = max(1, len(self.train_loader) // self.grad_cum)  # optimizer updates this epoch
+
         num_batches = 0
-        iter_start = int(self.cfg.training.iter)
         last_update_time = time.time()
         self.optim.zero_grad(set_to_none=True)
 
@@ -423,13 +424,11 @@ class DeltaTokFlowMatchingTrainer(DeltaTokSharedMixin, Trainer):
         update_time = SmoothedValue(fmt='{avg:.4f}')  # seconds per optimizer update
         updates_done = 0
 
-        while True:
+        for batch in self.train_loader:
             if self.cfg.training.iter >= self.cfg.training.max_iter:
                 break
-            if (self.cfg.training.iter - iter_start) >= virtual_epoch:
-                break
 
-            batch = self._normalize_batch(self._next_train_batch())
+            batch = self._normalize_batch(batch)
             num_batches += 1
             update_grad = (num_batches % self.grad_cum) == 0
 
@@ -443,11 +442,15 @@ class DeltaTokFlowMatchingTrainer(DeltaTokSharedMixin, Trainer):
 
             # Frozen DeltaTok encode -> the flow target.
             z = self._encode_deltas(feats, H, W)                          # (B, T-1, N, C) delta tokens
+            assert z.shape[1] > self.n_ctx, (                             # need >=1 transition to predict past the context
+                f"T-1={z.shape[1]} transitions <= context n_ctx={self.n_ctx}; nothing to predict"
+            )
             x_spatial = z.permute(0, 3, 1, 2).unsqueeze(-1).contiguous()  # (B, C, T-1, N, 1) flow latent layout
-            cross_cond = self._build_cross_cond(feats[:, 0], H, W)        # (B, N, Hp, Wp, C) frame-0 conditioning
+            # cross mode: frame-0 patch grids via cross-attention. delta_ctx: no cross-attn
+            # (first n_ctx delta tokens kept clean in-sequence — see flow_noising context).
+            cross_cond = self._build_cross_cond(feats[:, 0], H, W) if self.cond_mode == "cross" else None  # (B, N, Hp, Wp, C) or None
 
-            # No in-sequence context slots: conditioning is purely cross-attention.
-            z_t, e, timestep = self.flow_noising(x_spatial, context=0, mu=self.cfg.model.mu, sigma=self.cfg.model.sigma)
+            z_t, e, timestep = self.flow_noising(x_spatial, context=self.n_ctx, mu=self.cfg.model.mu, sigma=self.cfg.model.sigma)
 
             with self.autocast:
                 pred = self.vit(
@@ -456,7 +459,7 @@ class DeltaTokFlowMatchingTrainer(DeltaTokSharedMixin, Trainer):
                     cross_cond=cross_cond,
                     return_feat=False,
                 )
-                loss_flow_total = self.flow_loss(pred=pred, x=x_spatial, z_t=z_t, e=e, t=timestep, context=0)
+                loss_flow_total = self.flow_loss(pred=pred, x=x_spatial, z_t=z_t, e=e, t=timestep, context=self.n_ctx)
 
             loss = loss_flow_total / self.grad_cum
             loss.backward()
@@ -485,7 +488,7 @@ class DeltaTokFlowMatchingTrainer(DeltaTokSharedMixin, Trainer):
 
                 # Same condition on every rank: the all_reduce below is a
                 # collective and must be entered by all ranks together.
-                if updates_done % print_freq == 0 or updates_done == virtual_epoch:
+                if updates_done % print_freq == 0 or updates_done == updates_per_epoch:
                     window = torch.stack(tuple(window_loss)).float()  # (W,) losses since last print, W = grad_cum*print_freq
                     loss_mean = window.mean()                         # () convergence signal: cross-rank mean below
                     # (2,) [window-max loss, window-max pre-clip grad norm]:
@@ -509,11 +512,11 @@ class DeltaTokFlowMatchingTrainer(DeltaTokSharedMixin, Trainer):
                         self.log_add_scalar('Train/GradNorm', grad_max, self.cfg.training.iter)
                         self.log_add_scalar('Train/SpeedSamplesPerSec', speed_samples_per_sec, self.cfg.training.iter)
 
-                        eta_seconds = update_time.avg * (virtual_epoch - updates_done)
+                        eta_seconds = update_time.avg * (updates_per_epoch - updates_done)
                         eta = str(datetime.timedelta(seconds=int(eta_seconds)))
                         gpu_mem_mb = torch.cuda.max_memory_allocated() / (1024.0 * 1024.0) if torch.cuda.is_available() else 0.0
                         print(
-                            f"{header}  [{updates_done}/{virtual_epoch}]  eta: {eta}  "
+                            f"{header}  [{updates_done}/{updates_per_epoch}]  eta: {eta}  "
                             f"loss: {loss_val:.4f} (max {loss_max:.4f})  "
                             f"grad: {grad_max:.2f}  "
                             f"lr: {self.optim.param_groups[0]['lr']:.6f}  "
@@ -617,16 +620,20 @@ class DeltaTokFlowMatchingTrainer(DeltaTokSharedMixin, Trainer):
 
                     z = self._encode_deltas(feats, H, W)                          # (B, T-1, N, C) GT delta tokens
                     x_spatial = z.permute(0, 3, 1, 2).unsqueeze(-1).contiguous()  # (B, C, T-1, N, 1) flow latent layout
-                    cross_cond = self._build_cross_cond(feats[:, 0], H, W)        # (B, N, Hp, Wp, C) frame-0 conditioning
+                    cross_cond = self._build_cross_cond(feats[:, 0], H, W) if self.cond_mode == "cross" else None  # (B, N, Hp, Wp, C) or None
 
                     batch_losses = {}
 
-                    # 1. Sample delta tokens from pure noise (conditioning only via cross_cond).
+                    # 1. Sample delta tokens from pure noise. cross mode: conditioning via
+                    #    cross_cond. delta_ctx: the first n_ctx delta tokens are the clean
+                    #    context (GT, kept fixed by flow_euler_sample's context handling).
                     zr = torch.randn_like(x_spatial)                              # (B, C, T-1, N, 1) init noise
+                    if self.cond_mode == "delta_ctx":
+                        zr[:, :, :self.n_ctx] = x_spatial[:, :, :self.n_ctx]      # GT first delta = clean context
                     gen = flow_euler_sample(
                         self._ema_model(), zr,
                         pred_mode=self.cfg.model.pred_mode,
-                        context=0,
+                        context=self.n_ctx,
                         num_steps=eval_num_steps,
                         cross_cond=cross_cond,
                         autocast_ctx=self.autocast,
@@ -652,9 +659,11 @@ class DeltaTokFlowMatchingTrainer(DeltaTokSharedMixin, Trainer):
                         ray_conf = decoded.get("ray_conf")
                         ray_conf_tok = decoded_tok.get("ray_conf")
 
-                        # 4. Losses on forecast views only: timestep 0 (num_cameras
-                        # views) carries GT tokens (the rollout seed), not predictions.
-                        pred_slice = slice(num_cameras, V)
+                        # 4. Losses on forecast views only. Given frames = timestep 0
+                        # (rollout seed) + timesteps 1..n_ctx (GT context deltas, delta_ctx
+                        # mode), so forecast starts at timestep n_ctx+1. cross mode (n_ctx=0)
+                        # -> slice(num_cameras, V), unchanged.
+                        pred_slice = slice((1 + self.n_ctx) * num_cameras, V)
                         loss_pm, loss_d, loss_ray = self._compute_frame_losses(
                             decoded, batch, pred_slice, ray_conf, B, height, width
                         )
@@ -677,7 +686,7 @@ class DeltaTokFlowMatchingTrainer(DeltaTokSharedMixin, Trainer):
                         # sampled-rollout pointmap/raymap metrics above measure
                         # generation quality and stay logged separately per loader.
                         z_noised, e_noise, t_flow = self.flow_noising(
-                            x_spatial, context=0, mu=self.cfg.model.mu, sigma=self.cfg.model.sigma
+                            x_spatial, context=self.n_ctx, mu=self.cfg.model.mu, sigma=self.cfg.model.sigma
                         )
                         with self.autocast:
                             pred_flow = self._ema_model()(
@@ -728,9 +737,10 @@ class DeltaTokFlowMatchingTrainer(DeltaTokSharedMixin, Trainer):
                                     range(V),
                                     key=lambda idx: batch["timesteps"][batch_idx][idx],
                                 )
-                                # Timestep-0 views carry GT tokens (rollout seed); mark them
-                                # with a colored border instead of blanking them.
-                                ctx_mask = [v < num_cameras for v in view_order]
+                                # Given views carry GT tokens (not predictions): timestep 0
+                                # (rollout seed) + timesteps 1..n_ctx (GT context deltas).
+                                # Mark them with a colored border instead of blanking them.
+                                ctx_mask = [batch["timesteps"][batch_idx][v] <= self.n_ctx for v in view_order]
                                 view_index = torch.as_tensor(view_order, dtype=torch.long)
                                 tok_depth = decoded_tok["depth"][batch_idx].detach().float().cpu()[view_index]  # (V, H, W)
                                 tok_depth_color = torch.stack([
@@ -921,8 +931,8 @@ class DeltaTokFlowMatchingTrainer(DeltaTokSharedMixin, Trainer):
                 print("End of training: reached max iterations")
                 break
 
-            # Train-sampler epochs are advanced by _reset_train_iterator.
-            train_loss = self.train_one_epoch(log_iter=log_iter, virtual_epoch=self.cfg.training.virtual_epoch)
+            # train_one_epoch advances the sampler epoch and runs one full data pass.
+            train_loss = self.train_one_epoch(log_iter=log_iter)
             test_loss = self.eval_one_epoch()
 
             if self.distributed:

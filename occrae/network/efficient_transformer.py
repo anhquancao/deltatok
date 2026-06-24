@@ -49,14 +49,20 @@ def gem_timestep_embedding(timesteps, dim, max_period=10000, repeat_only=False):
 
 
 class Block(nn.Module):
-    def __init__(self, dim, heads, mlp_dim, dropout=0., use_cross_attn=False):
+    def __init__(self, dim, heads, mlp_dim, dropout=0., use_cross_attn=False, attn_mode="factorized"):
         super().__init__()
+        self.attn_mode = attn_mode  # "factorized" (spatial+temporal) | "global" (single attn over t*s)
 
-        self.spatial_attn = Attention(dim, heads, dropout=dropout)
-        self.ln_spatial = RMSNorm(dim, linear=True, bias=False, eps=1e-5)
+        if attn_mode == "global":
+            # One self-attention over all t*s video tokens; replaces spatial+temporal.
+            self.global_attn = Attention(dim, heads, dropout=dropout)
+            self.ln_global = RMSNorm(dim, linear=True, bias=False, eps=1e-5)
+        else:
+            self.spatial_attn = Attention(dim, heads, dropout=dropout)
+            self.ln_spatial = RMSNorm(dim, linear=True, bias=False, eps=1e-5)
 
-        self.temporal_attn = Attention(dim, heads, dropout=dropout)
-        self.ln_temporal = RMSNorm(dim, linear=True, bias=False, eps=1e-5)
+            self.temporal_attn = Attention(dim, heads, dropout=dropout)
+            self.ln_temporal = RMSNorm(dim, linear=True, bias=False, eps=1e-5)
 
         if use_cross_attn:
             self.cross_attn = CrossAttention(dim, heads, dropout=dropout)
@@ -98,19 +104,28 @@ class Block(nn.Module):
         x_reg = x[:, :n_reg] if n_reg > 0 else None
         x_video = x[:, n_reg:]
 
-        # --- Spatial self-attention (within frame; = cross-camera for delta-token flow) ---
-        x_spatial = modulate(self.ln_spatial(x_video), gamma_spatial[:, n_reg:])
-        x_spatial = rearrange(x_spatial, 'b (t s) d -> (b t) s d', t=t, s=s)
-        x_spatial = self.spatial_attn(x_spatial, rope=spatial_rope)  # camera rope over the s axis
-        x_spatial = rearrange(x_spatial, '(b t) s d -> b (t s) d', b=b, t=t, s=s)
-        x_video = x_video + alpha_spatial[:, n_reg:] * x_spatial
+        if self.attn_mode == "global":
+            # --- Single global self-attention over all t*s video tokens ---
+            # Reuses the spatial AdaLN chunk for modulation; no rope (camera identity
+            # comes from the additive camera_embed). Every delta token (incl. the clean
+            # context slot) attends to every other one.
+            x_g = modulate(self.ln_global(x_video), gamma_spatial[:, n_reg:])  # (B, t*s, D)
+            x_g = self.global_attn(x_g)                                        # (B, t*s, D) full attn
+            x_video = x_video + alpha_spatial[:, n_reg:] * x_g
+        else:
+            # --- Spatial self-attention (within frame; = cross-camera for delta-token flow) ---
+            x_spatial = modulate(self.ln_spatial(x_video), gamma_spatial[:, n_reg:])
+            x_spatial = rearrange(x_spatial, 'b (t s) d -> (b t) s d', t=t, s=s)
+            x_spatial = self.spatial_attn(x_spatial, rope=spatial_rope)  # camera rope over the s axis
+            x_spatial = rearrange(x_spatial, '(b t) s d -> b (t s) d', b=b, t=t, s=s)
+            x_video = x_video + alpha_spatial[:, n_reg:] * x_spatial
 
-        # --- Temporal self-attention (across time, per spatial location) ---
-        x_temporal = modulate(self.ln_temporal(x_video), gamma_temporal[:, n_reg:])
-        x_temporal = rearrange(x_temporal, 'b (t s) d -> (b s) t d', t=t, s=s)
-        x_temporal = self.temporal_attn(x_temporal, mask=temporal_mask)
-        x_temporal = rearrange(x_temporal, '(b s) t d -> b (t s) d', b=b, t=t, s=s)
-        x_video = x_video + alpha_temporal[:, n_reg:] * x_temporal
+            # --- Temporal self-attention (across time, per spatial location) ---
+            x_temporal = modulate(self.ln_temporal(x_video), gamma_temporal[:, n_reg:])
+            x_temporal = rearrange(x_temporal, 'b (t s) d -> (b s) t d', t=t, s=s)
+            x_temporal = self.temporal_attn(x_temporal, mask=temporal_mask)
+            x_temporal = rearrange(x_temporal, '(b s) t d -> b (t s) d', b=b, t=t, s=s)
+            x_video = x_video + alpha_temporal[:, n_reg:] * x_temporal
 
         # --- Cross-attention (per spatial slot, camera-permutation-equivariant) ---
         # cross_cond is (B*s, L, D) with L context tokens per slot: slot i (camera i)
@@ -132,11 +147,11 @@ class Block(nn.Module):
         
 
 class TransformerEncoder(nn.Module):
-    def __init__(self, dim, depth, heads, mlp_dim, dropout=0., use_cross_attn=False):
+    def __init__(self, dim, depth, heads, mlp_dim, dropout=0., use_cross_attn=False, attn_mode="factorized"):
         super().__init__()
         self.layers = nn.ModuleList([])
         for _ in range(depth):
-            self.layers.append(Block(dim, heads, mlp_dim, dropout=dropout, use_cross_attn=use_cross_attn))
+            self.layers.append(Block(dim, heads, mlp_dim, dropout=dropout, use_cross_attn=use_cross_attn, attn_mode=attn_mode))
 
     def forward(self, x, ada_cond, cross_cond, t, s, temporal_mask=None, cross_mask=None, spatial_rope=None):
         feat = None
@@ -154,7 +169,7 @@ class Transformer(nn.Module):
                  register=1, proj=1, is_causal=False,
                  use_trajectory_cond=False, trajectory_length=25,
                  ref_spatial_size=(16, 16), use_camera_rope=False, max_cameras=32,
-                 use_camera_embed=False):
+                 use_camera_embed=False, attn_mode="factorized"):
         super().__init__()
 
         self.c = out_dim                                                # Number of channels as input
@@ -169,6 +184,15 @@ class Transformer(nn.Module):
         self.use_camera_rope = use_camera_rope                          # rotary over the camera (spatial) axis in spatial attn
         self.max_cameras = max_cameras                                  # rope/embed slot cap (matches tokenizer MAX_CAMERAS=32)
         self.use_camera_embed = use_camera_embed                        # absolute learned per-camera identity (additive, ungated)
+        self.attn_mode = attn_mode                                      # "factorized" (spatial+temporal) | "global" (single attn over t*s)
+
+        # In global mode the spatial-attention path (where camera rope lives) and the
+        # temporal causal mask are gone; fail loud rather than silently ignore them.
+        if attn_mode == "global":
+            if use_camera_rope:
+                raise ValueError("attn_mode='global' drops camera rope (no spatial attn); use camera_embed instead")
+            if is_causal:
+                raise NotImplementedError("attn_mode='global' has no temporal causal mask")
 
         if self.use_camera_rope:
             head_dim = hidden_dim // heads
@@ -227,7 +251,8 @@ class Transformer(nn.Module):
 
         # The Transformer Encoder a la BERT :)
         self.transformer = TransformerEncoder(dim=hidden_dim, depth=depth, heads=heads, mlp_dim=mlp_dim,
-                                              dropout=dropout, use_cross_attn=cross_dim is not None)
+                                              dropout=dropout, use_cross_attn=cross_dim is not None,
+                                              attn_mode=attn_mode)
 
         self.last_norm = RMSNorm(dim=hidden_dim, linear=True, bias=True)
 
