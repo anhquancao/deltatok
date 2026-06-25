@@ -79,8 +79,11 @@ class BaseSeqDataset (BaseStereoViewDataset):
             elif distill_model_name == "SAM3":
                 distill_img_size = 518
         self.distill_img_size = distill_img_size
-        # Create SAM2 transform with specified resolution if not provided
-        if distill_model_name == "SAM3":
+        # distill_model_name=None disables distill-image generation (flow training
+        # doesn't consume view['distill_img']); skips the extra per-view tensor.
+        if distill_model_name is None or str(distill_model_name).lower() == "none":
+            self.distill_img_transform = None
+        elif distill_model_name == "SAM3":
             self.distill_img_transform = get_SAM3_transforms(resolution=self.distill_img_size)
         else:
             raise ValueError(f"Unsupported distill_model_name: {distill_model_name}")
@@ -190,7 +193,8 @@ class BaseSeqDataset (BaseStereoViewDataset):
             # encode the image
             width, height = view['img'].size
             view['true_shape'] = np.int32((height, width))
-            view['distill_img'] = self.distill_img_transform(view['img'])
+            if self.distill_img_transform is not None:
+                view['distill_img'] = self.distill_img_transform(view['img'])
             if self.base_model == 'da3':
                 
                 view['img'] = InputProcessor.NORMALIZE(to_tensor(view['img']))
@@ -480,7 +484,8 @@ class BaseSeqDatasetMultiView(BaseSeqDataset, EasyDataset_OccAny):
             # encode the image
             width, height = view['img'].size
             view['true_shape'] = np.int32((height, width))
-            view['distill_img'] = self.distill_img_transform(view['img'])
+            if self.distill_img_transform is not None:
+                view['distill_img'] = self.distill_img_transform(view['img'])
             img_pil = pil_jitter(view['img']) if pil_jitter is not None else view['img']
             if self.base_model == 'da3':
                 view['img'] = InputProcessor.NORMALIZE(to_tensor(img_pil))

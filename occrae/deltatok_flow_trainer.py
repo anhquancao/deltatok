@@ -693,7 +693,9 @@ class DeltaTokFlowMatchingTrainer(DeltaTokSharedMixin, Trainer):
                                 x=z_noised, ada_cond=t_flow, cross_cond=cross_cond, return_feat=False,
                             )
                             loss_flow = self.flow_loss(
-                                pred=pred_flow, x=x_spatial, z_t=z_noised, e=e_noise, t=t_flow, context=0,
+                                # match train: exclude the n_ctx clean context slots (delta_ctx pins
+                                # them at t=1; pred_mode=x/loss_mode=v amplifies that slot ~400x).
+                                pred=pred_flow, x=x_spatial, z_t=z_noised, e=e_noise, t=t_flow, context=self.n_ctx,
                             )
                         batch_losses["LossFlow"] = loss_flow.item()
 

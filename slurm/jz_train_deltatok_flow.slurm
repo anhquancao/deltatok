@@ -43,7 +43,7 @@ ulimit -n "$(ulimit -Hn)"
 export CONFIG_NAME=train_deltatok_flow_overfit_jeanzay
 export RESULTS_DIR="/lustre/fswork/projects/rech/trg/uyl37fq/deltatok_flow_log"
 # Distinct name so this run lands in its own subdir.
-export RUN_NAME=deltatok_flow_overfit_deltaCtx_global
+export RUN_NAME=deltatok_flow_overfit_deltaCtx_global_v2
 # Frozen tokenizer = const-global-rope (config-default ckpt + use_camera_rope=false).
 # delta_ctx: first delta token (frame 0->1) is the clean in-seq context, no cross-attn.
 # global: one attention over all delta tokens. camera_embed gives per-camera identity
