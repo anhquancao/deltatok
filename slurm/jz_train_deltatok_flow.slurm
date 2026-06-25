@@ -53,6 +53,7 @@ EXTRA_CFG_ARGS=(
     model.attn_mode=global                     # single global attention over all delta tokens
     model.vit_use_camera_embed=true            # absolute per-camera identity in the flow ViT
     training.exit_before_time_limit=true       # clean exit near SLURM wall (chain-resume safe)
+    training.epoch=400                         # extend overfit past epoch 100 to watch MSEToken converge
 )
 export EXTRA_CFG="${EXTRA_CFG_ARGS[*]}"
 # Fresh start each debug run by default; override for chained resume jobs via

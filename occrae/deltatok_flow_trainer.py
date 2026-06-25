@@ -32,6 +32,7 @@ from occrae.generation_helper import flow_euler_sample
 # when some ranks see batches without GT (missing keys contribute 0).
 _EVAL_KEYS = (
     "LossFlow",                                              # flow-matching loss (SAME objective as Train/Loss)
+    "MSEToken",                                              # sampled-delta vs GT-delta MSE: true generation fidelity (LossFlow is teacher-forced)
     "LossPointmap", "LossDepth", "LossRaymap",                # sampled-delta rollout vs GT (forecast frames)
     "LossPointmap_tok", "LossDepth_tok", "LossRaymap_tok",    # GT-delta rollout (tokenizer upper bound)
 )
@@ -698,6 +699,14 @@ class DeltaTokFlowMatchingTrainer(DeltaTokSharedMixin, Trainer):
                                 pred=pred_flow, x=x_spatial, z_t=z_noised, e=e_noise, t=t_flow, context=self.n_ctx,
                             )
                         batch_losses["LossFlow"] = loss_flow.item()
+
+                        # Sampled-token fidelity: MSE between the flow-SAMPLED deltas (z_hat,
+                        # ODE-integrated from noise) and the GT deltas (z), on predicted
+                        # (non-context) slots only. This is the honest "did the sample match
+                        # GT" signal the teacher-forced LossFlow above cannot see.
+                        batch_losses["MSEToken"] = F.mse_loss(
+                            z_hat[:, self.n_ctx:].float(), z[:, self.n_ctx:].float()
+                        ).item()
 
                         if self.is_master and num_vis < eval_num_visualizations:
                             # Decode once per visualized batch (skipped on non-viz
