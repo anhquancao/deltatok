@@ -52,8 +52,10 @@ EXTRA_CFG_ARGS=(
     model.cond_mode=delta_ctx                  # first delta token as clean in-seq context (no cross-attn)
     model.attn_mode=global                     # single global attention over all delta tokens
     model.vit_use_camera_embed=true            # absolute per-camera identity in the flow ViT
+    model.loss_mode=x                          # unweighted x-MSE (drop 1/(1-t)^2): supervise low-t x_pred the sampler starts from
     training.exit_before_time_limit=true       # clean exit near SLURM wall (chain-resume safe)
     training.epoch=400                         # extend overfit past epoch 100 to watch MSEToken converge
+    training.eval_num_steps=1                  # 1-step sampler = direct x_pred from noise; isolates ODE drift vs x-pred error
 )
 export EXTRA_CFG="${EXTRA_CFG_ARGS[*]}"
 # Fresh start each debug run by default; override for chained resume jobs via

@@ -1,0 +1,105 @@
+# DeltaTok flow: tiny loss but mean-collapsed samples
+
+Status: **open / under investigation** (2026-06-25). Root cause narrowed to the
+training objective + timestep schedule, not the sampler. `loss_mode=x` necessary
+but not sufficient. Related: [`deltatok_flow_camera_swap.md`](deltatok_flow_camera_swap.md).
+
+## Setup
+
+Overfit debug run `deltatok_flow_overfit_deltaCtx_global_v2` (Jean Zay, single GPU):
+single nuScenes scene-0625 repeated, 10 timesteps × 6 cams. Key config:
+`cond_mode=delta_ctx`, `attn_mode=global`, `vit_use_camera_embed=true`,
+`pred_mode=x`, `loss_mode=v`, `mu=-0.7`, `sigma=1.4`, EMA **off**, 50 Euler steps.
+
+## Symptom
+
+Teacher-forced flow loss is tiny (`LossFlow ≈ 0.01–0.05`) yet the flow-**sampled**
+deltas decode to a **collapsed BEV trajectory** (~7 m extent vs GT ~40 m) with a
+scrambled-looking camera layout — even with the per-camera embedding. "Loss is
+small, why isn't the sample the GT?"
+
+## Diagnostic added: `MSEToken`
+
+Added a sampled-vs-GT token-space metric to `eval_one_epoch`
+(`occrae/deltatok_flow_trainer.py`): `MSEToken = MSE(z_hat, z)` on predicted
+(non-context) delta slots, where `z_hat` is the flow-sampled deltas (ODE from
+noise) and `z` is the GT deltas. It is in `_EVAL_KEYS`, so it flows through the
+per-loader reduction, the `.out` print, and TensorBoard (`Eval/<test>/MSEToken`).
+
+Scale anchor: delta tokens exit DeltaTok through a LayerNorm → ~unit variance, so
+**`MSEToken ≈ 1.0` means "predicting the mean token (≈0)"**, i.e. full collapse.
+
+## Findings
+
+**1. Decoder ceiling (Gap A), separate issue.** Even feeding GT deltas (GT-z
+rollout) the per-frame losses are large and constant: `LossPointmap_tok ≈ 20.1`,
+`LossRaymap_tok ≈ 20.1`, `LossDepth_tok ≈ 2.2`. So the frozen DeltaTok→OccRAE
+decode cannot perfectly reconstruct this scene's per-frame geometry. The flow's
+*ceiling* is GT-z, not GT. (These losses use per-timestep, each-in-its-own-frame
+decodes, so they do **not** even measure the global ego-trajectory — only the BEV
+joint-pose decode does.)
+
+**2. Baseline `MSEToken = 1.25` while `LossFlow = 0.013`** (epoch ~101). The
+sampled deltas are at collapse-to-mean level despite a tiny teacher-forced loss.
+
+**3. Extending the overfit does not help.** Over epochs 101→118, `MSEToken` stayed
+flat, bouncing 0.97–1.55, while train loss inched 0.05→0.03. → not under-training
+in the usual sense; structural.
+
+**4. ODE drift ruled out (1-step test).** With `pred_mode=x`, a 1-step sampler
+(`eval_num_steps=1`) reduces `flow_euler_sample` to the **direct `x_pred` from pure
+noise at t=0** (step 0 sets `z = x_pred`, step 1 is a zero-size step; no `(1−t)`
+clamp involved). Result: 1-step `MSEToken ≈ 1.17` ≈ the 50-step value. So the
+multi-step integration adds ~nothing — the collapse is entirely in the `x_pred`,
+not in trajectory drift.
+
+**5. `loss_mode=x` necessary but NOT sufficient.** Resume-finetune with
+`loss_mode=x` (unweighted x-MSE, drops the `1/(1−t)²` weight): the teacher-forced
+loss became the plain x-MSE and dropped to `≈ 0.005` (so `x_pred ≈ x` at the
+GT-anchored noised points), **but 1-step `MSEToken` stayed ~1.0** (noisier:
+0.59–1.23 across epochs 161–167).
+
+## Why tiny loss coexists with huge `MSEToken`
+
+`LossFlow` and `MSEToken` are different quantities:
+
+- `LossFlow` (with `pred_mode=x`, `loss_mode=v`) `= mean[ (x_pred − x)² / (1−t)² ]`,
+  `(1−t)` clamped at 0.05 (weight up to **400×** near t=1). It is graded only at
+  **answer-anchored** points `z_t = t·x + (1−t)e` (every training input is built
+  from the true `x`), and the `1/(1−t)²` weight makes it **dominated by the trivial
+  near-clean (t→1) end**, where `z_t ≈ x` and the error is ~0.
+- `MSEToken = mean[(z_hat − x)²]` is the plain error at the **endpoint of a
+  self-generated trajectory** that starts from pure noise (t≈0).
+
+So a model can drive `LossFlow`→0 by memorizing `x` at answer-anchored points while
+the sampler — which leaves that region after step 1 and starts at the
+least-supervised t≈0 — lands on the mean.
+
+## Refined diagnosis (current best understanding)
+
+The model learned to **denoise, not to generate**. With `loss_mode=x` it
+reconstructs `x` whenever `z_t` still contains some of `x` (any t>0), but at **t=0
+(pure noise, zero `x` signal — exactly where the sampler starts)** it outputs ≈0/mean
+instead of the single memorized `x`. For a one-sample overfit the optimal t=0 output
+*is* `x` (mean of a singleton), so `MSEToken` should be ~0 — the model is simply
+**under-supervised at t≈0**: the logit-normal schedule (`mu=-0.7` → median t≈0.33)
+puts little mass at the noise endpoint, and the model leans on the residual `x`-leak
+at low-but-nonzero t instead of learning the constant map. EMA-off adds large
+eval variance (the 0.59↔1.23 bounce).
+
+## Next knobs (priority)
+
+1. **EMA on** — kill the epoch-to-epoch variance for a clean read (and standard for
+   sampling). Settles low → mostly EMA-off noise; settles ~1 → t≈0 starvation is the wall.
+2. **Cover t≈0 in training** — shift the timestep schedule toward the noise end
+   (more negative `mu`, or uniform `t`) so `x_pred(noise, t=0) → x` is supervised.
+3. **Reconsider `pred_mode`** (x → v/eps) for noise-end stability — larger change.
+
+## Side note: sanity-check eval and TensorBoard
+
+The startup sanity pass (`eval_one_epoch(sanity_check=True)`) **skips scalar TB
+logging** (guarded by `if not sanity_check:` at `deltatok_flow_trainer.py:860`) but
+**still writes the eval visualization image(s) to TB** — the viz block (line ~711)
+is not gated on `sanity_check` and calls `_log_viz_sample(..., log_writer=self.writer)`,
+which does `add_image` (`visualization_helper.py:352`). To make sanity fully
+TB-silent, pass `log_writer=(None if sanity_check else self.writer)` at the viz call.
