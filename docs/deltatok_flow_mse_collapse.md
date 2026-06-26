@@ -6,9 +6,11 @@
 > suspect until re-tested with `ray_map_prob=-1`. See
 > [`deltatok_flow_overfit_data_confound.md`](deltatok_flow_overfit_data_confound.md).
 
-Status: **open / under investigation** (2026-06-25). Root cause narrowed to the
-training objective + timestep schedule, not the sampler. `loss_mode=x` necessary
-but not sufficient. Related: [`deltatok_flow_camera_swap.md`](deltatok_flow_camera_swap.md).
+Status: **collapse resolved on the corrected overfit** (2026-06-26); generative
+(full-`t`, multi-step) test in flight. The `MSEToken≈1` plateau was the data
+confound + a train/eval-`t` mismatch, not a structural wall — see
+[Resolution](#resolution-the-confound--traineval-t-mismatch-2026-06-26) below.
+Related: [`deltatok_flow_camera_swap.md`](deltatok_flow_camera_swap.md).
 
 ## Setup
 
@@ -109,3 +111,44 @@ logging** (guarded by `if not sanity_check:` at `deltatok_flow_trainer.py:860`) 
 is not gated on `sanity_check` and calls `_log_viz_sample(..., log_writer=self.writer)`,
 which does `add_image` (`visualization_helper.py:352`). To make sanity fully
 TB-silent, pass `log_writer=(None if sanity_check else self.writer)` at the viz call.
+
+## Resolution: the confound + train/eval-`t` mismatch (2026-06-26)
+
+With **both** problems fixed the overfit fits — `MSEToken` drops toward 0 instead of
+plateauing at ~1:
+
+1. **Data confound fixed** — `ray_map_prob=-1` makes it a true single fixed sample
+   (no per-batch view reordering), per
+   [`deltatok_flow_overfit_data_confound.md`](deltatok_flow_overfit_data_confound.md).
+2. **Train/eval `t` aligned** — `train_fixed_t=0` pins every training slot to the
+   one timestep the 1-step eval queries (`t=0`). No schedule starvation at the
+   point the sampler reads, and at `t=0` the `1/(1−t)²` weight is exactly 1 so
+   `loss_mode=v` ≡ unweighted x-MSE there. Run
+   `deltatok_flow_overfit_deltaCtx_global_fixedT0_wd0_raymapoff` (JZ).
+
+So Findings 2–5 and the "denoise-not-generate / `t≈0` starvation" diagnosis above
+were **artifacts of the confound and the train/eval-`t` mismatch**, not an
+architectural inability to generate the sample. The model could always fit it;
+it was eval-querying a `t≈0` endpoint a different objective never supervised, on a
+target that was secretly moving.
+
+## Next: remove the single timestep (full-`t` overfit)
+
+`fixedT0` is a degenerate flow — it only learns the denoiser at one `t`, so it can't
+multi-step integrate. The real generative test is whether the **full** velocity
+field, trained over all `t`, still fits the single sample under a multi-step ODE.
+Run `deltatok_flow_overfit_deltaCtx_global_fullT_wd0_raymapoff`
+(`slurm/jz_train_deltatok_flow.slurm`), fresh (`RESUME=0`, no `fixedT0` inheritance):
+
+- **`train_fixed_t` dropped** → sample the full logit-normal(`mu=-0.7`, `sigma=1.4`)
+  `t` again.
+- **`loss_mode=v` kept** (chosen) → the `1/(1−t)²` weight returns now that `t` is
+  distributed. This is the knob to watch: if it re-starves `t≈0`, `loss_mode=x`
+  (unweighted) is the first single-variable fallback.
+- **`eval_num_steps=50`** → integrate the full ODE from noise, not the 1-step `t=0`
+  probe.
+
+**Read:** `MSEToken` → 0 under the 50-step ODE ⇒ full-distribution flow fits the
+sample and the path supports multi-step sampling. Re-plateau toward ~1 ⇒ the
+`1/(1−t)²` weight (→ `loss_mode=x`) or the schedule `mu` (→ shift toward the noise
+end) is the remaining wall, each its own next test.
