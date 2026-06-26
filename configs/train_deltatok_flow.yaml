@@ -66,6 +66,8 @@ model:
   loss_mode: "v"
   mu: -0.7
   sigma: 1.4
+  train_fixed_t: null  # set (e.g. 0) to train at one fixed t matching the 1-step eval; null = sample logit-normal(mu,sigma)
+  fixed_noise_mode: "none"  # overfit probe: none=re-sampled prior | per_slot=one cached draw, distinct per (transition,camera) | shared=one vector to every slot
   # Parameter-free layer norm on the frame-0 conditioning feats (delta tokens
   # are ~unit-scale after DeltaTok's LayerNorm; raw DA3 feats are not).
   ctx_norm: "layernorm"
@@ -105,6 +107,9 @@ training:
   val_num_workers: 2
   grad_clip: 1.0
   seed: 0
+  # Overfit: memoize the frozen OccRAE(~1B)+DeltaTok encode per sample (keyed by
+  # scene + exact frame ids + timesteps) so the backbone runs once per unique input.
+  cache_frozen_encode: false
   eval_num_items: 256
   eval_num_steps: 50
   eval_num_visualizations: 8

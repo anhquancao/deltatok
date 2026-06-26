@@ -43,7 +43,7 @@ ulimit -n "$(ulimit -Hn)"
 export CONFIG_NAME=train_deltatok_flow_overfit_jeanzay
 export RESULTS_DIR="/lustre/fswork/projects/rech/trg/uyl37fq/deltatok_flow_log"
 # Distinct name so this run lands in its own subdir.
-export RUN_NAME=deltatok_flow_overfit_deltaCtx_global_v2
+export RUN_NAME=deltatok_flow_overfit_deltaCtx_global_fixedT0_wd0_raymapoff
 # Frozen tokenizer = const-global-rope (config-default ckpt + use_camera_rope=false).
 # delta_ctx: first delta token (frame 0->1) is the clean in-seq context, no cross-attn.
 # global: one attention over all delta tokens. camera_embed gives per-camera identity
@@ -52,7 +52,10 @@ EXTRA_CFG_ARGS=(
     model.cond_mode=delta_ctx                  # first delta token as clean in-seq context (no cross-attn)
     model.attn_mode=global                     # single global attention over all delta tokens
     model.vit_use_camera_embed=true            # absolute per-camera identity in the flow ViT
-    model.loss_mode=x                          # unweighted x-MSE (drop 1/(1-t)^2): supervise low-t x_pred the sampler starts from
+    model.loss_mode=v                          # unweighted x-MSE (drop 1/(1-t)^2): supervise low-t x_pred the sampler starts from
+    model.train_fixed_t=0                       # train at the single t the 1-step eval queries (t=0): no train/eval t mismatch (at t=0, loss_mode v==x)
+    training.cache_frozen_encode=true          # overfit: memoize frozen OccRAE+DeltaTok encode per sample -> 1B backbone runs once, not every step
+    training.weight_decay=0                    # overfit: drop regularization (VATIX uses 0.03 decay-all); isolates WD vs the fixedT0 wd=0.05 plateau
     training.exit_before_time_limit=true       # clean exit near SLURM wall (chain-resume safe)
     training.epoch=400                         # extend overfit past epoch 100 to watch MSEToken converge
     training.eval_num_steps=1                  # 1-step sampler = direct x_pred from noise; isolates ODE drift vs x-pred error

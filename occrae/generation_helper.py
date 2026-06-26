@@ -61,6 +61,7 @@ def flow_euler_sample(
         else:
             progress = i / num_steps
             progress_next = (i + 1) / num_steps
+     
 
         offsets = 1 + (torch.linspace(1, 0, t_dim, device=z.device)[None, :] * alpha)
         t_curr = torch.clamp(progress * offsets, 0, 1).expand(B, t_dim).clone()

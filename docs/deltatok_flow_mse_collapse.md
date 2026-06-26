@@ -1,5 +1,11 @@
 # DeltaTok flow: tiny loss but mean-collapsed samples
 
+> **⚠ CONFOUND (2026-06-26):** the overfit runs below were **not** fitting one
+> fixed sample — the config left `ray_map_prob` at its `0.0` default, randomizing
+> ~9 view-reorderings per batch. The "can't overfit one scene" findings are
+> suspect until re-tested with `ray_map_prob=-1`. See
+> [`deltatok_flow_overfit_data_confound.md`](deltatok_flow_overfit_data_confound.md).
+
 Status: **open / under investigation** (2026-06-25). Root cause narrowed to the
 training objective + timestep schedule, not the sampler. `loss_mode=x` necessary
 but not sufficient. Related: [`deltatok_flow_camera_swap.md`](deltatok_flow_camera_swap.md).
