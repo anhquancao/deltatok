@@ -37,12 +37,13 @@ export TORCH_NCCL_HEARTBEAT_TIMEOUT_SEC="${TORCH_NCCL_HEARTBEAT_TIMEOUT_SEC:-100
 # file_descriptor shm strategy holds an fd per shared tensor per worker
 ulimit -n "$(ulimit -Hn)"
 
-# Full-dataset run (camera-embed variant): Waymo+VKitti+DDAD+Pandaset+Once train,
-# Kitti+nuScenes val. Single GPU (config bsize=16, effective_bsize=32 -> grad_cum 2).
-export CONFIG_NAME=train_deltatok_flow_jeanzay
+# Overfit debug run (camera-embed variant): single dynamic nuScenes scene
+# (scene-0625) repeated 256x, single GPU (config bsize=32, effective_bsize=32 ->
+# grad_cum 1; needs world_size==1).
+export CONFIG_NAME=train_deltatok_flow_overfit_jeanzay
 export RESULTS_DIR="/lustre/fswork/projects/rech/trg/uyl37fq/deltatok_flow_log"
 # Distinct name so this run lands in its own subdir.
-export RUN_NAME=deltatok_flow_full_deltaCtx_global_fullT_wd05_raymapoff
+export RUN_NAME=deltatok_flow_overfit_deltaCtx_global_fullT_wd0_raymapoff
 # Frozen tokenizer = const-global-rope (config-default ckpt + use_camera_rope=false).
 # delta_ctx: first delta token (frame 0->1) is the clean in-seq context, no cross-attn.
 # global: one attention over all delta tokens. camera_embed gives per-camera identity
@@ -53,10 +54,10 @@ EXTRA_CFG_ARGS=(
     model.vit_use_camera_embed=true            # absolute per-camera identity in the flow ViT
     model.loss_mode=v                          # v-MSE = 1/(1-t)^2-weighted x-MSE (upweights near-clean t->1)
     # train_fixed_t dropped -> sample full logit-normal(mu,sigma) t (was pinned to 0 for the fixedT0 overfit)
-    # cache_frozen_encode left at config default (false): per-sample encode cache grows unbounded over the full dataset
-    # weight_decay left at config default (0.05): restore regularization for the full-data run
+    training.cache_frozen_encode=true          # overfit: memoize frozen OccRAE+DeltaTok encode per sample -> 1B backbone runs once, not every step
+    training.weight_decay=0                    # overfit: drop regularization (VATIX uses 0.03 decay-all); isolates WD vs the fixedT0 wd=0.05 plateau
     training.exit_before_time_limit=true       # clean exit near SLURM wall (chain-resume safe)
-    training.epoch=400                         # long full-data schedule; chain-resume across SLURM walls
+    training.epoch=400                         # extend overfit past epoch 100 to watch MSEToken converge
     training.eval_num_steps=50                 # multi-step ODE: integrate full trajectory from noise (real generative test, all t now supervised)
 )
 export EXTRA_CFG="${EXTRA_CFG_ARGS[*]}"
