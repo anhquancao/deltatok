@@ -46,7 +46,7 @@ export CONFIG_NAME=train_deltatok_jeanzay
 export LOG_AND_CKPT_DIR="/lustre/fswork/projects/rech/trg/uyl37fq/deltatok_log"
 export RESULTS_DIR="$LOG_AND_CKPT_DIR"
 export RUN_NAME=deltatok_surround_layer12_bsize2_featloss
-export RESUME=0
+export RESUME=${RESUME:-0}   # override with --export=ALL,RESUME=1 to resume current.pth
 EXTRA_CFG_ARGS=(
     model.deltatok.use_camera_rope=false       # no-camera-rope layer-12 run
     training.exit_before_time_limit=true       # stop after a ckpt when SLURM wall is near (chain-resume safe)
