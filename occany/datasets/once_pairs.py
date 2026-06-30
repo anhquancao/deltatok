@@ -10,8 +10,9 @@ from occany.datasets.base_seq_dataset import BaseSeqDatasetMultiView
 
 
 class OnceSeqMultiView(BaseSeqDatasetMultiView):
-    def __init__(self, *args, ONCE_PREPROCESSED_ROOT, seq_pkl_name='once_seq_video.pkl', **kwargs):
-        super().__init__(*args, ROOT=ONCE_PREPROCESSED_ROOT, seq_pkl_name=seq_pkl_name, **kwargs)
+    def __init__(self, *args, ONCE_PREPROCESSED_ROOT, seq_pkl_name='once_seq_video.pkl', num_views_per_timestep=5, **kwargs):
+        # num_views_per_timestep = physical cameras per timestep (ONCE: 5).
+        super().__init__(*args, ROOT=ONCE_PREPROCESSED_ROOT, seq_pkl_name=seq_pkl_name, num_views_per_timestep=num_views_per_timestep, **kwargs)
         self.is_metric_scale = True
         val_scenes = ("000324", "000431")
 

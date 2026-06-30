@@ -104,6 +104,10 @@ training:
   # tokenizer forward without changing the dataset / batch shape. Must be > 0
   # (it is a factor of the grad_cum denominator).
   pairs_per_seq: 1
+  # Downstream DA3 feature loss: re-insert predicted frames into the GT token sequence,
+  # run one frozen forward (blocks 13->39) over all views, and log-cosh-match the
+  # out_layer [19,27,33,39] features vs the GT decode. 0 = off (no-op).
+  feature_loss_weight: 0.0
   grad_clip: 1.0
   seed: 0
   eval_num_items: 256

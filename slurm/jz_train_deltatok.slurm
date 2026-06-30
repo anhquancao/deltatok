@@ -6,7 +6,7 @@
 #SBATCH --cpus-per-task=24
 #SBATCH --hint=nomultithread
 #SBATCH -C h100
-#SBATCH --account=lwy@h100
+#SBATCH --account=zuw@h100
 #SBATCH --qos=qos_gpu_h100-t3
 #SBATCH --time=20:00:00
 ##SBATCH --qos=qos_gpu_h100-dev
@@ -45,11 +45,12 @@ ulimit -n "$(ulimit -Hn)"
 export CONFIG_NAME=train_deltatok_jeanzay
 export LOG_AND_CKPT_DIR="/lustre/fswork/projects/rech/trg/uyl37fq/deltatok_log"
 export RESULTS_DIR="$LOG_AND_CKPT_DIR"
-export RUN_NAME=deltatok_surround_layer12_bsize2_fixedBug
-export RESUME=1
+export RUN_NAME=deltatok_surround_layer12_bsize2_featloss
+export RESUME=0
 EXTRA_CFG_ARGS=(
     model.deltatok.use_camera_rope=false       # no-camera-rope layer-12 run
     training.exit_before_time_limit=true       # stop after a ckpt when SLURM wall is near (chain-resume safe)
+    training.feature_loss_weight=0.1           # downstream DA3 [19,27,33,39] feature loss
 )
 export EXTRA_CFG="${EXTRA_CFG_ARGS[*]}"
 

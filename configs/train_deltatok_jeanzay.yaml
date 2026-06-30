@@ -5,49 +5,49 @@ dataset:
   # Jean Zay overlay of train_deltatok_karolina.yaml: same recipe, dataset roots
   # on the fsn1 working tier (mirrors train_deltatok_flow_jeanzay.yaml).
   train_dataset: "2000 @ WaymoSeqMultiView(ROOT='/lustre/fsn1/projects/rech/trg/uyl37fq/occany_data/waymo_processed', \
-      seq_pkl_name='seq_surround_temporal_sub5_stride9_all.pkl', \
-      min_memory_num_views=5, frame_interval=1, max_memory_num_views=24, \
-      num_views_per_timestep=5, min_views_per_timestep=1, min_num_timesteps=2, ray_map_prob=-1, \
+      seq_pkl_name='seq_surround_temporal_sub5_stride9_fs1_all.pkl', \
+      frame_interval=1, \
+      min_views_per_timestep=1, max_views_per_timestep=2, min_num_timesteps=6, max_num_timesteps=6, ray_map_prob=-1, \
       z_far=50, split='train', no_partial_views=True, \
       resolution=[(518, 294), (518, 280), (518, 266), (518, 210), (518, 168)], \
-      reverse_seq=True, distill_model_name='SAM3', base_model='da3') + \
+      reverse_seq=True, base_model='da3') + \
       1000 @ VKittiSeqMultiView(VKITTI_PROCESSED_ROOT='/lustre/fsn1/projects/rech/trg/uyl37fq/occany_data/vkitti_processed', \
       seq_pkl_name='seq_exact_len_sub5_stride9.pkl', \
-      min_memory_num_views=5, frame_interval=1, max_memory_num_views=10, min_num_timesteps=2, ray_map_prob=-1, \
+      frame_interval=1, min_views_per_timestep=1, max_views_per_timestep=2, min_num_timesteps=6, max_num_timesteps=6, ray_map_prob=-1, \
       z_far=50, split='train', no_partial_views=True, \
       resolution=[(518, 294), (518, 280), (518, 266), (518, 210), (518, 168)], \
-      reverse_seq=True, distill_model_name='SAM3', base_model='da3') + \
+      reverse_seq=True, base_model='da3') + \
       2000 @ DDADSeqMultiView(DDAD_PREPROCESSED_ROOT='/lustre/fsn1/projects/rech/trg/uyl37fq/occany_data/ddad_processed', \
-      seq_pkl_name='seq_surround_temporal_sub5_stride9_all.pkl', \
-      min_memory_num_views=6, frame_interval=1, max_memory_num_views=24, \
-      num_views_per_timestep=6, min_views_per_timestep=1, min_num_timesteps=2, ray_map_prob=-1, \
+      seq_pkl_name='seq_surround_temporal_sub5_stride9_fs1_all.pkl', \
+      frame_interval=1, \
+      min_views_per_timestep=1, max_views_per_timestep=2, min_num_timesteps=6, max_num_timesteps=6, ray_map_prob=-1, \
       z_far=50, split='train', no_partial_views=True, \
       resolution=[(518, 294), (518, 280), (518, 266), (518, 210), (518, 168)], \
-      reverse_seq=True, distill_model_name='SAM3', base_model='da3') + \
+      reverse_seq=True, base_model='da3') + \
       2000 @ PandasetSeqMultiView(PANDASET_PREPROCESSED_ROOT='/lustre/fsn1/projects/rech/trg/uyl37fq/occany_data/pandaset_processed', \
-      seq_pkl_name='seq_surround_temporal_sub5_stride9_all.pkl', \
-      min_memory_num_views=6, frame_interval=1, max_memory_num_views=24, \
-      num_views_per_timestep=6, min_views_per_timestep=1, min_num_timesteps=2, ray_map_prob=-1, \
+      seq_pkl_name='seq_surround_temporal_sub5_stride9_fs1_all.pkl', \
+      frame_interval=1, \
+      min_views_per_timestep=1, max_views_per_timestep=2, min_num_timesteps=6, max_num_timesteps=6, ray_map_prob=-1, \
       z_far=50, split='train', no_partial_views=True, \
       resolution=[(518, 294), (518, 280), (518, 266), (518, 210), (518, 168)], \
-      reverse_seq=True, distill_model_name='SAM3', base_model='da3') + \
+      reverse_seq=True, base_model='da3') + \
       2000 @ OnceSeqMultiView(ONCE_PREPROCESSED_ROOT='/lustre/fsn1/projects/rech/trg/uyl37fq/occany_data/once_processed', \
-      seq_pkl_name='seq_surround_temporal_sub5_stride9_all.pkl', \
-      min_memory_num_views=5, frame_interval=1, max_memory_num_views=24, \
-      num_views_per_timestep=5, min_views_per_timestep=1, min_num_timesteps=2, ray_map_prob=-1, \
+      seq_pkl_name='seq_surround_temporal_sub5_stride9_fs1_once_5cam_all.pkl', \
+      frame_interval=1, \
+      min_views_per_timestep=1, max_views_per_timestep=2, min_num_timesteps=6, max_num_timesteps=6, ray_map_prob=-1, \
       z_far=50, split='train', no_partial_views=True, \
       resolution=[(518, 294), (518, 280), (518, 266), (518, 210), (518, 168)], \
-      reverse_seq=True, distill_model_name='SAM3', base_model='da3')"
+      reverse_seq=True, base_model='da3')"
   test_dataset: "206 @ KittiSeqMultiView(KITTI_PREPROCESSED_ROOT='/lustre/fsn1/projects/rech/trg/uyl37fq/occany_data/kitti_processed', \
       seq_pkl_name='seq_exact_len_sub5_stride9.pkl', frame_interval=1, \
       min_memory_num_views=5, max_memory_num_views=5, reverse_seq=False, \
       z_far=50, split='val', seed=42, no_partial_views=True, \
-      resolution=[(518, 168)], distill_model_name='SAM3', base_model='da3') + \
+      resolution=[(518, 168)], base_model='da3') + \
       206 @ Occ3dNuscenesSeqMultiView(NUSCENES_PREPROCESSED_ROOT='/lustre/fsn1/projects/rech/trg/uyl37fq/occany_data/occ3d_nuscenes_processed', \
       seq_pkl_name='seq_surround_temporal_sub1_stride9_all.pkl', frame_interval=1, \
       min_memory_num_views=10, max_memory_num_views=10, num_views_per_timestep=6, \
       z_far=50, split='val', seed=42, no_partial_views=True, fixed_cams=[0,1], \
-      resolution=[(518, 266)], distill_model_name='SAM3', base_model='da3')"
+      resolution=[(518, 266)], base_model='da3')"
 
 model:
   # Base config's img_decoder.ckpt_path is a Karolina mount (/mnt/proj1/...) absent

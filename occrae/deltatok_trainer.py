@@ -694,7 +694,50 @@ class DeltaTokTrainer(DeltaTokSharedMixin, Trainer):
         z = self._encode_pair_deltas(net, feats, height, width)  # (B, T-1, N, C)
         return self._rollout_from_z(net, feats[:, 0], z, height, width, num_cameras)  # (B*(T-1), N, P, C)
 
+    def _feature_loss(self, tokens, x_hat, B, T_minus_1, idx, num_cameras, height, width):
+        """Downstream DA3 feature loss. Insert the predicted frames' patch features back
+        among the GT OccAny tokens (every other frame stays GT), run ONE frozen forward
+        (blocks 13->39) over all V=T*num_cameras views, and log-cosh-match every view's
+        out_layer features against the same forward on the pure-GT tokens. Only the
+        subsampled frames carry gradient (the tokenizer is run on those frames only); the
+        signal still reaches them through cross-view attention to the other views.
 
+        tokens: (B, V, N_tok, C) full GT tokens. x_hat: (n_pairs, N, P, C) predicted layer-12
+        patch features for the subsampled frames (idx rows of the B*(T-1) t>=1 frames).
+        """
+        T = T_minus_1 + 1                                                 # timesteps per sequence
+        V = tokens.shape[1]                                              # total views = T*num_cameras
+        N_tok = tokens.shape[2]                                          # tokens/view (prefix + P)
+        C_tok = tokens.shape[3]                                          # token channel dim
+        prefix = self._num_prefix_tokens                                # CLS (+ register) token count
+
+        # GT patch features for frames 1..T-1, row-aligned with x_hat's (B*(T-1)) layout.
+        gt_t1 = tokens.view(B, T, num_cameras, N_tok, C_tok)[:, 1:, :, prefix:, :]    # (B, T-1, N, P, C)
+        P = gt_t1.shape[-2]                                              # patches per view
+        gt_flat = gt_t1.reshape(B * T_minus_1, num_cameras, P, C_tok)    # (B*(T-1), N, P, C)
+        # Insert predicted patches at the subsampled rows; all other frames keep GT features.
+        if idx is None:
+            merged = x_hat.to(gt_flat.dtype)                            # every t>=1 frame predicted
+        else:
+            merged = gt_flat.index_copy(0, idx, x_hat.to(gt_flat.dtype))  # (B*(T-1), N, P, C), grad on idx rows
+        # Rebuild the full sequence (GT prefix per view, GT timestep-0 context).
+        full_pred = self._reconstruct_full_tokens(tokens, merged, B, V, num_cameras=num_cameras)  # (B, V, N_tok, C)
+
+        with self.autocast:
+            pred_feats = self.occ_rae.decode_to_features(
+                {"tokens": full_pred, "H": height, "W": width}, num_levels=None,
+                requires_grad=True, use_checkpoint=True,
+            )                                                            # one tensor per out_layer (B, V, P, 3072), grad+ckpt
+            gt_feats = self.occ_rae.decode_to_features(
+                {"tokens": tokens, "H": height, "W": width}, num_levels=None, requires_grad=False
+            )                                                            # one tensor per out_layer (B, V, P, 3072), detached
+
+        with torch.autocast(device_type="cuda", enabled=False):
+            loss_feat = sum(
+                _log_cosh(p.float(), g.detach().float()).mean()
+                for p, g in zip(pred_feats, gt_feats)
+            ) / len(pred_feats)                                          # mean log-cosh over all out_layers and views
+        return loss_feat
 
     def train_one_epoch(self):
         self.tokenizer.train()
@@ -731,7 +774,7 @@ class DeltaTokTrainer(DeltaTokSharedMixin, Trainer):
 
             imgs = batch["imgs"].to(self.device, non_blocking=True)
             num_cameras = batch.get("num_cameras", 1)
-            _, _, x_prev, x, H, W = self._extract_pair_feats(imgs, num_cameras=num_cameras)
+            tokens, _feats, x_prev, x, H, W = self._extract_pair_feats(imgs, num_cameras=num_cameras)
 
             # Subsample to `pairs_per_seq` transitions PER sequence (not per micro-batch
             # total), so the pairs actually used == bsize * pairs_per_seq and match the
@@ -741,6 +784,7 @@ class DeltaTokTrainer(DeltaTokSharedMixin, Trainer):
             pairs_per_seq = int(self.cfg.training.get("pairs_per_seq", 0))
             B = imgs.shape[0]                                   # sequences in this micro-batch
             T_minus_1 = x_prev.shape[0] // B                    # transitions per seq (T-1), uniform across the batch
+            idx = None                                          # subsample row index; None == all pairs kept
             if pairs_per_seq > 0 and T_minus_1 > pairs_per_seq:
                 # argsort of per-row random keys = an independent random permutation of the
                 # T-1 transitions for each of the B sequences (vectorized B-way randperm);
@@ -759,14 +803,25 @@ class DeltaTokTrainer(DeltaTokSharedMixin, Trainer):
             with torch.autocast(device_type="cuda", enabled=False):
                 loss = _log_cosh(x_hat.float(), x.detach().float()).mean()
 
-            (loss / self.grad_cum).backward()
+            # Optional downstream DA3 feature loss: insert the predicted frames back among the
+            # GT OccAny tokens, run one forward over all V views (blocks 13->39), and match the
+            # predicted frames' out_layer features vs the pure-GT decode. 0 weight == no-op.
+            w_feat = float(self.cfg.training.get("feature_loss_weight", 0.0))
+            if w_feat > 0:
+                loss_feat = self._feature_loss(tokens, x_hat, B, T_minus_1, idx, num_cameras, H, W)
+                loss_total = loss + w_feat * loss_feat
+            else:
+                loss_feat = None
+                loss_total = loss
+
+            (loss_total / self.grad_cum).backward()
 
             if update_grad:
                 nn.utils.clip_grad_norm_(self.tokenizer.parameters(), self.cfg.training.grad_clip)
                 self.optim.step()
                 self.optim.zero_grad(set_to_none=True)
 
-            loss_val = loss.detach().item()
+            loss_val = loss_total.detach().item()   # total (recon + feature) drives meters/LossTot
             cum_loss += loss_val
             window_loss.append(loss_val)
 
@@ -789,6 +844,7 @@ class DeltaTokTrainer(DeltaTokSharedMixin, Trainer):
 
                     self.log_add_scalar('Train/LearningRate', self.optim.param_groups[0]['lr'], self.cfg.training.iter)
                     self.log_add_scalar('Train/LossRecon', loss, self.cfg.training.iter)
+                    self.log_add_scalar('Train/LossFeature', loss_feat if loss_feat is not None else 0.0, self.cfg.training.iter)
                     self.log_add_scalar('Train/LossTot', mini_batch_loss, self.cfg.training.iter)
                     self.log_add_scalar('Train/SpeedSamplesPerSec', speed_samples_per_sec, self.cfg.training.iter)
 

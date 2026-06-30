@@ -12,8 +12,9 @@ from occany.datasets.base_seq_dataset import BaseSeqDatasetMultiView
 class WaymoSeqMultiView(BaseSeqDatasetMultiView):
     """Dataset of outdoor street scenes for multiview training."""
 
-    def __init__(self, *args, split, ROOT, seq_pkl_name='seq_sub1_stride9.pkl', **kwargs):
-        super().__init__(*args, ROOT=ROOT, seq_pkl_name=seq_pkl_name, **kwargs)
+    def __init__(self, *args, split, ROOT, seq_pkl_name='seq_sub1_stride9.pkl', num_views_per_timestep=5, **kwargs):
+        # num_views_per_timestep = physical cameras per timestep (Waymo: 5).
+        super().__init__(*args, ROOT=ROOT, seq_pkl_name=seq_pkl_name, num_views_per_timestep=num_views_per_timestep, **kwargs)
         self.split = split
         self.is_metric_scale = True
 

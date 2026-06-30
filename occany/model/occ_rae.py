@@ -197,26 +197,35 @@ class OccRAE(nn.Module):
         device = next(self.parameters()).device
         return IMAGENET_STD.reshape(1, 3, 1, 1).to(device)
 
-    @torch.no_grad()
-    def decode_to_features(self, latents: Dict[str, object], num_levels: int = 3) -> list:
+    def decode_to_features(
+        self, latents: Dict[str, object], num_levels: Optional[int] = 3,
+        requires_grad: bool = False, use_checkpoint: bool = False,
+    ) -> list:
         """Run decode backbone and return multi-level features (CLS already stripped).
 
-        Returns list of ``num_levels`` tensors, each ``(B*V, N_patches, feature_dim)``.
-        Default num_levels=3 returns features at out_layers [19, 27, 33].
+        Returns list of ``num_levels`` (shallowest) tensors, each ``(B*V, N_patches,
+        feature_dim)``. num_levels=3 returns features at out_layers [19, 27, 33];
+        num_levels=4 adds layer 39; ``num_levels=None`` returns every out_layer.
+        ``requires_grad=True`` keeps the autograd graph so gradients flow back to
+        ``latents['tokens']`` (frozen backbone still backprops); default False preserves
+        no-grad behavior for existing callers. ``use_checkpoint=True`` recomputes each
+        decode block in backward to cut activation memory (only meaningful with grad).
         """
         x = latents["tokens"]
         h, w = latents["H"], latents["W"]
         start_layer = self.encode_layer + 1
 
-        # Resuming at alt_start needs the camera-token swap (no-op otherwise);
-        # local_x (2nd arg) stays the un-injected stream.
-        x_inj = self.model._maybe_inject_camera_token(x, start_layer)  # (B, S, N, C)
-        feats, _aux = self.model.model.backbone.forward_from_layer(
-            x_inj, x,
-            start_layer, h, w,
-            ref_view_strategy="first",
-        )
-        return [feat for feat, _cam in feats[:num_levels]]
+        with torch.set_grad_enabled(requires_grad):
+            # Resuming at alt_start needs the camera-token swap (no-op otherwise);
+            # local_x (2nd arg) stays the un-injected stream.
+            x_inj = self.model._maybe_inject_camera_token(x, start_layer)  # (B, S, N, C)
+            feats, _aux = self.model.model.backbone.forward_from_layer(
+                x_inj, x,
+                start_layer, h, w,
+                ref_view_strategy="first",
+                use_checkpoint=use_checkpoint,
+            )
+            return [feat for feat, _cam in feats[:num_levels]]
 
     # ------------------------------------------------------------------
     # Image decoder (MAE-style, trained in occrae/img_decoder_trainer.py)
