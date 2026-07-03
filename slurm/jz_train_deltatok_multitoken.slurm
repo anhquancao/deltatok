@@ -45,13 +45,13 @@ ulimit -n "$(ulimit -Hn)"
 export CONFIG_NAME=train_deltatok_jeanzay
 export LOG_AND_CKPT_DIR="/lustre/fswork/projects/rech/trg/uyl37fq/deltatok_log"
 export RESULTS_DIR="$LOG_AND_CKPT_DIR"
-export RUN_NAME=deltatok_surround_layer12_bsize2_featloss_dtok64
+export RUN_NAME=deltatok_surround_layer12_bsize2_dtok64
 export RESUME=${RESUME:-0}   # override with --export=ALL,RESUME=1 to resume current.pth
 EXTRA_CFG_ARGS=(
     model.deltatok.num_delta_tokens=64         # 64 delta tokens/camera (~12:1 compression at full res)
     model.deltatok.use_camera_rope=false       # no-camera-rope layer-12 run
     training.exit_before_time_limit=true       # stop after a ckpt when SLURM wall is near (chain-resume safe)
-    training.feature_loss_weight=0.1           # downstream DA3 [19,27,33,39] feature loss
+    # feature_loss_weight omitted -> base default 0.0 (no downstream DA3 feature loss)
 )
 export EXTRA_CFG="${EXTRA_CFG_ARGS[*]}"
 
