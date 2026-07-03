@@ -1,0 +1,174 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>DeltaTok — num_delta_tokens (compression-rate) sweep</title>
+<style>
+  :root{
+    --bg:#ffffff; --fg:#1b1f24; --muted:#5b6570; --line:#e3e8ee;
+    --card:#f7f9fb; --accent:#2f6feb; --code:#f0f3f7;
+    --ok:#1a7f37; --warn:#9a6700; --run:#2f6feb; --dead:#8b949e; --pend:#9a6700;
+  }
+  @media (prefers-color-scheme:dark){
+    :root{ --bg:#0f1216; --fg:#e6edf3; --muted:#9aa4af; --line:#252c34;
+      --card:#161b22; --accent:#589bff; --code:#161b22;
+      --ok:#3fb950; --warn:#d29922; --run:#589bff; --dead:#6e7681; --pend:#d29922; }
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--fg);
+    font:15px/1.6 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;}
+  .wrap{max-width:960px;margin:0 auto;padding:32px 20px 80px;}
+  h1{font-size:26px;margin:0 0 4px;letter-spacing:-.01em}
+  h2{font-size:19px;margin:38px 0 10px;padding-bottom:6px;border-bottom:1px solid var(--line)}
+  h3{font-size:15px;margin:22px 0 6px}
+  .sub{color:var(--muted);margin:0 0 6px}
+  code,pre{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:13px}
+  code{background:var(--code);padding:1px 5px;border-radius:4px}
+  pre{background:var(--code);border:1px solid var(--line);border-radius:8px;padding:12px 14px;overflow-x:auto}
+  table{border-collapse:collapse;width:100%;margin:10px 0;font-size:14px;display:block;overflow-x:auto}
+  th,td{border:1px solid var(--line);padding:7px 10px;text-align:left;vertical-align:top;white-space:nowrap}
+  th{background:var(--card);font-weight:600}
+  td.wrap-cell,th.wrap-cell{white-space:normal}
+  .pill{display:inline-block;padding:1px 8px;border-radius:999px;font-size:12px;font-weight:600;border:1px solid transparent}
+  .p-run{color:#fff;background:var(--run)}
+  .p-ok{color:#fff;background:var(--ok)}
+  .p-pend{color:#111;background:var(--pend)}
+  .p-dead{color:#fff;background:var(--dead)}
+  .meta{display:flex;flex-wrap:wrap;gap:8px 18px;color:var(--muted);font-size:13px;margin:10px 0 0}
+  .meta b{color:var(--fg);font-weight:600}
+  .card{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:14px 16px;margin:12px 0}
+  ul{margin:6px 0 6px 4px;padding-left:18px}
+  li{margin:3px 0}
+  .small{color:var(--muted);font-size:12.5px}
+  .tag{font-family:ui-monospace,monospace;font-size:12px;color:var(--muted)}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <h1>DeltaTok — <code>num_delta_tokens</code> (compression rate) sweep</h1>
+  <p class="sub">Making the delta-token bottleneck configurable and sweeping it. Living tracker.</p>
+  <div class="meta">
+    <span><b>Started</b> 2026-07-03</span>
+    <span><b>Branch</b> <code>revert</code></span>
+    <span><b>Cluster</b> Jean Zay H100 · <code>zuw@h100</code> · <code>qos_gpu_h100-t3</code></span>
+    <span><b>Commits</b> <code>46f83cf</code>, <code>a343cba</code></span>
+  </div>
+
+  <h2>Problem</h2>
+  <p>The DeltaTok tokenizer compressed each consecutive frame pair <code>(t, t+1)</code>, per camera,
+  into a <b>single</b> learned delta token — hardcoded as <code>nn.Embedding(1, hidden)</code> and a
+  length-1 prefix through every encode/decode block. At full res a camera has
+  <code>P ≈ 37×21 = 777</code> patches, so 1 token is a ~777:1 bottleneck — too aggressive, capping
+  reconstruction fidelity. Goal: make the token count (a "compression rate") a config knob and sweep it.</p>
+
+  <h2>Change (tokenizer)</h2>
+  <p>New knob <code>model.deltatok.num_delta_tokens = K</code> (default <b>1</b> → unchanged behavior).
+  K learned latent queries per camera per transition; compression ≈ <code>P/K</code>.</p>
+  <table>
+    <tr><th>File</th><th class="wrap-cell">What</th></tr>
+    <tr><td><code>occrae/deltatok_trainer.py</code></td><td class="wrap-cell"><code>DeltaTokModule</code> ctor gains <code>num_delta_tokens</code>; <code>z_embed = nn.Embedding(K, hidden)</code>; <code>encode</code>/<code>decode</code> prefix slicing generalized <b>1→K</b> (local) and <b>N→N·K</b> (global).</td></tr>
+    <tr><td><code>occrae/deltatok_shared.py</code></td><td class="wrap-cell">Factory <code>_make_deltatok_module</code> passes <code>num_delta_tokens</code>; <code>_encode_pair_deltas</code> keeps the K axis and <b>squeezes when K==1</b> → existing 1-token consumers (flow trainer) unchanged.</td></tr>
+    <tr><td><code>configs/train_deltatok.yaml</code></td><td class="wrap-cell"><code>num_delta_tokens: 1</code> (default + valid Hydra override target).</td></tr>
+    <tr><td><code>slurm/jz_train_deltatok_multitoken.slurm</code></td><td class="wrap-cell">K-sweep variant, feature loss <b>off</b>; token count via <code>NUM_DELTA_TOKENS</code> env (default 64), <code>RUN_NAME</code> auto-derived <code>…_dtok&lt;K&gt;</code>.</td></tr>
+  </table>
+  <div class="card">
+    <b>No RoPE change needed.</b> <code>apply_rotary_pos_emb</code> rotates the trailing <code>len(rope)</code>
+    tokens and skips the leading <code>seq_len − len(rope)</code>. Local rope stays <code>2P</code>, global
+    <code>2·N·P</code>, so a K-long (resp. N·K) prefix is skipped automatically — same mechanism as the old 1/N prefix.
+  </div>
+
+  <h2>Compression by K</h2>
+  <p class="small">Full-res patches/camera <code>P ≈ 777</code>. Compression ≈ <code>P/K</code>.</p>
+  <table>
+    <tr><th>K</th><th>≈ compression</th><th>note</th></tr>
+    <tr><td>1</td><td>~777:1</td><td class="wrap-cell">old baseline — too compressed</td></tr>
+    <tr><td>8</td><td>~97:1</td><td class="wrap-cell">sweep</td></tr>
+    <tr><td>16</td><td>~49:1</td><td class="wrap-cell">sweep</td></tr>
+    <tr><td>32</td><td>~24:1</td><td class="wrap-cell">sweep</td></tr>
+    <tr><td>64</td><td>~12:1</td><td class="wrap-cell">first run</td></tr>
+  </table>
+
+  <h2>Runs</h2>
+  <p class="small">Legend:
+    <span class="pill p-run">running</span>
+    <span class="pill p-pend">pending</span>
+    <span class="pill p-ok">passed</span>
+    <span class="pill p-dead">cancelled</span>
+  </p>
+  <table>
+    <tr><th>K</th><th>Job</th><th>QoS</th><th>Status</th><th>RUN_NAME</th><th class="wrap-cell">Notes</th></tr>
+    <tr><td>64</td><td>1284274</td><td>t3</td><td><span class="pill p-run">running</span></td><td><code>…_dtok64</code></td><td class="wrap-cell">the kept K=64 run (feature loss off)</td></tr>
+    <tr><td>32</td><td>1287536</td><td>t3</td><td><span class="pill p-pend">pending</span></td><td><code>…_dtok32</code></td><td class="wrap-cell">sweep</td></tr>
+    <tr><td>16</td><td>1287535</td><td>t3</td><td><span class="pill p-pend">pending</span></td><td><code>…_dtok16</code></td><td class="wrap-cell">sweep</td></tr>
+    <tr><td>8</td><td>1287534</td><td>t3</td><td><span class="pill p-pend">pending</span></td><td><code>…_dtok8</code></td><td class="wrap-cell">sweep</td></tr>
+    <tr><td>64</td><td>1282882</td><td>dev</td><td><span class="pill p-ok">passed</span></td><td><code>…_featloss_dtok64</code></td><td class="wrap-cell">smoke test — then cancelled</td></tr>
+    <tr><td>64</td><td>1283143</td><td>t3</td><td><span class="pill p-dead">cancelled</span></td><td><code>…_featloss_dtok64</code></td><td class="wrap-cell">had feature loss — cancelled per request</td></tr>
+    <tr><td>64</td><td>1283996</td><td>t3</td><td><span class="pill p-dead">cancelled</span></td><td><code>…_dtok64</code></td><td class="wrap-cell">duplicate of 1284274 (same dir) — cancelled</td></tr>
+  </table>
+  <p class="small">RUN_NAME prefix is <code>deltatok_surround_layer12_bsize2</code>. Ckpts/logs under
+  <code>$deltatok_log/&lt;RUN_NAME&gt;/</code>. <b>Open safety check:</b> confirm the <code>dtok8/16/32</code>
+  RUN_NAMEs at first start (verifies <code>--export</code> propagated; rules out a <code>dtok64</code> dir collision).</p>
+
+  <h2>Verification &amp; timing</h2>
+  <h3>Smoke test (K=64, job 1282882, dev QoS) — passed</h3>
+  <ul>
+    <li><b>Model builds:</b> <code>z_embed = 0.098M = 64×1536</code> (vs 1×1536 at K=1); total 681M. No shape errors.</li>
+    <li><b>Full eval rollout</b> ran (Kitti loss 0.2402, nuScenes 0.1199) — exercises the K-axis <code>_encode_pair_deltas</code> + <code>_rollout_from_z</code> path.</li>
+    <li><b>Train step</b> forward+backward OK (<code>loss 0.0949</code>).</li>
+  </ul>
+  <h3>Per-step time (K=64, no feature loss, job 1284274)</h3>
+  <p class="small">Feature loss confirmed off (gated by <code>if w_feat &gt; 0</code>, <code>deltatok_trainer.py:817</code>). Early steps are one-time warm-up.</p>
+  <table>
+    <tr><th>step</th><th>time/step</th><th>eta (epoch)</th></tr>
+    <tr><td>0</td><td>10.7 s</td><td>3:21</td></tr>
+    <tr><td>20</td><td>3.33 s</td><td>1:08</td></tr>
+    <tr><td>40</td><td>2.61 s</td><td>0:57</td></tr>
+    <tr><td>80</td><td>1.35 s</td><td>0:42</td></tr>
+    <tr><td>140</td><td>0.73 s</td><td>0:30</td></tr>
+  </table>
+  <p>Steady state ≈ <b>0.7–1.0 s/step</b> (~19 min / 1125-step epoch), ~51 GB GPU. Dominant cost is
+  <b>not</b> feature loss — it's the frozen ~1B DA3 backbone forward (feature extraction, every step) plus
+  the K× larger delta-token attention. Both are independent of the feature-loss toggle.</p>
+
+  <h2>Deferred — flow trainer (K&gt;1)</h2>
+  <p>Scope so far is <b>tokenizer only</b>. Running flow matching on a K&gt;1 tokenizer is not yet supported;
+  the <code>K==1</code> squeeze in <code>_encode_pair_deltas</code> keeps existing 1-token flow runs working.
+  Before flow on K&gt;1, update <code>occrae/deltatok_flow_trainer.py</code>:</p>
+  <ul>
+    <li><code>x_spatial = z.permute(0,3,1,2).unsqueeze(-1)</code> → <code>(B,C,T-1,N,K)</code> (permute <code>0,4,1,2,3</code>, drop unsqueeze); <code>z_hat</code> keep K axis.</li>
+    <li>flow <code>Transformer</code> <code>ref_spatial_size=(1,1)</code> → cover K positions (e.g. <code>(1,K)</code>).</li>
+    <li><code>n_ctx</code> is along the T-1 axis — unaffected by K.</li>
+  </ul>
+
+  <h2>How to run / monitor</h2>
+  <pre>ssh jean-zay "bash -lc 'cd $TRG_WORK/code/deltatok &amp;&amp; \
+  sbatch --export=ALL,NUM_DELTA_TOKENS=16 slurm/jz_train_deltatok_multitoken.slurm'"
+
+# monitor
+ssh jean-zay "squeue -u uyl37fq -n deltatok_jz"
+ssh jean-zay "tail -f $TRG_WORK/code/deltatok/slurm/output/jz_train_deltatok_&lt;JOBID&gt;.out"</pre>
+
+  <h2>Timeline (2026-07-03)</h2>
+  <ul>
+    <li>Implemented configurable <code>num_delta_tokens</code> (tokenizer, factory, config, K=64 slurm) — commit <code>46f83cf</code>.</li>
+    <li>Smoke test K=64 on dev QoS (1282882) — passed end-to-end; cancelled.</li>
+    <li>Submitted K=64 t3 run with feature loss (1283143); then switched to <b>no feature loss</b> per request — cancelled 1283143.</li>
+    <li>Found + cancelled a duplicate K=64 run (1283996) that shared the <code>dtok64</code> dir; kept 1284274.</li>
+    <li>Parameterized the slurm with <code>NUM_DELTA_TOKENS</code> — commit <code>a343cba</code>.</li>
+    <li>Submitted sweep K=8/16/32 (1287534/535/536).</li>
+  </ul>
+
+  <h2>Open items</h2>
+  <ul>
+    <li>Confirm <code>dtok8/16/32</code> RUN_NAMEs at job start (collision safety).</li>
+    <li>Compare eval loss / recon metrics across K to choose the compression rate.</li>
+    <li>Flow-trainer K&gt;1 plumbing when moving downstream.</li>
+  </ul>
+
+  <p class="small tag">docs/journal/deltatok_num_delta_tokens_sweep.html · update the Runs table + Timeline as jobs progress.</p>
+
+</div>
+</body>
+</html>
