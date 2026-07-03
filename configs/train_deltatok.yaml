@@ -72,6 +72,7 @@ model:
   # inherited from the OccRAE/DA3 backbone and not configurable here.
   deltatok:
     num_hidden_layers: 12
+    num_delta_tokens: 1  # delta tokens per camera per transition (1 = max compression)
     use_delta: true
     use_swiglu: true
     use_qk_norm: true

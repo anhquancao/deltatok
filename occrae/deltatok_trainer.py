@@ -68,8 +68,13 @@ class DeltaTokModule(nn.Module):
         use_camera_rope: bool = False,
         mlp_ratio: int = 4,
         alt_start: int = 4,
+        num_delta_tokens: int = 1,
     ):
         super().__init__()
+        # Delta tokens per camera per transition (1 = max compression). K query
+        # tokens compress a frame pair's P patches into K latents; raise it to
+        # reduce compression.
+        self.num_delta_tokens = int(num_delta_tokens)
         self._use_rope_aug = use_rope_aug
         # When True, global (cross-camera) layers give each camera one distinct
         # rope position (shared by its patches, identical in prev & next) so the
@@ -104,7 +109,7 @@ class DeltaTokModule(nn.Module):
 
         self.rope_embeddings = DINOv3ViTRopePositionEmbedding(cfg)
 
-        self.z_embed = nn.Embedding(1, cfg.hidden_size)
+        self.z_embed = nn.Embedding(self.num_delta_tokens, cfg.hidden_size)
         nn.init.trunc_normal_(self.z_embed.weight, std=cfg.initializer_range)
         self.xy_embed = nn.Embedding(2, cfg.hidden_size)
         nn.init.trunc_normal_(self.xy_embed.weight, std=cfg.initializer_range)
@@ -253,8 +258,8 @@ class DeltaTokModule(nn.Module):
 
         Returns
         -------
-        z : (M, N, 1, C) — one delta token per camera, all initialized from a
-            shared ``z_embed`` parameter. Each camera's z is updated at every
+        z : (M, N, K, C) — K = num_delta_tokens delta tokens per camera, all
+            initialized from the shared ``z_embed`` parameter. Each camera's z is updated at every
             block: on local blocks via per-camera self-attention with that
             camera's ``[prev, next]`` strip, on global blocks via cross-camera
             attention over all N z's plus all N cameras' spatial tokens. This
@@ -263,9 +268,10 @@ class DeltaTokModule(nn.Module):
             ``num_tokens - num_patches`` tokens).
         """
         M, N, P, C = x_prev.shape
+        K = self.num_delta_tokens                          # delta tokens per camera
 
-        # N z tokens, one per camera; all initialized from the shared z_embed.
-        z = self.z_embed.weight[None, None].expand(M, N, 1, C).contiguous()
+        # N*K z tokens (K per camera); all initialized from the shared z_embed.
+        z = self.z_embed.weight[None, None].expand(M, N, K, C).contiguous()  # (M, N, K, C)
 
         prev_spatials = x_prev + self.xy_embed.weight[0]   # (M, N, P, C)
         next_spatials = x + self.xy_embed.weight[1]        # (M, N, P, C)
@@ -279,27 +285,27 @@ class DeltaTokModule(nn.Module):
 
         for i, blk in enumerate(self.encoder_blocks):
             if self._is_global_layer(i) and N > 1:
-                # Global layout: [z_0..z_{N-1}, all_prev (cam-major), all_next (cam-major)]
-                # so prefix = N (the z's) and rope length = 2 * N * P.
-                z_flat = z.reshape(M, N, C)
+                # Global layout: [all z (cam-major, K each), all_prev (cam-major), all_next (cam-major)]
+                # so prefix = N*K (the z's) and rope length = 2 * N * P.
+                z_flat = z.reshape(M, N * K, C)
                 prev_flat = prev_spatials.reshape(M, N * P, C)
                 next_flat = next_spatials.reshape(M, N * P, C)
                 hidden = torch.cat([z_flat, prev_flat, next_flat], dim=1)
                 hidden = blk(hidden, position_embeddings=global_rope_full)
-                z = hidden[:, :N].reshape(M, N, 1, C)
-                prev_spatials = hidden[:, N : N + N * P].reshape(M, N, P, C)
-                next_spatials = hidden[:, N + N * P :].reshape(M, N, P, C)
+                z = hidden[:, : N * K].reshape(M, N, K, C)
+                prev_spatials = hidden[:, N * K : N * K + N * P].reshape(M, N, P, C)
+                next_spatials = hidden[:, N * K + N * P :].reshape(M, N, P, C)
             else:
-                # Local: per-camera [z_n, prev_n, next_n]. Each camera's z is
+                # Local: per-camera [z_n (K tokens), prev_n, next_n]. Each camera's z is
                 # updated independently here.
                 hidden = torch.cat([z, prev_spatials, next_spatials], dim=2)
                 seq_len = hidden.shape[2]
                 hidden = hidden.reshape(M * N, seq_len, C)
                 hidden = blk(hidden, position_embeddings=local_rope_full)
                 hidden = hidden.reshape(M, N, seq_len, C)
-                z = hidden[:, :, :1]
-                prev_spatials = hidden[:, :, 1 : 1 + P]
-                next_spatials = hidden[:, :, 1 + P :]
+                z = hidden[:, :, :K]
+                prev_spatials = hidden[:, :, K : K + P]
+                next_spatials = hidden[:, :, K + P :]
 
         return self.norm(z)
 
@@ -314,8 +320,8 @@ class DeltaTokModule(nn.Module):
 
         Inputs
         ------
-        z      : (M, N, 1, C) — one delta token per camera (also accepts
-                  (M, N, C) for convenience).
+        z      : (M, N, K, C) — K delta tokens per camera (also accepts
+                  (M, N, C) for the K=1 convenience case).
         x_prev : (M, N, P, C)
         rope_local  : length-P single-camera rope.
         rope_global : length-(N*P) DA3-style ``pos_nodiff`` rope (uniform
@@ -338,27 +344,28 @@ class DeltaTokModule(nn.Module):
         M, N, P, C = x_prev.shape
 
         if z.dim() == 3:
-            # Accept (M, N, C) for convenience; broadcast to (M, N, 1, C).
+            # Accept (M, N, C) for the K=1 convenience case; broadcast to (M, N, 1, C).
             z = z.unsqueeze(2)
         z = z.contiguous()
+        K = z.shape[2]                     # delta tokens per camera
         spatials = x_prev  # (M, N, P, C)
 
         for i, blk in enumerate(self.decoder_blocks):
             if self._is_global_layer(i) and N > 1:
-                # Global: [z_0..z_{N-1}, all_spatials (cam-major)]; prefix = N, rope length = N*P.
-                z_flat = z.reshape(M, N, C)
+                # Global: [all z (cam-major, K each), all_spatials (cam-major)]; prefix = N*K, rope length = N*P.
+                z_flat = z.reshape(M, N * K, C)
                 hidden = torch.cat([z_flat, spatials.reshape(M, N * P, C)], dim=1)
                 hidden = blk(hidden, position_embeddings=rope_global)
-                z = hidden[:, :N].reshape(M, N, 1, C)
-                spatials = hidden[:, N:].reshape(M, N, P, C)
+                z = hidden[:, : N * K].reshape(M, N, K, C)
+                spatials = hidden[:, N * K :].reshape(M, N, P, C)
             else:
-                # Local: per-camera [z_n, x_prev_n]; prefix = 1, rope length = P.
-                hidden = torch.cat([z, spatials], dim=2)  # (M, N, 1+P, C)
-                hidden = hidden.reshape(M * N, 1 + P, C)
+                # Local: per-camera [z_n (K tokens), x_prev_n]; prefix = K, rope length = P.
+                hidden = torch.cat([z, spatials], dim=2)  # (M, N, K+P, C)
+                hidden = hidden.reshape(M * N, K + P, C)
                 hidden = blk(hidden, position_embeddings=rope_local)
-                hidden = hidden.reshape(M, N, 1 + P, C)
-                z = hidden[:, :, :1]
-                spatials = hidden[:, :, 1:]
+                hidden = hidden.reshape(M, N, K + P, C)
+                z = hidden[:, :, :K]
+                spatials = hidden[:, :, K:]
 
         return spatials
 

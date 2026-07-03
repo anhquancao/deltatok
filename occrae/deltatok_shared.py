@@ -190,7 +190,10 @@ class DeltaTokSharedMixin:
                    T timesteps, N cameras, P patches per view, C channels.
 
         Returns:
-            z: delta tokens (B, T-1, N, C) — one token per camera per transition.
+            z: delta tokens (B, T-1, N, K, C) — K = num_delta_tokens tokens per
+               camera per transition. For the K=1 default the token axis is
+               squeezed to (B, T-1, N, C), so existing K=1 consumers (e.g. the
+               flow trainer) are unchanged.
         """
         B, T, N, P, C = feats.shape
         assert T >= 2
@@ -201,8 +204,12 @@ class DeltaTokSharedMixin:
         rope_local = net._compute_rope(height, width, feats.device, feats.dtype)
         rope_global = net._compute_global_rope(height, width, N, feats.device, feats.dtype)
 
-        z = net.encode(x_prev, x, rope_local, rope_global)    # (B*(T-1), N, 1, C) one delta token per camera
-        return z.reshape(B, T - 1, N, C)                      # (B, T-1, N, C) drop singleton token dim
+        z = net.encode(x_prev, x, rope_local, rope_global)    # (B*(T-1), N, K, C) K delta tokens per camera
+        K = z.shape[2]                                        # delta tokens per camera
+        z = z.reshape(B, T - 1, N, K, C)                      # (B, T-1, N, K, C)
+        if K == 1:
+            z = z.squeeze(3)                                  # (B, T-1, N, C) — backward-compatible K=1 layout
+        return z
 
     def _rollout_from_z(self, net, x0, z_seq, height, width, num_cameras):
         """Autoregressive decoder rollout from given per-transition delta tokens.
@@ -341,6 +348,7 @@ class DeltaTokSharedMixin:
             use_camera_rope=bool(deltatok_cfg.get("use_camera_rope", False)),
             mlp_ratio=int(deltatok_cfg.get("mlp_ratio", 4)),
             alt_start=int(deltatok_cfg.get("alt_start", 4)),
+            num_delta_tokens=int(deltatok_cfg.get("num_delta_tokens", 1)),
         )
 
     def _build_occ_rae(self):
