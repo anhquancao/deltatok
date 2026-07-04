@@ -214,6 +214,13 @@ class DatasetAwareBatchSamplerOccAny(BatchedRandomSampler):
             max_memory_num_views = config['max_memory_num_views']
             min_views_per_timestep = config.get('min_views_per_timestep', 1)
             num_views_per_timestep = config.get('num_views_per_timestep', 1)
+            max_views_per_timestep = config.get('max_views_per_timestep', None)
+            # Cap sampled cameras at max_views_per_timestep without exceeding the
+            # physical layout count (num_views_per_timestep).
+            vpt_cap = num_views_per_timestep if max_views_per_timestep is None \
+                else min(max_views_per_timestep, num_views_per_timestep)
+            min_num_timesteps = config.get('min_num_timesteps', 1)
+            max_num_timesteps = config.get('max_num_timesteps', None)
             resolutions = config['resolutions']
             max_pixels = max(w * h for w, h in resolutions)
             for b_idx in range(n_dataset_batches):
@@ -221,17 +228,24 @@ class DatasetAwareBatchSamplerOccAny(BatchedRandomSampler):
 
                 res_idx = rng.integers(num_of_aspect_ratios)
 
-                # cur_pixels = resolutions[res_idx][0] * resolutions[res_idx][1]
-                # scaled_max = int(max_memory_num_views * max_pixels / cur_pixels)
-                # mem_views = rng.integers(min_memory_num_views, scaled_max + 1)
-                mem_views = rng.integers(min_memory_num_views, max_memory_num_views + 1)
-
                 # Pin views-per-timestep (cameras) per batch so every item returns
                 # the same total view count. `_get_views` otherwise draws actual_vpt
                 # per item, making batch items differ in size -> default_collate
                 # fails for batch_size > 1. (num_timesteps is uniform per dataset,
                 # so a shared vpt makes the derived view count identical.)
-                vpt = int(rng.integers(min_views_per_timestep, num_views_per_timestep + 1))
+                vpt = int(rng.integers(min_views_per_timestep, vpt_cap + 1))
+
+                if max_num_timesteps is not None:
+                    # Timestep-driven: sampler picks the temporal extent and total
+                    # views = num_timesteps * vpt (_get_views derives timesteps as
+                    # mem_views // vpt, so this yields exactly num_timesteps).
+                    n_ts = int(rng.integers(min_num_timesteps, max_num_timesteps + 1))
+                    mem_views = n_ts * vpt
+                else:
+                    # cur_pixels = resolutions[res_idx][0] * resolutions[res_idx][1]
+                    # scaled_max = int(max_memory_num_views * max_pixels / cur_pixels)
+                    # mem_views = rng.integers(min_memory_num_views, scaled_max + 1)
+                    mem_views = int(rng.integers(min_memory_num_views, max_memory_num_views + 1))
 
 
                 explicit_view_idx = config.get('ray_map_idx', [])

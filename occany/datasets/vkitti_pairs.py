@@ -10,6 +10,7 @@ from occany.datasets.base_seq_dataset import BaseSeqDatasetMultiView
 
 
 class VKittiSeqMultiView(BaseSeqDatasetMultiView):
-    def __init__(self, *args, VKITTI_PROCESSED_ROOT, seq_pkl_name='vkitti_seq_video.pkl', **kwargs):
-        super().__init__(*args, ROOT=VKITTI_PROCESSED_ROOT, seq_pkl_name=seq_pkl_name, **kwargs)
+    def __init__(self, *args, VKITTI_PROCESSED_ROOT, seq_pkl_name='vkitti_seq_video.pkl', num_views_per_timestep=1, **kwargs):
+        # num_views_per_timestep = physical cameras per timestep (VKitti mono: 1).
+        super().__init__(*args, ROOT=VKITTI_PROCESSED_ROOT, seq_pkl_name=seq_pkl_name, num_views_per_timestep=num_views_per_timestep, **kwargs)
         self.is_metric_scale = True

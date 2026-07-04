@@ -57,6 +57,16 @@ model:
   # model.deltatok arch block are inherited and must keep matching it
   # (strict=True load).
   deltatok_ckpt: "checkpoints/deltatok_surround_constGlobalRope_layer12.pth"
+  # MAE-style image decoder for eval-time RGB viz (frozen, eval-only). Same ckpt
+  # as the overfit config; when ckpt_path is set, eval_one_epoch decodes RGB
+  # panels (Flow / GT-z / GT) alongside the depth/BEV panels.
+  img_decoder:
+    ckpt_path: "checkpoints/occrae_img_decoder.pt"
+    config_path: "third_party/GLD/configs/decoder/ViTXL"
+    hidden_size: 9216
+    patch_size: 14
+    use_ema: true
+    view_chunk_size: 0
 
 training:
   # Per-GPU batch size; effective_bsize: 32 comes from the base config and the

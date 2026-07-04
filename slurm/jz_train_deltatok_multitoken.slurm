@@ -39,18 +39,22 @@ export TORCH_NCCL_HEARTBEAT_TIMEOUT_SEC="${TORCH_NCCL_HEARTBEAT_TIMEOUT_SEC:-100
 # file_descriptor shm strategy holds an fd per shared tensor per worker
 ulimit -n "$(ulimit -Hn)"
 
-# DeltaTok tokenizer training on Jean Zay (no-camera-rope layer-12 run), mirroring
-# slurm/karolina_train_deltatok_layer12.slurm with JZ dataset roots
-# (configs/train_deltatok_jeanzay.yaml) and the JZ log/ckpt tier.
+# DeltaTok tokenizer training on Jean Zay (no-camera-rope layer-12 run), K delta
+# tokens/camera variant of slurm/jz_train_deltatok.slurm (1-token baseline preserved).
+# Token count is NUM_DELTA_TOKENS (default 64); sweep via e.g.
+#   sbatch --export=ALL,NUM_DELTA_TOKENS=16 slurm/jz_train_deltatok_multitoken.slurm
+# Each K gets its own RUN_NAME dir and starts fresh (new arch, no baseline resume).
 export CONFIG_NAME=train_deltatok_jeanzay
 export LOG_AND_CKPT_DIR="/lustre/fswork/projects/rech/trg/uyl37fq/deltatok_log"
 export RESULTS_DIR="$LOG_AND_CKPT_DIR"
-export RUN_NAME=deltatok_surround_layer12_bsize2_featloss
+export NUM_DELTA_TOKENS=${NUM_DELTA_TOKENS:-64}   # delta tokens/camera; override via --export=ALL,NUM_DELTA_TOKENS=K
+export RUN_NAME=deltatok_surround_layer12_bsize2_dtok${NUM_DELTA_TOKENS}
 export RESUME=${RESUME:-0}   # override with --export=ALL,RESUME=1 to resume current.pth
 EXTRA_CFG_ARGS=(
+    model.deltatok.num_delta_tokens=${NUM_DELTA_TOKENS}   # K delta tokens/camera (K=64 ~12:1 compression at full res)
     model.deltatok.use_camera_rope=false       # no-camera-rope layer-12 run
     training.exit_before_time_limit=true       # stop after a ckpt when SLURM wall is near (chain-resume safe)
-    training.feature_loss_weight=0.1           # downstream DA3 [19,27,33,39] feature loss
+    # feature_loss_weight omitted -> base default 0.0 (no downstream DA3 feature loss)
 )
 export EXTRA_CFG="${EXTRA_CFG_ARGS[*]}"
 

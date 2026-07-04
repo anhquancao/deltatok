@@ -228,6 +228,11 @@ class CatDataset_MUSt3R(CatDataset, EasyDataset_MUSt3R):
                 # Pin views-per-timestep per batch so all items collate to one size.
                 'min_views_per_timestep': getattr(dataset, 'min_views_per_timestep', 1),
                 'num_views_per_timestep': getattr(dataset, 'num_views_per_timestep', 1),
+                # Sampling cap on cameras per timestep (<= num_views_per_timestep).
+                'max_views_per_timestep': getattr(dataset, 'max_views_per_timestep', None),
+                # When max_num_timesteps is set, sampler draws timesteps (not mem views).
+                'min_num_timesteps': getattr(dataset, 'min_num_timesteps', 1),
+                'max_num_timesteps': getattr(dataset, 'max_num_timesteps', None),
                 'num_of_aspect_ratios': len(dataset._resolutions) if hasattr(dataset, '_resolutions') else 1,
                 'resolutions': list(dataset._resolutions) if hasattr(dataset, '_resolutions') else [(512, 512)],
             }

@@ -467,6 +467,10 @@ class DinoVisionTransformer(nn.Module):
         blocks_to_take = range(total_block_len - n, total_block_len) if isinstance(n, int) else n
         pos, pos_nodiff = self._prepare_rope(B, S, H, W, x.device)
 
+        # Recompute each block in backward (frozen backbone) to cut activation memory.
+        use_checkpoint = bool(kwargs.get("use_checkpoint", False)) and torch.is_grad_enabled()
+        attn_mask = kwargs.get("attn_mask", None)
+
         for i in range(start_layer, total_block_len):
             blk = self.blocks[i]
 
@@ -477,11 +481,19 @@ class DinoVisionTransformer(nn.Module):
                 l_pos = pos
 
             if self.alt_start != -1 and i >= self.alt_start and i % 2 == 1:
-                x = self.process_attention(
-                    x, blk, "global", pos=g_pos, attn_mask=kwargs.get("attn_mask", None)
-                )
+                if use_checkpoint:
+                    x = torch.utils.checkpoint.checkpoint(
+                        self.process_attention, x, blk, "global", g_pos, attn_mask, use_reentrant=False
+                    )
+                else:
+                    x = self.process_attention(x, blk, "global", pos=g_pos, attn_mask=attn_mask)
             else:
-                x = self.process_attention(x, blk, "local", pos=l_pos)
+                if use_checkpoint:
+                    x = torch.utils.checkpoint.checkpoint(
+                        self.process_attention, x, blk, "local", l_pos, None, use_reentrant=False
+                    )
+                else:
+                    x = self.process_attention(x, blk, "local", pos=l_pos)
                 local_x = x
 
             if i in blocks_to_take:

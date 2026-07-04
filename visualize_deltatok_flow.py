@@ -23,15 +23,19 @@ Unlike the trainer's per-timestep ``_decode_tokens`` (loss bookkeeping), all V
 views are decoded jointly here so the whole sequence shares one coordinate
 frame (DA3 ``ref_view_strategy="first"``), which is what viser needs.
 
-Usage (on Karolina, from ~/deltatok):
-  conda activate occany && source env_bsc.sh
+Usage (on Jean Zay, from a GPU node; defaults target the
+deltatok_flow_full_deltaCtx_global_fullT_wd05_raymapoff run's last checkpoint):
+  source env_jz_h100.sh &&
   python visualize_deltatok_flow.py \
-      --config-name train_deltatok_flow_karolina \
-      --ckpt /mnt/proj1/eu-25-92/deltatok_flow_log/deltatok_flow/ckpts/iter_050000.pth \
       --output_dir results/deltatok_flow_viser \
-      --num_scenes 2 --num_steps 50
-  # Flow generation always decodes per-variant RGB with the OccRAE MAE image
-  # decoder (point colours + saved PNGs).
+      --num_scenes 2 --num_steps 50 --cfg training.bsize=2
+  # Defaults: --config-name train_deltatok_flow_jeanzay, --ckpt the run's
+  # current.pth, the JZ MAE image decoder, and the run's arch flags
+  # (cond_mode=delta_ctx, attn_mode=global, vit_use_camera_embed=true) so the
+  # built flow ViT matches the saved weights. Pass --cfg training.bsize=2 to
+  # keep RGB decode within memory (the config's bsize=16 decodes the whole
+  # batch before saving only --num_scenes). Flow generation always decodes
+  # per-variant RGB with the OccRAE MAE image decoder (point colours + PNGs).
 
 Then locally:
   python vis_viser.py --input_folder results/deltatok_flow_viser/<test_name>
@@ -72,15 +76,18 @@ def get_args_parser() -> argparse.ArgumentParser:
         description="DeltaTok flow-matching forecast → vis_viser-compatible .npy output."
     )
     parser.add_argument("--config-dir", type=str, default="configs")
-    parser.add_argument("--config-name", type=str, default="train_deltatok_flow_karolina")
+    parser.add_argument("--config-name", type=str, default="train_deltatok_flow_jeanzay")
     parser.add_argument(
         "--cfg", type=str, nargs="*", default=[],
         help="Optional Hydra-style overrides, e.g. training.bsize=1",
     )
     parser.add_argument(
-        "--ckpt", type=str, required=True,
-        help="Trained flow-transformer checkpoint (current.pth / iter_*.pth "
-             "from DeltaTokFlowMatchingTrainer).",
+        "--ckpt", type=str,
+        default="/lustre/fswork/projects/rech/trg/uyl37fq/deltatok_flow_log/"
+                "deltatok_flow_full_deltaCtx_global_fullT_wd05_raymapoff/ckpts/current.pth",
+        help="Trained flow-transformer checkpoint (current.pth / iter_*.pth from "
+             "DeltaTokFlowMatchingTrainer). Defaults to the JZ "
+             "deltatok_flow_full_deltaCtx_global_fullT_wd05_raymapoff run's last checkpoint.",
     )
     parser.add_argument("--occany_recon_ckpt", type=str, default=None)
     parser.add_argument("--encode_layer", type=int, default=12)
@@ -105,8 +112,9 @@ def get_args_parser() -> argparse.ArgumentParser:
     # test_occ_rae.py flags.
     parser.add_argument(
         "--img_decoder_ckpt", type=str,
-        default="/mnt/proj1/eu-25-92/occrae_output/occrae_img_decoder/ckpts/current.pt",
-        help="MAE image-decoder checkpoint (occrae_img_decoder current.pt).",
+        default="checkpoints/occrae_img_decoder.pt",
+        help="MAE image-decoder checkpoint. Defaults to the JZ repo-local "
+             "checkpoints/occrae_img_decoder.pt (same as the JZ flow config).",
     )
     parser.add_argument(
         "--img_decoder_config_path", type=str,
@@ -164,10 +172,24 @@ def main() -> None:
     with initialize_config_dir(version_base=None, config_dir=str(config_dir)):
         cfg = compose(config_name=args.config_name, overrides=args.cfg)
 
+    # Keys the user set explicitly via --cfg (e.g. "model.cond_mode") take
+    # precedence over the run defaults injected below.
+    cfg_override_keys = {o.split("=", 1)[0] for o in args.cfg}
+
     with open_dict(cfg):
         if args.occany_recon_ckpt:
             cfg.model.occany_recon_ckpt = args.occany_recon_ckpt
         cfg.model.encode_layer = int(args.encode_layer)
+        # Replicate the run's training EXTRA_CFG arch flags (the JZ config defaults
+        # to cross/factorized/no-camera-embed) so the flow ViT built in __init__
+        # matches the saved deltatok_flow_full_deltaCtx_global_fullT_wd05_raymapoff
+        # weights (strict load). Override via --cfg model.<key>=... for other runs.
+        if "model.cond_mode" not in cfg_override_keys:
+            cfg.model.cond_mode = "delta_ctx"          # first delta token as clean in-seq context
+        if "model.attn_mode" not in cfg_override_keys:
+            cfg.model.attn_mode = "global"             # single global attention over all delta tokens
+        if "model.vit_use_camera_embed" not in cfg_override_keys:
+            cfg.model.vit_use_camera_embed = True      # absolute per-camera identity in the flow ViT
         # Flow generation always decodes RGB: the flow config has no img_decoder
         # block (unlike the tokenizer config), so inject one from the CLI args —
         # OccRAE._build_occ_rae then loads the MAE decoder and decode_to_image

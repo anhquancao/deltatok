@@ -63,7 +63,7 @@ class EasyDataset_OccAny(EasyDataset):
 class BaseSeqDataset (BaseStereoViewDataset):
 
     def __init__(self, *args, ROOT, seq_pkl_name,
-                 distill_model_name="SAM2", distill_img_size=None, img_size=512,
+                 distill_model_name=None, distill_img_size=None, img_size=512,
                  base_model="must3r",
                  max_seqs=None,
                  **kwargs):
@@ -240,7 +240,9 @@ class BaseSeqDatasetMultiView(BaseSeqDataset, EasyDataset_OccAny):
         min_memory_num_views=5,
         num_views_per_timestep=1,
         min_views_per_timestep=1,
+        max_views_per_timestep=None,
         min_num_timesteps=1,
+        max_num_timesteps=None,
         anchor_cam=0,
         fixed_cams=None,
         no_partial_views=False,
@@ -248,9 +250,15 @@ class BaseSeqDatasetMultiView(BaseSeqDataset, EasyDataset_OccAny):
         *args, **kwargs):
         self.max_memory_num_views = max_memory_num_views
         self.min_memory_num_views = min_memory_num_views
+        # num_views_per_timestep = physical cameras per timestep (sequence layout
+        # constant); max_views_per_timestep caps how many the sampler draws (<= it).
         self.num_views_per_timestep = num_views_per_timestep
         self.min_views_per_timestep = min_views_per_timestep
+        self.max_views_per_timestep = max_views_per_timestep
         self.min_num_timesteps = min_num_timesteps
+        # When set, the batch sampler draws num_timesteps in [min,max]_num_timesteps
+        # and total views = num_timesteps * vpt (memory_num_views range is ignored).
+        self.max_num_timesteps = max_num_timesteps
         self.anchor_cam = anchor_cam
         self.fixed_cams = list(fixed_cams) if fixed_cams is not None else None
         if self.fixed_cams is not None:
@@ -329,7 +337,10 @@ class BaseSeqDatasetMultiView(BaseSeqDataset, EasyDataset_OccAny):
             actual_vpt = int(np.clip(views_per_timestep, self.min_views_per_timestep, max_vpt))
             selected_cams = self._select_cameras(max_vpt, actual_vpt, rng)
         else:
-            actual_vpt = rng.integers(self.min_views_per_timestep, max_vpt + 1)
+            # vpt_cap <= max_vpt: max_views_per_timestep limits sampled cameras
+            # without changing the physical layout (max_vpt = num_views_per_timestep).
+            vpt_cap = max_vpt if self.max_views_per_timestep is None else min(self.max_views_per_timestep, max_vpt)
+            actual_vpt = rng.integers(self.min_views_per_timestep, vpt_cap + 1)
             selected_cams = self._select_cameras(max_vpt, actual_vpt, rng)
         memory_num_views = max(memory_num_views, actual_vpt * self.min_num_timesteps)
         num_timesteps = seq_len // max_vpt
