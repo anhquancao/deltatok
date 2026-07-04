@@ -83,7 +83,7 @@ model:
     initializer_range: 0.02
 
 training:
-  lr: 1.0e-3
+  lr: 1.0e-4  # was 1e-3; constant peak LR in the converged regime drove the dtok32/64 blow-ups
   weight_decay: 0.01
   dtype: "bfloat16"
   global_epoch: 0

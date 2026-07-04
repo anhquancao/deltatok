@@ -549,7 +549,10 @@ class DeltaTokTrainer(DeltaTokSharedMixin, Trainer):
                  "weight_decay": 0.0},
             ],
             lr=self.cfg.training.lr,
-            betas=(0.9, 0.999),
+            # beta2=0.95 + eps=1e-6 cap Adam's 1/sqrt(v) amplification once the
+            # model converges into the tiny-gradient regime (dtok32/64 blow-ups).
+            betas=(0.9, 0.95),
+            eps=1e-6,
         )
         for group in opt.param_groups:
             group.setdefault("initial_lr", group["lr"])
