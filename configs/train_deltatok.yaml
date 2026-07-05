@@ -84,7 +84,8 @@ model:
     initializer_range: 0.02
 
 training:
-  lr: 1.0e-4  # was 1e-3; constant peak LR in the converged regime drove the dtok32/64 blow-ups
+  lr: 1.0e-3  # peak; cosine-decayed to min_lr_ratio*lr after warmup (anti blow-up, see adapt_learning_rate)
+  min_lr_ratio: 0.01  # cosine floor -> min lr = 1e-5
   weight_decay: 0.01
   dtype: "bfloat16"
   global_epoch: 0

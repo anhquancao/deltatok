@@ -556,10 +556,11 @@ class DeltaTokTrainer(DeltaTokSharedMixin, Trainer):
                  "weight_decay": 0.0},
             ],
             lr=self.cfg.training.lr,
-            # beta2=0.95 + eps=1e-6 cap Adam's 1/sqrt(v) amplification once the
-            # model converges into the tiny-gradient regime (dtok32/64 blow-ups).
+            # beta2=0.95 speeds v-adaptation so a mildly-hard batch can't drive a
+            # full-lr step in the tiny-gradient regime (dtok32/64 blow-ups); eps
+            # left at the 1e-8 default (cosine lr decay carries the long tail).
             betas=(0.9, 0.95),
-            eps=1e-6,
+            eps=1e-8,
         )
         for group in opt.param_groups:
             group.setdefault("initial_lr", group["lr"])
@@ -667,13 +668,20 @@ class DeltaTokTrainer(DeltaTokSharedMixin, Trainer):
             print(f"Number of iteration(s): {self.cfg.training.iter}")
 
     def adapt_learning_rate(self):
-        # Linear warmup, then constant — matches third_party/deltatok base.lr_lambda.
+        # Linear warmup to peak, then cosine decay to min_lr_ratio*peak over the
+        # remaining iters. Was warmup-then-constant, which pinned lr at peak in the
+        # converged regime and drove the dtok32/64 blow-ups; annealing removes the
+        # long-tail risk (beta2=0.95 covers the near-term post-warmup window).
         warm_up = self.cfg.training.warm_up
         step = self.cfg.training.iter
+        max_iter = self.cfg.training.max_iter
+        min_lr_ratio = float(self.cfg.training.get("min_lr_ratio", 0.01))
         if warm_up > 0 and step < warm_up:
             scale = step / warm_up
         else:
-            scale = 1.0
+            progress = min(1.0, (step - warm_up) / max(1, max_iter - warm_up))  # 0->1 after warmup
+            cos = 0.5 * (1.0 + math.cos(math.pi * progress))                    # 1->0
+            scale = min_lr_ratio + (1.0 - min_lr_ratio) * cos                   # 1->min_lr_ratio
         for group in self.optim.param_groups:
             base_lr = group.get('initial_lr', group['lr'])
             group['lr'] = base_lr * scale

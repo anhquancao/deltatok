@@ -48,9 +48,9 @@ export CONFIG_NAME=train_deltatok_jeanzay
 export LOG_AND_CKPT_DIR="/lustre/fswork/projects/rech/trg/uyl37fq/deltatok_log"
 export RESULTS_DIR="$LOG_AND_CKPT_DIR"
 export NUM_DELTA_TOKENS=${NUM_DELTA_TOKENS:-64}   # delta tokens/camera; override via --export=ALL,NUM_DELTA_TOKENS=K
-# _lr1e4_beta95_eps1e6: anti blow-up recipe (see deltatok_trainer.py AdamW + base lr);
-# fresh dirs — the old _dtok32/64 dirs hold post-explosion ckpts, do not resume them.
-export RUN_NAME=deltatok_surround_layer12_bsize2_dtok${NUM_DELTA_TOKENS}_lr1e4_beta95_eps1e6
+# _cos1e3_1e5_b95: anti blow-up recipe (cosine lr 1e-3->1e-5 + AdamW beta2=0.95, eps 1e-8 default);
+# fresh dirs — old _dtok*/_lr1e4/_eps1e6 dirs hold abandoned ckpts, do not resume them.
+export RUN_NAME=deltatok_surround_layer12_bsize2_dtok${NUM_DELTA_TOKENS}_cos1e3_1e5_b95
 export RESUME=${RESUME:-0}   # override with --export=ALL,RESUME=1 to resume current.pth
 EXTRA_CFG_ARGS=(
     model.deltatok.num_delta_tokens=${NUM_DELTA_TOKENS}   # K delta tokens/camera (K=64 ~12:1 compression at full res)
