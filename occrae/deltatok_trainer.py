@@ -320,8 +320,7 @@ class DeltaTokModule(nn.Module):
 
         Inputs
         ------
-        z      : (M, N, K, C) — K delta tokens per camera (also accepts
-                  (M, N, C) for the K=1 convenience case).
+        z      : (M, N, K, C) — K delta tokens per camera.
         x_prev : (M, N, P, C)
         rope_local  : length-P single-camera rope.
         rope_global : length-(N*P) DA3-style ``pos_nodiff`` rope (uniform
@@ -343,10 +342,7 @@ class DeltaTokModule(nn.Module):
         """
         M, N, P, C = x_prev.shape
 
-        if z.dim() == 3:
-            # Accept (M, N, C) for the K=1 convenience case; broadcast to (M, N, 1, C).
-            z = z.unsqueeze(2)
-        z = z.contiguous()
+        z = z.contiguous()                 # native (M, N, K, C)
         K = z.shape[2]                     # delta tokens per camera
         spatials = x_prev  # (M, N, P, C)
 
@@ -709,7 +705,7 @@ class DeltaTokTrainer(DeltaTokSharedMixin, Trainer):
         # encodes up front (shared `_encode_pair_deltas`) is the same compute;
         # the decode feedback loop lives in shared `_rollout_from_z`.
         net = self._unwrapped_tokenizer()
-        z = self._encode_pair_deltas(net, feats, height, width)  # (B, T-1, N, C)
+        z = self._encode_pair_deltas(net, feats, height, width)  # (B, T-1, N, K, C)
         return self._rollout_from_z(net, feats[:, 0], z, height, width, num_cameras)  # (B*(T-1), N, P, C)
 
     def _feature_loss(self, tokens, x_hat, B, T_minus_1, idx, num_cameras, height, width):

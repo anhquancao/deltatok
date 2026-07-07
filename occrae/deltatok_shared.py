@@ -191,9 +191,8 @@ class DeltaTokSharedMixin:
 
         Returns:
             z: delta tokens (B, T-1, N, K, C) — K = num_delta_tokens tokens per
-               camera per transition. For the K=1 default the token axis is
-               squeezed to (B, T-1, N, C), so existing K=1 consumers (e.g. the
-               flow trainer) are unchanged.
+               camera per transition. The K axis is always present (even at K=1);
+               every consumer is native-K.
         """
         B, T, N, P, C = feats.shape
         assert T >= 2
@@ -206,10 +205,18 @@ class DeltaTokSharedMixin:
 
         z = net.encode(x_prev, x, rope_local, rope_global)    # (B*(T-1), N, K, C) K delta tokens per camera
         K = z.shape[2]                                        # delta tokens per camera
-        z = z.reshape(B, T - 1, N, K, C)                      # (B, T-1, N, K, C)
-        if K == 1:
-            z = z.squeeze(3)                                  # (B, T-1, N, C) — backward-compatible K=1 layout
+        z = z.reshape(B, T - 1, N, K, C)                      # (B, T-1, N, K, C) — K axis kept even at K=1
         return z
+
+    @staticmethod
+    def _z_to_flow_latent(z):
+        """Delta tokens (B, T-1, N, K, C) -> flow ViT latent (B, C, T-1, N, K)."""
+        return z.permute(0, 4, 1, 2, 3).contiguous()          # (B, C, T-1, N, K)
+
+    @staticmethod
+    def _flow_latent_to_z(x):
+        """Flow ViT latent (B, C, T-1, N, K) -> delta tokens (B, T-1, N, K, C)."""
+        return x.permute(0, 2, 3, 4, 1).contiguous()          # (B, T-1, N, K, C)
 
     def _rollout_from_z(self, net, x0, z_seq, height, width, num_cameras):
         """Autoregressive decoder rollout from given per-transition delta tokens.
@@ -222,7 +229,7 @@ class DeltaTokSharedMixin:
         Args:
             net: unwrapped ``DeltaTokModule``.
             x0: GT first-frame patch features (B, N, P, C).
-            z_seq: delta tokens (B, T-1, N, C) — one per camera per transition.
+            z_seq: delta tokens (B, T-1, N, K, C) — K per camera per transition.
 
         Returns:
             x_hat: predicted patch features (B*(T-1), N, P, C) for t=1..T-1, in
@@ -243,7 +250,7 @@ class DeltaTokSharedMixin:
         x_hat_prev = x0  # (B, N, P, C) GT first frame
         x_hats = []
         for t in range(num_transitions):
-            z_t = z_seq[:, t].to(x0.dtype)  # (B, N, C) deltas for transition t -> t+1
+            z_t = z_seq[:, t].to(x0.dtype)  # (B, N, K, C) deltas for transition t -> t+1
             x_hat_t = net.decode(z_t, x_hat_prev, rope_local, rope_global)  # (B, N, P, C)
             x_hats.append(x_hat_t)
             x_hat_prev = x_hat_t

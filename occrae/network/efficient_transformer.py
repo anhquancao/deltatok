@@ -80,8 +80,8 @@ class Block(nn.Module):
             ada_cond: 8-tuple of per-token AdaLN modulation tensors [B, N, D]
             cross_cond: optional key/values for per-slot cross-attention [(B*s), L, D]
             t: number of temporal slots (frames; for delta-token flow: T-1 transitions)
-            s: number of spatial tokens per temporal slot (h_p*w_p; for delta-token
-               flow: N_cam — one delta token per camera)
+            s: number of spatial tokens per temporal slot (n_p*k_p; for delta-token
+               flow: N*K — K delta tokens per camera)
             spatial_rope: optional (cos, sin), each (s, head_dim), rotary over the
                camera (spatial) axis. Applied in spatial (cross-camera) attention only.
         """
@@ -211,9 +211,9 @@ class Transformer(nn.Module):
         # Separate temporal and spatial positional embeddings
         # Temporal: Learned embedding (nn.Embedding)
         # Spatial: Learnable absolute pos_embed + bicubic interpolation
-        ref_h, ref_w = self.ref_spatial_size
+        ref_n, ref_k = self.ref_spatial_size                       # main-latent axes: n = cameras, k = delta tokens
         self.temporal_pos = nn.Embedding(self.t, hidden_dim)
-        self.spatial_pos = nn.Parameter(torch.zeros(1, ref_h * ref_w + 1, hidden_dim))
+        self.spatial_pos = nn.Parameter(torch.zeros(1, ref_n * ref_k + 1, hidden_dim))
 
         # Absolute per-camera identity over the spatial (camera) axis: one learned
         # vector per slot, added ungated so each generated delta binds to its camera.
@@ -221,7 +221,7 @@ class Transformer(nn.Module):
             self.camera_embed = nn.Embedding(max_cameras, hidden_dim)
 
         # number of spatial tokens (including CLS if present in spatial_pos, but here we use it for reference)
-        self.num_spatial = ref_h * ref_w + 1
+        self.num_spatial = ref_n * ref_k + 1
 
         self.time_embed = TimestepEmbedder(in_dim=hidden_dim, out_dim=hidden_dim*8)
         if self.use_trajectory_cond:
@@ -326,23 +326,24 @@ class Transformer(nn.Module):
             base_idx = base_idx[torch.randperm(num_cameras, device=device)]  # shuffle (perm-invariance)
         return cam_cos[base_idx], cam_sin[base_idx]                     # (num_cameras, head_dim) each
 
-    def interpolate_pos_encoding(self, h, w, device):
+    def interpolate_pos_encoding(self, n, k, device):
         """
         Bicubic interpolation of positional embeddings to match input grid size.
-        Follows DA3's interpolate_pos_encoding.
+        Follows DA3's interpolate_pos_encoding. Main-latent axes: n = cameras, k = delta tokens
+        (ref (1, K) => k identity, n replicated => shared across cameras).
         """
-        ref_h, ref_w = self.ref_spatial_size
-        if h == ref_h and w == ref_w:
+        ref_n, ref_k = self.ref_spatial_size
+        if n == ref_n and k == ref_k:
             return self.spatial_pos
 
         cls_pos_embed = self.spatial_pos[:, :1]
         patch_pos_embed = self.spatial_pos[:, 1:]
         dim = self.spatial_pos.shape[-1]
 
-        patch_pos_embed = patch_pos_embed.reshape(1, ref_h, ref_w, dim).permute(0, 3, 1, 2)
+        patch_pos_embed = patch_pos_embed.reshape(1, ref_n, ref_k, dim).permute(0, 3, 1, 2)
         patch_pos_embed = F.interpolate(
             patch_pos_embed,
-            size=(h, w),
+            size=(n, k),
             mode='bicubic',
             align_corners=False,
         )
@@ -362,10 +363,7 @@ class Transformer(nn.Module):
         return pos.permute(0, 2, 3, 1).flatten(1, 2)                                    # (1, h*w, D) back to token sequence
 
     def forward(self, x, ada_cond, cross_cond=None, return_feat=False, trajectory_cond=None, trajectory_keep_mask=None):
-        b, c, t, h, w = x.size()
-        
-        h_p, w_p = h // self.proj, w // self.proj
-        S = h_p * w_p # spatial token per frames
+        b, c, t, n, k = x.size()                # n = cameras, k = delta tokens per camera
 
         if self.is_causal:
             temporal_mask = torch.full((t, t), float("-inf"), device=x.device)
@@ -373,10 +371,11 @@ class Transformer(nn.Module):
         else:
             temporal_mask = None
         
-        x = rearrange(x, 'b c t h w -> (b t) c h w', b=b, t=t, c=c, h=h, w=w).contiguous()
+        x = rearrange(x, 'b c t n k -> (b t) c n k', b=b, t=t, c=c, n=n, k=k).contiguous()
         x = self.in_proj(x)
-        _, c, h_p, w_p = x.shape
-        x = rearrange(x, '(b t) c h w -> b (t h w) c', b=b, t=t, c=c, h=h_p, w=w_p).contiguous()
+        _, c, n_p, k_p = x.shape                # post-proj grid (n_p=n//proj, k_p=k//proj)
+        S = n_p * k_p                           # spatial tokens per frame (N*K)
+        x = rearrange(x, '(b t) c n k -> b (t n k) c', b=b, t=t, c=c, n=n_p, k=k_p).contiguous()
 
         # Positional embeddings
         # 1. Temporal: Learned Embedding
@@ -384,17 +383,17 @@ class Transformer(nn.Module):
         t_pos_embed = self.temporal_pos(t_pos) # (t*S, D)
 
         # 2. Spatial: Interpolated learnable grid
-        s_pos_embed = self.interpolate_pos_encoding(h_p, w_p, x.device) # (1, h_p*w_p + 1, D)
-        s_pos_embed = s_pos_embed[:, 1:] # Drop CLS slot since input doesn't have it (1, h_p*w_p, D)
+        s_pos_embed = self.interpolate_pos_encoding(n_p, k_p, x.device) # (1, n_p*k_p + 1, D)
+        s_pos_embed = s_pos_embed[:, 1:] # Drop CLS slot since input doesn't have it (1, n_p*k_p, D)
         s_pos_embed = repeat(s_pos_embed, '1 s d -> (t s) d', t=t) # (t*s, D)
 
         pos = t_pos_embed + s_pos_embed
 
-        # 3. Absolute per-camera identity (S = N_cam for delta-token flow), shared
-        # across t and laid out in the same (t s) token order as the embeds above.
+        # 3. Absolute per-camera identity over S=N*K cam-major/K-minor slots: camera=slot//k_p,
+        # so a camera's k_p delta tokens share its embedding (per-token identity from spatial_pos).
         if self.use_camera_embed:
-            assert S <= self.max_cameras, f"camera embed supports <= {self.max_cameras} cameras, got S={S}"
-            cam_idx = torch.arange(S, device=x.device)                            # camera slot 0..S-1
+            assert n_p <= self.max_cameras, f"camera embed supports <= {self.max_cameras} cameras, got {n_p}"
+            cam_idx = torch.arange(S, device=x.device) // k_p                     # slot s=n*K+k -> camera n
             cam_embed = repeat(self.camera_embed(cam_idx), 's d -> (t s) d', t=t)  # (t*S, D) per-camera, tiled over t
             pos = pos + cam_embed
 
@@ -460,9 +459,13 @@ class Transformer(nn.Module):
             t_emb_expanded = [torch.cat([torch.zeros(b, self.register, self.hidden_dim, dtype=x.dtype, device=x.device), e], dim=1)
                                 for e in t_emb_expanded]
 
-        # Camera rope over the spatial axis (= cameras for delta-token flow, S = N_cam);
-        # gives each camera a distinct rotation in the cross-camera (spatial) attention.
-        spatial_rope = self._camera_rope(S, x.device, x.dtype) if self.use_camera_rope else None
+        # Per-camera rotation in cross-camera (spatial) attn; a camera's k_p delta-token
+        # slots share it (native-K, mirrors camera_embed: slot s -> camera s // k_p).
+        if self.use_camera_rope:
+            cam_cos, cam_sin = self._camera_rope(n_p, x.device, x.dtype)                            # (n_p, head_dim)
+            spatial_rope = (cam_cos.repeat_interleave(k_p, dim=0), cam_sin.repeat_interleave(k_p, dim=0))  # (S, head_dim)
+        else:
+            spatial_rope = None
 
         x, feat = self.transformer(x=x, ada_cond=t_emb_expanded, cross_cond=cross_cond, t=t, s=S, temporal_mask=temporal_mask, spatial_rope=spatial_rope)
 
@@ -471,7 +474,7 @@ class Transformer(nn.Module):
 
         x = self.last_norm(x)
         x = self.out_proj(x)
-        x = rearrange(x, 'b (t h w) (c s1 s2) -> b c t (h s1) (w s2)', s1=self.proj, s2=self.proj, b=b, c=self.c, h=h, w=w).contiguous()
+        x = rearrange(x, 'b (t n k) (c s1 s2) -> b c t (n s1) (k s2)', s1=self.proj, s2=self.proj, b=b, c=self.c, n=n_p, k=k_p).contiguous()
 
         if return_feat:
             return x, feat

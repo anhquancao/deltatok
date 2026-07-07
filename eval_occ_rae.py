@@ -300,6 +300,7 @@ def main():
         is_causal=bool(cfg.model.get("is_causal", False)),
         use_trajectory_cond=False,
         trajectory_length=0,
+        # NOTE: (N, K) axes here are a real image patch grid (patch_h, patch_w), not (cameras, delta tokens).
         ref_spatial_size=(patch_h, patch_w),
         use_camera_embed=bool(cfg.model.get("vit_use_camera_embed", False)),
         attn_mode=str(cfg.model.get("attn_mode", "factorized")),

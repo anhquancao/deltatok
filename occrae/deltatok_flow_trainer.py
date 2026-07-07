@@ -104,6 +104,7 @@ class DeltaTokFlowMatchingTrainer(DeltaTokSharedMixin, Trainer):
 
         # Frozen DeltaTok tokenizer (never DDP-wrapped, no optimizer).
         self.deltatok = self._build_deltatok(backbone)
+        self.num_delta_tokens = int(self.deltatok.num_delta_tokens)  # K delta tokens per camera per transition
 
         # Load transformer (the only trainable network)
         self.vit = self.get_network("vit")
@@ -207,10 +208,8 @@ class DeltaTokFlowMatchingTrainer(DeltaTokSharedMixin, Trainer):
                 is_causal=self.cfg.model.get("is_causal", False),
                 use_trajectory_cond=False,
                 trajectory_length=0,
-                # Spatial slots = cameras (one delta token per camera). A (1, 1)
-                # reference grid broadcasts ONE shared embedding to every slot:
-                # no camera identity -> camera-permutation equivariance holds.
-                ref_spatial_size=(1, 1),
+                # ref (1, K): per-K pos embeds, shared across cameras (per-camera identity via camera_embed).
+                ref_spatial_size=(1, self.num_delta_tokens),
                 use_camera_rope=bool(self.cfg.model.get("vit_use_camera_rope", False)),
                 use_camera_embed=bool(self.cfg.model.get("vit_use_camera_embed", False)),
                 attn_mode=self.attn_mode,
@@ -301,14 +300,14 @@ class DeltaTokFlowMatchingTrainer(DeltaTokSharedMixin, Trainer):
             feats: spatial-only patch features (B, T, N, P, C).
 
         Returns:
-            z: delta tokens (B, T-1, N, C).
+            z: delta tokens (B, T-1, N, K, C).
         """
         T = feats.shape[1]
         assert T - 1 <= self.num_views, (
             f"T-1={T - 1} transitions exceed temporal slot capacity model.num_views={self.num_views}"
         )
         with torch.no_grad(), self.autocast:
-            return self._encode_pair_deltas(self.deltatok, feats, H, W)  # (B, T-1, N, C)
+            return self._encode_pair_deltas(self.deltatok, feats, H, W)  # (B, T-1, N, K, C)
 
     def _item_cache_keys(self, batch):
         """Per-item identity for the frozen-encode cache: scene + exact frame ids
@@ -331,7 +330,7 @@ class DeltaTokFlowMatchingTrainer(DeltaTokSharedMixin, Trainer):
         Returns (tokens, feat0, z, H, W):
           tokens: (B, V, N_tok, C) full OccRAE tokens (None unless want_tokens).
           feat0:  (B, N, P, C) frame-0 spatial patch feats (cross-cond + rollout seed).
-          z:      (B, T-1, N, C) GT delta tokens (the flow target).
+          z:      (B, T-1, N, K, C) GT delta tokens (the flow target).
         Only feat0 and z (and tokens for eval) are ever needed downstream — never
         the full feats — so the cache stays compact. With cache_frozen_encode on,
         each item is memoized by `_item_cache_keys` so the ~1B backbone + DeltaTok
@@ -340,13 +339,13 @@ class DeltaTokFlowMatchingTrainer(DeltaTokSharedMixin, Trainer):
         """
         if not self._cache_frozen_encode:
             tokens, feats, _, _, H, W = self._extract_pair_feats(imgs, num_cameras=num_cameras, return_pairs=False)  # feats (B, T, N, P, C)
-            z = self._encode_deltas(feats, H, W)                          # (B, T-1, N, C)
+            z = self._encode_deltas(feats, H, W)                          # (B, T-1, N, K, C)
             return (tokens if want_tokens else None), feats[:, 0].contiguous(), z, H, W
 
         keys = self._item_cache_keys(batch)                               # B hashable item keys
         if not all(k in self._encode_cache for k in keys):               # (re)compute whole batch on any miss
             tokens, feats, _, _, H, W = self._extract_pair_feats(imgs, num_cameras=num_cameras, return_pairs=False)
-            z = self._encode_deltas(feats, H, W)                          # (B, T-1, N, C)
+            z = self._encode_deltas(feats, H, W)                          # (B, T-1, N, K, C)
             feat0 = feats[:, 0].contiguous()                             # (B, N, P, C) detach from the big feats view
             for i, k in enumerate(keys):                                 # store compact per-item copies
                 self._encode_cache[k] = (tokens[i].clone(), feat0[i].clone(), z[i].clone(), int(H), int(W))
@@ -357,7 +356,7 @@ class DeltaTokFlowMatchingTrainer(DeltaTokSharedMixin, Trainer):
         entries = [self._encode_cache[k] for k in keys]                  # full cache hit -> skip the backbone
         tokens = torch.stack([e[0] for e in entries], dim=0) if want_tokens else None  # (B, V, N_tok, C)
         feat0 = torch.stack([e[1] for e in entries], dim=0)             # (B, N, P, C)
-        z = torch.stack([e[2] for e in entries], dim=0)                # (B, T-1, N, C)
+        z = torch.stack([e[2] for e in entries], dim=0)                # (B, T-1, N, K, C)
         return tokens, feat0, z, entries[0][3], entries[0][4]
 
     def _build_cross_cond(self, x0, H, W):
@@ -372,8 +371,8 @@ class DeltaTokFlowMatchingTrainer(DeltaTokSharedMixin, Trainer):
             x0: GT first-frame patch features (B, N, P, C).
 
         Returns:
-            ctx: (B, N, Hp, Wp, C) — per-camera frame-0 patch grids; camera i's
-                 grid is only seen by delta slot i (per-slot cross-attention).
+            ctx: (B, N*K, Hp, Wp, C) — each camera's frame-0 patch grid repeated K
+                 times (cam-major/K-minor) so delta slot s=n*K+k sees camera n's grid.
         """
         B, N, P, C = x0.shape
         Hp, Wp = H // self._patch_size, W // self._patch_size   # patch grid size; P = Hp*Wp
@@ -385,19 +384,22 @@ class DeltaTokFlowMatchingTrainer(DeltaTokSharedMixin, Trainer):
             raise ValueError(f"model.ctx_norm must be 'layernorm' or 'none', got {ctx_norm!r}")
         if ctx_norm == "layernorm":
             ctx = F.layer_norm(ctx.float(), (C,)).to(x0.dtype)  # (B, N, P, C) unit-scale per token
-        return ctx.view(B, N, Hp, Wp, C)                        # (B, N, Hp, Wp, C) unflatten patch grid
+        ctx = ctx.view(B, N, Hp, Wp, C)                         # (B, N, Hp, Wp, C) unflatten patch grid
+        # cross slot s=n*K+k -> camera n's grid: repeat each camera's grid K times
+        # (cam-major/K-minor), matching the flow ViT's N*K spatial slots.
+        return ctx.repeat_interleave(self.num_delta_tokens, dim=1)  # (B, N*K, Hp, Wp, C)
 
     def _sample_noise(self, x):
         """Flow-matching noise prior; the fixed modes are overfit diagnostics.
 
         Args:
-            x: target latent (B, C, T-1, N, 1) — B batch, C channel, T-1 frame
-               transitions, N cameras.
+            x: target latent (B, C, T-1, N, K) — B batch, C channel, T-1 frame
+               transitions, N cameras, K delta tokens.
 
         Modes (model.fixed_noise_mode):
           none:     fresh re-sampled Gaussian (the real objective).
-          per_slot: ONE cached draw, distinct per (transition, camera) slot — the
-                    noise itself is a per-slot fingerprint (capacity-ceiling probe).
+          per_slot: ONE cached draw, distinct per (transition, camera, delta-token)
+                    slot — the noise is a per-slot fingerprint (capacity-ceiling probe).
           shared:   ONE cached (C,) vector broadcast to EVERY slot — no per-slot
                     signal, so addressing still rides the pos/camera embeds
                     (isolates the effect of re-sampling alone).
@@ -406,8 +408,8 @@ class DeltaTokFlowMatchingTrainer(DeltaTokSharedMixin, Trainer):
         """
         mode = str(self.cfg.model.get("fixed_noise_mode", "none"))
         if mode == "none":
-            return torch.randn_like(x)                                   # (B, C, T-1, N, 1) fresh prior
-        b, c, t_dim, h, w = x.shape                                      # B, C, T-1, N, 1
+            return torch.randn_like(x)                                   # (B, C, T-1, N, K) fresh prior
+        b, c, t_dim, h, w = x.shape                                      # B, C, T-1, N, K
         if mode == "per_slot":
             key, shape = (c, t_dim, h, w), (1, c, t_dim, h, w)          # distinct per (transition, camera)
         elif mode == "shared":
@@ -419,7 +421,7 @@ class DeltaTokFlowMatchingTrainer(DeltaTokSharedMixin, Trainer):
             g = torch.Generator(device=x.device).manual_seed(int(self.cfg.training.seed))  # reproducible single draw
             cached = torch.randn(*shape, generator=g, device=x.device, dtype=torch.float32)
             self._fixed_noise_cache[key] = cached
-        return cached.to(x.dtype).expand(b, c, t_dim, h, w).contiguous()  # (B, C, T-1, N, 1) writable copy
+        return cached.to(x.dtype).expand(b, c, t_dim, h, w).contiguous()  # (B, C, T-1, N, K) writable copy
 
     def flow_noising(self, x, context=None, mu=-0.6, sigma=1):
         device = x.device
@@ -535,11 +537,11 @@ class DeltaTokFlowMatchingTrainer(DeltaTokSharedMixin, Trainer):
 
             # Frozen OccRAE+DeltaTok encode -> the flow target (cached per sample
             # under cache_frozen_encode; train needs only feat0 + z, no tokens).
-            _, feat0, z, H, W = self._encode_inputs(batch, imgs, num_cameras, want_tokens=False)  # feat0 (B, N, P, C); z (B, T-1, N, C)
+            _, feat0, z, H, W = self._encode_inputs(batch, imgs, num_cameras, want_tokens=False)  # feat0 (B, N, P, C); z (B, T-1, N, K, C)
             assert z.shape[1] > self.n_ctx, (                             # need >=1 transition to predict past the context
                 f"T-1={z.shape[1]} transitions <= context n_ctx={self.n_ctx}; nothing to predict"
             )
-            x_spatial = z.permute(0, 3, 1, 2).unsqueeze(-1).contiguous()  # (B, C, T-1, N, 1) flow latent layout
+            x_spatial = self._z_to_flow_latent(z)  # (B, C, T-1, N, K) flow latent layout
             # cross mode: frame-0 patch grids via cross-attention. delta_ctx: no cross-attn
             # (first n_ctx delta tokens kept clean in-sequence — see flow_noising context).
             cross_cond = self._build_cross_cond(feat0, H, W) if self.cond_mode == "cross" else None  # (B, N, Hp, Wp, C) or None
@@ -711,8 +713,8 @@ class DeltaTokFlowMatchingTrainer(DeltaTokSharedMixin, Trainer):
                     num_cameras = int(batch.get("num_cameras", 1))
 
                     # eval needs tokens (decode), feat0 (rollout seed + cross-cond), z (GT).
-                    tokens, feat0, z, H, W = self._encode_inputs(batch, imgs, num_cameras, want_tokens=True)  # tokens (B, V, N_tok, C); feat0 (B, N, P, C); z (B, T-1, N, C)
-                    x_spatial = z.permute(0, 3, 1, 2).unsqueeze(-1).contiguous()  # (B, C, T-1, N, 1) flow latent layout
+                    tokens, feat0, z, H, W = self._encode_inputs(batch, imgs, num_cameras, want_tokens=True)  # tokens (B, V, N_tok, C); feat0 (B, N, P, C); z (B, T-1, N, K, C)
+                    x_spatial = self._z_to_flow_latent(z)  # (B, C, T-1, N, K) flow latent layout
                     cross_cond = self._build_cross_cond(feat0, H, W) if self.cond_mode == "cross" else None  # (B, N, Hp, Wp, C) or None
 
                     batch_losses = {}
@@ -720,7 +722,7 @@ class DeltaTokFlowMatchingTrainer(DeltaTokSharedMixin, Trainer):
                     # 1. Sample delta tokens from pure noise. cross mode: conditioning via
                     #    cross_cond. delta_ctx: the first n_ctx delta tokens are the clean
                     #    context (GT, kept fixed by flow_euler_sample's context handling).
-                    zr = self._sample_noise(x_spatial)                            # (B, C, T-1, N, 1) init noise (matches train prior)
+                    zr = self._sample_noise(x_spatial)                            # (B, C, T-1, N, K) init noise (matches train prior)
                     if self.cond_mode == "delta_ctx":
                         zr[:, :, :self.n_ctx] = x_spatial[:, :, :self.n_ctx]      # GT first delta = clean context
                     gen = flow_euler_sample(
@@ -731,7 +733,7 @@ class DeltaTokFlowMatchingTrainer(DeltaTokSharedMixin, Trainer):
                         cross_cond=cross_cond,
                         autocast_ctx=self.autocast,
                     )
-                    z_hat = gen.squeeze(-1).permute(0, 2, 3, 1).contiguous()      # (B, T-1, N, C) sampled deltas
+                    z_hat = self._flow_latent_to_z(gen)      # (B, T-1, N, K, C) sampled deltas
 
                     if "gt_mask" in batch:
                         height, width = batch["output_resolution_hw"]

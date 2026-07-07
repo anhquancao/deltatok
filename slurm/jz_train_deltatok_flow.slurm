@@ -42,12 +42,14 @@ ulimit -n "$(ulimit -Hn)"
 export CONFIG_NAME=train_deltatok_flow_jeanzay
 export RESULTS_DIR="/lustre/fswork/projects/rech/trg/uyl37fq/deltatok_flow_log"
 # Distinct name so this run lands in its own subdir.
-export RUN_NAME=deltatok_flow_full_deltaCtx_global_fullT_wd05_raymapoff
-# Frozen tokenizer = const-global-rope (config-default ckpt + use_camera_rope=false).
+export RUN_NAME=deltatok_flow_full_dtok32_deltaCtx_global
+# Frozen tokenizer = dtok32 (K=32 delta tokens/camera; deltatok_ckpt override below).
 # delta_ctx: first delta token (frame 0->1) is the clean in-seq context, no cross-attn.
 # global: one attention over all delta tokens. camera_embed gives per-camera identity
-# (required in global mode — the spatial-fold camera binding is gone).
+# (native-K: a camera's K delta tokens share its embedding; K identity via spatial_pos).
 EXTRA_CFG_ARGS=(
+    model.deltatok.num_delta_tokens=32         # K=32 delta tokens/camera (best tokenizer of the sweep)
+    model.deltatok_ckpt=/lustre/fswork/projects/rech/trg/uyl37fq/deltatok_log/deltatok_surround_layer12_bsize2_dtok32_cos1e3_1e5_b95/ckpts/current.pth
     model.cond_mode=delta_ctx                  # first delta token as clean in-seq context (no cross-attn)
     model.attn_mode=global                     # single global attention over all delta tokens
     model.vit_use_camera_embed=true            # absolute per-camera identity in the flow ViT

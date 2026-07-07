@@ -276,14 +276,14 @@ def main() -> None:
 
                 # Frozen DeltaTok encode of GT pairs -> GT delta tokens (the flow
                 # target / tokenizer upper bound).
-                z = trainer._encode_deltas(feats, H, W)                       # (B, T-1, N, C)
-                x_spatial = z.permute(0, 3, 1, 2).unsqueeze(-1).contiguous()  # (B, C, T-1, N, 1)
+                z = trainer._encode_deltas(feats, H, W)                       # (B, T-1, N, K, C)
+                x_spatial = trainer._z_to_flow_latent(z)                      # (B, C, T-1, N, K)
                 cross_cond = trainer._build_cross_cond(feats[:, 0], H, W) if trainer.cond_mode == "cross" else None  # (B, N, Hp, Wp, C) or None
 
                 # Sample delta tokens from pure noise. cross mode: frame-0 cross-attention
                 # grids. delta_ctx: the first n_ctx delta tokens are the clean context (GT,
                 # kept fixed by flow_euler_sample's context handling).
-                zr = torch.randn_like(x_spatial)                             # (B, C, T-1, N, 1)
+                zr = trainer._sample_noise(x_spatial)                        # (B, C, T-1, N, K) matches eval prior (honors fixed_noise_mode)
                 if trainer.cond_mode == "delta_ctx":
                     zr[:, :, :trainer.n_ctx] = x_spatial[:, :, :trainer.n_ctx]  # GT first delta = clean context
                 gen = flow_euler_sample(
@@ -294,7 +294,7 @@ def main() -> None:
                     cross_cond=cross_cond,
                     autocast_ctx=trainer.autocast,
                 )
-                z_hat = gen.squeeze(-1).permute(0, 2, 3, 1).contiguous()     # (B, T-1, N, C)
+                z_hat = trainer._flow_latent_to_z(gen)                       # (B, T-1, N, K, C)
 
                 # Autoregressive DeltaTok decode from the GT first frame:
                 # flow-sampled deltas (forecast) + GT deltas (tokenizer bound).
