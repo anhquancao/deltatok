@@ -6,7 +6,7 @@
 #SBATCH --cpus-per-task=24
 #SBATCH --hint=nomultithread
 #SBATCH -C h100
-#SBATCH --account=lwy@h100
+#SBATCH --account=zuw@h100
 #SBATCH --qos=qos_gpu_h100-dev
 #SBATCH --time=02:00:00
 #SBATCH --output=slurm/output/jz_train_deltatok_flow_%j.out
@@ -42,21 +42,20 @@ ulimit -n "$(ulimit -Hn)"
 export CONFIG_NAME=train_deltatok_flow_jeanzay
 export RESULTS_DIR="/lustre/fswork/projects/rech/trg/uyl37fq/deltatok_flow_log"
 # Distinct name so this run lands in its own subdir.
-export RUN_NAME=deltatok_flow_full_dtok32_deltaCtx_global
-# Frozen tokenizer = dtok32 (K=32 delta tokens/camera; deltatok_ckpt override below).
+export RUN_NAME=deltatok_flow_full_dtok16_deltaCtx_global
+# Frozen tokenizer = dtok16 (K=16 delta tokens/camera; deltatok_ckpt override below).
+# dtok32 (best, 0.36) blew up to an all-NaN ckpt (see docs/journal/deltatok_flow_dtok32_smoketest.html);
+# dtok16 (0.47) is the finite second-best. Swap back to dtok32 once the guarded retrain lands.
 # delta_ctx: first delta token (frame 0->1) is the clean in-seq context, no cross-attn.
 # global: one attention over all delta tokens. camera_embed gives per-camera identity
 # (native-K: a camera's K delta tokens share its embedding; K identity via spatial_pos).
 EXTRA_CFG_ARGS=(
-    model.deltatok.num_delta_tokens=32         # K=32 delta tokens/camera (best tokenizer of the sweep)
-    model.deltatok_ckpt=/lustre/fswork/projects/rech/trg/uyl37fq/deltatok_log/deltatok_surround_layer12_bsize2_dtok32_cos1e3_1e5_b95/ckpts/current.pth
+    model.deltatok.num_delta_tokens=16         # K=16 delta tokens/camera (finite ckpt; dtok32 is NaN)
+    model.deltatok_ckpt=/lustre/fswork/projects/rech/trg/uyl37fq/deltatok_log/deltatok_surround_layer12_bsize2_dtok16_cos1e3_1e5_b95/ckpts/current.pth
     model.cond_mode=delta_ctx                  # first delta token as clean in-seq context (no cross-attn)
     model.attn_mode=global                     # single global attention over all delta tokens
     model.vit_use_camera_embed=true            # absolute per-camera identity in the flow ViT
     model.loss_mode=v                          # v-MSE = 1/(1-t)^2-weighted x-MSE (upweights near-clean t->1)
-    # train_fixed_t dropped -> sample full logit-normal(mu,sigma) t (was pinned to 0 for the fixedT0 overfit)
-    # cache_frozen_encode left at config default (false): per-sample encode cache grows unbounded over the full dataset
-    # weight_decay left at config default (0.05): restore regularization for the full-data run
     training.exit_before_time_limit=true       # clean exit near SLURM wall (chain-resume safe)
     training.epoch=400                         # long full-data schedule; chain-resume across SLURM walls
     training.eval_num_steps=50                 # multi-step ODE: integrate full trajectory from noise (real generative test, all t now supervised)

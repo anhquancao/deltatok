@@ -619,6 +619,14 @@ class DeltaTokTrainer(DeltaTokSharedMixin, Trainer):
         ``torch.save`` cannot truncate the live checkpoint.
         """
         net = self._unwrapped_tokenizer()
+        # Never overwrite a good checkpoint with a diverged (non-finite) model:
+        # if training ever slips past the grad-skip guard, keep the last finite
+        # current.pth rather than clobbering it (the dtok32 loss was both rolling
+        # ckpts being saved post-blow-up, wiping the good state).
+        if not all(torch.isfinite(p).all() for p in net.parameters()):
+            print(f"[warn] non-finite model params at iter {self.cfg.training.iter}; "
+                  f"skipping save to preserve last-good {os.path.basename(path)}", flush=True)
+            return
         state = {
             "iter": self.cfg.training.iter,
             "global_epoch": self.cfg.training.global_epoch,
@@ -831,8 +839,21 @@ class DeltaTokTrainer(DeltaTokSharedMixin, Trainer):
             (loss_total / self.grad_cum).backward()
 
             if update_grad:
-                nn.utils.clip_grad_norm_(self.tokenizer.parameters(), self.cfg.training.grad_clip)
-                self.optim.step()
+                grad_norm = nn.utils.clip_grad_norm_(self.tokenizer.parameters(), self.cfg.training.grad_clip)
+                # Skip the step on a non-finite grad so a transient spike can't
+                # poison AdamW's moments (the dtok32 all-NaN blow-up). DDP reduces
+                # grads in backward, so grad_norm is already identical across ranks;
+                # the all_reduce(MIN) keeps the skip unanimous even if a future
+                # no_sync() accumulation ever makes the local grad rank-specific.
+                finite = bool(torch.isfinite(grad_norm))
+                if self.distributed:
+                    flag = torch.tensor([1.0 if finite else 0.0], device=self.device)
+                    dist.all_reduce(flag, op=dist.ReduceOp.MIN)  # 0 if ANY rank non-finite
+                    finite = flag.item() > 0
+                if finite:
+                    self.optim.step()
+                elif self.is_master:
+                    print(f"[warn] non-finite grad ({grad_norm}) at iter {self.cfg.training.iter}; skipping optim step", flush=True)
                 self.optim.zero_grad(set_to_none=True)
 
             loss_val = loss_total.detach().item()   # total (recon + feature) drives meters/LossTot

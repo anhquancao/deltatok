@@ -611,12 +611,21 @@ class DA3Wrapper(DepthAnything3):
         self, ray: torch.Tensor, ray_conf: torch.Tensor, height: int, width: int
     ) -> Dict[str, torch.Tensor]:
         """Process ray pose estimation if ray pose decoder is available."""
-        pred_extrinsic, pred_focal_lengths, pred_principal_points = get_extrinsic_from_camray(
-            ray,
-            ray_conf.clone(),  # Clone to prevent in-place modification in compute_optimal_rotation_intrinsics_batch
-            ray.shape[-3],
-            ray.shape[-2],
-        )
+        try:
+            pred_extrinsic, pred_focal_lengths, pred_principal_points = get_extrinsic_from_camray(
+                ray,
+                ray_conf.clone(),  # Clone to prevent in-place modification in compute_optimal_rotation_intrinsics_batch
+                ray.shape[-3],
+                ray.shape[-2],
+            )
+        except (ValueError, RuntimeError):
+            # Degenerate rays (untrained model / sanity check) make the homography
+            # ill-posed (<4 RANSAC inliers or non-convergent SVD); return identity
+            # poses so eval/viz still runs instead of aborting the job.
+            B, V = ray.shape[0], ray.shape[1]  # B batch, V views
+            c2w = torch.eye(4, device=ray.device, dtype=torch.float32)[None, None, :3, :].expand(B, V, 3, 4).contiguous()  # (B, V, 3, 4)
+            intrinsics = torch.eye(3, device=ray.device, dtype=torch.float32)[None, None].expand(B, V, 3, 3).contiguous()  # (B, V, 3, 3)
+            return c2w, intrinsics
         pred_extrinsic = pred_extrinsic[:, :, :3, :]
         pred_intrinsic = torch.eye(3, 3)[None, None].repeat(pred_extrinsic.shape[0], pred_extrinsic.shape[1], 1, 1).clone().to(pred_extrinsic.device)
         pred_intrinsic[:, :, 0, 0] = pred_focal_lengths[:, :, 0] / 2 * width

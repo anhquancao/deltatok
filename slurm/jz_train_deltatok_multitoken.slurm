@@ -48,12 +48,17 @@ export CONFIG_NAME=train_deltatok_jeanzay
 export LOG_AND_CKPT_DIR="/lustre/fswork/projects/rech/trg/uyl37fq/deltatok_log"
 export RESULTS_DIR="$LOG_AND_CKPT_DIR"
 export NUM_DELTA_TOKENS=${NUM_DELTA_TOKENS:-64}   # delta tokens/camera; override via --export=ALL,NUM_DELTA_TOKENS=K
-# _cos1e3_1e5_b95: anti blow-up recipe (cosine lr 1e-3->1e-5 + AdamW beta2=0.95, eps 1e-8 default);
+export PEAK_LR=${PEAK_LR:-1e-3}                   # peak lr (cosine-decayed); lower for high-K stability
+export RUN_SUFFIX=${RUN_SUFFIX:-}                 # appended to RUN_NAME for a distinct dir (e.g. _lr5e4_gradskip)
+# _cos1e3_1e5_b95: anti blow-up recipe (cosine peak_lr->1e-5 + AdamW beta2=0.95, eps 1e-8 default).
+# _gradskip: trainer now skips non-finite-grad steps + won't overwrite a good ckpt with NaN (dtok32
+# blew up to an all-NaN ckpt). For a high-K retrain pass PEAK_LR=5e-4 RUN_SUFFIX=_lr5e4.
 # fresh dirs — old _dtok*/_lr1e4/_eps1e6 dirs hold abandoned ckpts, do not resume them.
-export RUN_NAME=deltatok_surround_layer12_bsize2_dtok${NUM_DELTA_TOKENS}_cos1e3_1e5_b95
+export RUN_NAME=deltatok_surround_layer12_bsize2_dtok${NUM_DELTA_TOKENS}_cos1e3_1e5_b95_gradskip${RUN_SUFFIX}
 export RESUME=${RESUME:-0}   # override with --export=ALL,RESUME=1 to resume current.pth
 EXTRA_CFG_ARGS=(
     model.deltatok.num_delta_tokens=${NUM_DELTA_TOKENS}   # K delta tokens/camera (K=64 ~12:1 compression at full res)
+    training.lr=${PEAK_LR}                      # peak lr override (default 1e-3; lower for high-K stability)
     model.deltatok.use_camera_rope=false       # no-camera-rope layer-12 run
     training.exit_before_time_limit=true       # stop after a ckpt when SLURM wall is near (chain-resume safe)
     # feature_loss_weight omitted -> base default 0.0 (no downstream DA3 feature loss)
