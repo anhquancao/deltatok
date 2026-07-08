@@ -69,6 +69,7 @@ class DeltaTokModule(nn.Module):
         mlp_ratio: int = 4,
         alt_start: int = 4,
         num_delta_tokens: int = 1,
+        norm_affine: bool = True,
     ):
         super().__init__()
         # Delta tokens per camera per transition (1 = max compression). K query
@@ -133,7 +134,8 @@ class DeltaTokModule(nn.Module):
             if use_gated_attn:
                 enable_gated_attn(blk)
 
-        self.norm = nn.LayerNorm(cfg.hidden_size, cfg.layer_norm_eps)
+        # norm_affine=False -> non-learnable norm, pinning z to fixed unit-var/zero-mean.
+        self.norm = nn.LayerNorm(cfg.hidden_size, cfg.layer_norm_eps, elementwise_affine=norm_affine)
         self._rope_cache: dict = {}
 
     def train(self, mode: bool = True):

@@ -12,6 +12,8 @@ The host class must provide: ``self.cfg``, ``self.device``, ``self.is_master``,
 ``self.occ_rae`` (frozen — never DDP-wrapped, never in the optimizer).
 """
 
+import os
+import shutil
 import sys
 import time
 
@@ -29,7 +31,26 @@ class DeltaTokSharedMixin:
         ``epoch_wall_t0`` is the wall start of the epoch just finished."""
         if self.is_master:
             self._save_current_checkpoint()
+            self._maybe_save_epoch_snapshot()
         self._maybe_exit_before_time_limit(epoch_wall_t0)
+
+    def _maybe_save_epoch_snapshot(self):
+        """Every ``save_ckpt_every_n_epochs`` epochs keep a permanent copy of the
+        just-written current.pth as ``epoch_<N>.pth`` (0 = disabled). Rank 0 only;
+        copies current.pth (always the last finite ckpt) so snapshots never hold
+        NaN. ``global_epoch`` was already incremented, so it is the epoch count."""
+        every = int(self.cfg.training.get("save_ckpt_every_n_epochs", 0))
+        if every <= 0:
+            return
+        epoch = int(self.cfg.training.global_epoch)
+        if epoch % every != 0:
+            return
+        src = os.path.join(self.cfg.training.vit_folder, "current.pth")
+        if not os.path.isfile(src):
+            return
+        dst = os.path.join(self.cfg.training.vit_folder, f"epoch_{epoch}.pth")
+        shutil.copyfile(src, dst)
+        print(f">> saved periodic checkpoint: {dst}", flush=True)
 
     def _maybe_exit_before_time_limit(self, epoch_wall_t0):
         """Stop cleanly after the epoch checkpoint when the SLURM wall is near so
@@ -356,6 +377,7 @@ class DeltaTokSharedMixin:
             mlp_ratio=int(deltatok_cfg.get("mlp_ratio", 4)),
             alt_start=int(deltatok_cfg.get("alt_start", 4)),
             num_delta_tokens=int(deltatok_cfg.get("num_delta_tokens", 1)),
+            norm_affine=bool(deltatok_cfg.get("norm_affine", True)),
         )
 
     def _build_occ_rae(self):

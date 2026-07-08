@@ -37,12 +37,13 @@ export TORCH_NCCL_HEARTBEAT_TIMEOUT_SEC="${TORCH_NCCL_HEARTBEAT_TIMEOUT_SEC:-100
 # file_descriptor shm strategy holds an fd per shared tensor per worker
 ulimit -n "$(ulimit -Hn)"
 
-# Full-dataset run (camera-embed variant): Waymo+VKitti+DDAD+Pandaset+Once train,
-# Kitti+nuScenes val. Single GPU (config bsize=16, effective_bsize=32 -> grad_cum 2).
-export CONFIG_NAME=train_deltatok_flow_jeanzay
+# Overfit debug run (camera-embed variant): single dynamic nuScenes scene
+# (scene-0625) repeated 256x, single GPU (config bsize=32, effective_bsize=32 ->
+# grad_cum 1; needs world_size==1). Keeps the dtok16 tokenizer override below.
+export CONFIG_NAME=train_deltatok_flow_overfit_jeanzay
 export RESULTS_DIR="/lustre/fswork/projects/rech/trg/uyl37fq/deltatok_flow_log"
 # Distinct name so this run lands in its own subdir.
-export RUN_NAME=deltatok_flow_full_dtok16_deltaCtx_global
+export RUN_NAME=deltatok_flow_overfit_dtok16_deltaCtx_global_fullT_wd0
 # Frozen tokenizer = dtok16 (K=16 delta tokens/camera; deltatok_ckpt override below).
 # dtok32 (best, 0.36) blew up to an all-NaN ckpt (see docs/journal/deltatok_flow_dtok32_smoketest.html);
 # dtok16 (0.47) is the finite second-best. Swap back to dtok32 once the guarded retrain lands.
@@ -56,8 +57,10 @@ EXTRA_CFG_ARGS=(
     model.attn_mode=global                     # single global attention over all delta tokens
     model.vit_use_camera_embed=true            # absolute per-camera identity in the flow ViT
     model.loss_mode=v                          # v-MSE = 1/(1-t)^2-weighted x-MSE (upweights near-clean t->1)
+    training.cache_frozen_encode=true          # overfit: memoize frozen OccRAE+DeltaTok encode per sample -> 1B backbone runs once, not every step
+    training.weight_decay=0                    # overfit: drop regularization to isolate optimization from WD
     training.exit_before_time_limit=true       # clean exit near SLURM wall (chain-resume safe)
-    training.epoch=400                         # long full-data schedule; chain-resume across SLURM walls
+    training.epoch=400                         # extend overfit past epoch 100 to watch MSEToken converge
     training.eval_num_steps=50                 # multi-step ODE: integrate full trajectory from noise (real generative test, all t now supervised)
 )
 export EXTRA_CFG="${EXTRA_CFG_ARGS[*]}"

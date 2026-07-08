@@ -115,6 +115,8 @@ training:
   eval_num_items: 256
   eval_num_visualizations: 8
   sanity_check_num_items: 2
+  # Keep a permanent epoch_<N>.pth copy of current.pth every N epochs (0 = off).
+  save_ckpt_every_n_epochs: 0
   # Stop cleanly after an epoch ckpt when the SLURM wall is near (chain-resume
   # safe). Off here; enabled via EXTRA_CFG in the JZ SLURM scripts.
   exit_before_time_limit: false

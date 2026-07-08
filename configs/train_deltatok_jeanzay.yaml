@@ -4,34 +4,34 @@ defaults:
 dataset:
   # Jean Zay overlay of train_deltatok_karolina.yaml: same recipe, dataset roots
   # on the fsn1 working tier (mirrors train_deltatok_flow_jeanzay.yaml).
-  train_dataset: "2000 @ WaymoSeqMultiView(ROOT='/lustre/fsn1/projects/rech/trg/uyl37fq/occany_data/waymo_processed', \
+  train_dataset: "4000 @ WaymoSeqMultiView(ROOT='/lustre/fsn1/projects/rech/trg/uyl37fq/occany_data/waymo_processed', \
       seq_pkl_name='seq_surround_temporal_sub5_stride9_fs1_all.pkl', \
       frame_interval=1, \
       min_views_per_timestep=1, max_views_per_timestep=2, min_num_timesteps=6, max_num_timesteps=6, ray_map_prob=-1, \
       z_far=50, split='train', no_partial_views=True, \
       resolution=[(518, 294), (518, 280), (518, 266), (518, 210), (518, 168)], \
       reverse_seq=True, base_model='da3') + \
-      1000 @ VKittiSeqMultiView(VKITTI_PROCESSED_ROOT='/lustre/fsn1/projects/rech/trg/uyl37fq/occany_data/vkitti_processed', \
+      2000 @ VKittiSeqMultiView(VKITTI_PROCESSED_ROOT='/lustre/fsn1/projects/rech/trg/uyl37fq/occany_data/vkitti_processed', \
       seq_pkl_name='seq_exact_len_sub5_stride9.pkl', \
       frame_interval=1, min_views_per_timestep=1, max_views_per_timestep=2, min_num_timesteps=6, max_num_timesteps=6, ray_map_prob=-1, \
       z_far=50, split='train', no_partial_views=True, \
       resolution=[(518, 294), (518, 280), (518, 266), (518, 210), (518, 168)], \
       reverse_seq=True, base_model='da3') + \
-      2000 @ DDADSeqMultiView(DDAD_PREPROCESSED_ROOT='/lustre/fsn1/projects/rech/trg/uyl37fq/occany_data/ddad_processed', \
+      4000 @ DDADSeqMultiView(DDAD_PREPROCESSED_ROOT='/lustre/fsn1/projects/rech/trg/uyl37fq/occany_data/ddad_processed', \
       seq_pkl_name='seq_surround_temporal_sub5_stride9_fs1_all.pkl', \
       frame_interval=1, \
       min_views_per_timestep=1, max_views_per_timestep=2, min_num_timesteps=6, max_num_timesteps=6, ray_map_prob=-1, \
       z_far=50, split='train', no_partial_views=True, \
       resolution=[(518, 294), (518, 280), (518, 266), (518, 210), (518, 168)], \
       reverse_seq=True, base_model='da3') + \
-      2000 @ PandasetSeqMultiView(PANDASET_PREPROCESSED_ROOT='/lustre/fsn1/projects/rech/trg/uyl37fq/occany_data/pandaset_processed', \
+      4000 @ PandasetSeqMultiView(PANDASET_PREPROCESSED_ROOT='/lustre/fsn1/projects/rech/trg/uyl37fq/occany_data/pandaset_processed', \
       seq_pkl_name='seq_surround_temporal_sub5_stride9_fs1_all.pkl', \
       frame_interval=1, \
       min_views_per_timestep=1, max_views_per_timestep=2, min_num_timesteps=6, max_num_timesteps=6, ray_map_prob=-1, \
       z_far=50, split='train', no_partial_views=True, \
       resolution=[(518, 294), (518, 280), (518, 266), (518, 210), (518, 168)], \
       reverse_seq=True, base_model='da3') + \
-      2000 @ OnceSeqMultiView(ONCE_PREPROCESSED_ROOT='/lustre/fsn1/projects/rech/trg/uyl37fq/occany_data/once_processed', \
+      4000 @ OnceSeqMultiView(ONCE_PREPROCESSED_ROOT='/lustre/fsn1/projects/rech/trg/uyl37fq/occany_data/once_processed', \
       seq_pkl_name='seq_surround_temporal_sub5_stride9_fs1_once_5cam_all.pkl', \
       frame_interval=1, \
       min_views_per_timestep=1, max_views_per_timestep=2, min_num_timesteps=6, max_num_timesteps=6, ray_map_prob=-1, \
@@ -56,6 +56,10 @@ model:
     ckpt_path: checkpoints/occrae_img_decoder.pt
 
 training:
+  # 2x items/epoch (18000) + epoch 50 -> same ~56k total iters as 9000x100; halves
+  # eval/ckpt cadence (max_iter/warm_up fixed, so LR cosine over iters is unchanged).
+  epoch: 50
+  save_ckpt_every_n_epochs: 10   # permanent epoch_<N>.pth snapshot every 10 epochs (-> 10,20,30,40,50)
   # bsize 2 + pairs_per_seq 1: forward 2 sequences (one frame-pair each) per rank.
   # 4 GPU x bsize 2 x pairs_per_seq 1 = 8; effective_bsize 16 / 8 -> grad_cum 2.
   bsize: 2
