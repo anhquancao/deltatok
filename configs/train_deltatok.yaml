@@ -79,6 +79,7 @@ model:
     use_gated_attn: true
     use_rope_aug: false
     use_camera_rope: false
+    norm_affine: true  # learnable z-norm; slurm may override to false for fixed unit-var/zero-mean latent
     mlp_ratio: 4
     layer_scale_init: 1.0e-5
     initializer_range: 0.02
