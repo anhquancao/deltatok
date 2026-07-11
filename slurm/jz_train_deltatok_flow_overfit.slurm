@@ -6,7 +6,7 @@
 #SBATCH --cpus-per-task=24
 #SBATCH --hint=nomultithread
 #SBATCH -C h100
-#SBATCH --account=lwy@h100
+#SBATCH --account=cya@h100
 #SBATCH --qos=qos_gpu_h100-dev
 #SBATCH --time=02:00:00
 #SBATCH --output=slurm/output/jz_train_deltatok_flow_%j.out
@@ -43,12 +43,15 @@ ulimit -n "$(ulimit -Hn)"
 export CONFIG_NAME=train_deltatok_flow_overfit_jeanzay
 export RESULTS_DIR="/lustre/fswork/projects/rech/trg/uyl37fq/deltatok_flow_log"
 # Distinct name so this run lands in its own subdir.
-export RUN_NAME=deltatok_flow_overfit_deltaCtx_global_fullT_wd0_raymapoff
-# Frozen tokenizer = const-global-rope (config-default ckpt + use_camera_rope=false).
+export RUN_NAME=deltatok_flow_overfit_dtok64_deltaCtx_global_fullT_wd0_raymapoff
+# Frozen tokenizer = dtok64 (K=64 delta tokens/camera, non-affine z-norm; deltatok_ckpt override below).
 # delta_ctx: first delta token (frame 0->1) is the clean in-seq context, no cross-attn.
 # global: one attention over all delta tokens. camera_embed gives per-camera identity
 # (required in global mode — the spatial-fold camera binding is gone).
 EXTRA_CFG_ARGS=(
+    model.deltatok.num_delta_tokens=64         # K=64 delta tokens/camera (must match the frozen dtok64 ckpt)
+    model.deltatok_ckpt=/lustre/fswork/projects/rech/trg/uyl37fq/deltatok_log/deltatok_surround_layer12_bsize2_dtok64_cos1e3_1e5_b95_gradskip_noaff/ckpts/current.pth
+    model.deltatok.norm_affine=false           # dtok64 tokenizer is non-affine z-norm (declared true in flow cfg)
     model.cond_mode=delta_ctx                  # first delta token as clean in-seq context (no cross-attn)
     model.attn_mode=global                     # single global attention over all delta tokens
     model.vit_use_camera_embed=true            # absolute per-camera identity in the flow ViT
