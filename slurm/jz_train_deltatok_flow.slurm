@@ -6,9 +6,9 @@
 #SBATCH --cpus-per-task=24
 #SBATCH --hint=nomultithread
 #SBATCH -C h100
-#SBATCH --account=zuw@h100
-#SBATCH --qos=qos_gpu_h100-dev
-#SBATCH --time=02:00:00
+#SBATCH --account=cya@h100
+#SBATCH --qos=qos_gpu_h100-t3
+#SBATCH --time=20:00:00
 #SBATCH --output=slurm/output/jz_train_deltatok_flow_%j.out
 #SBATCH --error=slurm/output/jz_train_deltatok_flow_%j.err
 
@@ -37,30 +37,29 @@ export TORCH_NCCL_HEARTBEAT_TIMEOUT_SEC="${TORCH_NCCL_HEARTBEAT_TIMEOUT_SEC:-100
 # file_descriptor shm strategy holds an fd per shared tensor per worker
 ulimit -n "$(ulimit -Hn)"
 
-# Overfit debug run (camera-embed variant): single dynamic nuScenes scene
-# (scene-0625) repeated 256x, single GPU (config bsize=32, effective_bsize=32 ->
-# grad_cum 1; needs world_size==1). Keeps the dtok16 tokenizer override below.
-export CONFIG_NAME=train_deltatok_flow_overfit_jeanzay
+# Full-dataset run (dtok64 camera-embed variant): Waymo+VKitti+DDAD+Pandaset+Once
+# train, Kitti+nuScenes val. Single GPU (config bsize=16, effective_bsize=32 ->
+# grad_cum 2). Same validated model settings as the dtok64 overfit run.
+export CONFIG_NAME=train_deltatok_flow_jeanzay
 export RESULTS_DIR="/lustre/fswork/projects/rech/trg/uyl37fq/deltatok_flow_log"
 # Distinct name so this run lands in its own subdir.
-export RUN_NAME=deltatok_flow_overfit_dtok16_deltaCtx_global_fullT_wd0
-# Frozen tokenizer = dtok16 (K=16 delta tokens/camera; deltatok_ckpt override below).
-# dtok32 (best, 0.36) blew up to an all-NaN ckpt (see docs/journal/deltatok_flow_dtok32_smoketest.html);
-# dtok16 (0.47) is the finite second-best. Swap back to dtok32 once the guarded retrain lands.
+export RUN_NAME=deltatok_flow_full_dtok64_deltaCtx_global_fullT_wd05_raymapoff
+# Frozen tokenizer = dtok64 (K=64 delta tokens/camera, non-affine z-norm; deltatok_ckpt override below).
 # delta_ctx: first delta token (frame 0->1) is the clean in-seq context, no cross-attn.
 # global: one attention over all delta tokens. camera_embed gives per-camera identity
 # (native-K: a camera's K delta tokens share its embedding; K identity via spatial_pos).
 EXTRA_CFG_ARGS=(
-    model.deltatok.num_delta_tokens=16         # K=16 delta tokens/camera (finite ckpt; dtok32 is NaN)
-    model.deltatok_ckpt=/lustre/fswork/projects/rech/trg/uyl37fq/deltatok_log/deltatok_surround_layer12_bsize2_dtok16_cos1e3_1e5_b95/ckpts/current.pth
+    model.deltatok.num_delta_tokens=64         # K=64 delta tokens/camera (must match the frozen dtok64 ckpt)
+    model.deltatok_ckpt=/lustre/fswork/projects/rech/trg/uyl37fq/deltatok_log/deltatok_surround_layer12_bsize2_dtok64_cos1e3_1e5_b95_gradskip_noaff/ckpts/current.pth
+    model.deltatok.norm_affine=false           # dtok64 tokenizer is non-affine z-norm (declared true in flow cfg)
     model.cond_mode=delta_ctx                  # first delta token as clean in-seq context (no cross-attn)
     model.attn_mode=global                     # single global attention over all delta tokens
     model.vit_use_camera_embed=true            # absolute per-camera identity in the flow ViT
     model.loss_mode=v                          # v-MSE = 1/(1-t)^2-weighted x-MSE (upweights near-clean t->1)
-    training.cache_frozen_encode=true          # overfit: memoize frozen OccRAE+DeltaTok encode per sample -> 1B backbone runs once, not every step
-    training.weight_decay=0                    # overfit: drop regularization to isolate optimization from WD
+    # cache_frozen_encode left at config default (false): per-sample encode cache grows unbounded over the full dataset
+    # weight_decay left at config default (0.05): restore regularization for the full-data run
     training.exit_before_time_limit=true       # clean exit near SLURM wall (chain-resume safe)
-    training.epoch=400                         # extend overfit past epoch 100 to watch MSEToken converge
+    training.epoch=50                          # 50-epoch full-data schedule (2x dataset items); chain-resume across SLURM walls
     training.eval_num_steps=50                 # multi-step ODE: integrate full trajectory from noise (real generative test, all t now supervised)
 )
 export EXTRA_CFG="${EXTRA_CFG_ARGS[*]}"
