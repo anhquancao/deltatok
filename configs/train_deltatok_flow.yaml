@@ -53,7 +53,7 @@ model:
   vit_size: "xlarge"
   vit_use_camera_rope: false   # rotary over the camera (spatial) axis in the flow ViT; enable via EXTRA_CFG
   vit_use_camera_embed: false  # absolute learned per-camera identity over the flow-ViT camera axis; enable via EXTRA_CFG
-  cond_mode: cross       # cross | delta_ctx (delta_ctx = first delta token as clean in-seq context, no cross-attn)
+  cond_mode: cross       # cross | delta_ctx | delta_ctx_cross (delta_ctx = first delta token as clean in-seq context, no cross-attn; delta_ctx_cross = delta_ctx + frame-0 cross-attn)
   attn_mode: factorized  # factorized | global (global = one attention over all delta tokens)
 
   # Temporal slot capacity: must be >= max T-1 transitions per item (worst case

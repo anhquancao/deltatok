@@ -73,15 +73,18 @@ class Block(nn.Module):
         self.ff = FeedForward(dim, mlp_dim, dropout=dropout)
         self.ln_mlp = RMSNorm(dim, linear=True, bias=False, eps=1e-5)
 
-    def forward(self, x, ada_cond, cross_cond, t, s, temporal_mask=None, cross_mask=None, spatial_rope=None):
+    def forward(self, x, ada_cond, cross_cond, t, s, temporal_mask=None, cross_mask=None, spatial_rope=None, cross_n=None):
         """
         Args:
             x: main hidden states [B, N, D] with N = n_reg + t*s video tokens
             ada_cond: 8-tuple of per-token AdaLN modulation tensors [B, N, D]
-            cross_cond: optional key/values for per-slot cross-attention [(B*s), L, D]
+            cross_cond: optional key/values for grouped cross-attention [(B*cross_n), L, D]
             t: number of temporal slots (frames; for delta-token flow: T-1 transitions)
             s: number of spatial tokens per temporal slot (n_p*k_p; for delta-token
                flow: N*K — K delta tokens per camera)
+            cross_n: kv groups per frame; each group of s//cross_n consecutive slots
+               shares one kv row (delta-token flow: cross_n = N cameras). None => s
+               (one kv row per slot, the legacy layout).
             spatial_rope: optional (cos, sin), each (s, head_dim), rotary over the
                camera (spatial) axis. Applied in spatial (cross-camera) attention only.
         """
@@ -127,15 +130,19 @@ class Block(nn.Module):
             x_temporal = rearrange(x_temporal, '(b s) t d -> b (t s) d', b=b, t=t, s=s)
             x_video = x_video + alpha_temporal[:, n_reg:] * x_temporal
 
-        # --- Cross-attention (per spatial slot, camera-permutation-equivariant) ---
-        # cross_cond is (B*s, L, D) with L context tokens per slot: slot i (camera i)
-        # only attends to its own context, mirroring DeltaTok's structural
-        # z_i <-> camera_i binding (no camera IDs needed).
+        # --- Cross-attention (per kv group, camera-permutation-equivariant) ---
+        # cross_cond is (B*cross_n, L, D): one kv row per group of s//cross_n
+        # consecutive slots (cam-major/K-minor => group = camera). Batch-folding lets
+        # a group attend only to its own context, mirroring DeltaTok's structural
+        # z_i <-> camera_i binding (no camera IDs needed). Softmax is per query token,
+        # so sharing kv across a camera's K delta slots equals duplicating it K times.
         if self.cross_attn is not None and cross_cond is not None:
+            n_c = cross_n if cross_n is not None else s                              # kv groups per frame
+            k_c = s // n_c                                                           # slots sharing one kv row (K per camera)
             x_cross = modulate(self.ln_cross(x_video), gamma_cross[:, n_reg:])      # (B, t*s, D) normalized + AdaLN-scaled queries
-            x_cross = rearrange(x_cross, 'b (t s) d -> (b s) t d', t=t, s=s)        # (B*s, t, D) fold slots into batch
-            x_cross = self.cross_attn(x_cross, cross_cond, cross_mask)              # (B*s, t, D) q=x_cross, kv=cross_cond (B*s, L, D)
-            x_cross = rearrange(x_cross, '(b s) t d -> b (t s) d', b=b, t=t, s=s)   # (B, t*s, D) back to token layout
+            x_cross = rearrange(x_cross, 'b (t n k) d -> (b n) (t k) d', t=t, n=n_c, k=k_c)      # (B*n_c, t*k_c, D) fold groups into batch
+            x_cross = self.cross_attn(x_cross, cross_cond, cross_mask)              # (B*n_c, t*k_c, D) q=x_cross, kv=cross_cond (B*n_c, L, D)
+            x_cross = rearrange(x_cross, '(b n) (t k) d -> b (t n k) d', b=b, t=t, n=n_c, k=k_c)  # (B, t*s, D) back to token layout
             x_video = x_video + alpha_cross[:, n_reg:] * x_cross                    # (B, t*s, D) gated residual (alpha_cross starts at 0)
 
         x = torch.cat([x_reg, x_video], dim=1) if n_reg > 0 else x_video
@@ -153,10 +160,10 @@ class TransformerEncoder(nn.Module):
         for _ in range(depth):
             self.layers.append(Block(dim, heads, mlp_dim, dropout=dropout, use_cross_attn=use_cross_attn, attn_mode=attn_mode))
 
-    def forward(self, x, ada_cond, cross_cond, t, s, temporal_mask=None, cross_mask=None, spatial_rope=None):
+    def forward(self, x, ada_cond, cross_cond, t, s, temporal_mask=None, cross_mask=None, spatial_rope=None, cross_n=None):
         feat = None
         for i, block in enumerate(self.layers):
-            x = block(x, ada_cond=ada_cond, cross_cond=cross_cond, t=t, s=s, temporal_mask=temporal_mask, cross_mask=cross_mask, spatial_rope=spatial_rope)
+            x = block(x, ada_cond=ada_cond, cross_cond=cross_cond, t=t, s=s, temporal_mask=temporal_mask, cross_mask=cross_mask, spatial_rope=spatial_rope, cross_n=cross_n)
             if i == 8:
                 feat = x
         return x, feat
@@ -437,21 +444,26 @@ class Transformer(nn.Module):
         t_emb_expanded = [e.repeat_interleave(S, dim=1) for e in t_emb]  # (B, N, D)
 
         # Cross-attention conditioning
+        cross_n = None
         if cross_cond is not None:
             if cross_cond.dim() == 5:
-                # Per-slot token conditioning: one (Hp, Wp) context grid per spatial
-                # slot (S slots per frame; for delta-token flow S = N_cam). Slot i
-                # only sees its own grid in Block -> camera-permutation-equivariant.
-                bc, n_cond, ch, cw, _ = cross_cond.shape                                       # (B, S, Hp, Wp, cross_dim)
-                if n_cond != S:
-                    raise ValueError(f"cross_cond has {n_cond} slots, expected S={S}")
-                cc = self.cross_cond_emb(cross_cond)                                           # (B, S, Hp, Wp, D) project to hidden dim
-                cc = cc + self.interpolate_cross_pos_encoding(ch, cw).view(1, 1, ch, cw, -1)   # (B, S, Hp, Wp, D) add spatial pos-embed
-                cross_cond = rearrange(cc, 'b n h w d -> (b n) (h w) d')                       # (B*S, Hp*Wp, D) per-slot kv sequence
+                # Per-group token conditioning: one (Hp, Wp) context grid per group of
+                # S//n_cond consecutive slots (cam-major/K-minor => group = camera; for
+                # delta-token flow n_cond = N_cam, a camera's K delta slots share its
+                # grid). A group only sees its own grid in Block -> camera-permutation-
+                # equivariant, with no K-fold kv duplication.
+                bc, n_cond, ch, cw, _ = cross_cond.shape                                       # (B, n_cond, Hp, Wp, cross_dim)
+                if n_cond == 0 or S % n_cond != 0:
+                    raise ValueError(f"cross_cond has {n_cond} slots, expected a divisor of S={S}")
+                cc = self.cross_cond_emb(cross_cond)                                           # (B, n_cond, Hp, Wp, D) project to hidden dim
+                cc = cc + self.interpolate_cross_pos_encoding(ch, cw).view(1, 1, ch, cw, -1)   # (B, n_cond, Hp, Wp, D) add spatial pos-embed
+                cross_cond = rearrange(cc, 'b n h w d -> (b n) (h w) d')                       # (B*n_cond, Hp*Wp, D) per-group kv sequence
+                cross_n = n_cond
             else:
                 # Legacy single-vector conditioning (e.g. CLIP embedding).
                 cc = self.cross_cond_emb(cross_cond)                                           # (B, D)
                 cross_cond = cc[:, None, None, :].expand(b, S, 1, -1).reshape(b * S, 1, -1)    # (B*S, 1, D) broadcast same vector to every slot
+                cross_n = S
         
         if self.register > 0:
             reg = torch.arange(0, self.register, dtype=torch.long, device=x.device)
@@ -467,7 +479,7 @@ class Transformer(nn.Module):
         else:
             spatial_rope = None
 
-        x, feat = self.transformer(x=x, ada_cond=t_emb_expanded, cross_cond=cross_cond, t=t, s=S, temporal_mask=temporal_mask, spatial_rope=spatial_rope)
+        x, feat = self.transformer(x=x, ada_cond=t_emb_expanded, cross_cond=cross_cond, t=t, s=S, temporal_mask=temporal_mask, spatial_rope=spatial_rope, cross_n=cross_n)
 
         # drop the register(s)
         x = x[:, self.register:].contiguous()

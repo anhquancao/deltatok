@@ -43,16 +43,17 @@ ulimit -n "$(ulimit -Hn)"
 export CONFIG_NAME=train_deltatok_flow_jeanzay
 export RESULTS_DIR="/lustre/fswork/projects/rech/trg/uyl37fq/deltatok_flow_log"
 # Distinct name so this run lands in its own subdir.
-export RUN_NAME=deltatok_flow_full_dtok64_deltaCtx_global_fullT_wd05_raymapoff
+export RUN_NAME=deltatok_flow_full_dtok64_deltaCtxCross_global_fullT_wd05_raymapoff
 # Frozen tokenizer = dtok64 (K=64 delta tokens/camera, non-affine z-norm; deltatok_ckpt override below).
-# delta_ctx: first delta token (frame 0->1) is the clean in-seq context, no cross-attn.
+# delta_ctx_cross: first delta token (frame 0->1) is the clean in-seq context AND
+# frame-0 patch feats condition every block via per-camera cross-attn.
 # global: one attention over all delta tokens. camera_embed gives per-camera identity
 # (native-K: a camera's K delta tokens share its embedding; K identity via spatial_pos).
 EXTRA_CFG_ARGS=(
     model.deltatok.num_delta_tokens=64         # K=64 delta tokens/camera (must match the frozen dtok64 ckpt)
     model.deltatok_ckpt=/lustre/fswork/projects/rech/trg/uyl37fq/deltatok_log/deltatok_surround_layer12_bsize2_dtok64_cos1e3_1e5_b95_gradskip_noaff/ckpts/current.pth
     model.deltatok.norm_affine=false           # dtok64 tokenizer is non-affine z-norm (declared true in flow cfg)
-    model.cond_mode=delta_ctx                  # first delta token as clean in-seq context (no cross-attn)
+    model.cond_mode=delta_ctx_cross            # clean in-seq context + frame-0 tokens as cross-attn condition
     model.attn_mode=global                     # single global attention over all delta tokens
     model.vit_use_camera_embed=true            # absolute per-camera identity in the flow ViT
     model.loss_mode=v                          # v-MSE = 1/(1-t)^2-weighted x-MSE (upweights near-clean t->1)

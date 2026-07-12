@@ -88,12 +88,14 @@ class DeltaTokFlowMatchingTrainer(DeltaTokSharedMixin, Trainer):
 
         # Conditioning / attention modes (default to legacy cross + factorized).
         # delta_ctx: first delta token (frame 0->1) is the clean in-seq context
-        # (timestep 1, no loss), no cross-attn. global: one attention over all deltas.
+        # (timestep 1, no loss), no cross-attn. delta_ctx_cross: delta_ctx + frame-0
+        # cross-attn. global: one attention over all deltas.
         self.cond_mode = str(self.cfg.model.get("cond_mode", "cross"))
-        assert self.cond_mode in ("cross", "delta_ctx"), f"bad cond_mode={self.cond_mode!r}"
+        assert self.cond_mode in ("cross", "delta_ctx", "delta_ctx_cross"), f"bad cond_mode={self.cond_mode!r}"
         self.attn_mode = str(self.cfg.model.get("attn_mode", "factorized"))
         assert self.attn_mode in ("factorized", "global"), f"bad attn_mode={self.attn_mode!r}"
-        self.n_ctx = 1 if self.cond_mode == "delta_ctx" else 0   # clean leading delta-token slots
+        self.use_cross = self.cond_mode in ("cross", "delta_ctx_cross")             # frame-0 cross-attn conditioning
+        self.n_ctx = 1 if self.cond_mode in ("delta_ctx", "delta_ctx_cross") else 0  # clean leading delta-token slots
 
         # Frozen OccRAE encoder/decoder (mixin; never DDP-wrapped, no optimizer).
         self._build_occ_rae()
@@ -191,9 +193,9 @@ class DeltaTokFlowMatchingTrainer(DeltaTokSharedMixin, Trainer):
             # Define transformer architecture parameters
             hidden_dim, depth, heads = self.transformer_size(self.cfg.model.get("vit_size", "base"))
 
-            # cross mode conditions on frame-0 patch grids via per-camera cross-attention;
-            # delta_ctx mode has no cross-attn (the first delta token is the context).
-            cross_dim = 1536 if self.cond_mode == "cross" else None
+            # cross / delta_ctx_cross condition on frame-0 patch grids via per-camera
+            # cross-attention; delta_ctx has no cross-attn (first delta token = context).
+            cross_dim = 1536 if self.use_cross else None
 
             model = Transformer(
                 out_dim=1536,
@@ -371,8 +373,8 @@ class DeltaTokFlowMatchingTrainer(DeltaTokSharedMixin, Trainer):
             x0: GT first-frame patch features (B, N, P, C).
 
         Returns:
-            ctx: (B, N*K, Hp, Wp, C) — each camera's frame-0 patch grid repeated K
-                 times (cam-major/K-minor) so delta slot s=n*K+k sees camera n's grid.
+            ctx: (B, N, Hp, Wp, C) — one frame-0 patch grid per camera; in the flow
+                 ViT camera n's K delta slots (cam-major/K-minor) share it as kv.
         """
         B, N, P, C = x0.shape
         Hp, Wp = H // self._patch_size, W // self._patch_size   # patch grid size; P = Hp*Wp
@@ -385,9 +387,9 @@ class DeltaTokFlowMatchingTrainer(DeltaTokSharedMixin, Trainer):
         if ctx_norm == "layernorm":
             ctx = F.layer_norm(ctx.float(), (C,)).to(x0.dtype)  # (B, N, P, C) unit-scale per token
         ctx = ctx.view(B, N, Hp, Wp, C)                         # (B, N, Hp, Wp, C) unflatten patch grid
-        # cross slot s=n*K+k -> camera n's grid: repeat each camera's grid K times
-        # (cam-major/K-minor), matching the flow ViT's N*K spatial slots.
-        return ctx.repeat_interleave(self.num_delta_tokens, dim=1)  # (B, N*K, Hp, Wp, C)
+        # One grid per camera: the flow ViT folds cameras into batch so camera n's
+        # K delta slots share this grid as kv (no K-fold duplication).
+        return ctx                                              # (B, N, Hp, Wp, C)
 
     def _sample_noise(self, x):
         """Flow-matching noise prior; the fixed modes are overfit diagnostics.
@@ -542,9 +544,9 @@ class DeltaTokFlowMatchingTrainer(DeltaTokSharedMixin, Trainer):
                 f"T-1={z.shape[1]} transitions <= context n_ctx={self.n_ctx}; nothing to predict"
             )
             x_spatial = self._z_to_flow_latent(z)  # (B, C, T-1, N, K) flow latent layout
-            # cross mode: frame-0 patch grids via cross-attention. delta_ctx: no cross-attn
-            # (first n_ctx delta tokens kept clean in-sequence — see flow_noising context).
-            cross_cond = self._build_cross_cond(feat0, H, W) if self.cond_mode == "cross" else None  # (B, N, Hp, Wp, C) or None
+            # use_cross: frame-0 patch grids via cross-attention. n_ctx>0: first n_ctx
+            # delta tokens kept clean in-sequence — see flow_noising context.
+            cross_cond = self._build_cross_cond(feat0, H, W) if self.use_cross else None  # (B, N, Hp, Wp, C) or None
 
             z_t, e, timestep = self.flow_noising(x_spatial, context=self.n_ctx, mu=self.cfg.model.mu, sigma=self.cfg.model.sigma)
 
@@ -715,15 +717,15 @@ class DeltaTokFlowMatchingTrainer(DeltaTokSharedMixin, Trainer):
                     # eval needs tokens (decode), feat0 (rollout seed + cross-cond), z (GT).
                     tokens, feat0, z, H, W = self._encode_inputs(batch, imgs, num_cameras, want_tokens=True)  # tokens (B, V, N_tok, C); feat0 (B, N, P, C); z (B, T-1, N, K, C)
                     x_spatial = self._z_to_flow_latent(z)  # (B, C, T-1, N, K) flow latent layout
-                    cross_cond = self._build_cross_cond(feat0, H, W) if self.cond_mode == "cross" else None  # (B, N, Hp, Wp, C) or None
+                    cross_cond = self._build_cross_cond(feat0, H, W) if self.use_cross else None  # (B, N, Hp, Wp, C) or None
 
                     batch_losses = {}
 
-                    # 1. Sample delta tokens from pure noise. cross mode: conditioning via
-                    #    cross_cond. delta_ctx: the first n_ctx delta tokens are the clean
+                    # 1. Sample delta tokens from pure noise. use_cross: conditioning via
+                    #    cross_cond. n_ctx>0: the first n_ctx delta tokens are the clean
                     #    context (GT, kept fixed by flow_euler_sample's context handling).
                     zr = self._sample_noise(x_spatial)                            # (B, C, T-1, N, K) init noise (matches train prior)
-                    if self.cond_mode == "delta_ctx":
+                    if self.n_ctx > 0:
                         zr[:, :, :self.n_ctx] = x_spatial[:, :, :self.n_ctx]      # GT first delta = clean context
                     gen = flow_euler_sample(
                         self._ema_model(), zr,
