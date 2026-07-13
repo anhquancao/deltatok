@@ -1,0 +1,63 @@
+defaults:
+  - train_deltatok_flow_jeanzay
+  - _self_
+
+# Waymo-only variant of train_deltatok_flow_jeanzay: train on the Waymo train
+# split MINUS 32 held-out scenes, eval on those 32 scenes as val (128 surround
+# seqs, 32 x 4). Model, frozen tokenizer, img_decoder and training schedule are
+# inherited unchanged; only the dataset differs.
+dataset:
+  # 32 held-out Waymo scenes = 128 surround val seqs. Referenced by BOTH dataset
+  # strings via ${dataset._waymo_val_scenes} so the train exclusion and the val
+  # selection stay identical (no leak). Includes the 2 built-in waymo.py val_scenes;
+  # waymo.py's split default is untouched (split=None used here, base kwargs filter).
+  _waymo_val_scenes:
+    - segment-18331713844982117868_2920_900_2940_900_with_camera_labels.tfrecord
+    - segment-9465500459680839281_1100_000_1120_000_with_camera_labels.tfrecord
+    - segment-10017090168044687777_6380_000_6400_000_with_camera_labels.tfrecord
+    - segment-10023947602400723454_1120_000_1140_000_with_camera_labels.tfrecord
+    - segment-1005081002024129653_5313_150_5333_150_with_camera_labels.tfrecord
+    - segment-10061305430875486848_1080_000_1100_000_with_camera_labels.tfrecord
+    - segment-10072140764565668044_4060_000_4080_000_with_camera_labels.tfrecord
+    - segment-10072231702153043603_5725_000_5745_000_with_camera_labels.tfrecord
+    - segment-10075870402459732738_1060_000_1080_000_with_camera_labels.tfrecord
+    - segment-10082223140073588526_6140_000_6160_000_with_camera_labels.tfrecord
+    - segment-10094743350625019937_3420_000_3440_000_with_camera_labels.tfrecord
+    - segment-10096619443888687526_2820_000_2840_000_with_camera_labels.tfrecord
+    - segment-10107710434105775874_760_000_780_000_with_camera_labels.tfrecord
+    - segment-10153695247769592104_787_000_807_000_with_camera_labels.tfrecord
+    - segment-10206293520369375008_2796_800_2816_800_with_camera_labels.tfrecord
+    - segment-10212406498497081993_5300_000_5320_000_with_camera_labels.tfrecord
+    - segment-1022527355599519580_4866_960_4886_960_with_camera_labels.tfrecord
+    - segment-10226164909075980558_180_000_200_000_with_camera_labels.tfrecord
+    - segment-10231929575853664160_1160_000_1180_000_with_camera_labels.tfrecord
+    - segment-10235335145367115211_5420_000_5440_000_with_camera_labels.tfrecord
+    - segment-10241508783381919015_2889_360_2909_360_with_camera_labels.tfrecord
+    - segment-10275144660749673822_5755_561_5775_561_with_camera_labels.tfrecord
+    - segment-10327752107000040525_1120_000_1140_000_with_camera_labels.tfrecord
+    - segment-10391312872392849784_4099_400_4119_400_with_camera_labels.tfrecord
+    - segment-10444454289801298640_4360_000_4380_000_with_camera_labels.tfrecord
+    - segment-10455472356147194054_1560_000_1580_000_with_camera_labels.tfrecord
+    - segment-10485926982439064520_4980_000_5000_000_with_camera_labels.tfrecord
+    - segment-10498013744573185290_1240_000_1260_000_with_camera_labels.tfrecord
+    - segment-10500357041547037089_1474_800_1494_800_with_camera_labels.tfrecord
+    - segment-10517728057304349900_3360_000_3380_000_with_camera_labels.tfrecord
+    - segment-1051897962568538022_238_170_258_170_with_camera_labels.tfrecord
+    - segment-10526338824408452410_5714_660_5734_660_with_camera_labels.tfrecord
+  # Train: full Waymo surround train, holding out the 32 val scenes (split=None +
+  # exclude_scenes). Same per-view knobs as the base config's Waymo entry.
+  train_dataset: "4000 @ WaymoSeqMultiView(ROOT='/lustre/fsn1/projects/rech/trg/uyl37fq/occany_data/waymo_processed', \
+      seq_pkl_name='seq_surround_temporal_sub5_stride9_all.pkl', \
+      min_memory_num_views=5, frame_interval=1, max_memory_num_views=24, \
+      num_views_per_timestep=5, fixed_cams=[0], min_num_timesteps=2, ray_map_prob=-1, \
+      z_far=50, split=None, exclude_scenes=${dataset._waymo_val_scenes}, no_partial_views=True, \
+      resolution=[(518, 294), (518, 280), (518, 266), (518, 210), (518, 168)], \
+      reverse_seq=True, distill_model_name='SAM3', base_model='da3')"
+  # Val: the 32 held-out scenes (128 seqs). Fixed 2-timestep x 5-cam surround
+  # (min=max=10), single (518,266) resolution and seed=42 for deterministic eval.
+  test_dataset: "128 @ WaymoSeqMultiView(ROOT='/lustre/fsn1/projects/rech/trg/uyl37fq/occany_data/waymo_processed', \
+      seq_pkl_name='seq_surround_temporal_sub5_stride9_all.pkl', frame_interval=1, \
+      min_memory_num_views=10, max_memory_num_views=10, num_views_per_timestep=5, min_num_timesteps=2, \
+      z_far=50, split=None, select_scenes=${dataset._waymo_val_scenes}, seed=42, no_partial_views=True, fixed_cams=[0], \
+      reverse_seq=False, \
+      resolution=[(518, 266)], distill_model_name='SAM3', base_model='da3')"

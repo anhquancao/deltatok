@@ -66,6 +66,7 @@ class BaseSeqDataset (BaseStereoViewDataset):
                  distill_model_name=None, distill_img_size=None, img_size=512,
                  base_model="must3r",
                  max_seqs=None,
+                 select_scenes=None, exclude_scenes=None,
                  **kwargs):
 
         super().__init__(*args, **kwargs)
@@ -91,6 +92,13 @@ class BaseSeqDataset (BaseStereoViewDataset):
         self.img_ext = ".jpg"
         self.num_views = 3
         self._load_data()
+        # Config-local scene filtering (default None = no-op), applied before any
+        # subclass split filter so both compose. Carves a held-out val set without
+        # touching the subclass split boundary: exclude_scenes on train, select_scenes on val.
+        if select_scenes is not None:
+            self.select_scene(select_scenes)
+        if exclude_scenes is not None:
+            self.select_scene(exclude_scenes, opposite=True)
         # `max_seqs` is applied later via `_truncate_to_max_seqs()` so it runs
         # AFTER any split-based scene selection a subclass performs in its own
         # __init__ (e.g. Occ3dNuscenesSeqMultiView). Truncating here would keep
