@@ -369,26 +369,37 @@ predicted LossFlow ratio = 1.0 / 0.2126     = <b>4.70×</b></code></pre>
   SNR spread; the RAE/SD3 <i>shift</i> fixes the <b>global</b> noise level for the latent's dimensionality. RAE calls
   it "significant" and it costs <b>one config key</b> — for a logit-normal schedule the shift is a constant offset in
   logit space, i.e. exactly <code>model.mu</code> (<code>logit(t_m) = logit(t_n) + log α</code>, <code>α=√(m/n)</code>).</p>
-  <div class="card ok">
-    <p style="margin:0 0 6px"><b>RAE's base 4096 = 4·32·32, the SD-VAE latent — and it is coherent.</b> Not SD3's
-    token grid (an earlier reading here claimed "scalars ÷ tokens"; that was <b>wrong</b> and is retracted). The
-    giveaway is their eval default <code>samples/sdvae-ft-mse-f8d4.npz</code> — <b>f8d4</b> = factor-8, <b>4</b>
-    channels — so at ImageNet-256 the reference latent is <code>4·32·32 = 4096</code>. RAE ships
-    <code>time_dist_shift_dim: 196608 # 16*16*768</code> over that base: <b>scalars ÷ scalars, same task, same
-    resolution</b>. α = √48 = 6.93 reads as "our latent carries 48× more numbers than the VAE latent everyone else
-    diffuses". <code>assert time_dist_shift &gt;= 1.0</code> is then just a domain assumption (any RAE latent is
-    fatter than f8d4), not a tell. It is self-consistent across resolutions too: base stays 4096 while ImageNet-512
-    uses <code>[768,32,32]</code> → α = 13.86, so the fixed anchor absorbs the resolution shift as well.</p>
-    <p style="margin:0 0 6px"><b>What is loose:</b> SD3 never states <code>n = 4096</code> — its only "4096" is a
-    channel dim in the Fig. 2 diagram — and SD3 does not derive α at all: <i>"we thus use a shift value of α=3.0 both
-    during training and sampling at resolution 1024×1024"</i>, picked by <b>human preference study</b> (the formula
-    would give 4). So the <i>formula</i> is Esser et al.'s; the <i>base</i> is RAE's own choice.</p>
-    <p style="margin:0"><b>For us:</b> latent ≈ (T−1)·N·K·C ≈ 786,432 scalars → α = √(786432/4096) = <b>13.86</b> →
-    <code>mu: −0.7 → ≈ −3.33</code>. Defensible, but: 4096 anchors to an <i>image</i> latent (an odd yardstick for
-    delta tokens); our <code>m</code> is not fixed (T−1 varies); and Phase 0 says our effective rank is far below
-    1536 (c=527 alone is 77% of energy), so 786k overstates the effective dimension on RAE's own redundancy logic —
-    and SD3 themselves overrode the formula empirically. Bracket the prediction rather than trust it: sweep
-    <code>mu</code> around −0.7 / −1.8 / −3.3.</p>
+  <div class="card warn">
+    <p style="margin:0 0 6px"><b>RAE's base 4096 is ambiguous — do not copy the formula.</b> Two origins coincide
+    numerically (<code>4·32·32 = 64·64 = 4096</code>), and <b>RAE's citation and its arithmetic cannot both be
+    right</b>:</p>
+    <ul style="margin:0 0 8px">
+      <li><b>As cited</b> — "we follow (Esser et al., 2024) in using n=4096". SD3's VAE is <b>f8 d16</b>, so it has
+        <i>no</i> 4096-scalar quantity: at 1024² its latent is 16·128·128 = 262,144 scalars and <b>64·64 = 4096
+        tokens</b>. So n = SD3's <b>token</b> count, while RAE's m (<code>196608 # 16*16*768</code>) is
+        <b>scalars</b> <span class="arrow">→</span> mixed units, α inflated ~√768.</li>
+      <li><b>As coded</b> — their eval default <code>samples/sdvae-ft-mse-f8d4.npz</code> (<b>f8d4</b> = factor-8,
+        <b>4</b> channels) gives <code>4·32·32 = 4096</code> scalars at ImageNet-256: scalars ÷ scalars, coherent —
+        but that is the DiT/SiT baseline VAE, <b>not Esser et al.'s</b>, so the citation would be wrong.</li>
+    </ul>
+    <table style="margin:0 0 8px">
+      <thead><tr><th>reading</th><th>m</th><th>n</th><th>α</th><th>units</th><th>assert ≥1</th></tr></thead>
+      <tbody>
+        <tr><td>as RAE cites (SD3 tokens @1024²)</td><td class="num">196,608</td><td class="num">4,096</td><td class="num">6.93</td><td class="del">mixed</td><td>✓</td></tr>
+        <tr><td>f8d4 scalars @256²</td><td class="num">196,608</td><td class="num">4,096</td><td class="num">6.93</td><td class="add">ok</td><td>✓</td></tr>
+        <tr><td>tokens ÷ tokens</td><td class="num">256</td><td class="num">4,096</td><td class="num">0.25</td><td class="add">ok</td><td>✗</td></tr>
+        <tr><td>scalars vs SD3 @1024²</td><td class="num">196,608</td><td class="num">262,144</td><td class="num">0.87</td><td class="add">ok</td><td>✗</td></tr>
+        <tr><td>scalars vs SD3 @256²</td><td class="num">196,608</td><td class="num">16,384</td><td class="num">3.46</td><td class="add">ok</td><td>✓</td></tr>
+      </tbody>
+    </table>
+    <p style="margin:0 0 6px"><b>Robust regardless:</b> SD3 never <i>derives</i> α — it ships <i>"a shift value of
+    α=3.0 both during training and sampling at resolution 1024×1024"</i>, chosen by a <b>human preference study</b>,
+    where its own formula gives 4. Even at the source this is a tuned knob with a derivation attached for motivation.</p>
+    <p style="margin:0"><b>For us</b> the ambiguity spans α ≈ 3.5–14, i.e. <code>mu</code> anywhere from <b>−1.9 to
+    −3.3</b> — a 1.4-nat range set by someone else's config comment. Add that our <code>m</code> is not fixed (T−1
+    varies) and Phase 0 shows our effective rank is far below 1536 (c=527 alone is 77% of energy), so a raw scalar
+    count overstates <code>m</code> on RAE's own redundancy logic. <b>Do not derive it — sweep it</b>
+    (<code>mu</code> ≈ −0.7 / −1.8 / −3.3).</p>
   </div>
 
   <h2>Files</h2>
