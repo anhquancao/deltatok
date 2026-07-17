@@ -369,17 +369,26 @@ predicted LossFlow ratio = 1.0 / 0.2126     = <b>4.70×</b></code></pre>
   SNR spread; the RAE/SD3 <i>shift</i> fixes the <b>global</b> noise level for the latent's dimensionality. RAE calls
   it "significant" and it costs <b>one config key</b> — for a logit-normal schedule the shift is a constant offset in
   logit space, i.e. exactly <code>model.mu</code> (<code>logit(t_m) = logit(t_n) + log α</code>, <code>α=√(m/n)</code>).</p>
-  <div class="card warn">
-    <p style="margin:0 0 6px"><b>But RAE's α is dimensionally incoherent — do not copy the formula.</b> SD3 defines
-    <code>n = H·W</code> <b>pixels</b>; RAE ships <code>time_dist_shift_dim: 196608 # 16*16*768</code> against
-    <code>time_dist_shift_base: 4096</code> — <b>scalars ÷ tokens</b>, inflating α by ~√768. The tell:
-    <code>assert time_dist_shift &gt;= 1.0</code>, while <i>both</i> coherent readings give α&lt;1 and would crash it
-    (tokens/tokens 256/4096 → 0.25; scalars/scalars 196,608/262,144 → 0.87). Only the incoherent reading yields the
-    noisier shift they want — it is a tuned constant with a √(m/n) story wrapped around it.</p>
-    <p style="margin:0">For us: tokens/tokens → <code>mu +0.33</code>; scalars/scalars → <code>mu −1.26</code>;
-    RAE-style → <code>mu −3.34</code>. <b>The conventions disagree on the sign.</b> Also our <code>m</code> is not
-    fixed (T−1 varies), and Phase 0 says our effective rank is far below 1536, so a raw scalar count overstates
-    <code>m</code> on RAE's own logic. Treat <code>mu</code> as an empirical knob (sweep −0.7 / −1.3 / −2.0).</p>
+  <div class="card ok">
+    <p style="margin:0 0 6px"><b>RAE's base 4096 = 4·32·32, the SD-VAE latent — and it is coherent.</b> Not SD3's
+    token grid (an earlier reading here claimed "scalars ÷ tokens"; that was <b>wrong</b> and is retracted). The
+    giveaway is their eval default <code>samples/sdvae-ft-mse-f8d4.npz</code> — <b>f8d4</b> = factor-8, <b>4</b>
+    channels — so at ImageNet-256 the reference latent is <code>4·32·32 = 4096</code>. RAE ships
+    <code>time_dist_shift_dim: 196608 # 16*16*768</code> over that base: <b>scalars ÷ scalars, same task, same
+    resolution</b>. α = √48 = 6.93 reads as "our latent carries 48× more numbers than the VAE latent everyone else
+    diffuses". <code>assert time_dist_shift &gt;= 1.0</code> is then just a domain assumption (any RAE latent is
+    fatter than f8d4), not a tell. It is self-consistent across resolutions too: base stays 4096 while ImageNet-512
+    uses <code>[768,32,32]</code> → α = 13.86, so the fixed anchor absorbs the resolution shift as well.</p>
+    <p style="margin:0 0 6px"><b>What is loose:</b> SD3 never states <code>n = 4096</code> — its only "4096" is a
+    channel dim in the Fig. 2 diagram — and SD3 does not derive α at all: <i>"we thus use a shift value of α=3.0 both
+    during training and sampling at resolution 1024×1024"</i>, picked by <b>human preference study</b> (the formula
+    would give 4). So the <i>formula</i> is Esser et al.'s; the <i>base</i> is RAE's own choice.</p>
+    <p style="margin:0"><b>For us:</b> latent ≈ (T−1)·N·K·C ≈ 786,432 scalars → α = √(786432/4096) = <b>13.86</b> →
+    <code>mu: −0.7 → ≈ −3.33</code>. Defensible, but: 4096 anchors to an <i>image</i> latent (an odd yardstick for
+    delta tokens); our <code>m</code> is not fixed (T−1 varies); and Phase 0 says our effective rank is far below
+    1536 (c=527 alone is 77% of energy), so 786k overstates the effective dimension on RAE's own redundancy logic —
+    and SD3 themselves overrode the formula empirically. Bracket the prediction rather than trust it: sweep
+    <code>mu</code> around −0.7 / −1.8 / −3.3.</p>
   </div>
 
   <h2>Files</h2>
