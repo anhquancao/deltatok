@@ -1,0 +1,418 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Plan — RAE-style per-channel whitening of DeltaTok flow latents</title>
+<style>
+  :root{
+    --bg:#ffffff; --fg:#1b1f24; --muted:#5b6570; --line:#e3e8ee;
+    --card:#f7f9fb; --accent:#2f6feb; --code:#f0f3f7;
+    --ok:#1a7f37; --warn:#9a6700; --add:#1a7f37; --del:#b42318;
+  }
+  @media (prefers-color-scheme:dark){
+    :root{ --bg:#0f1216; --fg:#e6edf3; --muted:#9aa4af; --line:#252c34;
+      --card:#161b22; --accent:#589bff; --code:#161b22;
+      --ok:#3fb950; --warn:#d29922; --add:#3fb950; --del:#f85149; }
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--fg);
+    font:15px/1.6 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;}
+  .wrap{max-width:980px;margin:0 auto;padding:32px 20px 80px;}
+  h1{font-size:26px;margin:0 0 4px;letter-spacing:-.01em}
+  h2{font-size:19px;margin:38px 0 10px;padding-bottom:6px;border-bottom:1px solid var(--line)}
+  h3{font-size:15px;margin:22px 0 6px}
+  .sub{color:var(--muted);margin:0 0 6px}
+  code,pre{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:13px}
+  code{background:var(--code);padding:1px 5px;border-radius:4px;overflow-wrap:anywhere}
+  pre{background:var(--code);border:1px solid var(--line);border-radius:8px;padding:12px 14px;overflow-x:auto}
+  pre code{background:none;padding:0}
+  table{border-collapse:collapse;width:100%;margin:10px 0;font-size:14px;display:block;overflow-x:auto}
+  th,td{border:1px solid var(--line);padding:7px 10px;text-align:left;vertical-align:top}
+  th{background:var(--card);font-weight:600;white-space:nowrap}
+  td code{white-space:nowrap}
+  .meta{display:flex;flex-wrap:wrap;gap:8px 18px;color:var(--muted);font-size:13px;margin:10px 0 0}
+  .meta b{color:var(--fg);font-weight:600}
+  .card{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:14px 16px;margin:12px 0}
+  .card.warn{border-color:var(--warn)}
+  ul,ol{margin:6px 0 6px 4px;padding-left:20px}
+  li{margin:5px 0}
+  .small{color:var(--muted);font-size:12.5px}
+  .tag{font-family:ui-monospace,monospace;font-size:12px;color:var(--muted)}
+  .pill{display:inline-block;padding:1px 8px;border-radius:999px;font-size:11.5px;font-weight:600;border:1px solid var(--line);color:var(--muted)}
+  .pill.key{color:#fff;background:var(--accent);border-color:transparent}
+  .add{color:var(--add);font-weight:600}
+  .del{color:var(--del);font-weight:600}
+  .pill.done{color:#fff;background:var(--ok);border-color:transparent}
+  .pill.run{color:#fff;background:var(--warn);border-color:transparent}
+  .card.ok{border-color:var(--ok)}
+  .num{font-variant-numeric:tabular-nums}
+  s{color:var(--muted)}
+  .arrow{color:var(--muted)}
+  .fileh{font-family:ui-monospace,monospace;font-size:13.5px}
+  .step{margin:14px 0;padding-left:12px;border-left:3px solid var(--line)}
+  .step b{display:block;margin-bottom:2px}
+  .lbl{display:inline-block;min-width:44px;font-weight:700;color:var(--accent)}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <h1>RAE-style per-channel whitening of DeltaTok flow latents</h1>
+  <p class="sub">DeltaTok's final LayerNorm normalizes <b>rows</b> (per token, across channels). The flow's isotropic
+  noise needs normalized <b>columns</b> (per channel, across the dataset). Add the missing axis, gated by a config
+  flag, and produce the ablation the RAE paper skips.</p>
+  <div class="meta">
+    <span><b>Target</b> Jean Zay H100</span>
+    <span><b>Branch</b> <code>revert</code></span>
+    <span><b>Baseline</b> <code>..._raymapoff_50k</code> @ epoch 39 / iter 40000</span>
+    <span><b>Latent</b> <code>(B, C, T-1, N, K)</code></span>
+    <span><b>Updated</b> 2026-07-17</span>
+  </div>
+
+  <h2>Status</h2>
+  <table>
+    <thead><tr><th>Phase</th><th>State</th><th>Outcome</th></tr></thead>
+    <tbody>
+      <tr><td>0 — Measure</td><td><span class="pill done">done</span></td>
+        <td>Stats at <code>latent_stats_waymo.pth</code> (n=4.2M, 500 batches). Gate <b>9.2×</b> → <i>ambiguous</i>.
+            The premise below was <b>wrong</b>: the pathology is a constant <b>mean</b>, not std spread.</td></tr>
+      <tr><td>1 — Wire</td><td><span class="pill done">done</span></td>
+        <td>Mixin pair + <code>_load_whiten_stats</code>. Reviewed (Fable): no-op path exact, pair exactly inverse,
+            MSEToken comparability holds.</td></tr>
+      <tr><td>2 — Verify</td><td><span class="pill done">done</span></td>
+        <td>Whitened smoke: <code>x_var</code> 1.0396, <code>[CHECK]</code> 0.4033 → 5.2877 (whitening active).</td></tr>
+      <tr><td>3 — Train</td><td><span class="pill run">running</span></td>
+        <td>Job <code>1992473</code>, <code>..._50k_whiten</code>. <b>Target: LossFlow &lt; 2.01</b> @ epoch 39 (see below).</td></tr>
+      <tr><td>4 — Diagnose</td><td><span class="pill">pending</span></td>
+        <td>t-bin sweep on the whitened ckpt once trained.</td></tr>
+    </tbody>
+  </table>
+
+  <div class="card warn">
+    <p style="margin:0 0 8px"><b>Three claims in the original plan are now falsified by measurement.</b> They are struck
+    through in place below; the corrected numbers are here.</p>
+    <ul style="margin:0">
+      <li><b>"std<sub>c</sub> = 30 vs 0.05", a heavy low tail.</b> <span class="arrow">→</span> Not there. Measured std
+        spans <b>0.2685 – 2.4633</b> (9.2×), p50 0.42, and <b>no</b> channel near zero (the <code>1e-3</code> floor
+        never fires). The SNR-spread argument the plan is built on is <b>weak</b>.</li>
+      <li><b>"MSEToken 0.2816 against a 1.0 mean-collapse floor."</b> <span class="arrow">→</span> 1.0 is the
+        <i>predict-zero</i> floor, and <b>78.7%</b> of it is one constant channel. The real mean-collapse floor is
+        <code>(1/C)Σs<sub>c</sub>²</code> = <b>0.2126</b>. The baseline sits <i>above</i> it.</li>
+      <li><b>"MSEToken is the only valid A/B metric."</b> <span class="arrow">→</span> True but <b>insensitive</b>:
+        the baseline goes 0.2716 (ep0) → 0.3218 (ep2) → 0.2816 (ep39) — non-monotonic and <i>worse</i> at the end than
+        at the start. Rescaled <code>LossFlow</code> is the sharper readout (see Phase 3).</li>
+    </ul>
+  </div>
+
+  <div class="card ok">
+    <p style="margin:0 0 6px"><b>What the measurement actually found.</b> One channel, <code>c=527</code>, is a near
+    <b>constant 34.38</b> (std 1.16) holding <b>76.8%</b> of the latent's entire energy — the massive-activation sink.
+    That, not variance spread, is what the pdb probe's <code>max()=36.7</code> was.</p>
+    <table style="margin:8px 0 0">
+      <thead><tr><th></th><th>c=527</th><th>all other channels</th></tr></thead>
+      <tbody>
+        <tr><td>mean</td><td class="num"><b>34.3837</b></td><td class="num">|mean| median 0.027</td></tr>
+        <tr><td>std</td><td class="num">1.1637</td><td class="num">median 0.423</td></tr>
+        <tr><td>energy share</td><td class="num"><b>76.8%</b></td><td class="num">23% over 1535 channels</td></tr>
+      </tbody>
+    </table>
+    <p style="margin:8px 0 0"><b>78.7% of the energy is mean-carried, 21.3% std-carried.</b> So whitening's active
+    ingredient here is <b>mean subtraction</b>, not the SNR equalization the plan argues for — and the run cannot
+    tell the two apart. A mean-only arm would be needed to attribute the effect.</p>
+  </div>
+
+  <h2>Context — why</h2>
+  <p>The frozen tokenizer's last op is
+  <code>nn.LayerNorm(cfg.hidden_size, eps, elementwise_affine=False)</code>
+  (<span class="fileh">occrae/deltatok_trainer.py:138</span>). <code>norm_affine=false</code> removes the learned
+  scale, so the intuition was "the latents are normalized". A pdb probe on <code>x_spatial</code> said otherwise:</p>
+  <pre><code>(Pdb) x_spatial.max()   →  tensor(36.7141)
+(Pdb) x_spatial.min()   →  tensor(-7.1765)</code></pre>
+
+  <p>Nothing is broken — this is what LayerNorm actually guarantees. Lay the delta tokens out as a matrix with
+  <b>rows = tokens</b> (<code>M = B·(T-1)·N·K</code>) and <b>columns = channels</b> (<code>C</code>):</p>
+  <ul>
+    <li><b>LayerNorm normalizes each row</b>, independently: mean 0, RMS 1 along that row's <code>C</code> channels.
+      That is the whole operation — it never looks at another row.</li>
+    <li>The only bound on an element is <code>|x_i| ≤ sqrt(C-1)</code>, reached when one channel holds the token's
+      entire energy. With <code>C</code> in the thousands that ceiling is in the tens. <b>That is the 36.7.</b></li>
+    <li><b>Columns are completely unconstrained.</b> <s>Every row can have RMS 1 while column 7 has std 30 and column
+      900 has std 0.01</s> — the classic <i>massive activation</i> pattern, and DeltaTok is built on
+      <code>DINOv3ViTConfig</code>/<code>DINOv3ViTLayer</code>
+      (<span class="fileh">deltatok_trainer.py:93-99</span>), where it is well documented.
+      <br><b>Measured:</b> the pattern is real but appears in the <b>mean</b>, not the std — <code>c=527</code> is a
+      constant 34.38 carrying 76.8% of the energy, while stds only span 0.27–2.46.</li>
+  </ul>
+
+  <div class="card">
+    <p style="margin:0"><b>Verified as a tautology, not evidence.</b> A first probe reshaped to
+    <code>x_spatial.reshape(-1, 64)</code> and got per-column mean <code>~1e-9</code>, std <code>~1</code>. That
+    measured the <b>wrong axis</b>: <code>x_spatial</code> is <code>(B, C, T-1, N, K)</code>, so <code>64</code> is
+    <code>K</code> (<code>num_delta_tokens</code>, the <code>dtok64</code> in the run name), not <code>C</code>.
+    Reducing over axis 0 sweeps the channel axis, and LayerNorm forces <code>Σ_c x = 0</code> exactly — so that
+    result is structurally 0 regardless of channel skew. The real probe puts channels last:
+    <code>x_spatial.movedim(1,-1).reshape(-1, C)</code>, then <code>.std(0)</code>.</p>
+  </div>
+
+  <h3>Why the flow cares</h3>
+  <p><code>flow_noising</code> (<span class="fileh">occrae/deltatok_flow_trainer.py:428-460</span>) builds
+  <code>z_t = t·x + (1-t)·e</code> with <b>isotropic</b> <code>e ~ N(0, I)</code>. So the per-channel SNR is:</p>
+  <pre><code>SNR_c(t) = t · std_c / (1 - t)</code></pre>
+  <p><s>A channel with <code>std_c = 30</code> stays legible at near-pure noise; one with <code>std_c = 0.05</code> is
+  buried at near-clean.</s> <b>One <code>t</code> means a different effective noise level in every dimension</b>, and
+  the quadratic loss is dominated by the high-std channels while the low-std ones are never meaningfully trained.
+  LayerNorm pins the <i>average</i> of <code>std_c²</code> to ~1 but leaves the <b>spread free</b>.</p>
+  <div class="card">
+    <p style="margin:0"><b>Measured — the effect is real but modest.</b> Std spans 0.2685–2.4633, so the quadratic
+    loss weights channels by <code>std_c²</code> over a <b>82.7×</b> range, with <b>87.2%</b> of channels below
+    std 0.5. That is a genuine per-channel SNR mismatch, but nothing is <i>buried</i>: the low tail bottoms out at
+    0.27, not 0.01. The dominant structure is the <b>mean</b> (78.7% of energy), which this section does not model
+    at all — a constant offset is a <b>bias term</b> the flow learns almost immediately, so it inflates the apparent
+    loss scale without ever being hard.</p>
+  </div>
+  <p>This is exactly the step the RAE paper describes and never ablates: <i>"RAE secretly whitens all dimensions in
+  their code using training dataset statistics, normalizing each dimension to std=1. It may be important for a
+  consistent signal-to-noise ratio schedule across dimensions, but the effect of this whitening step is never
+  ablated."</i></p>
+
+  <h2>Constraints</h2>
+  <ul>
+    <li><b>Tokenizer stays frozen.</b> Whitening is an invertible affine on its output — no tokenizer retrain.</li>
+    <li><b>Default is a no-op</b> so the existing 50k ckpt and every current run stay loadable.</li>
+    <li>Diagonal (per-channel mean/std) only, matching RAE. Full ZCA/PCA whitening is out of scope.</li>
+    <li>Never run code locally. The user syncs files manually — <b>ask before submitting; never scp/rsync.</b></li>
+  </ul>
+
+  <h2>Phase 0 — Measure <span class="pill key">decision gate</span></h2>
+  <p>Per the repo's variant rule, start from the closest file:
+  <code>cp eval_deltatok_flow_t_bins.py compute_deltatok_latent_stats.py</code>, then surgical edits.</p>
+  <p><b>Reuse, don't rewrite:</b></p>
+  <ul>
+    <li>trainer construction + <code>_RUN_DEFAULTS</code> injection — <span class="fileh">eval_deltatok_flow_t_bins.py:336-392</span></li>
+    <li><code>_build_split_loaders</code> — <span class="fileh">:144</span></li>
+    <li><code>trainer._encode_inputs(batch, imgs, num_cameras, want_tokens=False)</code> — <span class="fileh">deltatok_flow_trainer.py:312</span></li>
+  </ul>
+  <p>Replace the bin sweep with a float64 per-channel accumulator over <code>z (B, T-1, N, K, C)</code> flattened to
+  <code>(M, C)</code>: <code>sum</code>, <code>sumsq</code>, <code>n</code>. All slots (context included — whitening
+  applies to the whole tensor). Train split, <code>shuffle=True</code>, ~100 batches (~600k token vectors; scene
+  coverage is the point, not estimator variance).</p>
+  <p>Write <code>mean (C,)</code>, <code>std (C,)</code> + provenance (<code>deltatok_ckpt</code>,
+  <code>encode_layer</code>, <code>num_delta_tokens</code>, dataset expr, <code>n</code>) <b>beside the tokenizer
+  ckpt</b>:</p>
+  <pre><code>/lustre/fswork/projects/rech/trg/uyl37fq/deltatok_log/\
+deltatok_surround_layer12_bsize2_dtok64_cos1e3_1e5_b95_gradskip_noaff/ckpts/latent_stats_waymo.pth</code></pre>
+  <p>Print <code>C</code>, <code>n</code>, std min/max/ratio + percentiles, top-k channels by std,
+  <code>max |mean_c|</code>.</p>
+
+  <div class="card warn">
+    <p style="margin:0 0 8px"><b>Gate — result: 9.2×, ambiguous.</b> The threshold was ≈1–2× → stop, ≥~10× → proceed.
+    It landed <i>between</i>, so the gate did not decide. Proceeding anyway, on the strength of the
+    <b>mean</b> finding (78.7% of energy) rather than the std spread the gate measures.</p>
+    <table style="margin:0">
+      <thead><tr><th>batches</th><th>n (tokens)</th><th>std min</th><th>std max</th><th>ratio</th><th>|mean| max</th></tr></thead>
+      <tbody>
+        <tr><td>2 (smoke)</td><td class="num">15,360</td><td class="num">0.2394</td><td class="num">2.4777</td><td class="num">10.35×</td><td class="num">35.28</td></tr>
+        <tr><td>100</td><td class="num">841,728</td><td class="num">0.2697</td><td class="num">2.4520</td><td class="num">9.09×</td><td class="num">34.33</td></tr>
+        <tr><td><b>500</b> (shipped)</td><td class="num">4,210,688</td><td class="num">0.2685</td><td class="num">2.4633</td><td class="num">9.17×</td><td class="num">34.38</td></tr>
+      </tbody>
+    </table>
+    <p class="small" style="margin:8px 0 0"><b>Converged.</b> 100 → 500 batches (5× data) moves per-channel std by
+    <b>0.58% median / 2.84% max</b>, and 0 of 1536 channels by &gt;5%. Sampling error at n=4.2M is ~0.0003, so the
+    2→100 drift was scene coverage, not variance. LayerNorm check = <code>1.0000</code> at every size (right tensor,
+    right axis). Default is now <code>--num_batches 500</code>.</p>
+  </div>
+
+  <p>New <span class="fileh">slurm/jz_compute_deltatok_latent_stats.slurm</span> (copy of
+  <code>jz_eval_deltatok_flow_t_bins.slurm</code>): <code>zuw@h100</code>, <code>qos_gpu_h100-dev</code>, 1 GPU, 1h.</p>
+
+  <h2>Phase 1 — Wire whitening</h2>
+  <p><span class="fileh">occrae/deltatok_shared.py:232-240</span>. The pair is <code>@staticmethod</code> today, but
+  <b>every call site already goes through <code>self.</code>/<code>trainer.</code></b>
+  (<span class="fileh">deltatok_flow_trainer.py:546</span>, <span class="fileh">:719</span>,
+  <span class="fileh">:738</span>; <span class="fileh">eval_deltatok_flow_t_bins.py:218</span>) — so converting to
+  instance methods needs <b>no call-site changes</b>.</p>
+
+<pre><code>def _z_to_flow_latent(self, z):          # (B, T-1, N, K, C) -> (B, C, T-1, N, K)
+    m = getattr(self, "_whiten_mean", None)          # None -> identity
+    if m is not None:
+        z = (z - m) / self._whiten_std               # per-channel, broadcasts on last dim
+    return z.permute(0, 4, 1, 2, 3).contiguous()
+
+def _flow_latent_to_z(self, x):          # (B, C, T-1, N, K) -> (B, T-1, N, K, C)
+    z = x.permute(0, 2, 3, 4, 1).contiguous()
+    m = getattr(self, "_whiten_mean", None)
+    if m is not None:
+        z = z * self._whiten_std + m
+    return z</code></pre>
+
+  <ul>
+    <li>Whiten in <b>z-space</b> (channels last <span class="arrow">→</span> natural <code>(C,)</code> broadcast),
+      un-whiten after the permute back.</li>
+    <li><code>getattr(..., None)</code> keeps <code>DeltaTokTrainer</code> safe — it hosts the mixin but never calls
+      the pair.</li>
+    <li><code>_load_whiten_stats()</code> helper on the mixin, called from the flow trainer <code>__init__</code>
+      after <code>_build_deltatok</code> (<span class="fileh">:108</span>).
+      <code>std.clamp_min(eps)</code> <b>at load</b> so a dead channel can't amplify pure noise.</li>
+    <li>New config key <code>model.whiten_stats: null</code> in
+      <span class="fileh">configs/train_deltatok_flow.yaml</span>.</li>
+    <li>Save the stats path into the flow ckpt for provenance; print it at load.</li>
+  </ul>
+
+  <div class="card">
+    <p style="margin:0"><b>Why the pair is airtight.</b> Context pinning at <span class="fileh">:729</span> uses
+    <code>x_spatial</code> (whitened), <code>gen</code> comes out whitened, and <span class="fileh">:738</span>
+    un-whitens <span class="arrow">→</span> <code>z_hat</code> returns to the <b>original z-space</b>. So
+    <code>_rollout_from_z</code> (<span class="fileh">:746</span>) and <code>MSEToken</code>
+    (<span class="fileh">:803</span>, <code>z_hat</code> vs <code>z</code>) stay in the original space and remain
+    <b>directly comparable to the baseline's 0.2816</b>. No other edits needed.</p>
+  </div>
+
+  <h2>Phase 2 — Verify no-op + invertibility</h2>
+  <ul>
+    <li>Flag null <span class="arrow">→</span> identity: the existing 50k ckpt loads and reproduces
+      <code>Eval/LossFlow ≈ 0.4287</code>.</li>
+    <li>Round-trip: <code>_flow_latent_to_z(_z_to_flow_latent(z)) ≈ z</code> to float tolerance, flag on and off.</li>
+    <li>With stats: <code>x_var</code> still ≈ 1.0 (per-channel std 1 <span class="arrow">→</span>
+      <code>mean(x²)=1</code>), so the t-bin diagnostic stays interpretable.</li>
+  </ul>
+
+  <h2>Phase 3 — Train</h2>
+  <p><span class="fileh">slurm/jz_train_deltatok_flow_waymo_whiten.slurm</span> (copy of
+  <code>jz_train_deltatok_flow_waymo.slurm</code>): same settings as the current run, plus
+  <code>model.whiten_stats=&lt;path&gt;</code>, <code>RUN_NAME=..._50k_whiten</code>, <code>RESUME=0</code>
+  (the latent distribution changed → the 50k ckpt cannot transfer).</p>
+  <p><b>Baseline: the existing run as-is</b> — <code>MSEToken 0.2816</code> @ iter 40000.</p>
+
+  <div class="card ok">
+    <p style="margin:0 0 8px"><b>LossFlow IS comparable — via a measured 4.70× factor.</b> The plan said it was not,
+    and stopped there. It is not comparable <i>raw</i>, but the conversion is exactly computable from the Phase 0
+    stats, which turns the discarded metric into the sharpest one.</p>
+    <p style="margin:0 0 8px">A per-channel mean is a <b>bias term</b>: the flow fits it almost instantly, so it costs
+    ~no error at convergence. The <i>irreducible</i> part of the target is therefore what remains after the means are
+    known — and whitening removes exactly that removable part:</p>
+    <pre style="margin:0 0 8px"><code>unwhitened irreducible = (1/C)Σ s_c²        = 0.2126
+whitened   irreducible = (1/C)Σ 1²          = 1.0
+predicted LossFlow ratio = 1.0 / 0.2126     = <b>4.70×</b></code></pre>
+    <p style="margin:0 0 8px"><b>Observed at matched epoch 0: 5.3952 / 1.1428 = 4.72×</b> — the prediction confirmed
+    to 0.4%. So at equal stage the two models have <b>indistinguishable skill</b>; the whole gap is the rescale.</p>
+    <table style="margin:0">
+      <thead><tr><th>metric</th><th>sanity (untrained)</th><th>epoch 0</th><th>epoch 39</th></tr></thead>
+      <tbody>
+        <tr><td>baseline LossFlow</td><td class="num">24.22</td><td class="num">1.1428</td><td class="num">0.4287</td></tr>
+        <tr><td>whitened LossFlow</td><td class="num">17.11</td><td class="num">5.3952</td><td class="num">— (target &lt; 2.01)</td></tr>
+        <tr><td>baseline MSEToken</td><td class="num">1.7814</td><td class="num">0.2716</td><td class="num">0.2816</td></tr>
+        <tr><td>whitened MSEToken</td><td class="num">0.3829</td><td class="num">0.3276</td><td class="num">—</td></tr>
+      </tbody>
+    </table>
+    <p style="margin:8px 0 0"><b class="add">The number to read:</b> whitening helps iff
+    <code>LossFlow &lt; 4.70 × 0.4287 = <b>2.01</b></code> at epoch 39. Above 2.01 it hurt.</p>
+  </div>
+
+  <div class="card">
+    <p style="margin:0 0 6px"><b>Whitening hands the model the mean for free.</b> Untrained, "predict 0" in whitened
+    space un-whitens to "predict <code>m</code>", landing on the 0.2126 floor on arrival — MSEToken <b>0.3829</b> vs
+    the baseline's <b>1.7814</b>, a 4.6× head start before a single gradient step. The baseline must <i>learn</i> the
+    constant 34.38. This is a real advantage of the method, not an artifact — but it means an early MSEToken lead
+    proves nothing about the SNR hypothesis.</p>
+    <p style="margin:0"><b>Step confound.</b> The whitened run reaches 50k vs the baseline's 40k, so compare at the
+    <b>epoch-39 / iter-40000 row</b>, which both runs log.</p>
+  </div>
+
+  <h2>Phase 4 — Diagnose</h2>
+  <p>Re-run <code>eval_deltatok_flow_t_bins.py</code> on the whitened ckpt with
+  <code>--cfg model.whiten_stats=&lt;path&gt;</code> (and add the key to <code>_RUN_DEFAULTS</code>). Compare per-bin
+  <code>mse_x</code>: both runs have <code>x_var = 1</code>, so the normalized curves are comparable even though the
+  absolute targets differ. Expect the <b>low-t bins to improve most</b> if the outlier channels were the problem.</p>
+
+  <h2>Verification — what actually ran</h2>
+  <ol>
+    <li><span class="pill done">pass</span> <b>Phase 0 self-check</b>: row mean-square = <code>1.0000</code> at 2/100/500
+      batches → LayerNorm intact, and <code>C=1536</code> confirms the <b>channel</b> axis (not the <code>K=64</code>
+      axis of the tautological first probe).</li>
+    <li><span class="pill">inconclusive</span> <b>No-op regression</b> — 4-bin/1-batch/1-repeat gave
+      <code>[CHECK] 0.4033</code>, ~6% under the 0.4287/0.4303 reference. Almost certainly <b>coarse binning, not a
+      regression</b>: v-MSE carries a <code>1/(1-t)²</code> weight up to 400 near t→1, and 4 bins force t=0.875
+      (weight 64) to stand in for all of [0.75,1], which under-estimates — the observed direction. The reference came
+      from a 50-bin/8-batch/4-repeat sweep, so the comparison is not like-for-like. Not chased: the null path is
+      inert by construction (<code>_whiten_mean=None</code> → the original permute, no arithmetic) and was
+      independently reviewed. A definitive check needs the <b>full 50-bin sweep</b>.</li>
+    <li><span class="pill done">pass</span> <b>Static review</b> (Fable) in place of the <code>breakpoint()</code>
+      round-trip: no-op path exact; pair exactly inverse (same floored std both directions); dtype correct
+      (<code>dtype</code> bound before <code>z</code> is rebound); MSEToken comparability holds;
+      <code>save_network(extra=)</code> backward-compatible.</li>
+    <li><span class="pill done">pass</span> <b>Whitened smoke</b>: <code>x_var = 1.0396</code> (≈1.0 as predicted;
+      the 4% is the train→val moment shift, since LayerNorm forces <i>exactly</i> 1.0000 pre-whitening) and
+      <code>[CHECK]</code> 0.4033 → <b>5.2877</b>, proving the flag is active rather than a silent no-op. The 5.29 is
+      <i>expected</i> garbage — whitened input into baseline weights (<code>mse_x 1.64 &gt; x_var 1.04</code>, worse
+      than predict-0), exactly what a mismatched space/weights pairing looks like.</li>
+    <li><span class="pill run">running</span> <b>Full run</b>: read <code>LossFlow</code> against <b>2.01</b> at epoch
+      39, and <code>MSEToken</code> against 0.2816 — bearing in mind MSEToken is near-flat across the baseline's whole
+      run and may not resolve the question.</li>
+  </ol>
+
+  <h2>Known gaps</h2>
+  <ul>
+    <li><b><span class="fileh">visualize_deltatok_flow.py</span> silently mis-decodes a whitened ckpt.</b> It composes
+      config without <code>_RUN_DEFAULTS</code>, so without an explicit <code>--cfg model.whiten_stats=&lt;path&gt;</code>
+      the pair is the identity: the ViT samples in whitened space and <code>z_hat</code> (<span class="fileh">:297</span>)
+      is treated as original-space deltas → garbage rollouts, <b>no error raised</b> (unlike an arch mismatch, which
+      <code>strict=True</code> catches).</li>
+    <li><b>Tokenizer-mismatch check is warn-only</b> (<span class="fileh">deltatok_shared.py</span>): a wrong but
+      shape-compatible stats file degrades past a log line. Path asserts would false-positive across clusters.</li>
+    <li><b>The ablation bundles two interventions.</b> Mean-centering (78.7% of energy) and std-normalization (21.3%)
+      cannot be attributed apart without a <b>mean-only third arm</b>.</li>
+  </ul>
+
+  <h2>Adjacent lever — timestep shift <span class="pill">not started</span></h2>
+  <p>Same failure family (schedule mismatched to this latent), different axis: whitening fixes the <b>per-channel</b>
+  SNR spread; the RAE/SD3 <i>shift</i> fixes the <b>global</b> noise level for the latent's dimensionality. RAE calls
+  it "significant" and it costs <b>one config key</b> — for a logit-normal schedule the shift is a constant offset in
+  logit space, i.e. exactly <code>model.mu</code> (<code>logit(t_m) = logit(t_n) + log α</code>, <code>α=√(m/n)</code>).</p>
+  <div class="card warn">
+    <p style="margin:0 0 6px"><b>But RAE's α is dimensionally incoherent — do not copy the formula.</b> SD3 defines
+    <code>n = H·W</code> <b>pixels</b>; RAE ships <code>time_dist_shift_dim: 196608 # 16*16*768</code> against
+    <code>time_dist_shift_base: 4096</code> — <b>scalars ÷ tokens</b>, inflating α by ~√768. The tell:
+    <code>assert time_dist_shift &gt;= 1.0</code>, while <i>both</i> coherent readings give α&lt;1 and would crash it
+    (tokens/tokens 256/4096 → 0.25; scalars/scalars 196,608/262,144 → 0.87). Only the incoherent reading yields the
+    noisier shift they want — it is a tuned constant with a √(m/n) story wrapped around it.</p>
+    <p style="margin:0">For us: tokens/tokens → <code>mu +0.33</code>; scalars/scalars → <code>mu −1.26</code>;
+    RAE-style → <code>mu −3.34</code>. <b>The conventions disagree on the sign.</b> Also our <code>m</code> is not
+    fixed (T−1 varies), and Phase 0 says our effective rank is far below 1536, so a raw scalar count overstates
+    <code>m</code> on RAE's own logic. Treat <code>mu</code> as an empirical knob (sweep −0.7 / −1.3 / −2.0).</p>
+  </div>
+
+  <h2>Files</h2>
+  <table>
+    <thead><tr><th>File</th><th>Change</th></tr></thead>
+    <tbody>
+      <tr><td><code>compute_deltatok_latent_stats.py</code></td><td><span class="add">new</span> — <code>cp</code> from <code>eval_deltatok_flow_t_bins.py</code></td></tr>
+      <tr><td><code>slurm/jz_compute_deltatok_latent_stats.slurm</code></td><td><span class="add">new</span> — <code>cp</code> from <code>jz_eval_deltatok_flow_t_bins.slurm</code></td></tr>
+      <tr><td><code>occrae/deltatok_shared.py</code></td><td><code>_z_to_flow_latent</code>/<code>_flow_latent_to_z</code> → instance methods; add <code>_load_whiten_stats()</code></td></tr>
+      <tr><td><code>occrae/deltatok_flow_trainer.py</code></td><td>call <code>_load_whiten_stats()</code> in <code>__init__</code>; stats path into ckpt</td></tr>
+      <tr><td><code>configs/train_deltatok_flow.yaml</code></td><td>add <code>model.whiten_stats: null</code></td></tr>
+      <tr><td><code>slurm/jz_train_deltatok_flow_waymo_whiten.slurm</code></td><td><span class="add">new</span> — <code>cp</code> from <code>jz_train_deltatok_flow_waymo.slurm</code></td></tr>
+      <tr><td><code>eval_deltatok_flow_t_bins.py</code></td><td><code>_RUN_DEFAULTS</code> gains <code>model.whiten_stats</code> (Phase 4)</td></tr>
+    </tbody>
+  </table>
+
+  <h2>Evidence</h2>
+  <p class="small"><b>Original (pre-measurement):</b> val t-bin sweep of
+  <code>deltatok_flow_waymo_dtok64_deltaCtxCross_global_fullT_wd05_raymapoff_50k</code> @ iter 40000
+  (job 1974322, <code>[CHECK]</code> 0.4303 vs logged <code>Eval/LossFlow</code> 0.4287 — load verified);
+  <code>x_var = 1.0000</code> in every bin; <s><code>MSEToken 0.2816</code> against a 1.0 mean-collapse floor</s>
+  <span class="arrow">→</span> the floor is <b>0.2126</b>; 1.0 is predict-zero, of which 78.7% is one constant channel.</p>
+  <p class="small"><b>Phase 0 (jobs 1991401 / 1991573 / 1991655):</b> 2 / 100 / 500 batches on the Waymo train split,
+  float64 per-channel accumulation over all slots. Shipped: <code>latent_stats_waymo.pth</code>, n=4,210,688,
+  C=1536, ratio 9.17×, |mean|max 34.3837. Loaded by job 1992473 and confirmed from the trainer's own print
+  (<code>n=4210688 ... ratio=9.2x</code>).</p>
+  <p class="small"><b>Phase 2/3 (jobs 1992062 / 1992458 / 1992473):</b> no-op 0.4033 (coarse, inconclusive);
+  whitened smoke <code>x_var</code> 1.0396, <code>[CHECK]</code> 5.2877; whitened training epoch 0
+  <code>LossFlow</code> 5.3952 / <code>MSEToken</code> 0.3276 vs baseline epoch 0 1.1428 / 0.2716 →
+  ratio <b>4.72×</b> vs predicted 4.70×.</p>
+  <p class="small"><b>Reproduce the analysis:</b> <code>compute_deltatok_latent_stats.py</code> (defaults to 500
+  batches, writes beside the tokenizer ckpt and prints the <code>[GATE]</code>).</p>
+
+</div>
+</body>
+</html>

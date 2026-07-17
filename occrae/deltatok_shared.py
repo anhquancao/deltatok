@@ -22,6 +22,11 @@ import torch
 from occany.model.occ_rae import OccRAE
 from occany.utils.slurm import slurm_time_remaining_sec
 
+# Std floor for latent whitening. Delta tokens leave DeltaTok with per-token RMS 1
+# over C channels, so a channel with std below this carries no signal; without the
+# floor, 1/std would amplify its quantization noise to full scale.
+_WHITEN_STD_EPS = 1e-3
+
 
 class DeltaTokSharedMixin:
 
@@ -229,15 +234,78 @@ class DeltaTokSharedMixin:
         z = z.reshape(B, T - 1, N, K, C)                      # (B, T-1, N, K, C) — K axis kept even at K=1
         return z
 
-    @staticmethod
-    def _z_to_flow_latent(z):
-        """Delta tokens (B, T-1, N, K, C) -> flow ViT latent (B, C, T-1, N, K)."""
+    def _load_whiten_stats(self, num_channels):
+        """Load per-channel delta-token mean/std from ``model.whiten_stats`` (null -> identity).
+
+        DeltaTok's LayerNorm normalizes each token across channels, leaving per-channel
+        std free — so the flow's isotropic noise gives each channel a different SNR.
+        Stats come from ``compute_deltatok_latent_stats.py``. ``num_channels`` is C.
+        """
+        self._whiten_mean = None                              # None -> the pair below is the identity
+        self._whiten_std = None
+        path = self.cfg.model.get("whiten_stats", None)
+        if not path:
+            return
+
+        path = str(path)
+        if not os.path.isfile(path):
+            raise FileNotFoundError(f"model.whiten_stats not found: {path}")
+        stats = torch.load(path, map_location="cpu", weights_only=False)
+
+        mean = stats["mean"].float()                          # (C,) per-channel mean over the train split
+        std = stats["std"].float()                            # (C,) per-channel std
+        for name, t in (("mean", mean), ("std", std)):
+            assert tuple(t.shape) == (num_channels,), (
+                f"whiten_stats '{name}' has shape {tuple(t.shape)}, expected "
+                f"({num_channels},) — computed for a different tokenizer"
+            )
+
+        # Floor before inverting; see _WHITEN_STD_EPS.
+        n_floored = int((std < _WHITEN_STD_EPS).sum())
+        raw_ratio = float(std.max() / std.min().clamp_min(1e-12))  # pre-floor: matches the stats script's [GATE]
+        std = std.clamp_min(_WHITEN_STD_EPS)
+
+        self._whiten_mean = mean.to(self.device)              # (C,) broadcasts over z's last (channel) dim
+        self._whiten_std = std.to(self.device)                # (C,)
+        self._whiten_stats_path = path                        # provenance -> saved into the flow ckpt
+
+        if self.is_master:
+            print(f"[INFO] Whitening flow latents with: {path}")
+            print(f"[INFO]   C={num_channels} n={stats.get('count')} "
+                  f"std min={std.min():.4f} max={std.max():.4f} "
+                  f"ratio={raw_ratio:.1f}x |mean|max={mean.abs().max():.4f}")
+            if n_floored:
+                print(f"[WARN]   {n_floored} channel(s) had std < {_WHITEN_STD_EPS}; floored")
+            src = str(stats.get("deltatok_ckpt", ""))
+            if src and src != str(self.cfg.model.deltatok_ckpt):
+                # Wrong stats file = wrong moments; degrades silently rather than failing.
+                print(f"[WARN]   stats are for a DIFFERENT tokenizer than cfg.model.deltatok_ckpt:\n"
+                      f"[WARN]     stats: {src}\n"
+                      f"[WARN]     cfg:   {self.cfg.model.deltatok_ckpt}")
+
+    def _z_to_flow_latent(self, z):
+        """Delta tokens (B, T-1, N, K, C) -> flow ViT latent (B, C, T-1, N, K).
+
+        Whitens per channel first when stats are loaded: channels are LAST here, so
+        the (C,) stats broadcast directly. No stats -> plain permute (the default).
+        """
+        m = getattr(self, "_whiten_mean", None)               # getattr: DeltaTokTrainer hosts the mixin but never loads stats
+        if m is not None:
+            dtype = z.dtype                                   # bind before rebinding z; fp32 stats promote the op
+            z = ((z - m) / self._whiten_std).to(dtype)        # (B, T-1, N, K, C) per-channel z-score
         return z.permute(0, 4, 1, 2, 3).contiguous()          # (B, C, T-1, N, K)
 
-    @staticmethod
-    def _flow_latent_to_z(x):
-        """Flow ViT latent (B, C, T-1, N, K) -> delta tokens (B, T-1, N, K, C)."""
-        return x.permute(0, 2, 3, 4, 1).contiguous()          # (B, T-1, N, K, C)
+    def _flow_latent_to_z(self, x):
+        """Flow ViT latent (B, C, T-1, N, K) -> delta tokens (B, T-1, N, K, C).
+
+        Exact inverse of ``_z_to_flow_latent``, so sampled deltas return to the
+        tokenizer's ORIGINAL space and MSEToken stays comparable across the ablation.
+        """
+        z = x.permute(0, 2, 3, 4, 1).contiguous()             # (B, T-1, N, K, C)
+        m = getattr(self, "_whiten_mean", None)
+        if m is not None:
+            z = (z * self._whiten_std + m).to(x.dtype)        # (B, T-1, N, K, C) back to the tokenizer's scale
+        return z
 
     def _rollout_from_z(self, net, x0, z_seq, height, width, num_cameras):
         """Autoregressive decoder rollout from given per-transition delta tokens.

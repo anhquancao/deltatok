@@ -328,7 +328,8 @@ class Trainer(object):
 
         return obj
 
-    def save_network(self, model, path, optimizer=None, iter=None, global_epoch=None, ema_state=None):
+    def save_network(self, model, path, optimizer=None, iter=None, global_epoch=None, ema_state=None,
+                     extra=None):
         """ Save the state of the model, including the iteration,
             the optimizer state and the current epoch
             :params:
@@ -337,6 +338,7 @@ class Trainer(object):
                 optimizer    -> torch.optim.Optimizer: (optional) The optimizer whose state should be saved.
                 iter         -> int: The current iteration number.
                 global_epoch -> int: The current global epoch number.
+                extra        -> dict: (optional) extra provenance keys merged into the saved dict.
         """
         state_dict = model.module.state_dict() if self.args.is_multi_gpus else model.state_dict()
 
@@ -349,7 +351,8 @@ class Trainer(object):
                 'global_epoch': global_epoch,
                 'model_state_dict': state_dict,
                 'optimizer_state_dict': None if optimizer is None else optimizer.state_dict(),
-                'ema_state': ema_state
+                'ema_state': ema_state,
+                **(extra or {})
                 },
                path)
 

@@ -108,6 +108,10 @@ class DeltaTokFlowMatchingTrainer(DeltaTokSharedMixin, Trainer):
         self.deltatok = self._build_deltatok(backbone)
         self.num_delta_tokens = int(self.deltatok.num_delta_tokens)  # K delta tokens per camera per transition
 
+        # Per-channel whitening of this tokenizer's delta tokens (mixin; null = no-op).
+        # Must follow _build_deltatok: the stats belong to that frozen ckpt.
+        self._load_whiten_stats(int(backbone.embed_dim))
+
         # Load transformer (the only trainable network)
         self.vit = self.get_network("vit")
         print(f"Number of parameters: {sum(p.numel() for p in self.vit.parameters())/1e6:.2f}M")
@@ -138,6 +142,11 @@ class DeltaTokFlowMatchingTrainer(DeltaTokSharedMixin, Trainer):
 
     def _ema_model(self):
         return self.vit.module if self.distributed else self.vit
+
+    def _ckpt_extra(self):
+        """Provenance for every flow ckpt: whitened weights are meaningless without
+        the same stats. Kept in one place so all three save sites agree."""
+        return {"whiten_stats": getattr(self, "_whiten_stats_path", None)}
 
     @contextmanager
     def ema_scope(self):
@@ -629,7 +638,8 @@ class DeltaTokFlowMatchingTrainer(DeltaTokSharedMixin, Trainer):
                         self.save_network(
                             model=self.vit, path=os.path.join(self.cfg.training.vit_folder, "current.pth"),
                             optimizer=self.optim, iter=self.cfg.training.iter, global_epoch=self.cfg.training.global_epoch,
-                            ema_state=self.ema.state_dict() if self.cfg.training.use_ema else None
+                            ema_state=self.ema.state_dict() if self.cfg.training.use_ema else None,
+                            extra=self._ckpt_extra(),
                         )
                 
                 self.cfg.training.iter += 1
@@ -642,6 +652,7 @@ class DeltaTokFlowMatchingTrainer(DeltaTokSharedMixin, Trainer):
                         iter=self.cfg.training.iter,
                         global_epoch=self.cfg.training.global_epoch,
                         ema_state=self.ema.state_dict() if self.cfg.training.use_ema else None,
+                        extra=self._ckpt_extra(),
                     )
         
         return (cum_loss / max(1, num_batches)).item()
@@ -973,6 +984,7 @@ class DeltaTokFlowMatchingTrainer(DeltaTokSharedMixin, Trainer):
             iter=self.cfg.training.iter,
             global_epoch=self.cfg.training.global_epoch,
             ema_state=self.ema.state_dict() if self.cfg.training.use_ema else None,
+            extra=self._ckpt_extra(),
         )
 
     def fit(self, log_iter=1000):

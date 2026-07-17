@@ -74,6 +74,12 @@ model:
   occany_recon_ckpt: "checkpoints/occany_plus_recon_1B.pth"
   encode_layer: 12  # must match the frozen DeltaTok checkpoint below
 
+  # RAE-style per-channel whitening of the delta tokens (LayerNorm normalizes rows, not
+  # channels, so the flow's isotropic noise gives each channel a different SNR).
+  # latent_stats_*.pth from compute_deltatok_latent_stats.py; null = no-op. Must match
+  # the tokenizer above — a whitened ckpt is meaningless without its stats.
+  whiten_stats: null
+
   # Frozen DeltaTok tokenizer providing the delta tokens the flow model diffuses.
   # Architecture must match the checkpoint (strict=True load).
   deltatok_ckpt: "/mnt/proj1/eu-25-92/deltatok_log/deltatok_surround_constGlobalRope_layer12/ckpts/current.pth"
