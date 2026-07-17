@@ -1,5 +1,15 @@
 #!/usr/bin/env python3
-"""Per-channel mean/std of the frozen DeltaTok delta tokens (RAE-style whitening stats).
+"""Per-channel or per-position mean/std of frozen DeltaTok delta tokens (whitening stats).
+
+Two modes (``--stats_mode``):
+  channel (default): stats (C,) pooled over every slot — whitening equalizes channels.
+  position: stats (K, C) — per delta-slot k — pooled over batch, transitions AND
+    cameras. Mirrors RAE's calculate_stat.py, which keeps stats per latent ELEMENT
+    (C, H, W), not per channel: pooled-(C,) whitening folds slot-dependent offsets
+    into std, so within-slot variation stays non-isotropic after whitening. The
+    camera axis is pooled, not resolved: the train sampler varies views_per_timestep
+    (observed N=1 batches), so a fixed per-camera axis can neither be measured from
+    train batches nor applied to them.
 
 DeltaTok ends in a parameter-free ``nn.LayerNorm``, which normalizes each token ACROSS
 channels: every ROW of the (M, C) delta-token matrix gets mean 0 / RMS 1. Columns are
@@ -7,10 +17,10 @@ unconstrained — channel c's std over the dataset is free, the massive-activati
 DINOv3 blocks are known for. The per-element bound is only |x_i| <= sqrt(C-1) (~39 at
 C=1536), hence the observed max of 36.7.
 
-The flow adds ISOTROPIC noise e ~ N(0, I) (``flow_noising``), so SNR_c(t) = t*std_c/(1-t):
-one t means a different noise level per channel, and the quadratic loss is dominated by
-the high-std ones. Measuring the moments lets ``model.whiten_stats`` normalize each
-channel to std 1 — the step RAE describes but never ablates.
+The flow adds ISOTROPIC noise e ~ N(0, I) (``flow_noising``), so SNR(t) = t*std/(1-t):
+one t means a different noise level per channel (and, in position mode, per camera/slot),
+and the quadratic loss is dominated by the high-std ones. Measuring the moments lets
+``model.whiten_stats`` normalize each measured unit to std 1.
 
 Uses only the frozen OccRAE + DeltaTok encode: no flow ViT weights, no flow ckpt.
 float64 over ALL slots (context included — whitening applies to the whole tensor).
@@ -22,6 +32,7 @@ Usage (Jean Zay GPU node; defaults = the dtok64 non-affine tokenizer the waymo f
 runs freeze). Writes latent_stats_<tag>.pth beside the tokenizer ckpt:
   source env_jz_h100.sh && python compute_deltatok_latent_stats.py
   # Smoke first: --num_batches 2
+  # RAE-style per-position stats: --stats_mode position
 """
 
 import argparse
@@ -89,8 +100,15 @@ def get_args_parser() -> argparse.ArgumentParser:
         help="Whitening is a train-set statistic; val is for checking drift only.",
     )
     parser.add_argument(
-        "--tag", type=str, default="waymo",
-        help="Names the output: latent_stats_<tag>.pth, written beside the tokenizer ckpt.",
+        "--stats_mode", type=str, default="channel", choices=("channel", "position"),
+        help="channel: (C,) pooled over all slots (original). position: (K, C) per "
+             "delta-slot, RAE-style per-element stats (camera axis pooled).",
+    )
+    parser.add_argument(
+        "--tag", type=str, default=None,
+        help="Names the output: latent_stats_<tag>.pth, written beside the tokenizer ckpt. "
+             "Default: 'waymo' (channel mode) / 'waymo_pos' (position mode) — distinct so "
+             "one mode never clobbers the other's file.",
     )
     parser.add_argument(
         "--out", type=str, default=None,
@@ -152,19 +170,23 @@ def _pin_loader_epoch(loader) -> None:
 
 @torch.no_grad()
 def accumulate_channel_stats(trainer, loader, args):
-    """Per-channel moments of the delta tokens over `--num_batches` batches.
+    """Per-channel or per-position moments of the delta tokens over `--num_batches` batches.
 
-    Rows = tokens (M = B*(T-1)*N*K), columns = channels (C). LayerNorm normalizes the
-    ROWS; this measures the COLUMNS. float64: bf16 sums over ~600k rows would lose the
-    small per-channel means.
+    channel mode: rows = tokens (M = B*(T-1)*N*K), stats over the (C,) columns.
+    position mode: rows = transition-cameras (M = B*(T-1)*N), stats keep the (K, C)
+    slot layout — camera axis pooled so variable-N batches stay compatible. LayerNorm
+    normalizes token rows; this measures across them. float64: bf16 sums over ~600k
+    rows would lose the small means.
 
-    Returns (mean (C,), std (C,), n, row_ms) — row_ms is the mean row mean-square, the
-    LayerNorm sanity check (~1.0).
+    Returns (mean, std, n, row_ms) — mean/std are (C,) or (K, C) by mode, n counts
+    rows (samples per stat element), row_ms is the mean row mean-square, the LayerNorm
+    sanity check (~1.0).
     """
-    total = None       # (C,) float64 running per-channel sum
-    total_sq = None    # (C,) float64 running per-channel sum of squares
-    n = 0              # M token vectors seen
-    row_ms_sum = 0.0   # running sum over rows of mean(x^2)
+    total = None       # (C,) or (K, C) float64 running sum
+    total_sq = None    # same shape, running sum of squares
+    n = 0              # rows seen (samples per stat element)
+    n_tokens = 0       # token vectors seen (denominator of the LayerNorm row check)
+    row_ms_sum = 0.0   # running sum over token rows of mean(x^2)
 
     batches_done = 0
     for batch in loader:
@@ -183,51 +205,77 @@ def accumulate_channel_stats(trainer, loader, args):
         _, _, z, H, W = trainer._encode_inputs(batch, imgs, num_cameras, want_tokens=False)  # z (B, T-1, N, K, C)
 
         C = z.shape[-1]                                            # channel count (backbone.embed_dim)
-        # Channels are already last -> one row per delta token. EVERY slot counts,
-        # context included: whitening is applied to the whole tensor, not to a subset.
-        m = z.reshape(-1, C).double()                              # (M_b, C) M_b = B*(T-1)*N*K token vectors
+        # Channels are already last. EVERY slot counts, context included: whitening is
+        # applied to the whole tensor, not to a subset.
+        if args.stats_mode == "position":
+            m = z.reshape(-1, *z.shape[3:]).double()               # (M_b, K, C) M_b = B*(T-1)*N transition-cameras
+        else:
+            m = z.reshape(-1, C).double()                          # (M_b, C) M_b = B*(T-1)*N*K token vectors
         if total is None:
-            total = torch.zeros(C, dtype=torch.float64, device=m.device)
-            total_sq = torch.zeros(C, dtype=torch.float64, device=m.device)
-        total += m.sum(0)                                          # (C,) per-channel sum
-        total_sq += m.square().sum(0)                              # (C,) per-channel sum of squares
-        row_ms_sum += float(m.square().mean(1).sum())              # LayerNorm check: each row's mean(x^2)
+            total = torch.zeros(m.shape[1:], dtype=torch.float64, device=m.device)
+            total_sq = torch.zeros_like(total)
+        assert total.shape == m.shape[1:], (
+            f"batch stats shape {tuple(m.shape[1:])} != accumulated {tuple(total.shape)}; "
+            "position mode needs a fixed delta-slot count across batches"
+        )
+        total += m.sum(0)                                          # per-element sum, (C,) or (N, K, C)
+        total_sq += m.square().sum(0)                              # per-element sum of squares
+        row_ms = m.square().mean(-1)                               # (M_b,) or (M_b, N, K) per-token-row mean(x^2)
+        row_ms_sum += float(row_ms.sum())                          # LayerNorm check accumulator
+        n_tokens += row_ms.numel()
         n += m.shape[0]
 
         batches_done += 1
         print(f"[INFO]   batch {batches_done}/{args.num_batches}  "
-              f"tokens={n} C={C} res={H}x{W}", flush=True)
+              f"tokens={n_tokens} C={C} res={H}x{W}", flush=True)
 
     if n == 0:
         raise RuntimeError("No usable batches: nothing to measure.")
 
-    mean = total / n                                               # (C,) per-channel mean
-    var = (total_sq / n) - mean.square()                           # (C,) E[x^2] - E[x]^2
-    std = var.clamp_min(0).sqrt()                                  # (C,) clamp: round-off can make var slightly negative
-    return mean.cpu(), std.cpu(), n, row_ms_sum / n
+    mean = total / n                                               # (C,) or (K, C) per-element mean
+    var = (total_sq / n) - mean.square()                           # E[x^2] - E[x]^2
+    std = var.clamp_min(0).sqrt()                                  # clamp: round-off can make var slightly negative
+    return mean.cpu(), std.cpu(), n, row_ms_sum / n_tokens
 
 
 def report_stats(mean, std, n, row_ms, label, num_batches) -> float:
-    """Print the distribution of per-channel stds and return the gate ratio."""
-    C = mean.numel()
-    smin, smax = float(std.min()), float(std.max())
+    """Print the distribution of stds (per channel or per position) and return the gate ratio."""
+    C = mean.shape[-1]
+    flat = std.reshape(-1)                                         # all whitening divisors
+    smin, smax = float(flat.min()), float(flat.max())
     ratio = smax / max(smin, 1e-12)
 
     qs = torch.tensor([0.0, 0.01, 0.5, 0.99, 1.0], dtype=torch.float64)
-    pct = torch.quantile(std, qs)
-    topk = torch.topk(std, min(10, C))
+    pct = torch.quantile(flat, qs)
+    # position mode: rank channels by their worst (max-over-position) std.
+    per_channel = std if std.dim() == 1 else std.amax(dim=tuple(range(std.dim() - 1)))
+    topk = torch.topk(per_channel, min(10, C))
 
-    print(f"\n[STATS] split={label}  C={C}  n={n} token vectors ({num_batches} batches)")
+    shape_str = f"C={C}" if mean.dim() == 1 else f"(K,C)={tuple(mean.shape)}"
+    print(f"\n[STATS] split={label}  {shape_str}  n={n} rows ({num_batches} batches)")
     # LayerNorm normalizes each row to mean 0 / var 1, so mean(x^2) per row must be 1.
     # A deviation here means the measured tensor is NOT the tokenizer's normed output.
     print(f"[STATS] LayerNorm check: mean row mean-square = {row_ms:.4f}  (must be ~1.0)")
-    print(f"[STATS] |mean_c| max = {float(mean.abs().max()):.4f}")
+    print(f"[STATS] |mean| max = {float(mean.abs().max()):.4f}")
     print(f"[STATS] std: min={smin:.4f}  max={smax:.4f}  ratio={ratio:.1f}x")
     print(f"[STATS] std percentiles: p0={pct[0]:.4f} p1={pct[1]:.4f} p50={pct[2]:.4f} "
           f"p99={pct[3]:.4f} p100={pct[4]:.4f}")
     print(f"[STATS] top-{topk.values.numel()} channels by std:")
     for v, i in zip(topk.values.tolist(), topk.indices.tolist()):
         print(f"[STATS]   c={i:5d}  std={v:.4f}")
+
+    if mean.dim() > 1:
+        # Law of total variance over positions: pooled (C,) var = E_pos[var] + Var_pos[mean].
+        # The between share is exactly what pooled-(C,) whitening cannot remove.
+        pos_dims = tuple(range(mean.dim() - 1))                    # all axes but channel
+        within_var = std.square().mean(dim=pos_dims)               # (C,) E_pos[var_c]
+        between_var = mean.var(dim=pos_dims, unbiased=False)       # (C,) Var_pos[mean_c]
+        pooled_var = (within_var + between_var).clamp_min(1e-12)   # (C,) the channel-mode variance
+        pooled_ratio = float((pooled_var.max() / pooled_var.min()).sqrt())
+        between_share = between_var / pooled_var                   # (C,) slot-structure share
+        print(f"[STATS] pooled-(C,) view: ratio={pooled_ratio:.1f}x  "
+              f"between-position share of var: median={float(between_share.median()):.2f} "
+              f"max={float(between_share.max()):.2f}")
 
     print(f"\n[GATE] std.max()/std.min() = {ratio:.1f}x")
     if ratio < 2.0:
@@ -274,8 +322,11 @@ def main() -> None:
         cfg.training.writer_log = ""
         cfg.training.vit_folder = tempfile.mkdtemp(prefix="deltatok_latent_stats_") + "/"
 
+    # Mode-specific default tag: channel keeps the original file name, position gets
+    # its own so the two modes never overwrite each other.
+    tag = args.tag or ("waymo" if args.stats_mode == "channel" else "waymo_pos")
     out_path = args.out or os.path.join(
-        os.path.dirname(str(cfg.model.deltatok_ckpt)), f"latent_stats_{_sanitize(args.tag)}.pth"
+        os.path.dirname(str(cfg.model.deltatok_ckpt)), f"latent_stats_{_sanitize(tag)}.pth"
     )
 
     # resume=False + ckpt=None: NO flow ckpt is loaded — these stats depend only on the
@@ -303,8 +354,9 @@ def main() -> None:
     report_stats(mean, std, n, row_ms, label, args.num_batches)
 
     payload = {
-        "mean": mean.float(),                                   # (C,) per-channel mean
-        "std": std.float(),                                     # (C,) per-channel std, UNfloored (the loader floors)
+        "mean": mean.float(),                                   # (C,) or (K, C) mean
+        "std": std.float(),                                     # matching std, UNfloored (the loader floors)
+        "stats_mode": args.stats_mode,                          # loader distinguishes by ndim; this is provenance
         "count": int(n),
         "row_mean_square": float(row_ms),
         # Provenance: which tokenizer these moments belong to. _load_whiten_stats warns

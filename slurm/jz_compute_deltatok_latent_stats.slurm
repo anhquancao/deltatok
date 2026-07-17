@@ -12,9 +12,11 @@
 #SBATCH --output=slurm/output/jz_compute_deltatok_latent_stats_%j.out
 #SBATCH --error=slurm/output/jz_compute_deltatok_latent_stats_%j.err
 
-# Per-channel mean/std of the frozen DeltaTok delta tokens -> latent_stats_<tag>.pth,
+# Whitening stats of the frozen DeltaTok delta tokens -> latent_stats_<tag>.pth,
 # written beside the tokenizer ckpt. Feeds model.whiten_stats (RAE-style whitening).
-# No flow ckpt involved; single GPU, no DDP. The frozen OccRAE encode dominates.
+# STATS_MODE=channel: pooled (C,) | STATS_MODE=position: (K, C) per delta-slot
+# (RAE keeps per-element stats; camera axis pooled). No flow ckpt involved; single GPU,
+# no DDP. The frozen OccRAE encode dominates.
 # Read [GATE] in the log: std.max()/std.min() decides whether whitening is worth it.
 #
 # Submit from a LOGIN shell so `module` (login-only) is carried into the job:
@@ -41,12 +43,16 @@ ulimit -n "$(ulimit -Hn)"
 # freeze. Override for another tokenizer, e.g.
 #   EXTRA_ARGS="--cfg model.deltatok_ckpt=<other>/current.pth model.deltatok.num_delta_tokens=32" sbatch ...
 # Smoke first: NUM_BATCHES=2 sbatch ...
-: "${NUM_BATCHES:=500}"   # ~4.2M token vectors, ~12 min; 100 -> 500 moves std <1% (converged)
+# Stats describe the TRAIN distribution: recompute whenever dataset.train_dataset
+# changes (e.g. the fixed cam-0 T=5 (518,266) simplification of the waymo config).
+: "${NUM_BATCHES:=500}"   # fixed T=5 cam-0 spec: ~2M token vectors, ~10 min; position mode gets ~32k samples/slot
 : "${SPLIT:=train}"
-: "${TAG:=waymo}"
+: "${STATS_MODE:=channel}"  # channel: pooled (C,) | position: (K, C) per delta-slot
+# TAG defaults per mode inside the script (waymo / waymo_pos) so modes never clobber.
 
 srun python compute_deltatok_latent_stats.py \
     --num_batches "$NUM_BATCHES" \
     --split "$SPLIT" \
-    --tag "$TAG" \
+    --stats_mode "$STATS_MODE" \
+    ${TAG:+--tag "$TAG"} \
     ${EXTRA_ARGS:-}

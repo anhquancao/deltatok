@@ -235,11 +235,14 @@ class DeltaTokSharedMixin:
         return z
 
     def _load_whiten_stats(self, num_channels):
-        """Load per-channel delta-token mean/std from ``model.whiten_stats`` (null -> identity).
+        """Load delta-token whitening mean/std from ``model.whiten_stats`` (null -> identity).
 
         DeltaTok's LayerNorm normalizes each token across channels, leaving per-channel
         std free — so the flow's isotropic noise gives each channel a different SNR.
-        Stats come from ``compute_deltatok_latent_stats.py``. ``num_channels`` is C.
+        Stats come from ``compute_deltatok_latent_stats.py`` in one of two layouts:
+        (C,) pooled per-channel, or (K, C) per delta-slot (RAE-style per-element
+        stats; camera axis pooled — a leading singleton axis is squeezed away).
+        ``num_channels`` is C.
         """
         self._whiten_mean = None                              # None -> the pair below is the identity
         self._whiten_std = None
@@ -252,12 +255,22 @@ class DeltaTokSharedMixin:
             raise FileNotFoundError(f"model.whiten_stats not found: {path}")
         stats = torch.load(path, map_location="cpu", weights_only=False)
 
-        mean = stats["mean"].float()                          # (C,) per-channel mean over the train split
-        std = stats["std"].float()                            # (C,) per-channel std
-        for name, t in (("mean", mean), ("std", std)):
-            assert tuple(t.shape) == (num_channels,), (
-                f"whiten_stats '{name}' has shape {tuple(t.shape)}, expected "
-                f"({num_channels},) — computed for a different tokenizer"
+        mean = stats["mean"].float()                          # (C,) or (K, C) mean over the train split
+        std = stats["std"].float()                            # matching std
+        assert mean.shape == std.shape, (
+            f"whiten_stats mean {tuple(mean.shape)} vs std {tuple(std.shape)} disagree"
+        )
+        if mean.dim() == 3 and mean.shape[0] == 1:
+            mean, std = mean[0], std[0]                       # (K, C): singleton camera axis == per-slot stats
+        assert mean.dim() in (1, 2) and mean.shape[-1] == num_channels, (
+            f"whiten_stats shape {tuple(mean.shape)}, expected ({num_channels},) or "
+            f"(K, {num_channels}) — computed for a different tokenizer"
+        )
+        if mean.dim() == 2:
+            k_cfg = int(self.cfg.model.deltatok.get("num_delta_tokens", 1))
+            assert int(mean.shape[0]) == k_cfg, (
+                f"whiten_stats have K={int(mean.shape[0])} delta slots, tokenizer has "
+                f"K={k_cfg} — computed for a different tokenizer"
             )
 
         # Floor before inverting; see _WHITEN_STD_EPS.
@@ -265,12 +278,13 @@ class DeltaTokSharedMixin:
         raw_ratio = float(std.max() / std.min().clamp_min(1e-12))  # pre-floor: matches the stats script's [GATE]
         std = std.clamp_min(_WHITEN_STD_EPS)
 
-        self._whiten_mean = mean.to(self.device)              # (C,) broadcasts over z's last (channel) dim
-        self._whiten_std = std.to(self.device)                # (C,)
+        self._whiten_mean = mean.to(self.device)              # (C,) or (K, C); broadcasts over z's leading (B, T-1, N) dims
+        self._whiten_std = std.to(self.device)
         self._whiten_stats_path = path                        # provenance -> saved into the flow ckpt
 
         if self.is_master:
-            print(f"[INFO] Whitening flow latents with: {path}")
+            layout = "per-slot" if mean.dim() == 2 else "per-channel"
+            print(f"[INFO] Whitening flow latents ({layout}) with: {path}")
             print(f"[INFO]   C={num_channels} n={stats.get('count')} "
                   f"std min={std.min():.4f} max={std.max():.4f} "
                   f"ratio={raw_ratio:.1f}x |mean|max={mean.abs().max():.4f}")
@@ -286,13 +300,17 @@ class DeltaTokSharedMixin:
     def _z_to_flow_latent(self, z):
         """Delta tokens (B, T-1, N, K, C) -> flow ViT latent (B, C, T-1, N, K).
 
-        Whitens per channel first when stats are loaded: channels are LAST here, so
-        the (C,) stats broadcast directly. No stats -> plain permute (the default).
+        Whitens first when stats are loaded: channels are LAST here, so (C,) stats
+        broadcast per channel and (N, K, C) stats per position. No stats -> plain
+        permute (the default).
         """
         m = getattr(self, "_whiten_mean", None)               # getattr: DeltaTokTrainer hosts the mixin but never loads stats
         if m is not None:
+            assert m.dim() == 1 or z.shape[3:] == m.shape, (  # (K, C) must match exactly; only the camera axis may broadcast
+                f"z slots {tuple(z.shape[3:])} != whiten stats {tuple(m.shape)}"
+            )
             dtype = z.dtype                                   # bind before rebinding z; fp32 stats promote the op
-            z = ((z - m) / self._whiten_std).to(dtype)        # (B, T-1, N, K, C) per-channel z-score
+            z = ((z - m) / self._whiten_std).to(dtype)        # (B, T-1, N, K, C) per-channel/per-slot z-score
         return z.permute(0, 4, 1, 2, 3).contiguous()          # (B, C, T-1, N, K)
 
     def _flow_latent_to_z(self, x):
@@ -304,6 +322,9 @@ class DeltaTokSharedMixin:
         z = x.permute(0, 2, 3, 4, 1).contiguous()             # (B, T-1, N, K, C)
         m = getattr(self, "_whiten_mean", None)
         if m is not None:
+            assert m.dim() == 1 or z.shape[3:] == m.shape, (  # same guard as _z_to_flow_latent
+                f"z slots {tuple(z.shape[3:])} != whiten stats {tuple(m.shape)}"
+            )
             z = (z * self._whiten_std + m).to(x.dtype)        # (B, T-1, N, K, C) back to the tokenizer's scale
         return z
 
