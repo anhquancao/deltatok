@@ -1,8 +1,8 @@
 #!/bin/bash
 #SBATCH --job-name=deltatok_flow_waymo
 #SBATCH --nodes=1
-#SBATCH --ntasks-per-node=1
-#SBATCH --gres=gpu:1
+#SBATCH --ntasks-per-node=2
+#SBATCH --gres=gpu:2
 #SBATCH --cpus-per-task=24
 #SBATCH --hint=nomultithread
 #SBATCH -C h100
@@ -38,13 +38,14 @@ export TORCH_NCCL_HEARTBEAT_TIMEOUT_SEC="${TORCH_NCCL_HEARTBEAT_TIMEOUT_SEC:-100
 ulimit -n "$(ulimit -Hn)"
 
 # Waymo-only run (dtok64 camera-embed variant): train on Waymo train (minus 32
-# held-out scenes), eval on those 32 scenes as val (128 surround seqs). Single GPU
-# (config bsize=16, effective_bsize=32 -> grad_cum 2). Same validated model settings
+# held-out scenes), eval on those 32 scenes as val (128 surround seqs). 2 GPUs
+# (config bsize=16, effective_bsize=32 -> grad_cum 1); 32000-sample epochs
+# -> 1000 steps/epoch, 50k steps over 50 epochs. Same validated model settings
 # as the full-dataset dtok64 run; only the dataset differs.
 export CONFIG_NAME=train_deltatok_flow_jeanzay_waymo
 export RESULTS_DIR="/lustre/fswork/projects/rech/trg/uyl37fq/deltatok_flow_log"
-# Distinct name so this run lands in its own subdir.
-export RUN_NAME=deltatok_flow_waymo_dtok64_deltaCtxCross_global_fullT_wd05_raymapoff
+# Distinct name so this run lands in its own subdir (the 6k-step run keeps its dir).
+export RUN_NAME=deltatok_flow_waymo_dtok64_deltaCtxCross_global_fullT_wd05_raymapoff_50k
 # Frozen tokenizer = dtok64 (K=64 delta tokens/camera, non-affine z-norm; deltatok_ckpt override below).
 # delta_ctx_cross: first delta token (frame 0->1) is the clean in-seq context AND
 # frame-0 patch feats condition every block via per-camera cross-attn.

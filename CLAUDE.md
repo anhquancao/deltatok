@@ -24,6 +24,16 @@ ssh karolina "<command>"
 
 Cluster context: project work runs on **Karolina** (account `eu-25-92`, partition `qgpu`). The previous BSC setup is deprecated.
 
+## Job monitor / RAG knowledge base
+
+`../monitor_jobs` (`/home/acao/code/monitor_jobs`) tracks this repo's SLURM jobs and doubles as a structured knowledge base. **Read its `data/*.json` directly — do not start its server or call its HTTP API.** Full schemas: the "RAG knowledge base" section of `../monitor_jobs/CLAUDE.md`.
+
+- `data/monitor_jobs.json`, `data/archived_jobs.json` — job records keyed `"<Cluster>:<JobID>"` (state, script, log, account, qos, tags, `depends_on`). Search both for full history.
+- `data/logs/<Cluster>/<name>_<jobid>.{out,err}` — cached SLURM stdout/stderr; grep here for "why did job N fail".
+- `data/research.json` — curated HTML journal entries (observation/finding/resolution) per research direction.
+- `data/results.json` — curated benchmark/experiment tables.
+- `data/projects.json` — the `Deltatok` entry owns the per-cluster deploy paths plus the rsync `excludes` that `syncer.py` actually uses (`sync/push_code_*` is the legacy equivalent). New local output dirs must be excluded here **and** in `.gitignore`.
+
 ## Environment bootstrap
 
 Before any `python ...` command on Karolina, activate the conda env:

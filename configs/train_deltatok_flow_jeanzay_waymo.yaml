@@ -45,14 +45,15 @@ dataset:
     - segment-1051897962568538022_238_170_258_170_with_camera_labels.tfrecord
     - segment-10526338824408452410_5714_660_5734_660_with_camera_labels.tfrecord
   # Train: full Waymo surround train, holding out the 32 val scenes (split=None +
-  # exclude_scenes). Same per-view knobs as the base config's Waymo entry.
-  train_dataset: "4000 @ WaymoSeqMultiView(ROOT='/lustre/fsn1/projects/rech/trg/uyl37fq/occany_data/waymo_processed', \
+  # exclude_scenes). Base config's Waymo knobs minus reverse_seq + SAM3 distill (both off).
+  # 32000/epoch = 1000 steps/epoch at effective_bsize 32 -> 50k steps over 50 epochs.
+  train_dataset: "32000 @ WaymoSeqMultiView(ROOT='/lustre/fsn1/projects/rech/trg/uyl37fq/occany_data/waymo_processed', \
       seq_pkl_name='seq_surround_temporal_sub5_stride9_all.pkl', \
       min_memory_num_views=5, frame_interval=1, max_memory_num_views=24, \
       num_views_per_timestep=5, fixed_cams=[0], min_num_timesteps=2, ray_map_prob=-1, \
       z_far=50, split=None, exclude_scenes=${dataset._waymo_val_scenes}, no_partial_views=True, \
       resolution=[(518, 294), (518, 280), (518, 266), (518, 210), (518, 168)], \
-      reverse_seq=True, distill_model_name='SAM3', base_model='da3')"
+      reverse_seq=False, base_model='da3')"
   # Val: the 32 held-out scenes (128 seqs). Fixed 2-timestep x 5-cam surround
   # (min=max=10), single (518,266) resolution and seed=42 for deterministic eval.
   test_dataset: "128 @ WaymoSeqMultiView(ROOT='/lustre/fsn1/projects/rech/trg/uyl37fq/occany_data/waymo_processed', \
@@ -60,4 +61,4 @@ dataset:
       min_memory_num_views=10, max_memory_num_views=10, num_views_per_timestep=5, min_num_timesteps=2, \
       z_far=50, split=None, select_scenes=${dataset._waymo_val_scenes}, seed=42, no_partial_views=True, fixed_cams=[0], \
       reverse_seq=False, \
-      resolution=[(518, 266)], distill_model_name='SAM3', base_model='da3')"
+      resolution=[(518, 266)], base_model='da3')"
