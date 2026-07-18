@@ -47,7 +47,7 @@ ulimit -n "$(ulimit -Hn)"
 # changes (e.g. the fixed cam-0 T=5 (518,266) simplification of the waymo config).
 : "${NUM_BATCHES:=500}"   # fixed T=5 cam-0 spec: ~2M token vectors, ~10 min; position mode gets ~32k samples/slot
 : "${SPLIT:=train}"
-: "${STATS_MODE:=channel}"  # channel: pooled (C,) | position: (K, C) per delta-slot
+: "${STATS_MODE:=position}"  # channel: pooled (C,) | position: (K, C) per delta-slot
 # TAG defaults per mode inside the script (waymo / waymo_pos) so modes never clobber.
 
 srun python compute_deltatok_latent_stats.py \
