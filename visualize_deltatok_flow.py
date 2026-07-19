@@ -278,11 +278,11 @@ def main() -> None:
                 # target / tokenizer upper bound).
                 z = trainer._encode_deltas(feats, H, W)                       # (B, T-1, N, K, C)
                 x_spatial = trainer._z_to_flow_latent(z)                      # (B, C, T-1, N, K)
-                cross_cond = trainer._build_cross_cond(feats[:, 0], H, W) if trainer.use_cross else None  # (B, N, Hp, Wp, C) or None
+                cross_cond = trainer._build_cross_cond(feats[:, 0], H, W) if trainer.build_frame0_ctx else None  # (B, N, Hp, Wp, C) or None
 
-                # Sample delta tokens from pure noise. use_cross: frame-0 cross-attention
-                # grids. n_ctx>0: the first n_ctx delta tokens are the clean context (GT,
-                # kept fixed by flow_euler_sample's context handling).
+                # Sample delta tokens from pure noise. build_frame0_ctx: frame-0 conditioning
+                # grids (cross-attn kv or in-sequence concat). n_ctx>0: the first n_ctx delta
+                # tokens are the clean context (GT, kept fixed by flow_euler_sample's handling).
                 zr = trainer._sample_noise(x_spatial)                        # (B, C, T-1, N, K) matches eval prior (honors fixed_noise_mode)
                 if trainer.n_ctx > 0:
                     zr[:, :, :trainer.n_ctx] = x_spatial[:, :, :trainer.n_ctx]  # GT first delta = clean context

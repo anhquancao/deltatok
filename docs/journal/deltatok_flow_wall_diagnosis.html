@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>The wall is the sampler, not the network — DiT run post-mortem + t-bins diagnosis</title>
+<title>The DeltaTok flow wall — decoder + conditional variance, not architecture/sampler (+ in-context fix)</title>
 <style>
   :root{
     --bg:#ffffff; --fg:#1b1f24; --muted:#5b6570; --line:#e3e8ee;
@@ -58,7 +58,7 @@
 <body>
 <div class="wrap">
 
-  <h1>The wall is the sampler, not the network — DiT run post-mortem + t-bins diagnosis</h1>
+  <h1>The DeltaTok flow wall — decoder + conditional variance, not architecture or sampler</h1>
   <p class="sub">The RAE/DiT t-conditioning port (per-block AdaLN-Zero + Gaussian-Fourier t-embed, job 2066610)
   walls at exactly the same place as the two legacy architectures — three unrelated fixes, one wall to the
   second decimal, so the network is eliminated. The per-t error profile
@@ -73,6 +73,7 @@
       <code>..._whitenpos_xxl_ema</code> (JZ <code>2055450</code>),
       <code>..._50k</code> baseline (JZ <code>1908282</code>)</span>
     <span><b>Branch</b> <code>revert</code></span>
+    <span><b>In progress</b> <code>..._deltaCtxIncontext_..._xxl_dit</code> (JZ <code>2096639</code>, queued)</span>
     <span><b>Updated</b> 2026-07-19</span>
   </div>
   <div class="meta">
@@ -108,6 +109,11 @@
         even the optimal-MSE latent decodes 2.6–2.8× above the 2.44 ceiling. <b>The frozen decoder's intolerance
         to latent error is the binding constraint</b>, with conditional variance (~0.18) second; the
         amplification (0.179 → 0.293 along the ode path) is real but subdominant. See the Result section.</li>
+      <li><b>Current action (MSEToken direction).</b> Per the pivot to lowering <i>token</i> MSE directly
+        (decoder-agnostic), a new <code>delta_ctx_incontext</code> mode concatenates the frame-0 patch grid
+        <i>into</i> the sequence (joint global attention, per-token AdaLN, <b>zero new params</b>) to test whether
+        the static per-camera cross-attention was under-extracting. Same dit recipe, only <code>cond_mode</code>
+        changed — <b>job 2096639</b> queued. See <a href="#incontext">In-context conditioning</a>.</li>
     </ul>
   </div>
 
@@ -282,9 +288,12 @@ x = x + step_ratio * (x_hat - x)</code></pre>
       the DeltaTok decoder (frozen encoder) on noise-augmented latents (σ ≈ 0.2–0.45, the achievable band), then
       re-decode the same eval. Attacks the measured bottleneck directly; decoder-only training. If it works, the
       existing regression/damped latents already give a working <i>deterministic</i> forecaster.</li>
-    <li><b>Shrink σ² with richer conditioning</b> — future ego-motion is likely the dominant residual
-      uncertainty for driving scenes; <code>use_trajectory_cond</code> infrastructure exists (currently raises
-      <code>NotImplementedError</code> with <code>vit_dit_adaln</code> — needs a small port).</li>
+    <li><b>Shrink MSEToken: extraction gap, then σ².</b> The 0.18 floor splits into irreducible σ² (future
+      ego-motion, dynamic objects) + an <b>extraction gap</b> from the static per-camera cross-attention.
+      <span class="pill run">launched</span> <b>In-context conditioning</b> (<a href="#incontext">§below</a>,
+      job 2096639) attacks the gap first; if the floor holds, <code>n_ctx=2</code> and
+      <code>use_trajectory_cond</code> (action-conditioning on future ego-motion) attack σ² — the trajectory
+      infra exists but raises <code>NotImplementedError</code> under <code>vit_dit_adaln</code> (small port).</li>
     <li><b>v-pred / on-manifold sampling</b> — the path to true generative sampling (MSE ≈ 2σ² but on-manifold
       latents that decode near ceiling). Pointless until the decoder tolerates imperfect latents; revisit after
       (1).</li>
@@ -294,6 +303,50 @@ x = x + step_ratio * (x_hat - x)</code></pre>
     generative sampler would score ≈ 2σ² ≈ 0.36 (independent draw), i.e. worse than the mean on MSE. Progress
     must be read from decode metrics vs the <code>*_tok</code> ceilings (2.44 / 4.39 / 2.51) — which is exactly
     where the decoder currently caps everything at 2.4–2.8×.
+  </div>
+
+  <h2 id="incontext">In-context conditioning — closing the extraction gap <span class="pill run">job 2096639 (queued)</span></h2>
+  <p>The regression floor (MSEToken ≈ 0.18) is the sum of two terms: <b>irreducible conditional variance σ²</b>
+  (future ego-motion, dynamic objects, dis-occlusions — genuinely undetermined by frame-0) and an
+  <b>extraction gap</b> — information present in frame-0 that the network fails to convert into accuracy. The
+  current conditioning is the prime suspect for the gap:</p>
+  <ul>
+    <li><b>Static, unprocessed context.</b> Frame-0 enters only as cross-attention kv — raw DA3 layer-12 feats +
+      one parameter-free LayerNorm, <i>identical</i> k/v at block 1 and block 20. Attention can refine what it
+      <i>asks</i>, but no layer ever writes back into the context, so no layer computes <i>over</i> the scene
+      (scene flow, moving-vs-static, geometry propagation must all live inside the delta stream).</li>
+    <li><b>Per-camera kv.</b> Camera <i>n</i>'s K delta slots attend only to camera <i>n</i>'s grid; cross-camera
+      structure can only pass through the narrow delta stream's self-attention.</li>
+    <li><b>Narrow working stream.</b> ~768 delta tokens carry all scene reasoning while ~2–4k tokens of frame-0
+      state sit frozen — the stream that computes is 3× narrower than the store it reads.</li>
+  </ul>
+  <p>New mode <code>cond_mode=delta_ctx_incontext</code> (VGGT-World / MMDiT-style): the frame-0 patch grid is
+  <b>concatenated into the sequence</b> and processed jointly with the delta tokens by one global self-attention
+  every block — the context is rewritten layer by layer and cross-camera information flows.</p>
+  <div class="step"><b><span class="lbl">seq</span> Layout.</b>
+    <code>[reg | frame-0 ctx (M = N·Hp·Wp) | delta (t·S)]</code>, one joint global attention. Frame-0 tokens are
+    clean (timestep 1) and produce <b>no output and no loss</b> (sliced before <code>out_proj</code>); the
+    <code>n_ctx=1</code> first delta stays clean as before, so loss is on the predicted delta frames only.</div>
+  <div class="step"><b><span class="lbl">AdaLN</span> Per-token.</b> DiT AdaLN is per-<i>frame</i> — a rectangular
+    <code>view(B,t,S,D)</code> broadcast — which can't express the ragged frame-0 block (M ≠ S). So modulation
+    switches to a per-token gather via a group index (context → group 0 @ t=1, delta frame <i>i</i> → group
+    <i>i</i>+1 @ its sampled t). Gated on the mode → every other path is bit-identical.</div>
+  <div class="step"><b><span class="lbl">cost</span> Zero new params.</b> Reuses
+    <code>cross_cond_emb</code> / <code>cross_spatial_pos</code> / <code>camera_embed</code> (shared delta↔context)
+    / <code>temporal_pos</code> (frame-0 = index 0, deltas shifted 1..t); it only <i>drops</i> the per-camera
+    cross-attn blocks. Sequence grows ~4× (adds the M frame-0 tokens) → <code>bsize</code> 16→8.</div>
+  <p>The run keeps the <b>entire</b> dit recipe (xxlarge_d20, per-block AdaLN, dtok64, whitenpos,
+  <code>n_ctx=1</code>, <code>loss_mode=v</code>, 50 ep) and changes <b>only</b> <code>cond_mode</code>,
+  isolating the conditioning variable against the walled <code>..._xxl_dit</code> run.</p>
+  <div class="card ok">
+    <b>Success signal is MSEToken, not decode.</b> This direction attacks the extraction gap in latent space;
+    decode metrics stay <b>decoder-capped</b> (the Result section's binding constraint, addressed separately by
+    the #1 finetune) — so LossDepth may not move even if extraction improves. Win = the sampled MSEToken (and a
+    1-step regression readout) falls below the dit run's <b>0.293 / 0.179</b>. A clear margin ⇒ the extraction gap
+    was real and in-context closed part of it; ≈ the dit run ⇒ the 0.18 is mostly irreducible σ² (then
+    <code>n_ctx=2</code> / trajectory conditioning are the levers). Reviewed (Fable — three findings fixed);
+    4 files <code>py_compile</code>-clean and md5-verified on JZ; <b>job 2096639</b> queued
+    (<code>cya@h100</code>, 2× H100, fresh start).
   </div>
 
   <h2>Evidence</h2>
@@ -321,6 +374,12 @@ x = x + step_ratio * (x_hat - x)</code></pre>
       (<code>GaussianFourierEmbedding</code>), <code>occrae/network/efficient_transformer.py</code> (per-block
       <code>adaLN_modulation</code>, final AdaLN), <code>occrae/abstract_trainer.py</code>
       (<code>xxlarge_d20</code> = 1536/20/16).</li>
+    <li>In-context implementation (<code>cond_mode=delta_ctx_incontext</code>):
+      <code>occrae/network/efficient_transformer.py</code> (<code>in_context</code> flag; per-token AdaLN gather
+      via <code>grp</code>; concat + slice in <code>Transformer.forward</code>),
+      <code>occrae/deltatok_flow_trainer.py</code> (<code>build_frame0_ctx</code>, <code>n_ctx=1</code>);
+      run <code>slurm/jz_train_deltatok_flow_waymo_xxl_incontext.slurm</code>
+      (<code>..._deltaCtxIncontext_..._xxl_dit</code>, <code>bsize=8</code>), <b>job 2096639</b>.</li>
     <li>Prior analysis: <a href="deltatok_flow_whitenpos_failure_analysis.html">whitenpos failure analysis</a>
       (width hypothesis — now superseded by this diagnosis; its secondary fixes EMA/zero-init were applied in
       2055450 and are neutral).</li>

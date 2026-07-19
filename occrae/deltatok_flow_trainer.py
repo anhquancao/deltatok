@@ -89,13 +89,17 @@ class DeltaTokFlowMatchingTrainer(DeltaTokSharedMixin, Trainer):
         # Conditioning / attention modes (default to legacy cross + factorized).
         # delta_ctx: first delta token (frame 0->1) is the clean in-seq context
         # (timestep 1, no loss), no cross-attn. delta_ctx_cross: delta_ctx + frame-0
-        # cross-attn. global: one attention over all deltas.
+        # cross-attn. delta_ctx_incontext: delta_ctx + frame-0 patch grid CONCATENATED
+        # in-sequence (one global attention, per-token AdaLN), no cross-attn. global:
+        # one attention over all deltas.
         self.cond_mode = str(self.cfg.model.get("cond_mode", "cross"))
-        assert self.cond_mode in ("cross", "delta_ctx", "delta_ctx_cross"), f"bad cond_mode={self.cond_mode!r}"
+        assert self.cond_mode in ("cross", "delta_ctx", "delta_ctx_cross", "delta_ctx_incontext"), f"bad cond_mode={self.cond_mode!r}"
         self.attn_mode = str(self.cfg.model.get("attn_mode", "factorized"))
         assert self.attn_mode in ("factorized", "global"), f"bad attn_mode={self.attn_mode!r}"
         self.use_cross = self.cond_mode in ("cross", "delta_ctx_cross")             # frame-0 cross-attn conditioning
-        self.n_ctx = 1 if self.cond_mode in ("delta_ctx", "delta_ctx_cross") else 0  # clean leading delta-token slots
+        self.in_context = self.cond_mode == "delta_ctx_incontext"                   # frame-0 grid concatenated in-sequence (no cross-attn)
+        self.build_frame0_ctx = self.use_cross or self.in_context                    # need the frame-0 patch grids either way
+        self.n_ctx = 1 if self.cond_mode in ("delta_ctx", "delta_ctx_cross", "delta_ctx_incontext") else 0  # clean leading delta-token slots
 
         # Frozen OccRAE encoder/decoder (mixin; never DDP-wrapped, no optimizer).
         self._build_occ_rae()
@@ -202,9 +206,10 @@ class DeltaTokFlowMatchingTrainer(DeltaTokSharedMixin, Trainer):
             # Define transformer architecture parameters
             hidden_dim, depth, heads = self.transformer_size(self.cfg.model.get("vit_size", "base"))
 
-            # cross / delta_ctx_cross condition on frame-0 patch grids via per-camera
-            # cross-attention; delta_ctx has no cross-attn (first delta token = context).
-            cross_dim = 1536 if self.use_cross else None
+            # Frame-0 patch grids feed the ViT either as per-camera cross-attention kv
+            # (cross / delta_ctx_cross) or concatenated in-sequence (delta_ctx_incontext);
+            # both need the cross_cond projection. delta_ctx alone has neither.
+            cross_dim = 1536 if self.build_frame0_ctx else None
 
             model = Transformer(
                 out_dim=1536,
@@ -225,6 +230,7 @@ class DeltaTokFlowMatchingTrainer(DeltaTokSharedMixin, Trainer):
                 use_camera_embed=bool(self.cfg.model.get("vit_use_camera_embed", False)),
                 attn_mode=self.attn_mode,
                 use_dit_adaln=bool(self.cfg.model.get("vit_dit_adaln", False)),
+                in_context=self.in_context,
             )
 
             # Load model checkpoint for resume or pretrained initialization.
@@ -315,8 +321,12 @@ class DeltaTokFlowMatchingTrainer(DeltaTokSharedMixin, Trainer):
             z: delta tokens (B, T-1, N, K, C).
         """
         T = feats.shape[1]
-        assert T - 1 <= self.num_views, (
-            f"T-1={T - 1} transitions exceed temporal slot capacity model.num_views={self.num_views}"
+        # in_context shifts delta temporal indices to 1..T-1 (index 0 = frame-0 anchor),
+        # so the max looked-up temporal_pos row is T-1, needing num_views >= T.
+        max_temporal_idx = (T - 1) + (1 if self.in_context else 0)
+        assert max_temporal_idx <= self.num_views, (
+            f"max temporal index {max_temporal_idx} (T-1={T - 1}{' +1 in_context' if self.in_context else ''}) "
+            f"exceeds temporal slot capacity model.num_views={self.num_views}"
         )
         with torch.no_grad(), self.autocast:
             return self._encode_pair_deltas(self.deltatok, feats, H, W)  # (B, T-1, N, K, C)
@@ -554,9 +564,10 @@ class DeltaTokFlowMatchingTrainer(DeltaTokSharedMixin, Trainer):
                 f"T-1={z.shape[1]} transitions <= context n_ctx={self.n_ctx}; nothing to predict"
             )
             x_spatial = self._z_to_flow_latent(z)  # (B, C, T-1, N, K) flow latent layout
-            # use_cross: frame-0 patch grids via cross-attention. n_ctx>0: first n_ctx
-            # delta tokens kept clean in-sequence — see flow_noising context.
-            cross_cond = self._build_cross_cond(feat0, H, W) if self.use_cross else None  # (B, N, Hp, Wp, C) or None
+            # build_frame0_ctx: frame-0 patch grids, fed as cross-attn kv (use_cross) or
+            # concatenated in-sequence (in_context). n_ctx>0: first n_ctx delta tokens kept
+            # clean in-sequence — see flow_noising context.
+            cross_cond = self._build_cross_cond(feat0, H, W) if self.build_frame0_ctx else None  # (B, N, Hp, Wp, C) or None
 
             z_t, e, timestep = self.flow_noising(x_spatial, context=self.n_ctx, mu=self.cfg.model.mu, sigma=self.cfg.model.sigma)
 
@@ -729,13 +740,14 @@ class DeltaTokFlowMatchingTrainer(DeltaTokSharedMixin, Trainer):
                     # eval needs tokens (decode), feat0 (rollout seed + cross-cond), z (GT).
                     tokens, feat0, z, H, W = self._encode_inputs(batch, imgs, num_cameras, want_tokens=True)  # tokens (B, V, N_tok, C); feat0 (B, N, P, C); z (B, T-1, N, K, C)
                     x_spatial = self._z_to_flow_latent(z)  # (B, C, T-1, N, K) flow latent layout
-                    cross_cond = self._build_cross_cond(feat0, H, W) if self.use_cross else None  # (B, N, Hp, Wp, C) or None
+                    cross_cond = self._build_cross_cond(feat0, H, W) if self.build_frame0_ctx else None  # (B, N, Hp, Wp, C) or None
 
                     batch_losses = {}
 
-                    # 1. Sample delta tokens from pure noise. use_cross: conditioning via
-                    #    cross_cond. n_ctx>0: the first n_ctx delta tokens are the clean
-                    #    context (GT, kept fixed by flow_euler_sample's context handling).
+                    # 1. Sample delta tokens from pure noise. build_frame0_ctx: frame-0
+                    #    conditioning via cross_cond (cross-attn kv or in-sequence concat).
+                    #    n_ctx>0: the first n_ctx delta tokens are the clean context (GT,
+                    #    kept fixed by flow_euler_sample's context handling).
                     zr = self._sample_noise(x_spatial)                            # (B, C, T-1, N, K) init noise (matches train prior)
                     if self.n_ctx > 0:
                         zr[:, :, :self.n_ctx] = x_spatial[:, :, :self.n_ctx]      # GT first delta = clean context

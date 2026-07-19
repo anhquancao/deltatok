@@ -54,7 +54,7 @@ model:
   vit_dit_adaln: false         # per-block AdaLN-Zero + Gaussian-Fourier t-embed (RAE/DiT recipe); false = legacy shared 8-chunk modulation
   vit_use_camera_rope: false   # rotary over the camera (spatial) axis in the flow ViT; enable via EXTRA_CFG
   vit_use_camera_embed: false  # absolute learned per-camera identity over the flow-ViT camera axis; enable via EXTRA_CFG
-  cond_mode: cross       # cross | delta_ctx | delta_ctx_cross (delta_ctx = first delta token as clean in-seq context, no cross-attn; delta_ctx_cross = delta_ctx + frame-0 cross-attn)
+  cond_mode: cross       # cross | delta_ctx | delta_ctx_cross | delta_ctx_incontext (delta_ctx = first delta token as clean in-seq context, no cross-attn; delta_ctx_cross = delta_ctx + frame-0 cross-attn; delta_ctx_incontext = delta_ctx + frame-0 patch grid CONCATENATED in-sequence, one global attention with per-token AdaLN, no cross-attn — requires attn_mode=global + vit_dit_adaln)
   attn_mode: factorized  # factorized | global (global = one attention over all delta tokens)
 
   # Temporal slot capacity: must be >= max T-1 transitions per item (worst case

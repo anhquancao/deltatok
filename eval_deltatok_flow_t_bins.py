@@ -217,7 +217,7 @@ def sweep_split(trainer, cfg, loader, bin_centers, args):
             print(f"[WARN] Skipping batch: T-1={z.shape[1]} <= n_ctx={trainer.n_ctx}, nothing to predict")
             continue
         x_spatial = trainer._z_to_flow_latent(z)  # (B, C, T-1, N, K) flow latent layout; whitened iff model.whiten_stats
-        cross_cond = trainer._build_cross_cond(feat0, H, W) if trainer.use_cross else None  # (B, N, Hp, Wp, C) or None
+        cross_cond = trainer._build_cross_cond(feat0, H, W) if trainer.build_frame0_ctx else None  # (B, N, Hp, Wp, C) or None
 
         # flow_loss masks the n_ctx clean context slots, so each reported mean is over
         # predicted slots only. Element-weighted because the train split's T-1 varies
