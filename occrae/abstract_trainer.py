@@ -143,6 +143,8 @@ class Trainer(object):
             hidden_dim, depth, heads = 1152, 28, 16
         elif size == "xxlarge":
             hidden_dim, depth, heads = 1536, 28, 16
+        elif size == "xxlarge_d20":
+            hidden_dim, depth, heads = 1536, 20, 16   # width==C, shallower (dit run: per-block adaLN is depth-costly)
         elif size.lower() in ["2b", "giant", "xxxl"]:
             hidden_dim, depth, heads = 2048, 32, 16
         else:

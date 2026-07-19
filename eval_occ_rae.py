@@ -63,6 +63,7 @@ VIT_SIZES = {
     "large": (1024, 24, 16),
     "xlarge": (1152, 28, 16),
     "xxlarge": (1536, 28, 16),
+    "xxlarge_d20": (1536, 20, 16),   # width==C, shallower (dit run: per-block adaLN is depth-costly)
     "2b": (2048, 32, 16),
     "giant": (2048, 32, 16),
     "xxxl": (2048, 32, 16),
@@ -304,6 +305,7 @@ def main():
         ref_spatial_size=(patch_h, patch_w),
         use_camera_embed=bool(cfg.model.get("vit_use_camera_embed", False)),
         attn_mode=str(cfg.model.get("attn_mode", "factorized")),
+        use_dit_adaln=bool(cfg.model.get("vit_dit_adaln", False)),
     )
     model = model.to(args.device)
 

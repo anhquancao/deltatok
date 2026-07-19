@@ -6,17 +6,13 @@ import torch.nn.functional as F
 from einops import rearrange, repeat
 
 # from transformer_block import RMSNorm, Attention, FeedForward, TimestepEmbedder
-from occrae.network.transformer_block import RMSNorm, Attention, CrossAttention, FeedForward, TimestepEmbedder
+from occrae.network.transformer_block import RMSNorm, Attention, CrossAttention, FeedForward, TimestepEmbedder, GaussianFourierEmbedding
 
 # Reuse DINOv3's rope embedding so the flow ViT's optional camera rope is built from
 # the exact same axial-rope frequencies / 1xN camera-grid as the DeltaTok tokenizer.
 from transformers.models.dinov3_vit.configuration_dinov3_vit import DINOv3ViTConfig
 from transformers.models.dinov3_vit.modeling_dinov3_vit import DINOv3ViTRopePositionEmbedding
 from occrae.network.rope_utils import compute_camera_rope  # shared 1xN camera-grid rope build
-
-def modulate(x, gamma):
-    return x * (1 + gamma)
-
 
 def gem_timestep_embedding(timesteps, dim, max_period=10000, repeat_only=False):
     """
@@ -49,9 +45,15 @@ def gem_timestep_embedding(timesteps, dim, max_period=10000, repeat_only=False):
 
 
 class Block(nn.Module):
-    def __init__(self, dim, heads, mlp_dim, dropout=0., use_cross_attn=False, attn_mode="factorized"):
+    def __init__(self, dim, heads, mlp_dim, dropout=0., use_cross_attn=False, attn_mode="factorized", use_dit_adaln=False):
         super().__init__()
         self.attn_mode = attn_mode  # "factorized" (spatial+temporal) | "global" (single attn over t*s)
+        self.use_dit_adaln = use_dit_adaln  # per-block AdaLN-Zero (RAE/DiT) vs shared 8-chunk modulation
+
+        if use_dit_adaln:
+            # RAE/DiT-faithful: this block's own zero-init (shift, scale, gate) per residual branch.
+            self.n_branches = (1 if attn_mode == "global" else 2) + (1 if use_cross_attn else 0) + 1
+            self.adaLN_modulation = nn.Sequential(nn.SiLU(), nn.Linear(dim, 3 * self.n_branches * dim, bias=True))
 
         if attn_mode == "global":
             # One self-attention over all t*s video tokens; replaces spatial+temporal.
@@ -87,16 +89,11 @@ class Block(nn.Module):
                (one kv row per slot, the legacy layout).
             spatial_rope: optional (cos, sin), each (s, head_dim), rotary over the
                camera (spatial) axis. Applied in spatial (cross-camera) attention only.
+
+        In dit mode ada_cond is instead the frame-level conditioning c (B, t, D);
+        this block derives its own zero-init (shift, scale, gate) per branch from it
+        (RAE lightningDiT.py:80-89).
         """
-
-        # Generate all modulation parameters from style
-        (
-            gamma_spatial, alpha_spatial,
-            gamma_temporal, alpha_temporal,
-            gamma_cross, alpha_cross,
-            gamma_mlp, alpha_mlp,
-        ) = ada_cond
-
         b, n, d = x.shape
         n_video = t * s
         n_reg = n - n_video
@@ -107,28 +104,61 @@ class Block(nn.Module):
         x_reg = x[:, :n_reg] if n_reg > 0 else None
         x_video = x[:, n_reg:]
 
+        # Per-branch (shift, scale, gate) triples over the video tokens, consumed in
+        # branch order below. dit: this block's own AdaLN from frame-level c. legacy:
+        # the shared per-token (gamma, alpha) chunks, sliced to video rows; shift=None.
+        if self.use_dit_adaln:
+            mods = self.adaLN_modulation(ada_cond).chunk(3 * self.n_branches, dim=-1)  # 3*(B, t, D) per branch
+            branch_mods = iter([mods[i:i + 3] for i in range(0, len(mods), 3)])
+        else:
+            (
+                gamma_spatial, alpha_spatial,
+                gamma_temporal, alpha_temporal,
+                gamma_cross, alpha_cross,
+                gamma_mlp, alpha_mlp,
+            ) = ada_cond
+            pairs = ([(gamma_spatial, alpha_spatial)] if self.attn_mode == "global"
+                     else [(gamma_spatial, alpha_spatial), (gamma_temporal, alpha_temporal)])
+            pairs += [(gamma_cross, alpha_cross)] if self.cross_attn is not None else []
+            pairs += [(gamma_mlp, alpha_mlp)]
+            branch_mods = iter([(None, g[:, n_reg:], a[:, n_reg:]) for g, a in pairs])
+
+        def _mod(xv, shift, scale):
+            if shift is None:
+                return xv * (1 + scale)                                                # (B, t*s, D) legacy scale-only
+            xv = xv.view(b, t, s, d) * (1 + scale[:, :, None]) + shift[:, :, None]     # (B, t, s, D) frame-broadcast AdaLN
+            return xv.view(b, t * s, d)                                                # (B, t*s, D)
+
+        def _gate(yv, gate):
+            if not self.use_dit_adaln:
+                return gate * yv                                                       # (B, t*s, D) per-token gate
+            return (yv.view(b, t, s, d) * gate[:, :, None]).view(b, t * s, d)          # (B, t*s, D) frame-broadcast gate
+
         if self.attn_mode == "global":
             # --- Single global self-attention over all t*s video tokens ---
-            # Reuses the spatial AdaLN chunk for modulation; no rope (camera identity
-            # comes from the additive camera_embed). Every delta token (incl. the clean
-            # context slot) attends to every other one.
-            x_g = modulate(self.ln_global(x_video), gamma_spatial[:, n_reg:])  # (B, t*s, D)
+            # (dit: own triple; legacy reuses the spatial AdaLN chunk.) No rope (camera
+            # identity comes from the additive camera_embed). Every delta token (incl.
+            # the clean context slot) attends to every other one.
+            shift, scale, gate = next(branch_mods)
+            x_g = _mod(self.ln_global(x_video), shift, scale)                  # (B, t*s, D)
             x_g = self.global_attn(x_g)                                        # (B, t*s, D) full attn
-            x_video = x_video + alpha_spatial[:, n_reg:] * x_g
+            x_video = x_video + _gate(x_g, gate)
         else:
             # --- Spatial self-attention (within frame; = cross-camera for delta-token flow) ---
-            x_spatial = modulate(self.ln_spatial(x_video), gamma_spatial[:, n_reg:])
+            shift, scale, gate = next(branch_mods)
+            x_spatial = _mod(self.ln_spatial(x_video), shift, scale)
             x_spatial = rearrange(x_spatial, 'b (t s) d -> (b t) s d', t=t, s=s)
             x_spatial = self.spatial_attn(x_spatial, rope=spatial_rope)  # camera rope over the s axis
             x_spatial = rearrange(x_spatial, '(b t) s d -> b (t s) d', b=b, t=t, s=s)
-            x_video = x_video + alpha_spatial[:, n_reg:] * x_spatial
+            x_video = x_video + _gate(x_spatial, gate)
 
             # --- Temporal self-attention (across time, per spatial location) ---
-            x_temporal = modulate(self.ln_temporal(x_video), gamma_temporal[:, n_reg:])
+            shift, scale, gate = next(branch_mods)
+            x_temporal = _mod(self.ln_temporal(x_video), shift, scale)
             x_temporal = rearrange(x_temporal, 'b (t s) d -> (b s) t d', t=t, s=s)
             x_temporal = self.temporal_attn(x_temporal, mask=temporal_mask)
             x_temporal = rearrange(x_temporal, '(b s) t d -> b (t s) d', b=b, t=t, s=s)
-            x_video = x_video + alpha_temporal[:, n_reg:] * x_temporal
+            x_video = x_video + _gate(x_temporal, gate)
 
         # --- Cross-attention (per kv group, camera-permutation-equivariant) ---
         # cross_cond is (B*cross_n, L, D): one kv row per group of s//cross_n
@@ -136,29 +166,32 @@ class Block(nn.Module):
         # a group attend only to its own context, mirroring DeltaTok's structural
         # z_i <-> camera_i binding (no camera IDs needed). Softmax is per query token,
         # so sharing kv across a camera's K delta slots equals duplicating it K times.
-        if self.cross_attn is not None and cross_cond is not None:
-            n_c = cross_n if cross_n is not None else s                              # kv groups per frame
-            k_c = s // n_c                                                           # slots sharing one kv row (K per camera)
-            x_cross = modulate(self.ln_cross(x_video), gamma_cross[:, n_reg:])      # (B, t*s, D) normalized + AdaLN-scaled queries
-            x_cross = rearrange(x_cross, 'b (t n k) d -> (b n) (t k) d', t=t, n=n_c, k=k_c)      # (B*n_c, t*k_c, D) fold groups into batch
-            x_cross = self.cross_attn(x_cross, cross_cond, cross_mask)              # (B*n_c, t*k_c, D) q=x_cross, kv=cross_cond (B*n_c, L, D)
-            x_cross = rearrange(x_cross, '(b n) (t k) d -> b (t n k) d', b=b, t=t, n=n_c, k=k_c)  # (B, t*s, D) back to token layout
-            x_video = x_video + alpha_cross[:, n_reg:] * x_cross                    # (B, t*s, D) gated residual (alpha_cross starts at 0)
-
-        x = torch.cat([x_reg, x_video], dim=1) if n_reg > 0 else x_video
+        if self.cross_attn is not None:
+            shift, scale, gate = next(branch_mods)                                  # consume even if cross_cond is absent (stable layout)
+            if cross_cond is not None:
+                n_c = cross_n if cross_n is not None else s                          # kv groups per frame
+                k_c = s // n_c                                                       # slots sharing one kv row (K per camera)
+                x_cross = _mod(self.ln_cross(x_video), shift, scale)                 # (B, t*s, D) normalized + AdaLN-scaled queries
+                x_cross = rearrange(x_cross, 'b (t n k) d -> (b n) (t k) d', t=t, n=n_c, k=k_c)      # (B*n_c, t*k_c, D) fold groups into batch
+                x_cross = self.cross_attn(x_cross, cross_cond, cross_mask)           # (B*n_c, t*k_c, D) q=x_cross, kv=cross_cond (B*n_c, L, D)
+                x_cross = rearrange(x_cross, '(b n) (t k) d -> b (t n k) d', b=b, t=t, n=n_c, k=k_c)  # (B, t*s, D) back to token layout
+                x_video = x_video + _gate(x_cross, gate)                             # (B, t*s, D) gated residual (gate starts at 0)
 
         # --- Feed-forward with AdaLN modulation ---
-        x = x + alpha_mlp * self.ff(modulate(self.ln_mlp(x), gamma_mlp))
+        # Video tokens only; registers pass through (output-identical to the old
+        # full-x FF: their modulation rows were hard-zero, gating the update to 0).
+        shift, scale, gate = next(branch_mods)
+        x_video = x_video + _gate(self.ff(_mod(self.ln_mlp(x_video), shift, scale)), gate)
 
-        return x
+        return torch.cat([x_reg, x_video], dim=1) if n_reg > 0 else x_video
         
 
 class TransformerEncoder(nn.Module):
-    def __init__(self, dim, depth, heads, mlp_dim, dropout=0., use_cross_attn=False, attn_mode="factorized"):
+    def __init__(self, dim, depth, heads, mlp_dim, dropout=0., use_cross_attn=False, attn_mode="factorized", use_dit_adaln=False):
         super().__init__()
         self.layers = nn.ModuleList([])
         for _ in range(depth):
-            self.layers.append(Block(dim, heads, mlp_dim, dropout=dropout, use_cross_attn=use_cross_attn, attn_mode=attn_mode))
+            self.layers.append(Block(dim, heads, mlp_dim, dropout=dropout, use_cross_attn=use_cross_attn, attn_mode=attn_mode, use_dit_adaln=use_dit_adaln))
 
     def forward(self, x, ada_cond, cross_cond, t, s, temporal_mask=None, cross_mask=None, spatial_rope=None, cross_n=None):
         feat = None
@@ -176,7 +209,7 @@ class Transformer(nn.Module):
                  register=1, proj=1, is_causal=False,
                  use_trajectory_cond=False, trajectory_length=25,
                  ref_spatial_size=(16, 16), use_camera_rope=False, max_cameras=32,
-                 use_camera_embed=False, attn_mode="factorized"):
+                 use_camera_embed=False, attn_mode="factorized", use_dit_adaln=False):
         super().__init__()
 
         self.c = out_dim                                                # Number of channels as input
@@ -192,6 +225,7 @@ class Transformer(nn.Module):
         self.max_cameras = max_cameras                                  # rope/embed slot cap (matches tokenizer MAX_CAMERAS=32)
         self.use_camera_embed = use_camera_embed                        # absolute learned per-camera identity (additive, ungated)
         self.attn_mode = attn_mode                                      # "factorized" (spatial+temporal) | "global" (single attn over t*s)
+        self.use_dit_adaln = use_dit_adaln                              # per-block AdaLN-Zero + Fourier t-embed (RAE/DiT recipe)
 
         # In global mode the spatial-attention path (where camera rope lives) and the
         # temporal causal mask are gone; fail loud rather than silently ignore them.
@@ -200,6 +234,8 @@ class Transformer(nn.Module):
                 raise ValueError("attn_mode='global' drops camera rope (no spatial attn); use camera_embed instead")
             if is_causal:
                 raise NotImplementedError("attn_mode='global' has no temporal causal mask")
+        if use_dit_adaln and use_trajectory_cond:
+            raise NotImplementedError("trajectory conditioning is not wired into the dit adaLN path")
 
         if self.use_camera_rope:
             head_dim = hidden_dim // heads
@@ -230,7 +266,11 @@ class Transformer(nn.Module):
         # number of spatial tokens (including CLS if present in spatial_pos, but here we use it for reference)
         self.num_spatial = ref_n * ref_k + 1
 
-        self.time_embed = TimestepEmbedder(in_dim=hidden_dim, out_dim=hidden_dim*8)
+        if use_dit_adaln:
+            # RAE-faithful: Fourier t-embed -> frame-level c; per-block AdaLN lives in the blocks.
+            self.time_embed = GaussianFourierEmbedding(hidden_size=hidden_dim)
+        else:
+            self.time_embed = TimestepEmbedder(in_dim=hidden_dim, out_dim=hidden_dim*8)
         if self.use_trajectory_cond:
             self.trajectory_embed = GemTrajectoryEmbedder(
                 trajectory_length=trajectory_length,
@@ -259,9 +299,15 @@ class Transformer(nn.Module):
         # The Transformer Encoder a la BERT :)
         self.transformer = TransformerEncoder(dim=hidden_dim, depth=depth, heads=heads, mlp_dim=mlp_dim,
                                               dropout=dropout, use_cross_attn=cross_dim is not None,
-                                              attn_mode=attn_mode)
+                                              attn_mode=attn_mode, use_dit_adaln=use_dit_adaln)
 
-        self.last_norm = RMSNorm(dim=hidden_dim, linear=True, bias=True)
+        if use_dit_adaln:
+            # DiT final layer: affine-free norm + zero-init shift/scale from c (the
+            # AdaLN's 1+scale subsumes an affine weight; RAE's rmsnorm keeps one).
+            self.last_norm = RMSNorm(dim=hidden_dim, linear=False, bias=False)
+            self.final_adaLN = nn.Sequential(nn.SiLU(), nn.Linear(hidden_dim, 2 * hidden_dim, bias=True))
+        else:
+            self.last_norm = RMSNorm(dim=hidden_dim, linear=True, bias=True)
 
         if self.register > 0:
             self.reg_tokens = nn.Embedding(self.register, hidden_dim)
@@ -289,15 +335,27 @@ class Transformer(nn.Module):
         # Init proj layer
         if self.proj > 1:
             nn.init.xavier_uniform_(self.in_proj.weight)
-            # nn.init.xavier_uniform_(self.out_proj.weight)
 
         # Init register
         if self.register > 0:
             nn.init.normal_(self.reg_tokens.weight, std=0.02)
 
         # AdaLN-Zero style init: start modulation close to identity / zero residual scaling
-        nn.init.constant_(self.time_embed.mlp[-1].weight, 0)
-        nn.init.constant_(self.time_embed.mlp[-1].bias, 0)
+        if self.use_dit_adaln:
+            # RAE lightningDiT.py:196-209: t-embed MLP std 0.02; zero every per-block + final AdaLN.
+            nn.init.normal_(self.time_embed.mlp[0].weight, std=0.02)
+            nn.init.normal_(self.time_embed.mlp[2].weight, std=0.02)
+            for blk in self.transformer.layers:
+                nn.init.constant_(blk.adaLN_modulation[-1].weight, 0)
+                nn.init.constant_(blk.adaLN_modulation[-1].bias, 0)
+            nn.init.constant_(self.final_adaLN[-1].weight, 0)
+            nn.init.constant_(self.final_adaLN[-1].bias, 0)
+        else:
+            nn.init.constant_(self.time_embed.mlp[-1].weight, 0)
+            nn.init.constant_(self.time_embed.mlp[-1].bias, 0)
+        # Zero-init the output path (VGGT-World/RAE): initial prediction exactly 0.
+        nn.init.constant_(self.out_proj.weight, 0)
+        nn.init.constant_(self.out_proj.bias, 0)
         if self.use_trajectory_cond:
             nn.init.constant_(self.trajectory_embed.mlp[-1].weight, 0)
             nn.init.constant_(self.trajectory_embed.mlp[-1].bias, 0)
@@ -414,7 +472,10 @@ class Transformer(nn.Module):
         elif ada_cond.shape[1] != t:
             raise ValueError(f"ada_cond has shape {ada_cond.shape}, expected (B, T) with T={t}")
         
-        t_emb = self.time_embed(ada_cond).chunk(8, dim=-1)
+        if self.use_dit_adaln:
+            cond = self.time_embed(ada_cond)                 # (B, T, D) frame-level c; each block derives its own AdaLN from it
+        else:
+            t_emb = self.time_embed(ada_cond).chunk(8, dim=-1)
         if self.use_trajectory_cond:
             if trajectory_cond is None:
                 raise ValueError("trajectory conditioning is enabled but trajectory_cond is missing")
@@ -441,7 +502,8 @@ class Transformer(nn.Module):
         elif trajectory_keep_mask is not None:
             raise ValueError("trajectory_keep_mask was provided but trajectory conditioning is disabled for this model")
 
-        t_emb_expanded = [e.repeat_interleave(S, dim=1) for e in t_emb]  # (B, N, D)
+        if not self.use_dit_adaln:
+            cond = [e.repeat_interleave(S, dim=1) for e in t_emb]        # 8 x (B, t*S, D) shared per-token chunks
 
         # Cross-attention conditioning
         cross_n = None
@@ -468,8 +530,9 @@ class Transformer(nn.Module):
         if self.register > 0:
             reg = torch.arange(0, self.register, dtype=torch.long, device=x.device)
             x = torch.cat([self.reg_tokens(reg).expand(b, self.register, self.hidden_dim), x], dim=1)
-            t_emb_expanded = [torch.cat([torch.zeros(b, self.register, self.hidden_dim, dtype=x.dtype, device=x.device), e], dim=1)
-                                for e in t_emb_expanded]
+            if not self.use_dit_adaln:
+                cond = [torch.cat([torch.zeros(b, self.register, self.hidden_dim, dtype=x.dtype, device=x.device), e], dim=1)
+                        for e in cond]
 
         # Per-camera rotation in cross-camera (spatial) attn; a camera's k_p delta-token
         # slots share it (native-K, mirrors camera_embed: slot s -> camera s // k_p).
@@ -479,12 +542,17 @@ class Transformer(nn.Module):
         else:
             spatial_rope = None
 
-        x, feat = self.transformer(x=x, ada_cond=t_emb_expanded, cross_cond=cross_cond, t=t, s=S, temporal_mask=temporal_mask, spatial_rope=spatial_rope, cross_n=cross_n)
+        x, feat = self.transformer(x=x, ada_cond=cond, cross_cond=cross_cond, t=t, s=S, temporal_mask=temporal_mask, spatial_rope=spatial_rope, cross_n=cross_n)
 
         # drop the register(s)
         x = x[:, self.register:].contiguous()
 
         x = self.last_norm(x)
+        if self.use_dit_adaln:
+            # Final-layer AdaLN (RAE LightningFinalLayer): zero-init shift/scale from c.
+            shift, scale = self.final_adaLN(cond).chunk(2, dim=-1)                     # (B, T, D) each
+            x = x.view(b, t, S, -1) * (1 + scale[:, :, None]) + shift[:, :, None]      # (B, t, S, D) frame-broadcast
+            x = x.view(b, t * S, -1)                                                   # (B, t*S, D)
         x = self.out_proj(x)
         x = rearrange(x, 'b (t n k) (c s1 s2) -> b c t (n s1) (k s2)', s1=self.proj, s2=self.proj, b=b, c=self.c, n=n_p, k=k_p).contiguous()
 

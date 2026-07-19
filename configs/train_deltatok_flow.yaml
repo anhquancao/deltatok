@@ -51,6 +51,7 @@ dataset:
 
 model:
   vit_size: "xlarge"
+  vit_dit_adaln: false         # per-block AdaLN-Zero + Gaussian-Fourier t-embed (RAE/DiT recipe); false = legacy shared 8-chunk modulation
   vit_use_camera_rope: false   # rotary over the camera (spatial) axis in the flow ViT; enable via EXTRA_CFG
   vit_use_camera_embed: false  # absolute learned per-camera identity over the flow-ViT camera axis; enable via EXTRA_CFG
   cond_mode: cross       # cross | delta_ctx | delta_ctx_cross (delta_ctx = first delta token as clean in-seq context, no cross-attn; delta_ctx_cross = delta_ctx + frame-0 cross-attn)
@@ -64,6 +65,7 @@ model:
   num_views: 256
   pred_mode: "x"
   loss_mode: "v"
+  sampler_step_mode: "ode"  # eval sampler update: ode = v-conversion Euler | damped = VGGT-World blend-to-x_hat (no 1/(1-t) error amplification)
   mu: -0.7
   sigma: 1.4
   train_fixed_t: null  # set (e.g. 0) to train at one fixed t matching the 1-step eval; null = sample logit-normal(mu,sigma)

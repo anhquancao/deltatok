@@ -33,6 +33,34 @@ class TimestepEmbedder(nn.Module):
         return self.mlp(emb)
     
 
+class GaussianFourierEmbedding(nn.Module):
+    """Verbatim copy of RAE's timestep embedding (third_party/RAE src/stage2/models/
+    model_utils.py:385), except t[..., None]: our t is per-frame (B, T), not (N,).
+    Its frozen O(2π) random freqs resolve continuous t∈[0,1] at multiple scales
+    (TimestepEmbedder's sinusoid spans <1 rad over the same range).
+    """
+    embedding_size: int = 256
+    scale: float = 1.0
+    def __init__(self, hidden_size: int, embedding_size: int = 256, scale: float = 1.0):
+        super().__init__()
+        self.embedding_size = embedding_size
+        self.scale = scale
+        self.W = nn.Parameter(torch.normal(0, self.scale, (embedding_size,)), requires_grad=False)
+        self.mlp = nn.Sequential(
+            nn.Linear(embedding_size * 2, hidden_size, bias=True),
+            nn.SiLU(),
+            nn.Linear(hidden_size, hidden_size, bias=True),
+        )
+    def forward(self, t):
+        with torch.no_grad():
+            W = self.W # stop gradient manually
+        t = t[..., None] * W * 2 * torch.pi                          # (..., E); W broadcasts over leading dims
+        # Concatenate sine and cosine transformations
+        t_embed =  torch.cat([torch.sin(t), torch.cos(t)], dim=-1)   # (..., 2E)
+        t_embed = self.mlp(t_embed)                                  # (..., D)
+        return t_embed
+
+
 class FeedForward(nn.Module):
     def __init__(self, dim, h_dim, multiple_of=256, bias=False, dropout=0.):
         super().__init__()

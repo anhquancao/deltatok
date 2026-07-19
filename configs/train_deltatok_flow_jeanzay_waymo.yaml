@@ -50,7 +50,7 @@ dataset:
   # (anchor + 4 random later ones, sorted; NOT consecutive) x cam 0 at (518,266).
   # 32000/epoch = 1000 steps/epoch at effective_bsize 32 -> 50k steps over 50 epochs.
   train_dataset: "32000 @ WaymoSeqMultiView(ROOT='/lustre/fsn1/projects/rech/trg/uyl37fq/occany_data/waymo_processed', \
-      seq_pkl_name='seq_surround_temporal_sub5_stride9_all.pkl', \
+      seq_pkl_name='seq_surround_temporal_sub5_stride9_fs1_all.pkl', \
       min_memory_num_views=5, frame_interval=1, max_memory_num_views=5, \
       num_views_per_timestep=5, fixed_cams=[0], min_num_timesteps=2, ray_map_prob=-1, \
       z_far=50, split=None, exclude_scenes=${dataset._waymo_val_scenes}, no_partial_views=True, \

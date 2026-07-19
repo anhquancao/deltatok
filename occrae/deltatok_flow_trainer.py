@@ -224,6 +224,7 @@ class DeltaTokFlowMatchingTrainer(DeltaTokSharedMixin, Trainer):
                 use_camera_rope=bool(self.cfg.model.get("vit_use_camera_rope", False)),
                 use_camera_embed=bool(self.cfg.model.get("vit_use_camera_embed", False)),
                 attn_mode=self.attn_mode,
+                use_dit_adaln=bool(self.cfg.model.get("vit_dit_adaln", False)),
             )
 
             # Load model checkpoint for resume or pretrained initialization.
@@ -743,6 +744,7 @@ class DeltaTokFlowMatchingTrainer(DeltaTokSharedMixin, Trainer):
                         pred_mode=self.cfg.model.pred_mode,
                         context=self.n_ctx,
                         num_steps=eval_num_steps,
+                        step_mode=str(self.cfg.model.get("sampler_step_mode", "ode")),
                         cross_cond=cross_cond,
                         autocast_ctx=self.autocast,
                     )

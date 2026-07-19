@@ -18,6 +18,7 @@ def flow_euler_sample(
     num_steps=50,
     alpha=0.5,
     scheduler_mode="cosine",
+    step_mode="ode",
     cross_cond=None,
     cfg_w=0,
     cross_cond_zeros=None,
@@ -36,6 +37,10 @@ def flow_euler_sample(
         num_steps: Number of Euler integration steps.
         alpha: Per-frame timestep offset strength.
         scheduler_mode: ``"cosine"``, ``"square"``, or ``"linear"``.
+        step_mode: ``"ode"`` = v-conversion Euler (divides x-pred error by
+            clamp(1-t, 0.05) near t=1); ``"damped"`` = VGGT-World blend-to-x_hat
+            (fm.py:479) — never divides by the noise level, first step jumps to
+            x_hat. ``"damped"`` requires ``pred_mode="x"``.
         cross_cond: Optional conditioning for cross-attention.
         cfg_w: Classifier-free guidance weight (0 disables CFG).
         cross_cond_zeros: Zero embedding for CFG (required when ``cfg_w > 1``).
@@ -47,6 +52,10 @@ def flow_euler_sample(
     """
     if autocast_ctx is None:
         autocast_ctx = nullcontext()
+    if step_mode not in ("ode", "damped"):
+        raise ValueError(f"step_mode must be 'ode' or 'damped', got {step_mode!r}")
+    if step_mode == "damped" and pred_mode != "x":
+        raise ValueError("step_mode='damped' blends toward x_hat and requires pred_mode='x'")
 
     B = z.shape[0]
     t_dim = z.shape[2]
@@ -79,6 +88,16 @@ def flow_euler_sample(
                     x=z, ada_cond=t_curr, cross_cond=cross_cond_zeros,
                 )
                 pred = pred_uncond + cfg_w * (pred - pred_uncond)
+
+        if step_mode == "damped":
+            # VGGT-World update: blend toward x_hat with ratio dt/t clamped to [0,1].
+            # Never divides by the noise level (1-t), so x_hat error is not amplified
+            # near t=1; at t=0 the clamp gives ratio 1 (jump to x_hat, noise discarded).
+            ratio = ((t_next - t_curr) / torch.clamp(t_curr, min=1e-8)).clamp(0, 1)  # (B, T)
+            if context > 0:
+                ratio[:, :context] = 0.0
+            z = z + ratio.view(B, 1, t_dim, 1, 1) * (pred - z)
+            continue
 
         if pred_mode == "x":
             v = (pred - z) / torch.clamp(1 - t_curr.view(B, 1, t_dim, 1, 1), min=0.05)
