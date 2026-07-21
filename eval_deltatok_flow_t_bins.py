@@ -16,8 +16,12 @@ per t rather than a re-derivation of it. Three errors come out of one forward:
                 carrying an up-to-400x upweight as t->1.
   * ``mse_e`` — noise-prediction error.
 Alongside them: ``x_var`` (error of the trivial "predict 0" predictor — the line the
-model must beat) and ``train_mass`` (analytic logit-normal training density in that bin
-— which bins were actually trained).
+model must beat, and also sigma_x^2), ``e_var``, ``snr`` (= t^2*sigma_x^2/((1-t)^2*E[e^2]),
+which equals t^2/(1-t)^2 only if whitening delivered sigma_x^2 = 1) and ``train_mass``
+(analytic training density in that bin, following ``model.t_dist`` — which bins were
+actually trained). Per split it also prints the per-channel and per-delta-slot SNR
+spreads: whitening exists to make these ~1, and a large spread means one scalar t cannot
+describe the noise level of every channel/slot.
 
 The frozen OccRAE (~1B) encode dominates the cost, so each batch is encoded ONCE and
 every bin is swept on it; the flow ViT sees only (T-1)*N*K delta tokens per item.
@@ -126,12 +130,19 @@ def _sanitize(name: str) -> str:
     return re.sub(r"[^A-Za-z0-9_.-]+", "-", str(name)).strip("-")
 
 
-def _train_t_mass(lo: float, hi: float, mu: float, sigma: float) -> float:
+def _train_t_mass(lo: float, hi: float, mu: float, sigma: float,
+                  t_dist: str = "logitnormal") -> float:
     """Training-time probability mass of t in [lo, hi], analytically.
 
-    Training draws t = sigmoid(s), s ~ N(mu, sigma) (see `flow_noising`), so
-    P(t <= q) = P(s <= logit(q)) = Phi((logit(q) - mu) / sigma). No sampling needed.
+    logitnormal: t = sigmoid(s), s ~ N(mu, sigma) (see `flow_noising`), so
+    P(t <= q) = P(s <= logit(q)) = Phi((logit(q) - mu) / sigma).
+    uniform: the mass is just the bin width. No sampling needed either way.
     """
+    if t_dist == "uniform":
+        return max(0.0, min(1.0, hi) - max(0.0, lo))
+    if t_dist != "logitnormal":
+        raise ValueError(f"model.t_dist must be uniform|logitnormal, got {t_dist!r}")
+
     def _cdf(q):
         if q <= 0.0:
             return 0.0
@@ -192,13 +203,16 @@ def _pin_loader_epoch(loader) -> None:
 def sweep_split(trainer, cfg, loader, bin_centers, args):
     """Accumulate per-bin squared error over `--num_batches` batches of one loader.
 
-    Returns (sums, counts): sums[mode] / sums["x_var"] are element-weighted sums of
-    squared error per bin; counts holds the element count per bin.
+    Returns (sums, counts, diag): sums[mode] / sums["x_var"] / sums["e_var"] are
+    element-weighted sums per bin; counts holds the element count per bin; diag holds
+    the t-independent SNR-uniformity ratios (one value per batch).
     """
     n_bins = len(bin_centers)
     sums = {m: np.zeros(n_bins, dtype=np.float64) for m in _MODES}
     sums["x_var"] = np.zeros(n_bins, dtype=np.float64)
+    sums["e_var"] = np.zeros(n_bins, dtype=np.float64)
     counts = np.zeros(n_bins, dtype=np.float64)
+    diag = {"spread_c": [], "spread_k": []}
 
     batches_done = 0
     for batch in loader:
@@ -226,7 +240,15 @@ def sweep_split(trainer, cfg, loader, bin_centers, args):
         n_elem = float(b_ * c_ * (t_ - trainer.n_ctx) * n_ * k_)    # == flow_loss's mask.sum()
         # Error of the trivial "predict 0" predictor on the same slots: delta tokens are
         # ~unit-scale after DeltaTok's LayerNorm, so this is the bar mse_x must clear.
-        x_var = x_spatial[:, :, trainer.n_ctx:].float().pow(2).mean().item()
+        # Doubles as sigma_x^2 in SNR(t) = t^2*sigma_x^2 / ((1-t)^2*E[e^2]).
+        xs = x_spatial[:, :, trainer.n_ctx:].float()                # (B, C, T-1-n_ctx, N, K)
+        x_var = xs.pow(2).mean().item()
+        # Whitening is meant to equalise signal power so one scalar t describes every
+        # channel/slot. snr_c is proportional to var_c, so these ratios are t-free.
+        var_c = xs.pow(2).mean(dim=(0, 2, 3, 4))                    # (C,) per-channel signal power
+        var_k = xs.pow(2).mean(dim=(0, 1, 2, 3))                    # (K,) per delta-slot signal power
+        diag["spread_c"].append(float(var_c.max() / var_c.clamp_min(1e-12).min()))
+        diag["spread_k"].append(float(var_k.max() / var_k.clamp_min(1e-12).min()))
 
         for bi, t_c in enumerate(bin_centers):
             for _ in range(args.noise_repeats):
@@ -250,6 +272,8 @@ def sweep_split(trainer, cfg, loader, bin_centers, args):
                         )
                         sums[mode][bi] += loss.item() * n_elem
                 sums["x_var"][bi] += x_var * n_elem
+                # Measured, not assumed: fixed_noise_mode probes make E[e^2] != 1.
+                sums["e_var"][bi] += e[:, :, trainer.n_ctx:].float().pow(2).mean().item() * n_elem
                 counts[bi] += n_elem
 
         batches_done += 1
@@ -258,7 +282,7 @@ def sweep_split(trainer, cfg, loader, bin_centers, args):
 
     if batches_done == 0:
         raise RuntimeError("No usable batches: nothing to measure.")
-    return sums, counts
+    return sums, counts, diag
 
 
 def write_csv(path, rows) -> None:
@@ -266,7 +290,7 @@ def write_csv(path, rows) -> None:
         writer = csv.DictWriter(
             fh,
             fieldnames=["bin_lo", "bin_hi", "t", "n_elem", "mse_x", "mse_v", "mse_e",
-                        "x_var", "train_mass"],
+                        "x_var", "e_var", "snr", "train_mass"],
         )
         writer.writeheader()
         writer.writerows(rows)
@@ -397,8 +421,16 @@ def main() -> None:
     edges = np.linspace(0.0, 1.0, int(args.num_bins) + 1)
     bin_centers = (edges[:-1] + edges[1:]) / 2.0          # 0.01, 0.03, ... 0.99 at 50 bins
     mu, sigma = float(cfg.model.mu), float(cfg.model.sigma)
+    # train_mass must follow the run's actual prior, else the [CHECK] reconciliation below
+    # is integrated against the wrong density.
+    t_dist = str(cfg.model.get("t_dist", "logitnormal"))
+    # Up front: the sweep drives the train_fixed_t path, so an invalid t_dist would only
+    # surface in _train_t_mass after the whole GPU sweep has already run.
+    if t_dist not in ("uniform", "logitnormal"):
+        raise ValueError(f"model.t_dist must be uniform|logitnormal, got {t_dist!r}")
+    prior = "U(0,1)" if t_dist == "uniform" else f"sigmoid(N({mu}, {sigma}))"
     print(f"[INFO] {args.num_bins} bins over t in [0,1]; {args.noise_repeats} noise draw(s) "
-          f"per (batch, bin); train t ~ sigmoid(N({mu}, {sigma}))")
+          f"per (batch, bin); train t ~ {prior}")
 
     per_split_rows = {}
     for split in [s.strip() for s in args.splits.split(",") if s.strip()]:
@@ -410,7 +442,7 @@ def main() -> None:
             # ema_scope so a use_ema run measures the EMA weights eval_one_epoch would
             # have used (no-op when use_ema is false, as on the default run).
             with trainer.ema_scope():
-                sums, counts = sweep_split(trainer, cfg, loader, bin_centers, args)
+                sums, counts, diag = sweep_split(trainer, cfg, loader, bin_centers, args)
 
             rows = []
             for bi, t_c in enumerate(bin_centers):
@@ -424,7 +456,13 @@ def main() -> None:
                     "mse_v": float(sums["v"][bi] / n),
                     "mse_e": float(sums["e"][bi] / n),
                     "x_var": float(sums["x_var"][bi] / n),
-                    "train_mass": _train_t_mass(float(edges[bi]), float(edges[bi + 1]), mu, sigma),
+                    "e_var": float(sums["e_var"][bi] / n),
+                    # SNR of z_t = t*x + (1-t)*e. Equals t^2/(1-t)^2 iff whitening
+                    # delivered sigma_x^2 = 1, so the gap to that is the whitening check.
+                    "snr": float((t_c ** 2 * sums["x_var"][bi])
+                                 / max((1.0 - t_c) ** 2 * sums["e_var"][bi], 1e-12)),
+                    "train_mass": _train_t_mass(float(edges[bi]), float(edges[bi + 1]),
+                                                mu, sigma, t_dist),
                 })
             per_split_rows[label] = rows
 
@@ -433,10 +471,20 @@ def main() -> None:
             plot_split(os.path.join(output_dir, f"t_bins_{label}.png"), label, rows)
 
             print(f"\n[{label}]  {'t':>6} {'mse_x':>10} {'mse_v':>12} {'mse_e':>10} "
-                  f"{'x_var':>8} {'train_mass':>10}")
+                  f"{'x_var':>8} {'snr':>10} {'train_mass':>10}")
             for r in rows:
                 print(f"[{label}]  {r['t']:6.3f} {r['mse_x']:10.4f} {r['mse_v']:12.4f} "
-                      f"{r['mse_e']:10.4f} {r['x_var']:8.4f} {r['train_mass']:10.5f}")
+                      f"{r['mse_e']:10.4f} {r['x_var']:8.4f} {r['snr']:10.3f} "
+                      f"{r['train_mass']:10.5f}")
+
+            # Whitening check. sigma_x^2 should be 1 (else every t sits at a different
+            # noise level than the schedule intends); the spreads should be ~1 (else one
+            # scalar t cannot describe every channel / delta slot, and the premise of the
+            # t-schedule work is broken).
+            sigma_x2 = float(np.mean([r["x_var"] for r in rows]))
+            print(f"[{label}] sigma_x^2 = {sigma_x2:.4f} (1.0 iff whitening holds)   "
+                  f"per-channel SNR spread = {float(np.mean(diag['spread_c'])):.1f}x   "
+                  f"per-slot SNR spread = {float(np.mean(diag['spread_k'])):.1f}x")
 
             # Reconciliation: Eval/LossFlow is exactly this v-MSE averaged over the training
             # t density, so re-integrating the curve against train_mass must reproduce the

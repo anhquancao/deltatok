@@ -54,6 +54,10 @@ def flow_euler_sample(
         autocast_ctx = nullcontext()
     if step_mode not in ("ode", "damped"):
         raise ValueError(f"step_mode must be 'ode' or 'damped', got {step_mode!r}")
+    # Validate up front: the loop's schedule branch falls through to linear, so a typo
+    # would silently pick a different t-grid for a whole run.
+    if scheduler_mode not in ("cosine", "square", "linear"):
+        raise ValueError(f"scheduler_mode must be 'cosine', 'square' or 'linear', got {scheduler_mode!r}")
     if step_mode == "damped" and pred_mode != "x":
         raise ValueError("step_mode='damped' blends toward x_hat and requires pred_mode='x'")
 

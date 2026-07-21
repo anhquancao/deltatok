@@ -291,6 +291,11 @@ def main() -> None:
                     pred_mode=cfg.model.pred_mode,
                     context=trainer.n_ctx,
                     num_steps=int(args.num_steps),
+                    # Sampler knobs from cfg, else viz silently uses flow_euler_sample's
+                    # cosine/alpha=0.5/ode defaults and stops matching the run's eval.
+                    step_mode=str(cfg.model.get("sampler_step_mode", "ode")),
+                    scheduler_mode=str(cfg.model.get("sampler_scheduler_mode", "cosine")),
+                    alpha=float(cfg.model.get("sampler_alpha", 0.5)),
                     cross_cond=cross_cond,
                     autocast_ctx=trainer.autocast,
                 )

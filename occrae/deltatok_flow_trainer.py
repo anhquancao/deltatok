@@ -451,13 +451,25 @@ class DeltaTokFlowMatchingTrainer(DeltaTokSharedMixin, Trainer):
 
         # model.train_fixed_t pins every (non-context) slot to one timestep so
         # train matches the 1-step eval query (eval_num_steps=1 hits t=0); else
-        # sample t from the shifted logit-normal.
+        # sample t from model.t_dist.
         fixed_t = self.cfg.model.get("train_fixed_t", None)
         if fixed_t is not None:
             t = torch.full((b, t_dim), float(fixed_t), device=device)  # (b, t)
         else:
-            s = sigma * torch.randn(b, t_dim, device=device) + mu
-            t = torch.sigmoid(s)                 # (b, t)
+            # t_shared: one draw per sample instead of one per slot — the matching train
+            # distribution when the sampler runs sampler_alpha=0 (all slots share a t).
+            n_draw = 1 if bool(self.cfg.model.get("t_shared", False)) else t_dim
+            t_dist = str(self.cfg.model.get("t_dist", "logitnormal"))
+            if t_dist == "uniform":
+                t = torch.rand(b, n_draw, device=device)                              # (b, 1|t)
+            elif t_dist == "logitnormal":
+                s = sigma * torch.randn(b, n_draw, device=device) + mu
+                t = torch.sigmoid(s)                                                  # (b, 1|t)
+            else:
+                raise ValueError(f"model.t_dist must be uniform|logitnormal, got {t_dist!r}")
+            # contiguous(): the context override below writes in place, which a
+            # stride-0 expanded view cannot take.
+            t = t.expand(b, t_dim).contiguous()                                       # (b, t)
         t_view = t.view(b, 1, t_dim, 1, 1)       # broadcast over C,H,W
 
         # Sample noise (fixed_noise_mode probes reuse one cached draw)
@@ -757,6 +769,8 @@ class DeltaTokFlowMatchingTrainer(DeltaTokSharedMixin, Trainer):
                         context=self.n_ctx,
                         num_steps=eval_num_steps,
                         step_mode=str(self.cfg.model.get("sampler_step_mode", "ode")),
+                        scheduler_mode=str(self.cfg.model.get("sampler_scheduler_mode", "cosine")),
+                        alpha=float(self.cfg.model.get("sampler_alpha", 0.5)),
                         cross_cond=cross_cond,
                         autocast_ctx=self.autocast,
                     )

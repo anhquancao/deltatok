@@ -66,9 +66,13 @@ model:
   pred_mode: "x"
   loss_mode: "v"
   sampler_step_mode: "ode"  # eval sampler update: ode = v-conversion Euler | damped = VGGT-World blend-to-x_hat (no 1/(1-t) error amplification)
+  sampler_scheduler_mode: "cosine"  # eval sampler t grid: cosine | square | linear (linear = uniform in t)
+  sampler_alpha: 0.5  # per-frame t stagger; 0 = every slot shares one t per step (pairs with t_shared)
   mu: -0.7
   sigma: 1.4
-  train_fixed_t: null  # set (e.g. 0) to train at one fixed t matching the 1-step eval; null = sample logit-normal(mu,sigma)
+  t_dist: "logitnormal"  # train t: logitnormal(mu,sigma) | uniform (~10x more mass near t=1)
+  t_shared: false  # true = one t per sample broadcast to all slots; matches sampler_alpha=0
+  train_fixed_t: null  # set (e.g. 0) to train at one fixed t matching the 1-step eval; null = sample from t_dist
   fixed_noise_mode: "none"  # overfit probe: none=re-sampled prior | per_slot=one cached draw, distinct per (transition,camera) | shared=one vector to every slot
   # Parameter-free layer norm on the frame-0 conditioning feats (delta tokens
   # are ~unit-scale after DeltaTok's LayerNorm; raw DA3 feats are not).
