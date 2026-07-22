@@ -70,12 +70,17 @@ class DeltaTokModule(nn.Module):
         alt_start: int = 4,
         num_delta_tokens: int = 1,
         norm_affine: bool = True,
+        target_channels: int = 0,
     ):
         super().__init__()
         # Delta tokens per camera per transition (1 = max compression). K query
         # tokens compress a frame pair's P patches into K latents; raise it to
         # reduce compression.
         self.num_delta_tokens = int(num_delta_tokens)
+        # Compressed z channel dim (0 = off -> z stays at hidden_size). When on,
+        # encode projects z hidden_size->z_dim before the final norm and decode
+        # projects it back, adding a second compression axis besides K.
+        self.z_dim = int(target_channels) if int(target_channels) > 0 else int(hidden_size)
         self._use_rope_aug = use_rope_aug
         # When True, global (cross-camera) layers give each camera one distinct
         # rope position (shared by its patches, identical in prev & next) so the
@@ -134,8 +139,23 @@ class DeltaTokModule(nn.Module):
             if use_gated_attn:
                 enable_gated_attn(blk)
 
+        # Optional z channel bottleneck: hidden_size -> z_dim after the encoder
+        # blocks, z_dim -> hidden_size before the decoder blocks. Absent at
+        # z_dim == hidden_size so existing checkpoints load unchanged.
+        if self.z_dim != cfg.hidden_size:
+            self.z_proj_down = nn.Linear(cfg.hidden_size, self.z_dim)
+            self.z_proj_up = nn.Linear(self.z_dim, cfg.hidden_size)
+            for m in (self.z_proj_down, self.z_proj_up):
+                nn.init.trunc_normal_(m.weight, std=cfg.initializer_range)
+                nn.init.zeros_(m.bias)
+        else:
+            self.z_proj_down = None
+            self.z_proj_up = None
+
         # norm_affine=False -> non-learnable norm, pinning z to fixed unit-var/zero-mean.
-        self.norm = nn.LayerNorm(cfg.hidden_size, cfg.layer_norm_eps, elementwise_affine=norm_affine)
+        # Runs at z_dim (the compressed space when the bottleneck is on) so the
+        # flow-facing latent keeps the fixed unit-var/zero-mean contract.
+        self.norm = nn.LayerNorm(self.z_dim, cfg.layer_norm_eps, elementwise_affine=norm_affine)
         self._rope_cache: dict = {}
 
     def train(self, mode: bool = True):
@@ -260,7 +280,8 @@ class DeltaTokModule(nn.Module):
 
         Returns
         -------
-        z : (M, N, K, C) — K = num_delta_tokens delta tokens per camera, all
+        z : (M, N, K, Cz) — K = num_delta_tokens delta tokens per camera, Cz =
+            ``z_dim`` (= hidden_size unless the target_channels bottleneck is on), all
             initialized from the shared ``z_embed`` parameter. Each camera's z is updated at every
             block: on local blocks via per-camera self-attention with that
             camera's ``[prev, next]`` strip, on global blocks via cross-camera
@@ -309,6 +330,8 @@ class DeltaTokModule(nn.Module):
                 prev_spatials = hidden[:, :, K : K + P]
                 next_spatials = hidden[:, :, K + P :]
 
+        if self.z_proj_down is not None:
+            z = self.z_proj_down(z)            # (M, N, K, Cz) channel bottleneck
         return self.norm(z)
 
     def decode(
@@ -322,7 +345,8 @@ class DeltaTokModule(nn.Module):
 
         Inputs
         ------
-        z      : (M, N, K, C) — K delta tokens per camera.
+        z      : (M, N, K, Cz) — K delta tokens per camera, Cz = ``z_dim``
+                 (up-projected back to C here when the bottleneck is on).
         x_prev : (M, N, P, C)
         rope_local  : length-P single-camera rope.
         rope_global : length-(N*P) DA3-style ``pos_nodiff`` rope (uniform
@@ -344,6 +368,8 @@ class DeltaTokModule(nn.Module):
         """
         M, N, P, C = x_prev.shape
 
+        if self.z_proj_up is not None:
+            z = self.z_proj_up(z)          # (M, N, K, C) back to hidden_size
         z = z.contiguous()                 # native (M, N, K, C)
         K = z.shape[2]                     # delta tokens per camera
         spatials = x_prev  # (M, N, P, C)
@@ -441,6 +467,8 @@ def _print_param_breakdown(model: nn.Module, archi: str) -> None:
         ("xy_embed", model.xy_embed),
         ("norm", model.norm),
     ]
+    if model.z_proj_down is not None:
+        components += [("z_proj_down", model.z_proj_down), ("z_proj_up", model.z_proj_up)]
 
     grand_total, grand_train = _count(model)
     print(f"Parameter breakdown for {archi}:")
@@ -657,7 +685,14 @@ class DeltaTokTrainer(DeltaTokSharedMixin, Trainer):
             k.replace("module.", "").replace("_orig_mod.", ""): v
             for k, v in ckpt["model_state_dict"].items()
         }
-        self._unwrapped_tokenizer().load_state_dict(new_state_dict, strict=False)
+        net = self._unwrapped_tokenizer()
+        net.load_state_dict(new_state_dict, strict=False)
+        # strict=False would silently leave the bottleneck projections random when
+        # initializing from an uncompressed ckpt — make that visible.
+        if net.z_proj_down is not None:
+            missing = [k for k in ("z_proj_down.weight", "z_proj_up.weight") if k not in new_state_dict]
+            if missing and self.is_master:
+                print(f"[warn] ckpt has no {missing} — z bottleneck projections stay randomly initialized")
         if self.is_master:
             print(f"Load ckpt from: {path}")
 

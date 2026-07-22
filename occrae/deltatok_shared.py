@@ -216,9 +216,10 @@ class DeltaTokSharedMixin:
                    T timesteps, N cameras, P patches per view, C channels.
 
         Returns:
-            z: delta tokens (B, T-1, N, K, C) — K = num_delta_tokens tokens per
-               camera per transition. The K axis is always present (even at K=1);
-               every consumer is native-K.
+            z: delta tokens (B, T-1, N, K, Cz) — K = num_delta_tokens tokens per
+               camera per transition, Cz = the tokenizer's ``z_dim`` (= backbone C
+               unless the target_channels bottleneck is on). The K axis is always
+               present (even at K=1); every consumer is native-K.
         """
         B, T, N, P, C = feats.shape
         assert T >= 2
@@ -229,9 +230,9 @@ class DeltaTokSharedMixin:
         rope_local = net._compute_rope(height, width, feats.device, feats.dtype)
         rope_global = net._compute_global_rope(height, width, N, feats.device, feats.dtype)
 
-        z = net.encode(x_prev, x, rope_local, rope_global)    # (B*(T-1), N, K, C) K delta tokens per camera
+        z = net.encode(x_prev, x, rope_local, rope_global)    # (B*(T-1), N, K, Cz) K delta tokens per camera
         K = z.shape[2]                                        # delta tokens per camera
-        z = z.reshape(B, T - 1, N, K, C)                      # (B, T-1, N, K, C) — K axis kept even at K=1
+        z = z.reshape(B, T - 1, N, K, z.shape[-1])            # (B, T-1, N, K, Cz) — Cz may be < backbone C (bottleneck)
         return z
 
     def _load_whiten_stats(self, num_channels):
@@ -339,7 +340,8 @@ class DeltaTokSharedMixin:
         Args:
             net: unwrapped ``DeltaTokModule``.
             x0: GT first-frame patch features (B, N, P, C).
-            z_seq: delta tokens (B, T-1, N, K, C) — K per camera per transition.
+            z_seq: delta tokens (B, T-1, N, K, Cz) — K per camera per transition,
+                   Cz = the tokenizer's ``z_dim`` (decode up-projects when needed).
 
         Returns:
             x_hat: predicted patch features (B*(T-1), N, P, C) for t=1..T-1, in
@@ -467,6 +469,7 @@ class DeltaTokSharedMixin:
             alt_start=int(deltatok_cfg.get("alt_start", 4)),
             num_delta_tokens=int(deltatok_cfg.get("num_delta_tokens", 1)),
             norm_affine=bool(deltatok_cfg.get("norm_affine", True)),
+            target_channels=int(deltatok_cfg.get("target_channels", 0)),
         )
 
     def _build_occ_rae(self):

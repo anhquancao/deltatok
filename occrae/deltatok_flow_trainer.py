@@ -114,7 +114,8 @@ class DeltaTokFlowMatchingTrainer(DeltaTokSharedMixin, Trainer):
 
         # Per-channel whitening of this tokenizer's delta tokens (mixin; null = no-op).
         # Must follow _build_deltatok: the stats belong to that frozen ckpt.
-        self._load_whiten_stats(int(backbone.embed_dim))
+        # z_dim = backbone.embed_dim unless the tokenizer's target_channels bottleneck is on.
+        self._load_whiten_stats(int(self.deltatok.z_dim))
 
         # Load transformer (the only trainable network)
         self.vit = self.get_network("vit")
@@ -212,7 +213,7 @@ class DeltaTokFlowMatchingTrainer(DeltaTokSharedMixin, Trainer):
             cross_dim = 1536 if self.build_frame0_ctx else None
 
             model = Transformer(
-                out_dim=1536,
+                out_dim=int(self.deltatok.z_dim),  # flow latent channels = tokenizer z_dim (1536, or target_channels)
                 num_views=self.num_views,
                 cross_dim=cross_dim,
                 hidden_dim=hidden_dim,

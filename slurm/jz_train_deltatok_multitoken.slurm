@@ -48,6 +48,10 @@ export CONFIG_NAME=train_deltatok_jeanzay
 export LOG_AND_CKPT_DIR="/lustre/fswork/projects/rech/trg/uyl37fq/deltatok_log"
 export RESULTS_DIR="$LOG_AND_CKPT_DIR"
 export NUM_DELTA_TOKENS=${NUM_DELTA_TOKENS:-64}   # delta tokens/camera; override via --export=ALL,NUM_DELTA_TOKENS=K
+# z channel bottleneck: default 768 compresses each delta token 1536->768 (fresh _tc768
+# dir). Pass TARGET_CHANNELS=0 to resume/reproduce the uncompressed dtok runs — a plain
+# --export=ALL,RESUME=1 relaunch now targets the _tc dir, NOT the old baseline.
+export TARGET_CHANNELS=${TARGET_CHANNELS:-768}
 export PEAK_LR=${PEAK_LR:-1e-3}                   # peak lr (cosine-decayed); lower for high-K stability
 export RUN_SUFFIX=${RUN_SUFFIX:-}                 # appended to RUN_NAME for a distinct dir (e.g. _lr5e4_gradskip)
 # _cos1e3_1e5_b95: anti blow-up recipe (cosine peak_lr->1e-5 + AdamW beta2=0.95, eps 1e-8 default).
@@ -55,10 +59,12 @@ export RUN_SUFFIX=${RUN_SUFFIX:-}                 # appended to RUN_NAME for a d
 # blew up to an all-NaN ckpt). For a high-K retrain pass PEAK_LR=5e-4 RUN_SUFFIX=_lr5e4.
 # _noaff: z-norm affine off (fixed unit-var/zero-mean latent); new arch, cannot load affine ckpts.
 # fresh dirs — old _dtok*/_lr1e4/_eps1e6 dirs hold abandoned ckpts, do not resume them.
-export RUN_NAME=deltatok_surround_layer12_bsize2_dtok${NUM_DELTA_TOKENS}_cos1e3_1e5_b95_gradskip_noaff${RUN_SUFFIX}
+TC_TAG=""; [ "${TARGET_CHANNELS}" -gt 0 ] && TC_TAG="_tc${TARGET_CHANNELS}"   # empty at 0 -> RUN_NAME unchanged
+export RUN_NAME=deltatok_surround_layer12_bsize2_dtok${NUM_DELTA_TOKENS}${TC_TAG}_cos1e3_1e5_b95_gradskip_noaff${RUN_SUFFIX}
 export RESUME=${RESUME:-0}   # override with --export=ALL,RESUME=1 to resume current.pth
 EXTRA_CFG_ARGS=(
     model.deltatok.num_delta_tokens=${NUM_DELTA_TOKENS}   # K delta tokens/camera (K=64 ~12:1 compression at full res)
+    model.deltatok.target_channels=${TARGET_CHANNELS}     # z channel bottleneck (0 = off)
     training.lr=${PEAK_LR}                      # peak lr override (default 1e-3; lower for high-K stability)
     model.deltatok.use_camera_rope=false       # no-camera-rope layer-12 run
     model.deltatok.norm_affine=false           # non-learnable z-norm -> fixed unit-var/zero-mean latent for flow matching

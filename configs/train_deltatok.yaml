@@ -73,6 +73,7 @@ model:
   deltatok:
     num_hidden_layers: 12
     num_delta_tokens: 1  # delta tokens per camera per transition (1 = max compression)
+    target_channels: 0  # z channel bottleneck (0 = off; e.g. 768 projects z 1536->768 at encode, back at decode)
     use_delta: true
     use_swiglu: true
     use_qk_norm: true

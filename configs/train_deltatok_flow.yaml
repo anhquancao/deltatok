@@ -92,6 +92,7 @@ model:
   deltatok_ckpt: "/mnt/proj1/eu-25-92/deltatok_log/deltatok_surround_constGlobalRope_layer12/ckpts/current.pth"
   deltatok:
     num_delta_tokens: 1   # K delta tokens/camera; must match the frozen ckpt (override to 32 for dtok32)
+    target_channels: 0    # z channel bottleneck; must match the frozen ckpt (e.g. 768 for a _tc768 tokenizer)
     num_hidden_layers: 12
     use_swiglu: true
     use_qk_norm: true
