@@ -565,7 +565,7 @@ class DeltaTokFlowMatchingTrainer(DeltaTokSharedMixin, Trainer):
             num_batches += 1
             update_grad = (num_batches % self.grad_cum) == 0
 
-            self.adapt_learning_rate("cosine")
+            self.adapt_learning_rate(str(self.cfg.training.get("lr_schedule", "cosine")))
 
             imgs = batch["imgs"].to(self.device, non_blocking=True)  # (B, V, 3, H, W) with V = T*N views
             num_cameras = int(batch.get("num_cameras", 1))

@@ -106,6 +106,7 @@ model:
 
 training:
   lr: 1e-4
+  lr_schedule: "cosine"  # cosine | constant (post-warmup; warm_up linear ramp always applies)
   weight_decay: 0.05
   optimizer: "adamw"
   use_ema: false
