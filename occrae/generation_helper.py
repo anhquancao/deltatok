@@ -189,8 +189,7 @@ class GenerationHelper:
         text=None,
         cfg_w=0,
         alpha=0.5,
-        schedule
-        r_mode="cosine",
+        scheduler_mode="cosine",
         use_clip=True,
         rollout_steps=1,
     ):
