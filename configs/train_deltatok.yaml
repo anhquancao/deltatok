@@ -74,6 +74,7 @@ model:
     num_hidden_layers: 12
     num_delta_tokens: 1  # delta tokens per camera per transition (1 = max compression)
     target_channels: 0  # z channel bottleneck (0 = off; e.g. 768 projects z 1536->768 at encode, back at decode)
+    bottleneck_pre_norm: false  # affine LN before z_proj_down (bottleneck only): removes post-norm grad amplification
     use_delta: true
     use_swiglu: true
     use_qk_norm: true
@@ -113,6 +114,7 @@ training:
   # out_layer [19,27,33,39] features vs the GT decode. 0 = off (no-op).
   feature_loss_weight: 0.0
   grad_clip: 1.0
+  grad_skip_thresh: 0.0  # >0 skips optim steps whose pre-clip grad_norm exceeds this (finite-spike guard)
   seed: 0
   eval_num_items: 256
   eval_num_visualizations: 8

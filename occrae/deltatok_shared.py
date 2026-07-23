@@ -470,6 +470,7 @@ class DeltaTokSharedMixin:
             num_delta_tokens=int(deltatok_cfg.get("num_delta_tokens", 1)),
             norm_affine=bool(deltatok_cfg.get("norm_affine", True)),
             target_channels=int(deltatok_cfg.get("target_channels", 0)),
+            bottleneck_pre_norm=bool(deltatok_cfg.get("bottleneck_pre_norm", False)),
         )
 
     def _build_occ_rae(self):

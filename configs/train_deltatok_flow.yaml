@@ -93,6 +93,7 @@ model:
   deltatok:
     num_delta_tokens: 1   # K delta tokens/camera; must match the frozen ckpt (override to 32 for dtok32)
     target_channels: 0    # z channel bottleneck; must match the frozen ckpt (e.g. 768 for a _tc768 tokenizer)
+    bottleneck_pre_norm: false  # must match the frozen ckpt (true for a tokenizer trained with the pre-norm fix)
     num_hidden_layers: 12
     use_swiglu: true
     use_qk_norm: true

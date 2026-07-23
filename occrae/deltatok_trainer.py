@@ -71,6 +71,7 @@ class DeltaTokModule(nn.Module):
         num_delta_tokens: int = 1,
         norm_affine: bool = True,
         target_channels: int = 0,
+        bottleneck_pre_norm: bool = False,
     ):
         super().__init__()
         # Delta tokens per camera per transition (1 = max compression). K query
@@ -148,9 +149,16 @@ class DeltaTokModule(nn.Module):
             for m in (self.z_proj_down, self.z_proj_up):
                 nn.init.trunc_normal_(m.weight, std=cfg.initializer_range)
                 nn.init.zeros_(m.bias)
+            # Affine LN before z_proj_down: gives it unit-var input so the post-bottleneck LN
+            # can't ~60x-amplify its backward grad, and restores the learnable scale noaff drops.
+            self.pre_bottleneck_norm = (
+                nn.LayerNorm(cfg.hidden_size, cfg.layer_norm_eps, elementwise_affine=True)
+                if bottleneck_pre_norm else None
+            )
         else:
             self.z_proj_down = None
             self.z_proj_up = None
+            self.pre_bottleneck_norm = None
 
         # norm_affine=False -> non-learnable norm, pinning z to fixed unit-var/zero-mean.
         # Runs at z_dim (the compressed space when the bottleneck is on) so the
@@ -331,6 +339,8 @@ class DeltaTokModule(nn.Module):
                 next_spatials = hidden[:, :, K + P :]
 
         if self.z_proj_down is not None:
+            if self.pre_bottleneck_norm is not None:
+                z = self.pre_bottleneck_norm(z)   # (M, N, K, C) unit-var before down-proj (no post-norm grad blow-up)
             z = self.z_proj_down(z)            # (M, N, K, Cz) channel bottleneck
         return self.norm(z)
 
@@ -877,20 +887,20 @@ class DeltaTokTrainer(DeltaTokSharedMixin, Trainer):
 
             if update_grad:
                 grad_norm = nn.utils.clip_grad_norm_(self.tokenizer.parameters(), self.cfg.training.grad_clip)
-                # Skip the step on a non-finite grad so a transient spike can't
-                # poison AdamW's moments (the dtok32 all-NaN blow-up). DDP reduces
-                # grads in backward, so grad_norm is already identical across ranks;
-                # the all_reduce(MIN) keeps the skip unanimous even if a future
-                # no_sync() accumulation ever makes the local grad rank-specific.
+                # Skip on non-finite grad (dtok32 all-NaN blow-up) and, when grad_skip_thresh>0,
+                # on large-but-finite pre-clip spikes. all_reduce(MIN) keeps the skip unanimous.
                 finite = bool(torch.isfinite(grad_norm))
+                skip_thresh = float(self.cfg.training.get("grad_skip_thresh", 0.0))
+                accept = finite and (skip_thresh <= 0.0 or float(grad_norm) <= skip_thresh)
                 if self.distributed:
-                    flag = torch.tensor([1.0 if finite else 0.0], device=self.device)
-                    dist.all_reduce(flag, op=dist.ReduceOp.MIN)  # 0 if ANY rank non-finite
-                    finite = flag.item() > 0
-                if finite:
+                    flag = torch.tensor([1.0 if accept else 0.0], device=self.device)
+                    dist.all_reduce(flag, op=dist.ReduceOp.MIN)  # 0 if ANY rank rejects
+                    accept = flag.item() > 0
+                if accept:
                     self.optim.step()
                 elif self.is_master:
-                    print(f"[warn] non-finite grad ({grad_norm}) at iter {self.cfg.training.iter}; skipping optim step", flush=True)
+                    print(f"[warn] skipping optim step at iter {self.cfg.training.iter} "
+                          f"(grad_norm={grad_norm}, finite={finite}, thresh={skip_thresh})", flush=True)
                 self.optim.zero_grad(set_to_none=True)
 
             loss_val = loss_total.detach().item()   # total (recon + feature) drives meters/LossTot

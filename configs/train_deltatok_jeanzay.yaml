@@ -56,10 +56,12 @@ model:
     ckpt_path: checkpoints/occrae_img_decoder.pt
 
 training:
-  # 2x items/epoch (18000) + epoch 50 -> same ~56k total iters as 9000x100; halves
-  # eval/ckpt cadence (max_iter/warm_up fixed, so LR cosine over iters is unchanged).
-  epoch: 50
-  save_ckpt_every_n_epochs: 10   # permanent epoch_<N>.pth snapshot every 10 epochs (-> 10,20,30,40,50)
+  # 18000 items/epoch / (4 GPU x bsize 2 x grad_cum 2) = 1125 iters/epoch; epoch 100 -> 112500 iters.
+  # max_iter raised to match: it is BOTH a hard stop and the LR-cosine horizon, so this makes the run
+  # do the full 100 epochs with the cosine (peak->1e-5) spanning it exactly; warm_up 5000 kept.
+  epoch: 100
+  max_iter: 112500
+  save_ckpt_every_n_epochs: 10   # permanent epoch_<N>.pth snapshot every 10 epochs (-> 10,20,...,100)
   # bsize 2 + pairs_per_seq 1: forward 2 sequences (one frame-pair each) per rank.
   # 4 GPU x bsize 2 x pairs_per_seq 1 = 8; effective_bsize 16 / 8 -> grad_cum 2.
   bsize: 2
