@@ -33,6 +33,7 @@ from models.gated_attn import enable_gated_attn
 from models.qk_norm import enable_dinov3_qk_norm
 
 from occrae.abstract_trainer import Trainer
+from occrae.sigreg import SIGReg  # LeJEPA anti-collapse regularizer on the z bottleneck
 from occrae.deltatok_shared import DeltaTokSharedMixin
 from occrae.network.rope_utils import compute_camera_rope  # shared 1xN camera-grid rope build
 from occrae.metric_logger import MetricLogger, SmoothedValue  # SLURM-friendly line-per-print logging (no tqdm)
@@ -72,6 +73,7 @@ class DeltaTokModule(nn.Module):
         norm_affine: bool = True,
         target_channels: int = 0,
         bottleneck_pre_norm: bool = False,
+        bottleneck_mlp: bool = False,
     ):
         super().__init__()
         # Delta tokens per camera per transition (1 = max compression). K query
@@ -144,11 +146,20 @@ class DeltaTokModule(nn.Module):
         # blocks, z_dim -> hidden_size before the decoder blocks. Absent at
         # z_dim == hidden_size so existing checkpoints load unchanged.
         if self.z_dim != cfg.hidden_size:
-            self.z_proj_down = nn.Linear(cfg.hidden_size, self.z_dim)
-            self.z_proj_up = nn.Linear(self.z_dim, cfg.hidden_size)
-            for m in (self.z_proj_down, self.z_proj_up):
-                nn.init.trunc_normal_(m.weight, std=cfg.initializer_range)
-                nn.init.zeros_(m.bias)
+            H = cfg.hidden_size
+            if bottleneck_mlp:
+                # 2-layer SiLU MLP down/up: a curved z_dim-manifold can beat the linear
+                # variance cap (768 linear = 84% var, but participation rank ~290 << 768).
+                self.z_proj_down = nn.Sequential(nn.Linear(H, H), nn.SiLU(), nn.Linear(H, self.z_dim))
+                self.z_proj_up = nn.Sequential(nn.Linear(self.z_dim, H), nn.SiLU(), nn.Linear(H, H))
+            else:
+                self.z_proj_down = nn.Linear(H, self.z_dim)   # (M,N,K,H) -> (M,N,K,z_dim)
+                self.z_proj_up = nn.Linear(self.z_dim, H)      # (M,N,K,z_dim) -> (M,N,K,H)
+            for proj in (self.z_proj_down, self.z_proj_up):
+                for m in ([proj] if isinstance(proj, nn.Linear) else proj.modules()):
+                    if isinstance(m, nn.Linear):
+                        nn.init.trunc_normal_(m.weight, std=cfg.initializer_range)
+                        nn.init.zeros_(m.bias)
             # Affine LN before z_proj_down: gives it unit-var input so the post-bottleneck LN
             # can't ~60x-amplify its backward grad, and restores the learnable scale noaff drops.
             self.pre_bottleneck_norm = (
@@ -410,13 +421,15 @@ class DeltaTokModule(nn.Module):
         height: int,
         width: int,
         num_cameras: int = 1,
+        return_z: bool = False,
     ) -> torch.Tensor:
         """Reconstruct ``x`` from the (x_prev, x) pair via N delta tokens (one per camera).
 
         x_prev, x : (M, N, P, C) where N = num_cameras. For backward compatibility,
                     if x_prev is 3-D ``(M*N, P, C)`` it is interpreted as a single
                     -camera pair-batch (caller must then pass ``num_cameras=1``).
-        Returns x_hat of the same shape as x.
+        Returns x_hat of the same shape as x, or ``(x_hat, z)`` when ``return_z``
+        (z is the (M, N, K, Cz) bottleneck latent, for the SIGReg regularizer).
         """
         if x_prev.dim() == 3:
             x_prev = x_prev.unsqueeze(1)
@@ -429,11 +442,13 @@ class DeltaTokModule(nn.Module):
         rope_global = self._compute_global_rope(
             height, width, int(num_cameras), x_prev.device, x_prev.dtype
         )
-        z = self.encode(x_prev, x, rope_local, rope_global)
+        z = self.encode(x_prev, x, rope_local, rope_global)  # (M, N, K, Cz) flow-facing latent
         x_hat = self.decode(z, x_prev, rope_local, rope_global)
 
         if squeeze:
             x_hat = x_hat.squeeze(1)
+        if return_z:
+            return x_hat, z
         return x_hat
 
 
@@ -559,6 +574,17 @@ class DeltaTokTrainer(DeltaTokSharedMixin, Trainer):
         self.pointmap_criterion = PointmapLoss(lambda_c=0.0, gt_scale=True, loss_type="L2")
         self.depth_criterion = DepthLosses(lambda_c=0.0, gt_scale=True, alpha=0.0)
         self.raymap_criterion = RaymapLoss(lambda_c=0.0, gt_scale=True, loss_type="L2")
+
+        # SIGReg (LeJEPA) anti-collapse loss on the z bottleneck: only built when
+        # sigreg_weight > 0 (else the forward stays single-output). Pushes the 768-d
+        # latent toward isotropic N(0,I) so it fills its budget (tc768 collapses to rank ~290).
+        self._sigreg_weight = float(self.cfg.training.get("sigreg_weight", 0.0))
+        if self._sigreg_weight > 0:
+            self.sigreg = SIGReg(
+                num_slices=int(self.cfg.training.get("sigreg_num_slices", 256))
+            ).to(self.device)
+        else:
+            self.sigreg = None
 
     def _build_optimizer(self):
         """AdamW with DeltaTok-style param groups: weight decay applies only to
@@ -700,9 +726,11 @@ class DeltaTokTrainer(DeltaTokSharedMixin, Trainer):
         # strict=False would silently leave the bottleneck projections random when
         # initializing from an uncompressed ckpt — make that visible.
         if net.z_proj_down is not None:
-            missing = [k for k in ("z_proj_down.weight", "z_proj_up.weight") if k not in new_state_dict]
-            if missing and self.is_master:
-                print(f"[warn] ckpt has no {missing} — z bottleneck projections stay randomly initialized")
+            # prefix match covers both Linear (z_proj_down.weight) and MLP (z_proj_down.0.weight) keys.
+            has_bneck = (any(k.startswith("z_proj_down") for k in new_state_dict)
+                         and any(k.startswith("z_proj_up") for k in new_state_dict))
+            if not has_bneck and self.is_master:
+                print("[warn] ckpt has no z bottleneck projections — they stay randomly initialized")
         if self.is_master:
             print(f"Load ckpt from: {path}")
 
@@ -867,7 +895,10 @@ class DeltaTokTrainer(DeltaTokSharedMixin, Trainer):
                 x = x[idx]
 
             with self.autocast:
-                x_hat = self.tokenizer(x_prev, x, H, W, num_cameras=num_cameras)
+                if self.sigreg is not None:
+                    x_hat, z_bneck = self.tokenizer(x_prev, x, H, W, num_cameras=num_cameras, return_z=True)
+                else:
+                    x_hat = self.tokenizer(x_prev, x, H, W, num_cameras=num_cameras)
 
             with torch.autocast(device_type="cuda", enabled=False):
                 loss = _log_cosh(x_hat.float(), x.detach().float()).mean()
@@ -882,6 +913,17 @@ class DeltaTokTrainer(DeltaTokSharedMixin, Trainer):
             else:
                 loss_feat = None
                 loss_total = loss
+
+            # Optional SIGReg anti-collapse loss on the z bottleneck (computed in fp32).
+            # Linear warmup ramps the weight in so it doesn't fight recon before the code forms.
+            if self.sigreg is not None:
+                warmup = int(self.cfg.training.get("sigreg_warmup", 0))
+                ramp = 1.0 if warmup <= 0 else min(1.0, self.cfg.training.iter / max(1, warmup))
+                with torch.autocast(device_type="cuda", enabled=False):
+                    loss_sigreg = self.sigreg(z_bneck.float())
+                loss_total = loss_total + (self._sigreg_weight * ramp) * loss_sigreg
+            else:
+                loss_sigreg = None
 
             (loss_total / self.grad_cum).backward()
 
@@ -927,6 +969,7 @@ class DeltaTokTrainer(DeltaTokSharedMixin, Trainer):
                     self.log_add_scalar('Train/LearningRate', self.optim.param_groups[0]['lr'], self.cfg.training.iter)
                     self.log_add_scalar('Train/LossRecon', loss, self.cfg.training.iter)
                     self.log_add_scalar('Train/LossFeature', loss_feat if loss_feat is not None else 0.0, self.cfg.training.iter)
+                    self.log_add_scalar('Train/LossSIGReg', loss_sigreg if loss_sigreg is not None else 0.0, self.cfg.training.iter)
                     self.log_add_scalar('Train/LossTot', mini_batch_loss, self.cfg.training.iter)
                     self.log_add_scalar('Train/SpeedSamplesPerSec', speed_samples_per_sec, self.cfg.training.iter)
 
