@@ -1,8 +1,8 @@
 # SIGReg arm failed to learn — diagnosis and fix
 
-Status as of 2026-07-25. The fix is **fully applied** in the working tree (uncommitted, branch
-`revert`) — first pass plus every reviewed refinement — and re-validated. Next action is a **sync +
-submit**.
+Status as of 2026-07-25. The fix is **applied, validated, committed** (`e95de40` on branch
+`revert`) and **running**. A 2-epoch dev run confirms the estimator now resolves and descends; the
+20 h arm `Jeanzay:249401` is queued to continue from it. See "First result" below.
 
 ## TL;DR
 
@@ -154,18 +154,64 @@ at both sample counts:
 
 Collapse is penalized at every rank. What small S destroys is *discrimination*, not the sign.
 
+## First result: dev run `Jeanzay:248690` (2 epochs)
+
+Submitted on `qos_gpu_h100-dev`, 1 h wall, into the real `..._mlp_sigreg1.0_pool` dir (no run
+suffix). Reached **iter 2250 = 2 full epochs** and checkpointed both. Note the two counters:
+the console progress bar counts *micro-batches* (2250/epoch), while `cfg.training.iter` and every
+TensorBoard step advance once per *optimizer step* — `grad_cum=2`, so **1125 iters/epoch**.
+
+### `Train/LossSIGReg` finally descends
+
+| iters | mean | vs the S=2048 floor (0.00052) |
+|---|---|---|
+| 150–2099 | 0.00901 → 0.00882 (flat, ~2% drift over 2000 iters) | ~17× |
+| **2100–2249** | **0.00720**, min **0.004489** | **9.7× at the end** |
+
+The break begins ~iter 2140 and is a sustained trend, not a spike: consecutive logged points run
+0.0080, 0.0070, 0.0065, 0.0062, 0.0059, 0.0058, 0.0052, 0.0051, 0.0050 (one 0.0075 blip at 2215).
+The SIGReg warmup ramp completes at iter 2000 and the LR is still climbing to its 1e-3 peak
+(4.5e-4 at the end), so full pressure arrives exactly where the descent starts. **`168363` never
+did this in 21k steps.**
+
+Both arms plateau at ~0.009 before that, which is a coincidence of *value*, not of meaning: for
+`168363` that was 1.04× its own floor (nothing underneath), here it is 17× the floor with real
+headroom — and the run then used it. This does revise one number in the diagnosis above: the true
+discrepancy hiding under the old floor was not ~0.0002; z genuinely sits near 0.009 and the old
+bias floor happened to land right on top of it.
+
+### `Eval/Loss`, epoch-matched
+
+| | ep0 | ep1 | best ever |
+|---|---|---|---|
+| pool `248690` | 0.12600 | **0.12336** | — (only 2 epochs) |
+| baseline `162260` | 0.12583 | 0.12144 | 0.08121 @ ep30 |
+| old `168363` | 0.12821 | 0.12510 | 0.12157 @ ep15, last 0.12230 @ ep18 |
+
+This reframes what `168363` did: it went 0.12510 → 0.12157 over **fifteen** epochs. It was not
+learning slowly, it was **frozen from epoch 1**. The pool run's ep1 already beats old's best-ever
+and is within 1.6% of the baseline. `Train/LossTot` tracks `162260` within noise at matched iters
+(iter 2244: 0.1279 vs 0.1184).
+
+**Do not over-read this.** Two epochs proves little on the objective itself — baseline and old were
+also within 3% at ep1 and only separated around ep5–15. The descent is ~110 iters long and the run
+ended there, so "keeps descending" vs "end-of-epoch-1 transient" is not yet distinguishable. The
+*estimator* evidence is the solid part; the loss evidence is merely not-bad-yet.
+
 ## Next steps
 
 1. ~~Sync to Jean Zay~~ — done (md5s match; the new `no_sync()` / `ready=update_grad` /
    `SIGREG_NUM_SLICES=2048` lines were confirmed present in `$TRG_WORK/code/deltatok`). That
    checkout is **not a git repo**, it's an rsync target — never sync it directly.
-2. ~~Submit~~ — **`Jeanzay:247562`** queued 2026-07-25 on `gpu_p6`, 20 h, 4 tasks; logs at
-   `slurm/output/jz_train_deltatok_247562.{out,err}`. Fresh
-   `..._mlp_sigreg1.0_pool` dir (only the dead `_sigreg1.0` existed), so it cannot resume
-   `168363`. Baseline `Jeanzay:162260` is still RUNNING and is the comparison arm.
-3. **WATCH:** `Train/LossSIGReg` should now sit well above its (much lower) floor and actually
-   *descend*. If it is flat again, the estimator is still under-resolved. Compare `Train/LossTot`
-   against `162260` at matched steps, not against `168363`.
+2. ~~Submit~~ — `247562` was cancelled and replaced by **`Jeanzay:249401`** (same script,
+   `--export=ALL,RESUME=1`, 20 h, `qos_gpu_h100-t3`) so it picks up the dev run's `current.pth`
+   instead of overwriting it. It resumes at **iter 2250**, precisely where `LossSIGReg` broke
+   downward. A pending job's environment cannot be edited in place — cancel + resubmit is the only
+   way to change `RESUME`. Baseline `Jeanzay:162260` is still RUNNING and is the comparison arm.
+3. **WATCH:** does `LossSIGReg` keep falling below ~0.005, or does it re-plateau? And does
+   `Train/LossTot` follow `162260` down toward 0.078 by iter ~8.5k rather than stalling at 0.115?
+   Compare against `162260` at matched iters, never against `168363`.
+4. Code changes are committed as **`e95de40`** on branch `revert`.
 
 ## Open question worth checking separately
 
@@ -178,8 +224,8 @@ the whole arm. Re-measure with S ≫ 768 before investing further.
 
 Throwaway scripts used above live in the session scratchpad (not in the repo):
 `sigreg_probe.py`, `sigreg_probe2.py`, `sigreg_floor.py`, `test_sigreg_pool.py`,
-`sigreg_snr_after.py`, `check_collapse_direction.py`, `tb_dump.py`, and the post-review
-`test_sigreg_pool2.py`. They run via
+`sigreg_snr_after.py`, `check_collapse_direction.py`, `tb_dump.py`, the post-review
+`test_sigreg_pool2.py`, and the scalar dumps `tb_dump2.py` / `tb_tail.py`. They run via
 `ssh jean-zay "bash -lc 'cd \$TRG_WORK/code/deltatok && source env_jz_h100.sh && python -'" < script.py`
 (piped to stdin — the cluster checkout is never written to). The `test_sigreg_pool*.py` scripts
 inline a verbatim copy of the new `SIGReg` class because the edit exists only locally; they must
