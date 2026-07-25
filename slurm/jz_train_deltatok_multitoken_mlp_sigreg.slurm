@@ -44,9 +44,18 @@ ulimit -n "$(ulimit -Hn)"
 # MLP bottleneck (capacity fix) and ADDS SIGReg (LeJEPA) on the z bottleneck (anti-collapse /
 # optimization fix). Diagnostic (job 160304): tc768 is BOTH optimization-limited (trained 0.065 vs
 # PCA@768 0.023) AND linear-capacity-limited; the MLP targets capacity, SIGReg targets the rank-290
-# collapse. FIRST RUN IS A WEIGHT PROBE: peek Train/LossSIGReg vs Train/LossRecon in the first
-# ~100-500 steps — if w*sigreg << recon it isn't biting (raise SIGREG_WEIGHT); if recon degrades
-# vs the plain _mlp arm, lower it. WATCH the step 3-5k breakthrough off the ~0.06 shelf.
+# collapse. Job 168363 (first sigreg arm) FAILED TO LEARN: LossTot pinned ~0.115 for 21k steps
+# while the plain _mlp arm reached 0.078 by 8.5k, and nuScenes eval drifted UP. Cause was the
+# estimator, not the weight: SIGReg saw only S = M*N*K = 128..256 samples of dim 768, where its
+# finite-sample floor (~0.0085 at S=128) buries the rank-290 signal (~0.0002) -- the observed
+# 0.0088 plateau was 1.04x the floor, i.e. pure estimator bias. _pool fixes it the way the
+# reference does (lejepa/univariate/epps_pulley.py): shared slice directions + a differentiable
+# cross-rank CF all-reduce, plus pooling over the grad_cum micro-batches -> 8x the samples, and
+# num_slices >= 2*Cz now that directions no longer vary per rank.
+# WATCH: LossSIGReg should now sit well above its (much lower) floor and actually DESCEND; if it
+# is flat again the estimator is still under-resolved. Reference weight is ~200x ours in raw-
+# statistic terms (lamb 0.05 * N 4096 vs our 1.0 with *N dropped), so SIGREG_WEIGHT is a knob to
+# RAISE, not lower, once the estimator is trustworthy.
 # Token count is NUM_DELTA_TOKENS (default 64); sweep K or the SIGReg weight via e.g.
 #   sbatch --export=ALL,SIGREG_WEIGHT=0.3 slurm/jz_train_deltatok_multitoken_mlp_sigreg.slurm
 # New arch (MLP bottleneck params) -> its own RUN_NAME dir, starts fresh (cannot load the
@@ -60,8 +69,8 @@ export NUM_DELTA_TOKENS=${NUM_DELTA_TOKENS:-64}   # delta tokens/camera; overrid
 # --export=ALL,RESUME=1 relaunch now targets the _tc dir, NOT the old baseline.
 export TARGET_CHANNELS=${TARGET_CHANNELS:-768}
 export BOTTLENECK_MLP=${BOTTLENECK_MLP:-true}     # nonlinear 2-layer SiLU MLP down/up (vs single Linear); beats the linear-768 84%-var cap
-export SIGREG_WEIGHT=${SIGREG_WEIGHT:-1.0}        # SIGReg anti-collapse weight on z (0=off); FIRST RUN IS A PROBE — retune after peeking LossSIGReg vs LossRecon
-export SIGREG_NUM_SLICES=${SIGREG_NUM_SLICES:-256}  # random 1D projections/step for the sliced Gaussian test
+export SIGREG_WEIGHT=${SIGREG_WEIGHT:-1.0}        # SIGReg anti-collapse weight on z (0=off); unchanged from 168363 so the estimator fix is the only variable
+export SIGREG_NUM_SLICES=${SIGREG_NUM_SLICES:-2048}  # 1D projections/step; >= 2*Cz since ranks now share directions (ref: 1000-4096 at Cz=512)
 export SIGREG_WARMUP=${SIGREG_WARMUP:-2000}       # linear ramp of the weight over N iters -> full pressure entering the 3-5k breakthrough window
 export PEAK_LR=${PEAK_LR:-1e-3}                   # peak lr (cosine-decayed); lower for high-K stability
 export GRAD_CLIP=${GRAD_CLIP:-0.1}               # tighter than base 1.0 (upstream DeltaTok uses 1e-2); tames early grads
@@ -74,8 +83,9 @@ export RUN_SUFFIX=${RUN_SUFFIX:-}                 # appended to RUN_NAME for a d
 # fresh dirs — old _dtok*/_lr1e4/_eps1e6 dirs hold abandoned ckpts, do not resume them.
 TC_TAG=""; [ "${TARGET_CHANNELS}" -gt 0 ] && TC_TAG="_tc${TARGET_CHANNELS}"   # empty at 0 -> RUN_NAME unchanged
 MLP_TAG=""; [ "${BOTTLENECK_MLP}" = "true" ] && MLP_TAG="_mlp"                 # nonlinear bottleneck -> distinct dir
-# weight in name -> per-weight sweep dir; off spellings keep the name == the plain _mlp arm
-case "${SIGREG_WEIGHT}" in 0|0.0|0.00|"") SIGREG_TAG="" ;; *) SIGREG_TAG="_sigreg${SIGREG_WEIGHT}" ;; esac
+# weight in name -> per-weight sweep dir; off spellings keep the name == the plain _mlp arm.
+# _pool marks the fixed estimator -> fresh dir, must NOT resume 168363's stuck ckpt.
+case "${SIGREG_WEIGHT}" in 0|0.0|0.00|"") SIGREG_TAG="" ;; *) SIGREG_TAG="_sigreg${SIGREG_WEIGHT}_pool" ;; esac
 export RUN_NAME=deltatok_surround_layer12_bsize2_dtok${NUM_DELTA_TOKENS}${TC_TAG}_cos1e3_1e5_b95_gradskip_noaff_prenorm${MLP_TAG}${SIGREG_TAG}${RUN_SUFFIX}
 export RESUME=${RESUME:-0}   # override with --export=ALL,RESUME=1 to resume current.pth
 EXTRA_CFG_ARGS=(

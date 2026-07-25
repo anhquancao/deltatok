@@ -585,6 +585,27 @@ class DeltaTokTrainer(DeltaTokSharedMixin, Trainer):
             ).to(self.device)
         else:
             self.sigreg = None
+        # Detached z rows banked by earlier micro-batches of the current grad-accum
+        # window (see _sigreg_pooled). Cleared at each optim step and at epoch start.
+        self._sigreg_zbuf = []
+
+    def _sigreg_pooled(self, z: torch.Tensor, ready: bool):
+        """(grad_cum*S, Cz) SIGReg sample set, or None until the accum window closes.
+
+        One micro-batch on one rank yields only S = M*N*K = 128..256 rows of dim Cz=768
+        (M = bsize * pairs_per_seq = 2, N = 1..2 cameras, K = 64) -- far too few for a
+        768-d isotropy test, whose finite-sample floor at S=128 buries the collapse
+        signal. So every micro-batch banks its rows and only the window's last one
+        (`ready`) runs the estimator, over all of them: S x grad_cum. SIGReg pools over
+        ranks too via its CF all-reduce -> grad_cum * world_size (8x here). Only the
+        last micro-batch's rows carry grad; the banked ones are detached (their graph
+        died with their backward), and the weight is scaled by grad_cum to compensate.
+        """
+        live = z.reshape(-1, z.shape[-1])                    # (S, Cz) this micro-batch's rows
+        if not ready:
+            self._sigreg_zbuf.append(live.detach())          # bank samples; estimator waits for the window's end
+            return None
+        return torch.cat([live] + self._sigreg_zbuf, dim=0) if self._sigreg_zbuf else live
 
     def _build_optimizer(self):
         """AdamW with DeltaTok-style param groups: weight decay applies only to
@@ -843,6 +864,7 @@ class DeltaTokTrainer(DeltaTokSharedMixin, Trainer):
         last_update_time = time.time()
         window_loss = deque(maxlen=self.grad_cum)
         self.optim.zero_grad(set_to_none=True)
+        self._sigreg_zbuf.clear()               # a short final window last epoch could leave rows banked
 
         epoch = int(self.cfg.training.global_epoch)
         self._set_train_loader_epoch(epoch)
@@ -915,15 +937,20 @@ class DeltaTokTrainer(DeltaTokSharedMixin, Trainer):
                 loss_total = loss
 
             # Optional SIGReg anti-collapse loss on the z bottleneck (computed in fp32).
-            # Linear warmup ramps the weight in so it doesn't fight recon before the code forms.
+            # Runs once per accum window, on the pooled rows; the * grad_cum makes that one
+            # call at w*grad_cum through (loss_total/grad_cum).backward() equal to grad_cum
+            # calls at w. Linear warmup ramps the weight in so it doesn't fight recon before
+            # the code forms. iter seeds the slice draw: same on every rank, checkpointed
+            # (so a resume doesn't replay seed 0) and fresh every optimizer step.
+            loss_sigreg = None
             if self.sigreg is not None:
-                warmup = int(self.cfg.training.get("sigreg_warmup", 0))
-                ramp = 1.0 if warmup <= 0 else min(1.0, self.cfg.training.iter / max(1, warmup))
-                with torch.autocast(device_type="cuda", enabled=False):
-                    loss_sigreg = self.sigreg(z_bneck.float())
-                loss_total = loss_total + (self._sigreg_weight * ramp) * loss_sigreg
-            else:
-                loss_sigreg = None
+                pooled = self._sigreg_pooled(z_bneck.float(), ready=update_grad)
+                if pooled is not None:
+                    warmup = int(self.cfg.training.get("sigreg_warmup", 0))
+                    ramp = 1.0 if warmup <= 0 else min(1.0, self.cfg.training.iter / max(1, warmup))
+                    with torch.autocast(device_type="cuda", enabled=False):
+                        loss_sigreg = self.sigreg(pooled, seed=int(self.cfg.training.iter))
+                    loss_total = loss_total + (self._sigreg_weight * ramp * self.grad_cum) * loss_sigreg
 
             (loss_total / self.grad_cum).backward()
 
@@ -944,6 +971,7 @@ class DeltaTokTrainer(DeltaTokSharedMixin, Trainer):
                     print(f"[warn] skipping optim step at iter {self.cfg.training.iter} "
                           f"(grad_norm={grad_norm}, finite={finite}, thresh={skip_thresh})", flush=True)
                 self.optim.zero_grad(set_to_none=True)
+                self._sigreg_zbuf.clear()           # new accum window -> fresh SIGReg sample pool
 
             loss_val = loss_total.detach().item()   # total (recon + feature) drives meters/LossTot
             cum_loss += loss_val
