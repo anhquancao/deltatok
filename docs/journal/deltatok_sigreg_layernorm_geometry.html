@@ -1,0 +1,418 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>SIGReg works, but the z LayerNorm is the wrong geometry for it — and the weight is 20× too high</title>
+<style>
+  :root{
+    --bg:#ffffff; --fg:#1b1f24; --muted:#5b6570; --line:#e3e8ee;
+    --card:#f7f9fb; --accent:#2f6feb; --code:#f0f3f7;
+    --ok:#1a7f37; --warn:#9a6700; --add:#1a7f37; --del:#b42318;
+  }
+  @media (prefers-color-scheme:dark){
+    :root{ --bg:#0f1216; --fg:#e6edf3; --muted:#9aa4af; --line:#252c34;
+      --card:#161b22; --accent:#589bff; --code:#161b22;
+      --ok:#3fb950; --warn:#d29922; --add:#3fb950; --del:#f85149; }
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--fg);
+    font:15px/1.6 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;}
+  .wrap{max-width:980px;margin:0 auto;padding:32px 20px 80px;}
+  h1{font-size:26px;margin:0 0 4px;letter-spacing:-.01em}
+  h2{font-size:19px;margin:38px 0 10px;padding-bottom:6px;border-bottom:1px solid var(--line)}
+  h3{font-size:15px;margin:22px 0 6px}
+  .sub{color:var(--muted);margin:0 0 6px}
+  code,pre{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:13px}
+  code{background:var(--code);padding:1px 5px;border-radius:4px;overflow-wrap:anywhere}
+  pre{background:var(--code);border:1px solid var(--line);border-radius:8px;padding:12px 14px;overflow-x:auto}
+  pre code{background:none;padding:0}
+  table{border-collapse:collapse;width:100%;margin:10px 0;font-size:14px;display:block;overflow-x:auto}
+  th,td{border:1px solid var(--line);padding:7px 10px;text-align:left;vertical-align:top}
+  th{background:var(--card);font-weight:600;white-space:nowrap}
+  td code{white-space:nowrap}
+  .meta{display:flex;flex-wrap:wrap;gap:8px 18px;color:var(--muted);font-size:13px;margin:10px 0 0}
+  .meta b{color:var(--fg);font-weight:600}
+  .card{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:14px 16px;margin:12px 0}
+  .card.warn{border-color:var(--warn)}
+  ul,ol{margin:6px 0 6px 4px;padding-left:20px}
+  li{margin:5px 0}
+  .small{color:var(--muted);font-size:12.5px}
+  .tag{font-family:ui-monospace,monospace;font-size:12px;color:var(--muted)}
+  .pill{display:inline-block;padding:1px 8px;border-radius:999px;font-size:11.5px;font-weight:600;border:1px solid var(--line);color:var(--muted)}
+  .pill.key{color:#fff;background:var(--accent);border-color:transparent}
+  .add{color:var(--add);font-weight:600}
+  .del{color:var(--del);font-weight:600}
+  .pill.done{color:#fff;background:var(--ok);border-color:transparent}
+  .pill.run{color:#fff;background:var(--warn);border-color:transparent}
+  .card.ok{border-color:var(--ok)}
+  .num{font-variant-numeric:tabular-nums}
+  s{color:var(--muted)}
+  .arrow{color:var(--muted)}
+  .fileh{font-family:ui-monospace,monospace;font-size:13.5px}
+  .step{margin:14px 0;padding-left:12px;border-left:3px solid var(--line)}
+  .step b{display:block;margin-bottom:2px}
+  .lbl{display:inline-block;min-width:44px;font-weight:700;color:var(--accent)}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <h1>SIGReg works — but the z LayerNorm is the wrong geometry for it, and the weight is far too high</h1>
+  <p class="sub">The <code>_pool</code> estimator fix held: <code>Train/LossSIGReg</code> descends
+  0.01615 → 0.00681 over 26k steps and the latent genuinely de-collapses (participation rank
+  <b>44.6 → 69.4</b>, per-channel std ratio <b>3.57 → 1.68</b>). But recon pays ~82% on KITTI. Two
+  separate causes, established here: <b>(1)</b> at <code>sigreg_weight=1.0</code> the regularizer
+  simply outweighs recon — and clipping is <i>not</i> the mechanism (correction below); <b>(2)</b>
+  our non-affine <code>LayerNorm(768)</code> pins <i>every</i> token to <code>‖z‖=√768</code>, so
+  the radial component of SIGReg's N(0,I) target is structurally unreachable. Neither LeJEPA
+  (bare <code>Linear</code>), DiTo (LN over the <i>whole</i> latent), nor upstream DeltaTok
+  (affine, pre-bottleneck, no SIGReg) imposes that constraint. The LN is <b>not</b> the cause of
+  the rank collapse.</p>
+  <div class="meta">
+    <span><b>Runs</b> <code>..._noaff_prenorm</code> baseline (JZ <code>135157</code>),
+      <code>..._sigreg1.0_pool</code> (JZ <code>255276–255281</code>),
+      <code>..._sigreg0.05_pool</code> (JZ <code>266333–266338</code>),
+      <code>..._nozn</code> (JZ <code>269513–269516</code>)</span>
+    <span><b>Branch</b> <code>revert</code></span>
+    <span><b>Updated</b> 2026-07-26</span>
+  </div>
+  <div class="meta">
+    <span><b>Prior</b> <a href="../sigreg_debug.md">sigreg_debug.md</a> — the estimator diagnosis
+      and <code>_pool</code> fix whose outcome this entry reports</span>
+  </div>
+
+  <h2>TL;DR</h2>
+  <div class="card ok">
+    <ul style="margin:0">
+      <li><b>The estimator fix worked.</b> <code>Train/LossSIGReg</code> 0.01615 → 0.00681 over 26k
+        steps, still descending at the end. The failed <code>168363</code> arm was pinned at ~0.0088
+        ≈ 1.04× its own floor; this run starts above that and ends below it, monotonically.</li>
+      <li><b>The latent genuinely de-collapsed.</b> At matched epoch 20: participation rank
+        <span class="num">44.6 → 69.4</span>, dims-for-90%-variance <span class="num">41 → 60</span>,
+        per-channel std max/min <span class="num">3.57 → 1.68</span>, condition number
+        <span class="num">−37%</span>. This is the one thing that demonstrably worked.</li>
+      <li><b>Recon paid heavily.</b> KITTI eval at step 28,125: <span class="num">0.0724 → 0.1319</span>
+        (+82%); nuScenes <span class="num">0.0492 → 0.0953</span>. The SIGReg arm's eval is nearly flat
+        from step 3,375 to 22,500.</li>
+      <li><b>Correction: gradient clipping is not the mechanism.</b> <code>clip_grad_norm_</code>
+        rescales the <i>whole</i> gradient by one scalar, so it cannot preferentially attenuate recon —
+        and under AdamW a persistent uniform rescale is near a no-op (<code>m</code>∝c,
+        <code>v</code>∝c², so <code>m/√v</code> is unchanged). Logging total grad norm would prove
+        nothing.</li>
+      <li><b>LeJEPA's λ does not transfer.</b> Correctly translated, their headline λ=0.05 is
+        <code>sigreg_weight ≈ 81</code> in our units — 80× <i>above</i> the 1.0 that already broke
+        recon. Our 1.0 is λ<sub>eff</sub> ≈ 0.00065, ~15× <i>below</i> their smallest swept value.
+        The transfer is invalid because SIGReg is LeJEPA's <i>primary</i> objective and our
+        <i>auxiliary</i> one.</li>
+      <li><b>The LayerNorm is the wrong geometry, but not the cause of the collapse.</b> Measured
+        participation rank immediately before vs after the LN is essentially unchanged
+        (44.55 → 45.24). It removes 2 dof of 768 per token. What it <i>does</i> do is fix every
+        SIGReg sample's radius exactly, which no N(0,I) target can match.</li>
+    </ul>
+  </div>
+
+  <h2>Result 1 — the bottleneck probe (matched epoch 20)</h2>
+  <p>Isotropic <code>N(0,I)</code>, n=20,000, pushed through the trained
+  <code>pre_bottleneck_norm</code> + <code>z_proj_down</code> of each run's
+  <code>epoch_20.pth</code>. Same script, same seed for both arms.</p>
+
+  <table>
+    <tr><th>metric</th><th>linear (no SIGReg)</th><th>linear + SIGReg 1.0</th><th>change</th></tr>
+    <tr><td>participation rank</td><td class="num">44.55</td><td class="num"><b>69.43</b></td><td class="add">+56%</td></tr>
+    <tr><td>dims for 90% var</td><td class="num">41</td><td class="num"><b>60</b></td><td class="add">+46%</td></tr>
+    <tr><td>dims for 99% var</td><td class="num">335</td><td class="num">294</td><td class="del">−12%</td></tr>
+    <tr><td>condition number</td><td class="num">11,310</td><td class="num"><b>7,090</b></td><td class="add">−37%</td></tr>
+    <tr><td>per-channel std max/min</td><td class="num">3.57</td><td class="num"><b>1.68</b></td><td class="add">−53%</td></tr>
+    <tr><td>part. rank after non-affine LN</td><td class="num">45.24</td><td class="num">69.81</td><td>—</td></tr>
+    <tr><td>z std</td><td class="num">3.03</td><td class="num">5.02</td><td>—</td></tr>
+    <tr><td><code>z_proj_down</code> ‖W‖</td><td class="num">83.73</td><td class="num">129.4</td><td>—</td></tr>
+    <tr><td><code>z_proj_up</code> ‖W‖</td><td class="num">92.42</td><td class="num">102.9</td><td>—</td></tr>
+  </table>
+
+  <p>The per-channel std ratio halving is the most direct read: variance is spread far more evenly
+  across channels, which is exactly SIGReg's job. One honest nuance — <b><code>d99</code> moved the
+  wrong way</b> (335 → 294). SIGReg flattened the head of the spectrum but shortened the tail; it
+  <i>redistributed</i> variance rather than strictly opening new directions.</p>
+
+  <div class="card warn">
+    <b>Caveats on these numbers.</b>
+    <ul style="margin:6px 0 0">
+      <li>The probe is isotropic Gaussian through the bottleneck <i>map</i>. It characterizes the
+        map's conditioning, <b>not</b> the real latent's occupancy, and is not comparable to the
+        "rank ~290" figure from job <code>160304</code> (measured on real data).</li>
+      <li>The absolute <code>cond</code> values are not comparable to the ones reported earlier in
+        the session — the probe script was rewritten and defines <code>cond</code> differently.
+        Everything else reproduces exactly (part_rank 44.55 vs 44.6, d90 41 vs 41), so only that row
+        shifted definition. The linear-vs-SIGReg comparison within the table is internally
+        consistent.</li>
+      <li>At n=20,000 with C=768 (S/C ≈ 26) these are <b>not</b> finite-sample artifacts — unlike the
+        S=256 concern raised in <a href="../sigreg_debug.md">sigreg_debug.md</a>, where even a perfect
+        <code>N(0,I)</code> measures participation rank 191.</li>
+    </ul>
+  </div>
+
+  <h2>Result 2 — SIGReg descends, recon stalls</h2>
+
+  <h3><code>Train/LossSIGReg</code> (raw statistic, unweighted)</h3>
+  <pre><code>step:    0     2019    4038    6057    8076   10095   12114   14133
+val:  0.01615 0.00915 0.00890 0.00904 0.00924 0.00881 0.00845 0.00864
+
+step: 16152   18171   20190   22209   24228   26247
+val:  0.00885 0.00883 0.00856 0.00785 0.00764 0.00681   <-- still falling</code></pre>
+
+  <h3>Eval <code>LossRecon</code> at matched steps</h3>
+  <table>
+    <tr><th>step</th><th>KITTI baseline</th><th>KITTI SIGReg</th><th>nuScenes baseline</th><th>nuScenes SIGReg</th></tr>
+    <tr><td class="num">3,375</td><td class="num">0.1388</td><td class="num">0.1517</td><td class="num">0.0951</td><td class="num">0.1022</td></tr>
+    <tr><td class="num">11,250</td><td class="num">0.1008</td><td class="num">0.1404</td><td class="num">0.0694</td><td class="num">0.1048</td></tr>
+    <tr><td class="num">22,500</td><td class="num">0.0798</td><td class="num">0.1368</td><td class="num">0.0544</td><td class="num">0.1018</td></tr>
+    <tr><td class="num">28,125</td><td class="num"><b>0.0724</b></td><td class="num"><b>0.1319</b></td><td class="num"><b>0.0492</b></td><td class="num"><b>0.0953</b></td></tr>
+    <tr><td class="num">36,000</td><td class="num">0.0668</td><td>—</td><td class="num">0.0456</td><td>—</td></tr>
+  </table>
+
+  <p>The SIGReg arm's eval is nearly flat from 3,375 to 22,500 (0.1517 → 0.1368 over 19k steps) and
+  only starts moving in the last ~6k. Same stall shape as <code>168363</code>, but this time the
+  estimator is demonstrably working — so it is the <b>weight</b>, not the estimator.</p>
+
+  <h2>Why recon suffers — and why it is not gradient clipping</h2>
+
+  <div class="card warn">
+    <b>Correction.</b> An earlier hypothesis in this session was that <code>grad_clip=0.1</code>
+    lets SIGReg eat the clip budget and starve recon. <b>That is wrong.</b>
+    <code>clip_grad_norm_</code> (<code>deltatok_trainer.py:958</code>) multiplies the entire
+    gradient vector by a single scalar <code>c = clip/‖g‖</code>; recon and SIGReg components are
+    scaled identically, so the update <i>direction</i> is untouched. Worse for the hypothesis: under
+    AdamW a persistent uniform rescale is close to a no-op, since <code>m</code> scales by
+    <code>c</code>, <code>v</code> by <code>c²</code>, leaving <code>m/(√v+ε)</code> unchanged.
+  </div>
+
+  <p>The real asymmetries, all visible in the code:</p>
+  <ol>
+    <li><b>SIGReg reaches only the encoder half.</b> It is computed on <code>z_bneck</code>
+      (<code>deltatok_trainer.py:947</code>), which <code>forward</code> returns as
+      <code>self.norm(z)</code> (line 356 / 451). Backprop runs through <code>self.norm</code> →
+      <code>z_proj_down</code> → <code>pre_bottleneck_norm</code> → encoder blocks and stops. It never
+      reaches <code>z_proj_up</code> or the decoder. Recon flows through everything.</li>
+    <li><b>The objectives are directly opposed at z.</b> The z that minimizes recon is anisotropic —
+      that anisotropy <i>is</i> the code. SIGReg pushes toward isotropic Gaussian. At weight 1.0
+      SIGReg wins, and the probe shows exactly that.</li>
+    <li><b>Only 1/grad_cum of the pooled rows carry gradient.</b> Banked micro-batch rows are
+      <code>.detach()</code>ed (<code>deltatok_trainer.py:601–606</code>), so the statistic is computed
+      over <code>grad_cum × world_size × S</code> rows but gradient flows only through the last
+      micro-batch's <code>live</code> rows. Line 953 then scales the weight by <code>grad_cum</code>
+      to compensate — correct for the loss <i>value</i>, but it means the flowing gradient is
+      amplified 2× (grad_cum=2) while sourced from a single micro-batch.</li>
+  </ol>
+
+  <p class="small">The informative measurement is therefore <b>not</b> total grad norm but the ratio
+  <code>‖∂L<sub>sigreg</sub>/∂z‖ / ‖∂L<sub>recon</sub>/∂z‖</code> at the bottleneck. Not yet logged.</p>
+
+  <h2>Reference comparison — three codebases, three different norms</h2>
+
+  <h3>LeJEPA (<code>../lejepa</code>) — no norm at all</h3>
+  <pre><code>self.proj = MLP(512, [2048, 2048, proj_dim], norm_layer=nn.BatchNorm1d)
+...
+sigreg_loss = sigreg(proj)</code></pre>
+  <p><code>torchvision.ops.MLP</code> puts <code>norm_layer</code> only on the <i>hidden</i> layers.
+  Verified layer stack (torchvision 0.20.0): <code>Linear, BatchNorm1d, ReLU, Dropout, Linear,
+  BatchNorm1d, ReLU, Dropout, <b>Linear, Dropout</b></code> — the output layer is a bare
+  <code>Linear</code>. SIGReg's input has free mean, free scale, free per-sample norm. BatchNorm1d is
+  per-channel-across-batch anyway, an orthogonal constraint that never touches the output.</p>
+
+  <h3>Their weight, correctly translated</h3>
+  <table>
+    <tr><th></th><th>LeJEPA</th><th>ours</th></tr>
+    <tr><td>weight</td><td><code>bstat_lambda = 0.01, 0.02, 0.05, 0.1</code> (swept)</td><td><code>sigreg_weight = 1.0</code></td></tr>
+    <tr><td>combination</td><td><code>λ·sigreg + (1−λ)·inv</code> (convex)</td><td><code>recon + w·sigreg</code> (additive)</td></tr>
+    <tr><td>statistic</td><td><code>(err @ weights) * proj.size(-2)</code> — <b>includes ×N</b></td><td><code>stat.mean()</code> — <b>×N dropped</b></td></tr>
+    <tr><td>slices</td><td>1000 at C=512 (≈2×C)</td><td>2048 at C=768 (≈2.7×C)</td></tr>
+  </table>
+
+  <p>With <code>w_ours = λ/(1−λ) × N_ours</code> and <code>N_ours</code> = grad_cum 2 × M 2 ×
+  N_cam 1–2 × K 64 × 4 ranks = <b>1024–2048</b>:</p>
+
+  <table>
+    <tr><th>their λ</th><th>0.01</th><th>0.02</th><th>0.05</th><th>0.1</th></tr>
+    <tr><td>our equivalent <code>sigreg_weight</code></td><td class="num">≈16</td><td class="num">≈32</td><td class="num"><b>≈81</b></td><td class="num">≈171</td></tr>
+  </table>
+
+  <p>So their headline number is ~81 in our units, 80× stronger than the 1.0 that already cost 82% on
+  KITTI. Inverted: our 1.0 is λ<sub>eff</sub> ≈ 0.00065, ~15× <i>below</i> their smallest swept value —
+  and still over-regularizing. That is evidence the λ transfer is <b>invalid</b>, not that our weight is
+  wrong: in LeJEPA <code>inv_loss = (proj.mean(0) - proj).square().mean()</code> is trivially minimized
+  by collapse, so SIGReg is the primary objective holding the representation up. Here recon is the real
+  objective and the decoder already prevents collapse-to-constant.</p>
+
+  <div class="card">
+    <b>Doc bug found.</b> <code>occrae/sigreg.py:25-26</code> says dropping <code>×N</code> makes the
+    value "batch-size-independent". It is backwards — the <code>×N</code> version is the one whose null
+    value is O(1) in N; ours falls as ~1/N, which is precisely the "finite-sample floor ~0.0085 at
+    S=128" the next paragraph of the same docstring describes. No result changes, but it makes the
+    logged <code>Train/LossSIGReg</code> easy to misread across batch shapes.
+  </div>
+
+  <h3>DiTo (<code>github.com/yinboc/dito</code>) — LN over the <i>whole</i> latent</h3>
+  <pre><code># models/ldm/ldm_base.py:70-73
+self.z_layernorm = nn.LayerNorm(
+    list(z_shape),          # configs/experiments/dito-XL-f8c4.yaml:12 -> [4, 32, 32]
+    elementwise_affine=False
+) if z_layernorm else None</code></pre>
+  <p><code>normalized_shape</code> is the entire latent tensor — C=4, H=32, W=32 jointly, 4096 values.
+  On a <code>(B,4,32,32)</code> input that is <b>one</b> mean and <b>one</b> std per image. The paper's
+  rationale (Appendix B): LayerNorm replaces the LDM's KL loss, "ensures z₀ to have 0 mean and 1 std so
+  that it does not collapse to the trivial solution", avoids a loss weight to tune, and reconstructs
+  better than KL.</p>
+
+  <table>
+    <tr><th></th><th>DiTo</th><th>ours</th></tr>
+    <tr><td><code>normalized_shape</code></td><td><code>[4, 32, 32]</code> — whole latent</td><td><code>768</code> — last dim only</td></tr>
+    <tr><td>constraints per sample</td><td class="num">2 per image</td><td class="num">2 per token × 64</td></tr>
+    <tr><td>fraction of dof removed</td><td class="num">2/4096 = 0.049%</td><td class="num">128/49,152 = 0.26%</td></tr>
+    <tr><td>per-channel variance</td><td><b>free</b></td><td>forced equal-ish</td></tr>
+    <tr><td>per-sample radius</td><td><b>free</b></td><td>fixed exactly</td></tr>
+  </table>
+
+  <p><b>The key point is not magnitude but alignment.</b> Both remove a negligible fraction of dof.
+  But SIGReg's sampling unit is the token, and our LN applies its constraint to exactly that object —
+  0.26% of total dof, but <b>100% of the radial dof of every SIGReg sample</b>. DiTo's constraint
+  corresponds to no sampling unit at all; per-position channel vectors keep free norms. DiTo's LN is
+  closer in spirit to Stable Diffusion's fixed <code>0.18215</code> latent scale factor, computed
+  per-sample.</p>
+
+  <h3>Upstream DeltaTok (<code>third_party/deltatok</code>) — affine, pre-bottleneck, and for a different reason</h3>
+  <pre><code># models/deltatok.py:51, 75, 112
+self.z_embed = nn.Embedding(1, self.backbone.hidden_size)                  # ONE delta token
+self.norm    = nn.LayerNorm(self.backbone.hidden_size, cfg.layer_norm_eps) # AFFINE, no bottleneck
+...
+return self.norm(z)</code></pre>
+  <p>Three concrete reasons it exists, none of them "latent prior":</p>
+  <ol>
+    <li><b>z is a regression target.</b> <code>deltaworld.py:82</code> returns
+      <code>(z_hat, z[:, start:])</code> and <code>training/world.py:24</code> uses
+      <code>smooth_l1</code>, whose <code>beta</code> threshold is scale-dependent
+      (<code>training/base.py:313</code> asserts beta is required). An unnormalized target off a
+      growing pre-norm residual stream would make <code>beta</code> meaningless.</li>
+    <li><b>z is concatenated back into a token sequence.</b> <code>decode</code> line 119:
+      <code>hidden = torch.cat((z, x), 1)</code> with <code>x</code> = frozen DINOv3 features, fed to
+      pre-norm blocks. The two halves need comparable scale.</li>
+    <li><b>It is the terminal norm of a pre-norm stack</b> — generic hygiene.</li>
+  </ol>
+  <p>Note it is <b>affine</b> (<code>elementwise_affine=True</code> by default), at
+  <code>hidden_size</code> with <b>no bottleneck</b>, over <b>one</b> delta token. We changed all three:
+  non-affine, at <code>z_dim=768</code> <i>after</i> a bottleneck, across 64 tokens. In our code the
+  terminal-norm role is already filled by <code>pre_bottleneck_norm</code> (affine LN @ 1536,
+  same position, same width) — so <code>self.norm</code> is a <i>second</i> normalization upstream does
+  not have.</p>
+
+  <h2>The geometry, derived and verified</h2>
+  <p><code>nn.LayerNorm(768, elementwise_affine=False)</code> on an <code>(M,N,K,768)</code> tensor
+  treats every leading dim as batch, normalizing each of the M·N·K tokens independently:</p>
+  <pre><code>ẑ_c = (z_c − μ) / √(σ² + ε),   μ = (1/C)Σz_c,   σ² = (1/C)Σ(z_c − μ)²</code></pre>
+  <p>PyTorch uses the <b>biased</b> (1/C) variance over exactly those C channels, so
+  <code>Σ_c (z_c − μ)² = C·σ²</code> <i>by definition</i>. Therefore</p>
+  <pre><code>‖ẑ‖² = Σ_c ẑ_c² = C·σ²/(σ² + ε)  ≈  C        →   ‖ẑ‖ ≈ √768 ≈ 27.7128
+Σ_c ẑ_c = 0                                  →   ẑ ⊥ 1</code></pre>
+  <p>Note what is absent from the right-hand side: z itself. The radius depends only on
+  <code>σ²/(σ²+ε)</code>, and σ² is z's own variance, so it cancels against itself. Verified over 256
+  tokens (M·N·K = 2·2·64):</p>
+
+  <table>
+    <tr><th>input std</th><th>per-token ‖z‖ min</th><th>max</th><th>√768</th><th>max |Σ<sub>c</sub> z<sub>c</sub>|</th></tr>
+    <tr><td class="num">0.01</td><td class="num">27.5582</td><td class="num">27.5939</td><td class="num">27.7128</td><td class="num">6.0e−2</td></tr>
+    <tr><td class="num">1.0</td><td class="num"><b>27.7128</b></td><td class="num"><b>27.7128</b></td><td class="num">27.7128</td><td class="num">5.5e−4</td></tr>
+    <tr><td class="num">100.0</td><td class="num"><b>27.7128</b></td><td class="num"><b>27.7128</b></td><td class="num">27.7128</td><td class="num">2.1e−5</td></tr>
+  </table>
+
+  <p>min = max across all 256 tokens, independent of input scale and of the <code>+5.0</code> offset
+  added to the probe. The std=0.01 row is pure ε: <code>√768 × √(1e−4/1.01e−4) = 27.575</code>,
+  bracketing the measured 27.558–27.594.</p>
+
+  <p><b>Why this fights SIGReg:</b> a genuine <code>N(0,I)</code> draw has
+  <code>‖z‖² = C ± √(2C)</code> — at C=768 that is 768 ± 39, ~5% radial spread. Our samples have
+  <i>exactly zero</i> spread, so the radial component of the target is unreachable regardless of what
+  the encoder learns. The zero-mean constraint is the milder half: it kills one direction of 768, which
+  random slices hit with weight ~1/C.</p>
+
+  <div class="card warn">
+    <b>Unmeasured.</b> Whether that produces a <i>large</i> floor in the statistic is still open. Each
+    slice sees only the 1-D marginal <code>⟨z,a⟩</code>, and by Poincaré/Maxwell the marginal of a
+    uniform point on a √C-sphere converges to N(0,1) with O(1/C) error — at C=768 possibly negligible.
+    The synthetic test (our SIGReg on <code>LayerNorm(N(0,I))</code> vs plain <code>N(0,I)</code> at
+    matched N) was written but <b>not run</b>. If the floor lands near 0.00681 the norm was most of the
+    problem; if ~1e−4 it is a red herring and the recon damage is purely the weight.
+  </div>
+
+  <h2>What the LayerNorm is NOT responsible for</h2>
+  <div class="card ok">
+    <p style="margin:0 0 6px"><b>It does not cause the rank collapse.</b> Participation rank measured
+    immediately before vs after the non-affine LN:</p>
+    <table style="margin:6px 0 0">
+      <tr><th></th><th>before LN</th><th>after LN</th></tr>
+      <tr><td>linear (no SIGReg)</td><td class="num">44.55</td><td class="num"><b>45.24</b></td></tr>
+      <tr><td>linear + SIGReg 1.0</td><td class="num">69.43</td><td class="num"><b>69.81</b></td></tr>
+    </table>
+    <p style="margin:8px 0 0">Unchanged — slightly <i>higher</i> after, in both runs. The collapse had
+    already happened upstream of the norm. This matches the algebra: LN removes 2 dof of 768 per token
+    and zeroes exactly one covariance eigendirection (the all-ones direction), 768 → at most 767. That
+    cannot produce a participation rank of 44.</p>
+  </div>
+  <p>So there are two distinct problems that were running together: the <b>rank collapse</b> (SIGReg
+  moved it, 44.6 → 69.4, at heavy recon cost) and <b>SIGReg fighting the geometry</b> (the LN's fault).
+  Removing the norm addresses the second only. The expected benefit is not "variance comes back" — it is
+  that SIGReg stops spending gradient on an impossible component.</p>
+
+  <h2>Code changes</h2>
+  <table>
+    <tr><th>file</th><th>change</th></tr>
+    <tr><td class="fileh">occrae/deltatok_trainer.py</td><td>new <code>z_norm: bool = True</code> ctor arg; <code>self.norm</code> becomes <code>nn.Identity()</code> when false. Non-affine LN is parameter-free, so <code>_noaff</code> ckpts stay key-compatible either way.</td></tr>
+    <tr><td class="fileh">occrae/deltatok_shared.py:472</td><td>plumbs <code>z_norm</code> from config</td></tr>
+    <tr><td class="fileh">configs/train_deltatok.yaml</td><td><code>z_norm: true</code> default — every existing run unchanged</td></tr>
+    <tr><td class="fileh">configs/train_deltatok_flow.yaml</td><td><code>z_norm: true</code>; must match the frozen ckpt</td></tr>
+    <tr><td class="fileh">slurm/jz_train_deltatok_multitoken_mlp_sigreg.slurm</td><td><code>Z_NORM</code> env knob, <code>_nozn</code> RUN_NAME tag, <code>model.deltatok.z_norm</code> cfg arg</td></tr>
+  </table>
+  <p class="small">Verified: with comments stripped, <code>jz_train_deltatok_multitoken_mlp_sigreg.slurm</code>
+  differs from <code>jz_train_deltatok_multitoken_prenorm.slurm</code> only by the MLP/SIGReg/Z_NORM knobs.
+  So <code>SIGREG_WEIGHT=0 BOTTLENECK_MLP=false</code> reproduces the baseline exactly.</p>
+
+  <h2>Runs</h2>
+  <table>
+    <tr><th>run</th><th>jobs</th><th>settings</th><th>state</th></tr>
+    <tr><td><code>..._sigreg1.0_pool</code></td><td class="num">255276–255281</td><td>6×2h dev, w=1.0, LN on</td><td><span class="pill done">done</span> ~28k steps</td></tr>
+    <tr><td><code>..._sigreg0.05_pool</code></td><td class="num">266333–266338</td><td>6×2h dev, w=0.05, LN on</td><td><span class="pill">cancelled</span> at 1h15m, ~1 epoch</td></tr>
+    <tr><td><code>..._nozn</code></td><td class="num">269513–269516, 269700–269701</td><td>6×2h dev, <b>w=0, LN off</b></td><td><span class="pill run">running</span></td></tr>
+  </table>
+  <p>The <code>_nozn</code> arm is the baseline with the LayerNorm as the single variable
+  (<code>sigreg_weight=0</code>, <code>bottleneck_mlp=false</code>, <code>z_norm=false</code>). The
+  0.05 arm was cancelled to free dev-QoS slots (cap: 10 submitted jobs) so this chain could go to 6×2h
+  ≈ 28k steps — step-matched with the <code>sigreg1.0_pool</code> run, where the baseline read
+  KITTI 0.0724 / nuScenes 0.0492 at step 28,125.</p>
+  <p class="small"><b>Not measured, as a result:</b> the LN-on low-weight arm. If <code>_nozn</code> also
+  degrades we will not know whether lowering the weight alone would have recovered recon.</p>
+
+  <div class="card warn">
+    <b>Risk on <code>_nozn</code>:</b> with no LayerNorm <i>and</i> <code>sigreg_weight=0</code>, nothing
+    constrains z's scale at all — no normalization, no regularizer. The only guard is
+    <code>grad_clip=0.1</code> (<code>grad_skip_thresh</code> is 0, off). There is no TB scalar for z's
+    magnitude, so drift would surface indirectly as loss instability or NaN grad-skips.
+  </div>
+
+  <h2>Open questions</h2>
+  <ol>
+    <li><b>Run the LN-floor measurement.</b> Synthetic, ~2 min, decides whether the norm is the problem
+      or a red herring. Script written, not run.</li>
+    <li><b>Log <code>‖∂L<sub>sigreg</sub>/∂z‖ / ‖∂L<sub>recon</sub>/∂z‖</code></b> at the bottleneck —
+      the measurement that actually locates the weight knee. Total grad norm is not informative.</li>
+    <li><b>A DiTo-style third option.</b> LN over <code>(N, K, Cz)</code> jointly per sample keeps the
+      global unit-variance guarantee the flow matcher needs <i>and</i> frees the per-token radius SIGReg
+      needs. Not implemented; arguably better motivated than <code>z_norm=false</code>, which drops the
+      guarantee entirely and hands the job to SIGReg.</li>
+    <li><b>Re-measure rank on real features.</b> Every rank number here comes from an N(0,I) probe of the
+      map. Settling the true code rank needs a GPU job running real layer-12 features through the
+      encoder — and it bears on the premise of the whole SIGReg arm (see the open question in
+      <a href="../sigreg_debug.md">sigreg_debug.md</a>).</li>
+  </ol>
+
+</div>
+</body>
+</html>

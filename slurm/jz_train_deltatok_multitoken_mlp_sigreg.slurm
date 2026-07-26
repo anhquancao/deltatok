@@ -69,6 +69,7 @@ export NUM_DELTA_TOKENS=${NUM_DELTA_TOKENS:-64}   # delta tokens/camera; overrid
 # --export=ALL,RESUME=1 relaunch now targets the _tc dir, NOT the old baseline.
 export TARGET_CHANNELS=${TARGET_CHANNELS:-768}
 export BOTTLENECK_MLP=${BOTTLENECK_MLP:-true}     # nonlinear 2-layer SiLU MLP down/up (vs single Linear); beats the linear-768 84%-var cap
+export Z_NORM=${Z_NORM:-true}                     # false drops the z LayerNorm entirely -> SIGReg regularizes a free z (LeJEPA applies it to a bare Linear head, not a normed one)
 export SIGREG_WEIGHT=${SIGREG_WEIGHT:-1.0}        # SIGReg anti-collapse weight on z (0=off); unchanged from 168363 so the estimator fix is the only variable
 export SIGREG_NUM_SLICES=${SIGREG_NUM_SLICES:-2048}  # 1D projections/step; >= 2*Cz since ranks now share directions (ref: 1000-4096 at Cz=512)
 export SIGREG_WARMUP=${SIGREG_WARMUP:-2000}       # linear ramp of the weight over N iters -> full pressure entering the 3-5k breakthrough window
@@ -86,7 +87,8 @@ MLP_TAG=""; [ "${BOTTLENECK_MLP}" = "true" ] && MLP_TAG="_mlp"                 #
 # weight in name -> per-weight sweep dir; off spellings keep the name == the plain _mlp arm.
 # _pool marks the fixed estimator -> fresh dir, must NOT resume 168363's stuck ckpt.
 case "${SIGREG_WEIGHT}" in 0|0.0|0.00|"") SIGREG_TAG="" ;; *) SIGREG_TAG="_sigreg${SIGREG_WEIGHT}_pool" ;; esac
-export RUN_NAME=deltatok_surround_layer12_bsize2_dtok${NUM_DELTA_TOKENS}${TC_TAG}_cos1e3_1e5_b95_gradskip_noaff_prenorm${MLP_TAG}${SIGREG_TAG}${RUN_SUFFIX}
+ZN_TAG=""; [ "${Z_NORM}" = "false" ] && ZN_TAG="_nozn"                        # no z-norm -> distinct arch, fresh dir
+export RUN_NAME=deltatok_surround_layer12_bsize2_dtok${NUM_DELTA_TOKENS}${TC_TAG}_cos1e3_1e5_b95_gradskip_noaff_prenorm${MLP_TAG}${SIGREG_TAG}${ZN_TAG}${RUN_SUFFIX}
 export RESUME=${RESUME:-0}   # override with --export=ALL,RESUME=1 to resume current.pth
 EXTRA_CFG_ARGS=(
     model.deltatok.num_delta_tokens=${NUM_DELTA_TOKENS}   # K delta tokens/camera (K=64 ~12:1 compression at full res)
@@ -94,6 +96,7 @@ EXTRA_CFG_ARGS=(
     training.lr=${PEAK_LR}                      # peak lr override (default 1e-3; lower for high-K stability)
     model.deltatok.use_camera_rope=false       # no-camera-rope layer-12 run
     model.deltatok.norm_affine=false           # final z-norm stays non-affine -> unit-var/zero-mean latent for flow matching
+    model.deltatok.z_norm=${Z_NORM}            # false: no z-norm at all; decoder + SIGReg both see raw z_proj_down (see Z_NORM)
     model.deltatok.bottleneck_pre_norm=true    # affine LN before z_proj_down: kills the ~60x post-bottleneck grad amplification
     model.deltatok.bottleneck_mlp=${BOTTLENECK_MLP}  # nonlinear MLP down/up bottleneck (see BOTTLENECK_MLP)
     training.sigreg_weight=${SIGREG_WEIGHT}       # SIGReg anti-collapse loss weight on z (0 = off)

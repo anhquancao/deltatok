@@ -469,6 +469,7 @@ class DeltaTokSharedMixin:
             alt_start=int(deltatok_cfg.get("alt_start", 4)),
             num_delta_tokens=int(deltatok_cfg.get("num_delta_tokens", 1)),
             norm_affine=bool(deltatok_cfg.get("norm_affine", True)),
+            z_norm=bool(deltatok_cfg.get("z_norm", True)),
             target_channels=int(deltatok_cfg.get("target_channels", 0)),
             bottleneck_pre_norm=bool(deltatok_cfg.get("bottleneck_pre_norm", False)),
             bottleneck_mlp=bool(deltatok_cfg.get("bottleneck_mlp", False)),

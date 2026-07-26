@@ -71,6 +71,7 @@ class DeltaTokModule(nn.Module):
         alt_start: int = 4,
         num_delta_tokens: int = 1,
         norm_affine: bool = True,
+        z_norm: bool = True,
         target_channels: int = 0,
         bottleneck_pre_norm: bool = False,
         bottleneck_mlp: bool = False,
@@ -174,7 +175,15 @@ class DeltaTokModule(nn.Module):
         # norm_affine=False -> non-learnable norm, pinning z to fixed unit-var/zero-mean.
         # Runs at z_dim (the compressed space when the bottleneck is on) so the
         # flow-facing latent keeps the fixed unit-var/zero-mean contract.
-        self.norm = nn.LayerNorm(self.z_dim, cfg.layer_norm_eps, elementwise_affine=norm_affine)
+        # z_norm=False drops it entirely: the LN pins every token to |z|=sqrt(Cz) on a
+        # zero-mean hyperplane, which no N(0,I) target can satisfy (a Gaussian's radius
+        # varies by ~5% at Cz=768) and which projects out SIGReg's scale gradient. Off ->
+        # decoder and SIGReg both see raw z_proj_down, like LeJEPA's bare-Linear head.
+        # Non-affine LN is parameter-free, so noaff ckpts stay key-compatible either way.
+        self.norm = (
+            nn.LayerNorm(self.z_dim, cfg.layer_norm_eps, elementwise_affine=norm_affine)
+            if z_norm else nn.Identity()
+        )
         self._rope_cache: dict = {}
 
     def train(self, mode: bool = True):
