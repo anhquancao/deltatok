@@ -75,7 +75,7 @@ ssh jean-zay "tail -f \$TRG_WORK/code/deltatok/slurm/output/<name>_<jobid>.out"
 ## Data tiers and sync
 
 - `/lustre/fsstor/projects/rech/trg/uyl37fq/datasets_preprocess_backup` — **backup** tier (fsstor), fed from Karolina via `sh/sync_karolina_to_jeanzay.sh` (run **on Karolina**; rsyncs through the tunnel on port 2222).
-- `/lustre/fsn1/projects/rech/trg/uyl37fq/occany_data` — **working** tier (fsn1), fed from cougar via `sh/push_data_from_cougar_to_jeanzay.py` (run **on cougar**; uses `--no-times --size-only` to dodge the 30-day purge). **fsn1 purges files untouched for 30 days.**
+- `/lustre/fsn1/projects/rech/trg/uyl37fq/occany_dataset` — **working** tier (fsn1), fed from cougar via `sh/push_data_from_cougar_to_jeanzay.py` (run **on cougar**; uses `--no-times --size-only` to dodge the 30-day purge). **fsn1 purges files untouched for 30 days.**
 - Checkpoints: `sh/pull_checkpoints_karolina_to_jeanzay.sh` (run **locally**), or Karolina pushes straight through the tunnel:
   `rsync -e 'ssh -p 2222' <ckpt> uyl37fq@localhost:$TRG_WORK/code/deltatok/checkpoints/`
 
