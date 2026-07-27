@@ -175,6 +175,8 @@ if __name__ == "__main__":
     parser.add_argument('--dryrun', action='store_true', help='Simulate the backup process without making changes')
     parser.add_argument('--extract', action='store_true', help='Extract backup tar archives back to the source folders')
     parser.add_argument('--num_workers', type=int, default=1, help='Number of parallel workers for tar/untar operations')
+    # write to a sibling dir under TRG_STORE so a re-backup never overwrites the old archive set
+    parser.add_argument('--dst_name', type=str, default='datasets_preprocess_backup', help='Backup dir name under $TRG_STORE')
     args = parser.parse_args()
 
     if args.pid < 0 or args.pid >= args.world:
@@ -187,7 +189,7 @@ if __name__ == "__main__":
     SCRATCH = os.environ["SCRATCH"]
     TRG_STORE = os.environ["TRG_STORE"]
     src_dir = os.path.join(SCRATCH, "occany_dataset")
-    dst = os.path.join(TRG_STORE, "datasets_preprocess_backup")
+    dst = os.path.join(TRG_STORE, args.dst_name)
     
     backup_folders = [
         "waymo_processed",

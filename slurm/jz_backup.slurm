@@ -35,4 +35,7 @@ cd $TRG_WORK/code/deltatok
 
 mkdir -p slurm/output
 
-python dataset_setup/backup.py --pid $SLURM_ARRAY_TASK_ID --world $SLURM_ARRAY_TASK_COUNT --num_workers 10
+# fresh dir: the 2025 archive set is stale, and argoverse2/kitti_pair/nuscenes live only there
+export BACKUP_DST_NAME=${BACKUP_DST_NAME:-datasets_preprocess_backup_2026-07}
+
+python dataset_setup/backup.py --pid $SLURM_ARRAY_TASK_ID --world $SLURM_ARRAY_TASK_COUNT --num_workers 10 --dst_name $BACKUP_DST_NAME

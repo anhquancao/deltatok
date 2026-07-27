@@ -139,6 +139,29 @@ datasets finished within a minute of each other once run concurrently.
 
 kitti and waymo have no usable archive, so Karolina is their only restore path.
 
+### Re-backup 2026-07-27 (closes all three gaps)
+
+Job `304546` (array 0-9, `archive`, `slurm/jz_backup.slurm`) tarred all seven fsn1 datasets
+into a **new** dir, `$TRG_STORE/datasets_preprocess_backup_2026-07` — 9.9 TB, all 10 shards
+COMPLETED 0:0 in under 2h20m. `backup.py` gained `--dst_name` (default unchanged) so a
+re-backup never overwrites the old set.
+
+The 2025 dir is deliberately kept: `argoverse2_processed` (521 archives, 621 GB) exists
+**only** there — not on fsn1, not on Karolina, and not in `backup_folders`, so no re-backup
+regenerates it. `kitti_pair_processed` and `nuscenes_processed` are likewise absent from
+fsn1 (both still on Karolina).
+
+Verified: archive count == scene-dir count for all seven (waymo 798 vs 799 dirs is the
+`tmp` dir `backup.py` skips by design); logs clean; and `tar -tf` member counts match the
+source exactly on spot checks including the largest archives of the three formerly-broken
+sets — kitti `02` (9,323 files, 9.9 GB), occ3d `scene-0017` (1,600, 626 MB), waymo
+`segment-268278198029493143_1…` (1,990, 2.0 GB).
+
+Two empty scene dirs surfaced, neither a backup fault: `kitti_processed/resized_512` (empty
+on JZ, absent on Karolina — a stray) and `occ3d_nuscenes_processed/scene-1109` (empty on
+both). Empty dirs are invisible to a file-count diff, so they never showed in the parity
+check.
+
 ## Changes committed
 
 - deltatok `bc30735` — all JZ paths -> `occany_dataset`; added `dataset_setup/backup.py`,
@@ -153,11 +176,70 @@ BSC's `/gpfs/scratch/ehpc793/occany_data` was deliberately left unchanged.
 whole scene dir, so companions written after the backup (`*.infinidepth.png`) are also
 refreshed. Extraction is therefore self-sufficient against the purge.
 
+## Verification (2026-07-27)
+
+The restore finished at 02:42; all seven rsyncs exited clean. Verified three independent
+ways.
+
+**1. Counts.** Every dataset on Jean Zay is now >= Karolina, and >= its own 07-26 22:41
+value — so nothing bled after the rename:
+
+| dataset | JZ 07-26 22:41 | JZ 07-27 | Karolina | delta |
+|---|---|---|---|---|
+| `once_processed` | 13,229,314 | 13,855,393 | 13,855,391 | +2 |
+| `waymo_processed` | 1,577,726 | 1,898,163 | 1,898,162 | +1 |
+| `ddad_processed` | 197,412 | 197,412 | 197,412 | 0 |
+| `pandaset_processed` | 96,972 | 96,972 | 96,972 | 0 |
+| `kitti_processed` | 40,654 | 50,473 | 50,473 | 0 |
+| `occ3d_nuscenes_processed` | 40,849 | 48,315 | 48,314 | +1 |
+| `vkitti_processed` | 42,528 | 42,528 | 42,528 | 0 |
+
+`once_processed` recounted at 10:50 and 13:09 — identical. ~15h since the rename with zero
+deletions.
+
+**2. Per-scene folders.** Counts alone can't detect a short scene offset by a surplus
+elsewhere. Walked both trees at scene granularity: **2,153 folders on each side, all
+matched by name, 0 folders short on Jean Zay.** The four surplus files are:
+
+| folder | JZ-only file | what |
+|---|---|---|
+| `once_processed/000076` | `.010025_cam09.infinidepth.png.F2aQV8` | rsync temp, interrupted transfer |
+| `waymo_processed/segment-1833171384….tfrecord` | `.00118_1.npz.GFxbr2` | same |
+| `once_processed/000047` | `003710_cam05.infinidepth.p` | truncated name, partial write |
+| `occ3d_nuscenes_processed/scene-0018` | `000143_0.npz` | genuine extra, absent on Karolina |
+
+The three partials are leftovers, not losses — each folder is Karolina's count *+1*, so the
+real file sits alongside the stray. All three were 0 bytes with mtimes inside the restore
+window (22:50-23:09), and all three counterparts had real content (337 KB / 137 KB /
+952 KB) written seconds apart. Deleted 2026-07-27 14:23; counterparts verified intact. JZ
+now differs from Karolina only by `occ3d_nuscenes_processed/scene-0018/000143_0.npz`.
+
+**3. File-level parity.** Dry-run rsync (`--dry-run --size-only`, same flags as the
+restore) — a true set-difference by name+size. **0 files would transfer for all seven
+datasets.** Combined with JZ counts >= Karolina, the sets are identical.
+
+Caveat: `--size-only` compares name and size, never content. A right-sized but corrupt file
+is invisible to all three checks — same blind spot the restore had.
+
+### Operational lesson: shard the dry-run too
+
+A single rsync over `once_processed` (13.8M entries) **died twice**. First attempt:
+`connection unexpectedly closed (660 bytes received)`, code 12. Second: the JZ receiver
+process vanished while the Karolina sender sat in `core_sys_select`, having moved zero
+bytes for 18 minutes — a hang that looks exactly like slow progress unless you sample
+`/proc/<pid>/io` twice and compare.
+
+Sharding per scene dir (571 rsyncs, 4 concurrent) completed with 0 missing and 0 errors.
+Same lesson as the OOM-killed touch job: do not stream 13M entries through one process on a
+login node. A sharded run also gives a real progress signal — a completed-shard counter
+distinguishes working from stalled, which a monolithic run cannot.
+
 ## Open items
 
 1. **Mechanism unexplained.** Deletion ignored fresh atime; neither atime nor mtime
    explains the selection. Worth an IDRIS support ticket with the evidence above.
 2. **Rename may only buy time** — the next scan could rebuild its list against the new path.
+   Held for ~15h as of 2026-07-27 13:09, but that is not yet a full purge cycle.
 3. **Training is fragile by design.** One missing file out of 13M aborts a 20h job.
    Making `_get_views` resample instead of raising would decouple training from this
    entirely.
