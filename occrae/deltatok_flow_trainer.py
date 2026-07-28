@@ -70,6 +70,7 @@ class DeltaTokFlowMatchingTrainer(DeltaTokSharedMixin, Trainer):
 
         self._ema_state = None
         self._fixed_noise_cache = {}  # shape-key -> one cached noise draw (fixed_noise_mode probes)
+        self._eval_noise_gen = None   # set during eval_one_epoch so every eval replays the same draws
         # Overfit: memoize the frozen OccRAE+DeltaTok encode per data item so the
         # ~1B backbone runs once per unique sample (item-key -> (tokens, feat0, z, H, W)).
         self._cache_frozen_encode = bool(self.cfg.training.get("cache_frozen_encode", False))
@@ -428,9 +429,17 @@ class DeltaTokFlowMatchingTrainer(DeltaTokSharedMixin, Trainer):
                     (isolates the effect of re-sampling alone).
         The cache is keyed by the batch-independent shape so train and eval reuse
         the SAME draw within a run (eval sampler must start from what train saw).
+
+        During eval `_eval_noise_gen` is set, so the draw sequence is replayed
+        identically every epoch: the eval curve then compares weights, not noise.
         """
         mode = str(self.cfg.model.get("fixed_noise_mode", "none"))
         if mode == "none":
+            if self._eval_noise_gen is not None:
+                # float32 draw then cast: randn honours the generator, autocast dtypes don't.
+                e = torch.randn(x.shape, generator=self._eval_noise_gen,
+                                device=x.device, dtype=torch.float32)    # (B, C, T-1, N, K) replayable prior
+                return e.to(x.dtype)                                     # (B, C, T-1, N, K)
             return torch.randn_like(x)                                   # (B, C, T-1, N, K) fresh prior
         b, c, t_dim, h, w = x.shape                                      # B, C, T-1, N, K
         if mode == "per_slot":
@@ -729,6 +738,14 @@ class DeltaTokFlowMatchingTrainer(DeltaTokSharedMixin, Trainer):
                 if ds is not None and hasattr(ds, "set_epoch"):
                     ds.set_epoch(0)
 
+                # Re-seed per loader so the noise draws (ODE init + flow_noising)
+                # replay identically every epoch: with the data pinned above, the
+                # only thing left varying across eval points is the weights. Ranks
+                # differ so they don't all sample the same prior.
+                self._eval_noise_gen = torch.Generator(device=self.device).manual_seed(
+                    int(self.cfg.training.seed) + 10007 * self.rank
+                )
+
                 # SLURM-friendly progress: MetricLogger prints one flushed line
                 # per print_freq batches (master only, matching tqdm's disable).
                 if self.is_master:
@@ -999,6 +1016,7 @@ class DeltaTokFlowMatchingTrainer(DeltaTokSharedMixin, Trainer):
 
         final_loss = overall_loss / overall_n if overall_n > 0 else 0.0
 
+        self._eval_noise_gen = None  # back to a fresh prior for training
         self.vit.train()
         return final_loss
 
