@@ -34,6 +34,7 @@ from models.qk_norm import enable_dinov3_qk_norm
 
 from occrae.abstract_trainer import Trainer
 from occrae.sigreg import SIGReg  # LeJEPA anti-collapse regularizer on the z bottleneck
+from occrae.z_spread import ZSpreadStats  # eval-time effective-rank diagnostic on z
 from occrae.deltatok_shared import DeltaTokSharedMixin
 from occrae.network.rope_utils import compute_camera_rope  # shared 1xN camera-grid rope build
 from occrae.metric_logger import MetricLogger, SmoothedValue  # SLURM-friendly line-per-print logging (no tqdm)
@@ -519,6 +520,7 @@ def _print_param_breakdown(model: nn.Module, archi: str) -> None:
     )
 
 
+
 class DeltaTokTrainer(DeltaTokSharedMixin, Trainer):
     def __init__(self, args, cfg, device, rank, world_size, distributed):
         args.is_master = rank == 0
@@ -597,6 +599,58 @@ class DeltaTokTrainer(DeltaTokSharedMixin, Trainer):
         # Detached z rows banked by earlier micro-batches of the current grad-accum
         # window (see _sigreg_pooled). Cleared at each optim step and at epoch start.
         self._sigreg_zbuf = []
+
+        # z-spread diagnostics (Eval/<test>/Z*): how much of the Cz budget the code
+        # actually uses. Measured on eval only -- a fixed val set makes it comparable
+        # across epochs and runs. Runs with or without SIGReg, which is what makes a
+        # sigreg arm and its plain twin comparable.
+        self._z_spread_eval = bool(self.cfg.training.get("eval_z_spread", True))
+
+    @torch.no_grad()
+    def _log_z_spread(self, stats: "ZSpreadStats", prefix: str) -> None:
+        """Log one accumulator's spread scalars under ``prefix`` and reset it.
+
+        ``summary`` runs collectives, so every rank must call this -- ``log_add_scalar``
+        is already a no-op off master.
+        """
+        s = stats.summary(self.distributed)
+        stats.reset()
+        if s is None:
+            return
+        # Below Cz rows the covariance is singular by construction: every effective rank
+        # caps at rows-1 and plots as a collapse that is really a sample-size artifact.
+        # Refuse rather than log a number that cannot mean what it looks like.
+        if s["rows"] < s["cz"]:
+            if self.is_master:
+                print(f"[warn] {prefix}/Z*: {s['rows']} pooled rows < Cz={s['cz']}; "
+                      f"skipping (raise training.eval_num_items)", flush=True)
+            return
+        # The first four are scale-invariant -> comparable across runs; the last three
+        # describe where z sits, which _nozn leaves free (only SIGReg pins it).
+        it = self.cfg.training.iter
+        # Effective dims used, top-heavy weighting. Rises = code spreading. 1 = collapsed.
+        self.log_add_scalar(f'{prefix}/ZPartRank', s["part_rank"], it)
+        # Same, weighting the weak tail more; PR moving alone means only the top flattened.
+        self.log_add_scalar(f'{prefix}/ZEntRank', s["ent_rank"], it)
+        # Axes needed for 90% of the variance -- the most literal "dims actually used".
+        self.log_add_scalar(f'{prefix}/ZN90', s["n90"], it)
+        # Variance share of the single strongest axis. Falls = no dominant direction.
+        self.log_add_scalar(f'{prefix}/ZTop1Share', s["top1_share"], it)
+        # trace(cov). Scale, not spread: free to drift under _nozn, so read it only
+        # against itself (a blow-up shows here first).
+        self.log_add_scalar(f'{prefix}/ZTotalVar', s["total_var"], it)
+        # Mean per-row mean(z^2): 1.0 == unit-RMS rows, the N(0,I) scale SIGReg targets.
+        self.log_add_scalar(f'{prefix}/ZRowMeanSquare', s["row_mean_square"], it)
+        # Largest per-channel mean: 0 == centered. Drift here is off-origin collapse.
+        self.log_add_scalar(f'{prefix}/ZMeanAbsMax', s["mean_abs_max"], it)
+        # No TensorBoard (e.g. --eval-only): echo instead of silently dropping the run's
+        # whole float64 accumulation. Mirrors the per-loader metrics below.
+        if self.writer is None and self.is_master:
+            print(f"[{prefix}] rows={s['rows']} Cz={s['cz']} "
+                  f"ZPartRank={s['part_rank']:.1f} ZEntRank={s['ent_rank']:.1f} "
+                  f"ZN90={s['n90']} ZTop1Share={s['top1_share']:.4f} "
+                  f"ZTotalVar={s['total_var']:.4f} ZRowMeanSquare={s['row_mean_square']:.4f} "
+                  f"ZMeanAbsMax={s['mean_abs_max']:.4f}", flush=True)
 
     def _sigreg_pooled(self, z: torch.Tensor, ready: bool):
         """(grad_cum*S, Cz) SIGReg sample set, or None until the accum window closes.
@@ -1053,6 +1107,10 @@ class DeltaTokTrainer(DeltaTokSharedMixin, Trainer):
             metric = self.eval_metrics[test_name]
             items_seen = 0
             num_vis = 0
+            # Own accumulator per loader -- one latent-space measurement per test set.
+            # Sanity checks are too few rows to mean anything, so they skip it.
+            z_spread = ZSpreadStats(self.device) if (
+                self._z_spread_eval and not sanity_check) else None
 
             # Pin the eval loader to epoch 0 so each eval pass sees the same
             # samples in the same order — same rationale as training_da3.py.
@@ -1085,7 +1143,11 @@ class DeltaTokTrainer(DeltaTokSharedMixin, Trainer):
                 num_cameras = batch.get("num_cameras", 1)
                 tokens, feats, x_prev, x, H, W = self._extract_pair_feats(imgs, num_cameras=num_cameras)
                 with self.autocast:
-                    x_hat = self.tokenizer(x_prev, x, H, W, num_cameras=num_cameras)
+                    if z_spread is not None:
+                        x_hat, z_bneck = self.tokenizer(x_prev, x, H, W, num_cameras=num_cameras, return_z=True)
+                        z_spread.update(z_bneck)
+                    else:
+                        x_hat = self.tokenizer(x_prev, x, H, W, num_cameras=num_cameras)
 
                 with torch.autocast(device_type="cuda", enabled=False):
                     loss_recon = _log_cosh(x_hat.float(), x.float()).mean()
@@ -1305,6 +1367,11 @@ class DeltaTokTrainer(DeltaTokSharedMixin, Trainer):
                 items_seen += B
                 if self.is_master:
                     metric_logger.update(loss=loss_recon.item())
+
+            # Before the `continue` below: _log_z_spread runs collectives, so every rank
+            # must reach it once per loader whatever its shard held.
+            if z_spread is not None:
+                self._log_z_spread(z_spread, f"Eval/{test_name}")
 
             if metric.count == 0:
                 continue

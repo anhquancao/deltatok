@@ -1,0 +1,499 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>DeltaTok z-spread: SIGReg vs no-SIGReg</title>
+<style>
+  :root {
+    color-scheme: light;
+    --plane:          #f9f9f7;
+    --surface-1:      #fcfcfb;
+    --text-primary:   #0b0b0b;
+    --text-secondary: #52514e;
+    --text-muted:     #898781;
+    --grid:           #e1e0d9;
+    --axis:           #c3c2b7;
+    --border:         rgba(11,11,11,0.10);
+    --series-1:       #2a78d6;  /* nosigreg  */
+    --series-2:       #eb6834;  /* sigreg0.05 */
+    --good:           #006300;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:where(:not([data-theme="light"])) {
+      color-scheme: dark;
+      --plane:          #0d0d0d;
+      --surface-1:      #1a1a19;
+      --text-primary:   #ffffff;
+      --text-secondary: #c3c2b7;
+      --text-muted:     #898781;
+      --grid:           #2c2c2a;
+      --axis:           #383835;
+      --border:         rgba(255,255,255,0.10);
+      --series-1:       #3987e5;
+      --series-2:       #d95926;
+      --good:           #0ca30c;
+    }
+  }
+  :root[data-theme="dark"] {
+    color-scheme: dark;
+    --plane:          #0d0d0d;
+    --surface-1:      #1a1a19;
+    --text-primary:   #ffffff;
+    --text-secondary: #c3c2b7;
+    --text-muted:     #898781;
+    --grid:           #2c2c2a;
+    --axis:           #383835;
+    --border:         rgba(255,255,255,0.10);
+    --series-1:       #3987e5;
+    --series-2:       #d95926;
+    --good:           #0ca30c;
+  }
+
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; padding: 32px 20px 72px;
+    background: var(--plane); color: var(--text-primary);
+    font: 15px/1.6 system-ui, -apple-system, "Segoe UI", sans-serif;
+  }
+  main { max-width: 860px; margin: 0 auto; }
+  h1 { font-size: 26px; line-height: 1.25; margin: 0 0 6px; letter-spacing: -0.01em; }
+  h2 { font-size: 17px; margin: 40px 0 10px; letter-spacing: -0.005em; }
+  h3 { font-size: 14px; margin: 22px 0 6px; color: var(--text-secondary); font-weight: 600; }
+  p  { margin: 0 0 12px; color: var(--text-secondary); }
+  .lede { font-size: 16px; color: var(--text-secondary); margin-bottom: 4px; }
+  .meta { font-size: 13px; color: var(--text-muted); margin-bottom: 28px; }
+  code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 0.88em;
+         background: color-mix(in srgb, var(--text-primary) 7%, transparent);
+         padding: 1px 5px; border-radius: 4px; }
+  strong { color: var(--text-primary); }
+
+  .card {
+    background: var(--surface-1); border: 1px solid var(--border);
+    border-radius: 10px; padding: 20px; margin: 16px 0;
+  }
+  .hero { display: flex; flex-wrap: wrap; gap: 28px; align-items: baseline; }
+  .hero .fig { font-size: 46px; font-weight: 650; letter-spacing: -0.02em; line-height: 1;
+               font-variant-numeric: tabular-nums; }
+  .hero .cap { font-size: 14px; color: var(--text-secondary); max-width: 460px; }
+
+  .legend { display: flex; gap: 18px; align-items: center; margin: 0 0 14px;
+            font-size: 13px; color: var(--text-secondary); }
+  .swatch { display: inline-block; width: 10px; height: 10px; border-radius: 3px;
+            margin-right: 6px; vertical-align: -1px; }
+  figure { margin: 0; }
+  figcaption { font-size: 13px; color: var(--text-muted); margin-top: 10px; }
+  .scroll { overflow-x: auto; }
+  svg { display: block; width: 100%; height: auto; }
+  .tick { font-size: 11px; fill: var(--text-muted); }
+  .rowlab { font-size: 12.5px; fill: var(--text-secondary); }
+  .val { font-size: 12px; fill: var(--text-primary); font-variant-numeric: tabular-nums; }
+
+  table { border-collapse: collapse; width: 100%; font-size: 13.5px; margin: 6px 0 4px; }
+  th, td { text-align: right; padding: 7px 10px; border-bottom: 1px solid var(--grid); }
+  th:first-child, td:first-child { text-align: left; }
+  thead th { color: var(--text-muted); font-weight: 600; font-size: 12px;
+             text-transform: uppercase; letter-spacing: 0.04em; border-bottom: 1px solid var(--axis); }
+  tbody td { font-variant-numeric: tabular-nums; color: var(--text-secondary); }
+  tbody td:first-child { color: var(--text-primary); }
+  tbody tr:last-child td { border-bottom: none; }
+  .win { color: var(--good); font-weight: 600; }
+
+  /* Definition list of the metric formulas: term, centred equation, why-line. */
+  .defs { margin: 16px 0 18px; }
+  .defs dt { font-size: 13.5px; font-weight: 600; color: var(--text-primary);
+             margin: 20px 0 0; }
+  .defs dd { margin: 8px 0 0; padding: 12px 16px; background: var(--surface-1);
+             border: 1px solid var(--border); border-radius: 8px; overflow-x: auto; }
+  .defs math { font-size: 17px; color: var(--text-primary); }
+  .defs math[display="block"] { margin: 4px 0; }
+  .defs math[display="block"] + math[display="block"] { margin-top: 12px; }
+  .why { display: block; margin-top: 10px; font-size: 13px; color: var(--text-secondary); }
+  .why math { font-size: 13px; }
+
+  ul { margin: 0 0 12px; padding-left: 20px; color: var(--text-secondary); }
+  li { margin-bottom: 7px; }
+  pre { background: var(--surface-1); border: 1px solid var(--border); border-radius: 8px;
+        padding: 14px 16px; overflow-x: auto; font-size: 12.5px; line-height: 1.5;
+        color: var(--text-secondary); }
+  .note { border-left: 2px solid var(--axis); padding-left: 14px; margin: 14px 0;
+          font-size: 14px; color: var(--text-secondary); }
+  #tip { position: fixed; pointer-events: none; opacity: 0; transition: opacity .1s;
+         background: var(--surface-1); border: 1px solid var(--border); border-radius: 7px;
+         padding: 7px 10px; font-size: 12.5px; color: var(--text-primary);
+         box-shadow: 0 4px 14px rgba(0,0,0,.14); z-index: 9; white-space: nowrap; }
+</style>
+</head>
+<body>
+<main>
+
+<h1>Does SIGReg spread the DeltaTok latent's variance?</h1>
+<p class="lede">Measured, not inferred: <code>sigreg0.05</code> uses ~10× more of its 768-dim
+budget than the identically-configured run without SIGReg.</p>
+<p class="meta">
+  Arms: <code>deltatok_surround_layer12_bsize2_dtok64_tc768_cos1e3_1e5_b95_gradskip_noaff_prenorm_nozn</code>
+  vs the same name + <code>_sigreg0.05_pool</code> · both at <code>epoch_40.pth</code> (iter 45 000) ·
+  203 520 z rows from 100 identical train batches · Jean Zay H100 · 2026-07-28
+</p>
+
+<div class="card hero">
+  <div>
+    <div class="fig" style="color: var(--good)">9.8×</div>
+    <div class="cap">participation ratio, <strong>17.6 → 173.1</strong> of 768 dims</div>
+  </div>
+  <div>
+    <div class="fig">0.159 → 0.020</div>
+    <div class="cap">variance held by the single strongest axis</div>
+  </div>
+</div>
+
+<h2>Effective dimensions used</h2>
+<div class="card">
+  <div class="legend">
+    <span><span class="swatch" style="background: var(--series-1)"></span>no SIGReg</span>
+    <span><span class="swatch" style="background: var(--series-2)"></span>SIGReg 0.05</span>
+  </div>
+  <figure>
+    <div class="scroll">
+      <svg viewBox="0 0 720 296" role="img" aria-label="Four effective-rank measures, both arms, on a shared 0 to 768 dimension axis">
+        <!-- gridlines + x ticks: shared 0..768 axis, one unit = one latent dimension -->
+        <g stroke="var(--grid)" stroke-width="1">
+          <line x1="160.5" y1="16" x2="160.5" y2="248"/>
+          <line x1="295.5" y1="16" x2="295.5" y2="248"/>
+          <line x1="430.5" y1="16" x2="430.5" y2="248"/>
+          <line x1="565.5" y1="16" x2="565.5" y2="248"/>
+          <line x1="700.5" y1="16" x2="700.5" y2="248"/>
+        </g>
+        <g class="tick" text-anchor="middle">
+          <text x="160" y="266">0</text><text x="295" y="266">192</text>
+          <text x="430" y="266">384</text><text x="565" y="266">576</text>
+          <text x="700" y="266">768</text>
+        </g>
+        <text class="tick" x="430" y="286" text-anchor="middle">dimensions of the 768-d bottleneck</text>
+        <line x1="160.5" y1="248" x2="700.5" y2="248" stroke="var(--axis)" stroke-width="1"/>
+
+        <!-- group 1: participation ratio -->
+        <text class="rowlab" x="150" y="34" text-anchor="end">participation ratio</text>
+        <rect x="160" y="22" width="12.4" height="16" rx="4" fill="var(--series-1)"
+              data-tip="no SIGReg · participation ratio 17.6 / 768"/>
+        <text class="val" x="178" y="34">17.6</text>
+        <rect x="160" y="40" width="121.7" height="16" rx="4" fill="var(--series-2)"
+              data-tip="SIGReg 0.05 · participation ratio 173.1 / 768"/>
+        <text class="val" x="287" y="52">173.1</text>
+
+        <!-- group 2: entropy rank -->
+        <text class="rowlab" x="150" y="90" text-anchor="end">entropy rank</text>
+        <rect x="160" y="78" width="25.6" height="16" rx="4" fill="var(--series-1)"
+              data-tip="no SIGReg · entropy rank 36.4 / 768"/>
+        <text class="val" x="191" y="90">36.4</text>
+        <rect x="160" y="96" width="135.9" height="16" rx="4" fill="var(--series-2)"
+              data-tip="SIGReg 0.05 · entropy rank 193.3 / 768"/>
+        <text class="val" x="301" y="108">193.3</text>
+
+        <!-- group 3: dims for 90% of variance -->
+        <text class="rowlab" x="150" y="146" text-anchor="end">dims for 90% of variance</text>
+        <rect x="160" y="134" width="35.2" height="16" rx="4" fill="var(--series-1)"
+              data-tip="no SIGReg · 50 dims hold 90% of the variance"/>
+        <text class="val" x="201" y="146">50</text>
+        <rect x="160" y="152" width="121.6" height="16" rx="4" fill="var(--series-2)"
+              data-tip="SIGReg 0.05 · 173 dims hold 90% of the variance"/>
+        <text class="val" x="287" y="164">173</text>
+
+        <!-- group 4: dims for 99% of variance -->
+        <text class="rowlab" x="150" y="202" text-anchor="end">dims for 99% of variance</text>
+        <rect x="160" y="190" width="46.4" height="16" rx="4" fill="var(--series-1)"
+              data-tip="no SIGReg · 66 dims hold 99% of the variance"/>
+        <text class="val" x="212" y="202">66</text>
+        <rect x="160" y="208" width="142.0" height="16" rx="4" fill="var(--series-2)"
+              data-tip="SIGReg 0.05 · 202 dims hold 99% of the variance"/>
+        <text class="val" x="308" y="220">202</text>
+      </svg>
+    </div>
+    <figcaption>
+      All four measures share one unit — latent dimensions — so they sit on a single axis.
+      Participation ratio and entropy rank are two weightings of the same eigenvalue spectrum;
+      that both move together is the point, since a spectrum that flattened only at the top
+      would move the first and not the second.
+    </figcaption>
+  </figure>
+</div>
+
+<h2>Where the variance actually sits</h2>
+<div class="card">
+  <div class="legend">
+    <span><span class="swatch" style="background: var(--series-1)"></span>no SIGReg</span>
+    <span><span class="swatch" style="background: var(--series-2)"></span>SIGReg 0.05</span>
+  </div>
+  <figure>
+    <div class="scroll">
+      <svg viewBox="0 0 720 300" role="img" aria-label="Cumulative share of variance held by the top k principal axes, log scale in k">
+        <!-- y gridlines at 0, .25, .5, .75, 1 ; plot area y 20..240, x 60..700 -->
+        <g stroke="var(--grid)" stroke-width="1">
+          <line x1="60" y1="240.5" x2="700" y2="240.5"/>
+          <line x1="60" y1="185.5" x2="700" y2="185.5"/>
+          <line x1="60" y1="130.5" x2="700" y2="130.5"/>
+          <line x1="60" y1="75.5"  x2="700" y2="75.5"/>
+          <line x1="60" y1="20.5"  x2="700" y2="20.5"/>
+        </g>
+        <!-- the 90% line: where n90 is read off -->
+        <line x1="60" y1="42.5" x2="700" y2="42.5" stroke="var(--axis)" stroke-width="1" stroke-dasharray="3 3"/>
+        <text class="tick" x="700" y="38" text-anchor="end">90%</text>
+        <g class="tick" text-anchor="end">
+          <text x="52" y="245">0%</text><text x="52" y="190">25%</text>
+          <text x="52" y="135">50%</text><text x="52" y="80">75%</text><text x="52" y="25">100%</text>
+        </g>
+        <!-- log10 x: k=1 -> 60, k=768 -> 700 ; 221.8 px per decade -->
+        <g class="tick" text-anchor="middle">
+          <text x="60" y="264">1</text><text x="281.8" y="264">10</text>
+          <text x="437.0" y="264">50</text><text x="503.6" y="264">100</text>
+          <text x="670.8" y="264">290</text>
+        </g>
+        <text class="tick" x="380" y="286" text-anchor="middle">k — number of leading principal axes (log scale)</text>
+        <line x1="60" y1="240.5" x2="700" y2="240.5" stroke="var(--axis)" stroke-width="1"/>
+
+        <!-- nosigreg: (1,.159) (10,.548) (50,.906) (290,1.0) -->
+        <polyline points="60,205.0 281.8,119.4 437.0,40.7 670.8,20.0"
+                  fill="none" stroke="var(--series-1)" stroke-width="2"
+                  stroke-linejoin="round" stroke-linecap="round"/>
+        <!-- sigreg: (1,.020) (10,.120) (50,.364) (290,1.0) -->
+        <polyline points="60,235.6 281.8,213.6 437.0,159.9 670.8,20.0"
+                  fill="none" stroke="var(--series-2)" stroke-width="2"
+                  stroke-linejoin="round" stroke-linecap="round"/>
+
+        <g stroke="var(--surface-1)" stroke-width="2">
+          <circle cx="60"    cy="205.0" r="4.5" fill="var(--series-1)" data-tip="no SIGReg · top 1 axis = 15.9% of variance"/>
+          <circle cx="281.8" cy="119.4" r="4.5" fill="var(--series-1)" data-tip="no SIGReg · top 10 axes = 54.8%"/>
+          <circle cx="437.0" cy="40.7"  r="4.5" fill="var(--series-1)" data-tip="no SIGReg · top 50 axes = 90.6%"/>
+          <circle cx="670.8" cy="20.0"  r="4.5" fill="var(--series-1)" data-tip="no SIGReg · top 290 axes = 100.0%"/>
+          <circle cx="60"    cy="235.6" r="4.5" fill="var(--series-2)" data-tip="SIGReg 0.05 · top 1 axis = 2.0% of variance"/>
+          <circle cx="281.8" cy="213.6" r="4.5" fill="var(--series-2)" data-tip="SIGReg 0.05 · top 10 axes = 12.0%"/>
+          <circle cx="437.0" cy="159.9" r="4.5" fill="var(--series-2)" data-tip="SIGReg 0.05 · top 50 axes = 36.4%"/>
+          <circle cx="670.8" cy="20.0"  r="4.5" fill="var(--series-2)" data-tip="SIGReg 0.05 · top 290 axes = 100.0%"/>
+        </g>
+        <text class="val" x="437.0" y="30" text-anchor="middle" fill="var(--text-secondary)">90.6%</text>
+        <text class="val" x="437.0" y="180" text-anchor="middle" fill="var(--text-secondary)">36.4%</text>
+      </svg>
+    </div>
+    <figcaption>
+      Cumulative variance share of the top <em>k</em> principal axes. Only the four marked
+      <em>k</em> values were recorded (1, 10, 50, 290); the segments between them are straight
+      interpolation, not measurement. Lower and flatter is better — the baseline crosses 90%
+      by k = 50, SIGReg is still at 36% there.
+    </figcaption>
+  </figure>
+</div>
+
+<h2>Scale and location</h2>
+<p>These are <em>not</em> spread. Both arms are <code>_nozn</code> (no final LayerNorm), so nothing
+but SIGReg pins where z sits — read each column against its own target, not across arms.</p>
+<div class="card">
+  <table>
+    <thead>
+      <tr><th>quantity</th><th>no SIGReg</th><th>SIGReg 0.05</th><th>target</th></tr>
+    </thead>
+    <tbody>
+      <tr><td>mean row mean-square</td><td>108.14</td><td class="win">1.0083</td><td>1.0 (unit-RMS rows)</td></tr>
+      <tr><td>max |per-channel mean|</td><td>5.0581</td><td class="win">0.0399</td><td>0 (centered)</td></tr>
+      <tr><td>total variance, trace(cov)</td><td>82 043</td><td>774.2</td><td>— free under <code>_nozn</code></td></tr>
+      <tr><td>per-channel std ratio</td><td>2.27×</td><td>2.97×</td><td>— see note</td></tr>
+    </tbody>
+  </table>
+</div>
+<div class="note">
+  <strong>The per-channel std ratio goes the "wrong" way and should be ignored.</strong> It measures
+  axis-aligned spread, and neither arm has any reason to align its variance with the canonical
+  basis. The eigenspectrum is the basis-free measurement, and it is unambiguous. The two
+  disagreeing here costs nothing — but it is why the offline script reports both.
+</div>
+<p>SIGReg hit its scale target as well as its shape target: row mean-square 1.0083 and largest
+channel mean 0.0399 is N(0, I) to two decimals, which is exactly what the loss asks for. Relevant
+downstream — the flow model adds isotropic noise, so the baseline's z would need whitening first,
+and this one arguably would not.</p>
+
+<h2>How it was measured</h2>
+<p><code>compute_deltatok_z_spread.py</code> builds the frozen OccRAE plus one DeltaTok module per
+checkpoint, runs the OccRAE encode <strong>once per batch</strong>, and encodes those identical
+features with every arm — so the arms are paired by construction and the data is not a variable.</p>
+<p>Write <math><msub><mi>z</mi><mi>i</mi></msub></math> for the <em>i</em>-th of
+<math><mi>n</mi><mo>=</mo><mn>203 520</mn></math> delta-token rows, each in
+<math><msup><mi>ℝ</mi><mi>C</mi></msup></math> with <math><mi>C</mi><mo>=</mo><mn>768</mn></math>.</p>
+
+<dl class="defs">
+  <dt>Covariance — accumulated exactly, in float64</dt>
+  <dd>
+    <math display="block">
+      <mi>Σ</mi><mo>=</mo>
+      <mfrac><mn>1</mn><mi>n</mi></mfrac>
+      <munderover><mo>∑</mo><mrow><mi>i</mi><mo>=</mo><mn>1</mn></mrow><mi>n</mi></munderover>
+      <msub><mi>z</mi><mi>i</mi></msub><msubsup><mi>z</mi><mi>i</mi><mi>⊤</mi></msubsup>
+      <mo>−</mo><mover><mi>z</mi><mo>¯</mo></mover><msup><mover><mi>z</mi><mo>¯</mo></mover><mi>⊤</mi></msup>
+      <mo>,</mo><mspace width="1em"/>
+      <mover><mi>z</mi><mo>¯</mo></mover><mo>=</mo>
+      <mfrac><mn>1</mn><mi>n</mi></mfrac>
+      <munderover><mo>∑</mo><mrow><mi>i</mi><mo>=</mo><mn>1</mn></mrow><mi>n</mi></munderover>
+      <msub><mi>z</mi><mi>i</mi></msub>
+    </math>
+    <span class="why">float64 because that subtraction cancels catastrophically in fp32 once z
+    drifts off unit scale, as the baseline does (row mean-square 108).</span>
+  </dd>
+
+  <dt>Spectrum and variance shares</dt>
+  <dd>
+    <math display="block">
+      <msub><mi>λ</mi><mn>1</mn></msub><mo>≥</mo><mo>⋯</mo><mo>≥</mo>
+      <msub><mi>λ</mi><mi>C</mi></msub><mo>≥</mo><mn>0</mn>
+      <mspace width="0.6em"/><mtext>eigenvalues of</mtext><mspace width="0.4em"/><mi>Σ</mi>
+      <mo>,</mo><mspace width="1.4em"/>
+      <msub><mi>p</mi><mi>i</mi></msub><mo>=</mo>
+      <mfrac><msub><mi>λ</mi><mi>i</mi></msub>
+             <mrow><munder><mo>∑</mo><mi>j</mi></munder><msub><mi>λ</mi><mi>j</mi></msub></mrow></mfrac>
+    </math>
+    <span class="why">Variance along the principal axes — the rotation-invariant view, where
+    per-channel std is not (nothing aligns the code with the canonical basis).</span>
+  </dd>
+
+  <dt>Participation ratio — <code>ZPartRank</code></dt>
+  <dd>
+    <math display="block">
+      <mtext>PR</mtext><mo>=</mo>
+      <mfrac>
+        <msup><mrow><mo>(</mo><munder><mo>∑</mo><mi>i</mi></munder><msub><mi>λ</mi><mi>i</mi></msub><mo>)</mo></mrow><mn>2</mn></msup>
+        <mrow><munder><mo>∑</mo><mi>i</mi></munder><msubsup><mi>λ</mi><mi>i</mi><mn>2</mn></msubsup></mrow>
+      </mfrac>
+      <mo>=</mo>
+      <mfrac><mn>1</mn>
+        <mrow><munder><mo>∑</mo><mi>i</mi></munder><msubsup><mi>p</mi><mi>i</mi><mn>2</mn></msubsup></mrow>
+      </mfrac>
+    </math>
+    <span class="why">The inverse Herfindahl index of the spectrum. Squaring makes it dominated by
+    the strongest axes.</span>
+  </dd>
+
+  <dt>Entropy rank — <code>ZEntRank</code></dt>
+  <dd>
+    <math display="block">
+      <mtext>ER</mtext><mo>=</mo><mi>exp</mi>
+      <mrow><mo>(</mo><mo>−</mo>
+        <munder><mo>∑</mo><mi>i</mi></munder>
+        <msub><mi>p</mi><mi>i</mi></msub><mi>log</mi><msub><mi>p</mi><mi>i</mi></msub>
+      <mo>)</mo></mrow>
+    </math>
+    <span class="why">The spectrum's perplexity: same range and endpoints as PR, but it credits a
+    long weak tail more — so PR moving alone means only the top of the spectrum flattened.</span>
+  </dd>
+
+  <dt>Dimensions for 90% / 99% — <code>ZN90</code></dt>
+  <dd>
+    <math display="block">
+      <msub><mi>n</mi><mi>q</mi></msub><mo>=</mo>
+      <munder><mi>min</mi><mi>k</mi></munder>
+      <mrow><mo>{</mo><mi>k</mi><mo>:</mo>
+        <munderover><mo>∑</mo><mrow><mi>i</mi><mo>=</mo><mn>1</mn></mrow><mi>k</mi></munderover>
+        <msub><mi>p</mi><mi>i</mi></msub><mo>≥</mo><mi>q</mi>
+      <mo>}</mo></mrow>
+      <mo>,</mo><mspace width="0.8em"/><mi>q</mi><mo>∈</mo>
+      <mrow><mo>{</mo><mn>0.90</mn><mo>,</mo><mn>0.99</mn><mo>}</mo></mrow>
+    </math>
+  </dd>
+
+  <dt>Endpoints, and the ceiling you can actually observe</dt>
+  <dd>
+    <math display="block">
+      <mn>1</mn><mo>≤</mo><mtext>PR</mtext><mo>,</mo><mtext>ER</mtext><mo>≤</mo><mi>C</mi>
+      <mo>,</mo><mspace width="1.2em"/>
+      <mtext>both</mtext><mo>=</mo><mi>C</mi><mspace width="0.4em"/><mtext>iff</mtext>
+      <mspace width="0.4em"/><msub><mi>λ</mi><mn>1</mn></msub><mo>=</mo><mo>⋯</mo><mo>=</mo>
+      <msub><mi>λ</mi><mi>C</mi></msub>
+    </math>
+    <math display="block">
+      <mtext>PR</mtext><mrow><mo>(</mo><mi>N</mi><mo>(</mo><mn>0</mn><mo>,</mo><mi>I</mi><mo>)</mo><mo>)</mo></mrow>
+      <mo>≈</mo>
+      <mfrac><mi>C</mi><mrow><mn>1</mn><mo>+</mo><mi>γ</mi></mrow></mfrac>
+      <mo>,</mo><mspace width="0.8em"/>
+      <mi>γ</mi><mo>=</mo><mfrac><mi>C</mi><mi>n</mi></mfrac>
+      <mo>=</mo><mn>0.0038</mn>
+      <mspace width="0.8em"/><mo>⟹</mo><mspace width="0.8em"/>
+      <mo>≈</mo><mn>765</mn>
+    </math>
+    <span class="why">Both maxima are the uniform-spectrum case, and both equal C there by
+    construction: with every
+    <math><msub><mi>p</mi><mi>i</mi></msub><mo>=</mo><mn>1</mn><mo>/</mo><mi>C</mi></math>,
+    entropy takes its maximum <math><mi>H</mi><mo>=</mo><mi>log</mi><mi>C</mi></math> so
+    <math><mtext>ER</mtext><mo>=</mo><msup><mi>e</mi><mrow><mi>log</mi><mi>C</mi></mrow></msup><mo>=</mo><mi>C</mi></math>,
+    and <math><munder><mo>∑</mo><mi>i</mi></munder><msubsup><mi>p</mi><mi>i</mi><mn>2</mn></msubsup><mo>=</mo><mn>1</mn><mo>/</mo><mi>C</mi></math>
+    so <math><mtext>PR</mtext><mo>=</mo><mi>C</mi></math>. Both read as "how many axes are
+    effectively in play".</span>
+    <span class="why">A perfectly isotropic code measures ~765, not 768: even a true N(0, I) sample
+    has Marchenko–Pastur spread from finite sampling. Not binding at 173, but it is why the
+    <code>rows &lt; C</code> guard exists — at <math><mi>n</mi><mo>≈</mo><mi>C</mi></math> the
+    ceiling falls to ≈ C/2 and the metric stops describing the code at all.</span>
+  </dd>
+</dl>
+
+<p>Every quantity above is invariant to an overall rescale of z, which is what makes them
+comparable across two arms whose absolute scale is free.</p>
+<p>Both checkpoints loaded key-exact against one shared architecture spec, so no bottleneck
+projection was silently left random — that failure would have looked exactly like a spread
+difference.</p>
+
+<h2>What this does and does not show</h2>
+<ul>
+  <li>It measures the <strong>code</strong>, not whether the code is better. The
+      <code>Eval/Loss</code> gap already on record (0.03346 vs 0.04989) is the evidence that the
+      spread buys reconstruction quality; this explains the mechanism.</li>
+  <li><strong>The "rank ~290" framing is dead.</strong> <code>top290 = 1.000</code> for
+      <em>both</em> arms, and the baseline is far worse than 290 — it collapses to ~50 effective
+      dims. Stop using 290 as the reference point.</li>
+  <li><strong>No seed replicate exists</strong>, so there is no measured run-to-run noise floor.
+      A ~10× gap is far outside anything plausible as noise, but a small gap in a future
+      comparison would not be interpretable.</li>
+  <li>z is encoded in bf16 (the training dtype), so the smallest eigenvalues sit on a
+      quantization floor. The effective ranks are driven by the top of the spectrum and are
+      unaffected; <code>l_min</code> is not meaningful. <code>--cfg training.dtype=float32</code>
+      removes the floor.</li>
+  <li>Measured on the <strong>train</strong> distribution — the one SIGReg regularized.
+      <code>--split val</code> checks drift.</li>
+</ul>
+
+<h2>Reproducing, and the live metric</h2>
+<p>Offline, on one H100 (~8 min at 100 batches):</p>
+<pre>srun -A zuw@h100 -C h100 --qos=qos_gpu_h100-dev --gres=gpu:1 --cpus-per-task=24 \
+  --time=01:00:00 bash -lc 'cd $TRG_WORK/code/deltatok &amp;&amp; source env_jz_h100.sh &amp;&amp; \
+    python compute_deltatok_z_spread.py --num_batches 100'
+# other arms:  --ckpt label=/path/to/ckpt   (repeatable)</pre>
+<p>The same measurement now also runs during training, once per eval loader, via
+<code>training.eval_z_spread</code>. Both paths call the same
+<code>occrae/z_spread.py</code> (<code>ZSpreadStats</code>), so an offline number and a
+TensorBoard number for one checkpoint cannot disagree. It logs under
+<code>Eval/&lt;test_name&gt;/</code>:
+<code>ZPartRank</code>, <code>ZEntRank</code>, <code>ZN90</code>, <code>ZTop1Share</code>,
+<code>ZTotalVar</code>, <code>ZRowMeanSquare</code>, <code>ZMeanAbsMax</code>. A fixed val set
+makes these comparable across epochs and runs, and they are collected with or without SIGReg —
+which is what lets a sigreg arm and its plain twin be compared at all.</p>
+
+</main>
+<div id="tip" role="status"></div>
+<script>
+  // Hover layer: one shared tooltip driven by data-tip on any mark.
+  const tip = document.getElementById('tip');
+  for (const el of document.querySelectorAll('[data-tip]')) {
+    el.addEventListener('pointerenter', e => {
+      tip.textContent = el.getAttribute('data-tip');
+      tip.style.opacity = '1';
+      move(e);
+    });
+    el.addEventListener('pointermove', move);
+    el.addEventListener('pointerleave', () => { tip.style.opacity = '0'; });
+  }
+  function move(e) {
+    const pad = 14;
+    let x = e.clientX + pad, y = e.clientY + pad;
+    const r = tip.getBoundingClientRect();
+    if (x + r.width > innerWidth - 8) x = e.clientX - r.width - pad;
+    if (y + r.height > innerHeight - 8) y = e.clientY - r.height - pad;
+    tip.style.left = x + 'px';
+    tip.style.top = y + 'px';
+  }
+</script>
+</body>
+</html>

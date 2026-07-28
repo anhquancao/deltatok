@@ -123,6 +123,11 @@ training:
   sigreg_weight: 0.0
   sigreg_num_slices: 256  # random 1D projections per step (more = lower-variance estimate)
   sigreg_warmup: 0  # linear ramp of sigreg_weight over N iters (0 = constant from step 0)
+  # z-spread diagnostics (Eval/<test>/Z*): effective rank of the z covariance, i.e. how
+  # much of the Cz budget the code uses. One measurement per eval loader, over that
+  # loader's rows pooled across ranks. Runs with or without SIGReg -- that is what makes
+  # a sigreg arm and its plain twin comparable.
+  eval_z_spread: true
   seed: 0
   eval_num_items: 256
   eval_num_visualizations: 8
