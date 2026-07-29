@@ -24,8 +24,6 @@ cd /gpfs/projects/ehpc1001/code/deltatok
 
 source env_bsc.sh
 
-export PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
-
 export OMP_NUM_THREADS="${OMP_NUM_THREADS:-4}"
 export TORCH_NCCL_HEARTBEAT_TIMEOUT_SEC="${TORCH_NCCL_HEARTBEAT_TIMEOUT_SEC:-1000}"
 
