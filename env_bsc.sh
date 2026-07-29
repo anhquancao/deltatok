@@ -18,6 +18,8 @@ VENV_DIR="${PROJECT}/envs/maskgit"
 # shellcheck disable=SC1090
 source "${VENV_DIR}/bin/activate"
 
-# Keep local third-party sources on PYTHONPATH.
+# Keep local third-party sources on PYTHONPATH. Resolve against this script's own
+# repo so a deltatok checkout uses its vendored DA3, not another repo's copy.
 # NOTE: it's important to set the PYTHONPATH to either empty or your package to shadow the default python local env
-export PYTHONPATH="/home/vale/vale352205/code/VATIX/third_party/Depth-Anything-3/src"
+_REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+export PYTHONPATH="${_REPO_ROOT}/third_party/Depth-Anything-3/src"

@@ -596,8 +596,9 @@ class DeltaTokTrainer(DeltaTokSharedMixin, Trainer):
             ).to(self.device)
         else:
             self.sigreg = None
-        # Detached z rows banked by earlier micro-batches of the current grad-accum
-        # window (see _sigreg_pooled). Cleared at each optim step and at epoch start.
+        # FIFO queue of detached z rows from recent micro-batches, pooled with the live
+        # ones every step (see _sigreg_pooled). Cleared at epoch start; it refills within
+        # a few micro-batches.
         self._sigreg_zbuf = []
 
         # z-spread diagnostics (Eval/<test>/Z*): how much of the Cz budget the code
@@ -643,6 +644,15 @@ class DeltaTokTrainer(DeltaTokSharedMixin, Trainer):
         self.log_add_scalar(f'{prefix}/ZRowMeanSquare', s["row_mean_square"], it)
         # Largest per-channel mean: 0 == centered. Drift here is off-origin collapse.
         self.log_add_scalar(f'{prefix}/ZMeanAbsMax', s["mean_abs_max"], it)
+        # Row-scale spread. ZRowMeanSquare is a mean and hides a tail; these do not.
+        # Tail = p99/p50 of mean(z^2): 1.0 under z_norm=true, free (and MSE-dominating
+        # when large) under _nozn. Row-norm ratio is sqrt of it.
+        self.log_add_scalar(f'{prefix}/ZRowMsP50', s["row_ms_p50"], it)
+        self.log_add_scalar(f'{prefix}/ZRowMsP99', s["row_ms_p99"], it)
+        self.log_add_scalar(f'{prefix}/ZRowMsMax', s["row_ms_max"], it)
+        self.log_add_scalar(f'{prefix}/ZRowMsTail', s["row_ms_tail"], it)
+        # Share of the summed row mean-square in the top 1% of rows (0.01 == no tail).
+        self.log_add_scalar(f'{prefix}/ZRowMsTop1Pct', s["row_ms_top1pct"], it)
         # No TensorBoard (e.g. --eval-only): echo instead of silently dropping the run's
         # whole float64 accumulation. Mirrors the per-loader metrics below.
         if self.writer is None and self.is_master:
@@ -652,23 +662,44 @@ class DeltaTokTrainer(DeltaTokSharedMixin, Trainer):
                   f"ZTotalVar={s['total_var']:.4f} ZRowMeanSquare={s['row_mean_square']:.4f} "
                   f"ZMeanAbsMax={s['mean_abs_max']:.4f}", flush=True)
 
-    def _sigreg_pooled(self, z: torch.Tensor, ready: bool):
-        """(grad_cum*S, Cz) SIGReg sample set, or None until the accum window closes.
+    def _sigreg_pooled(self, z: torch.Tensor):
+        """(pooled, scale): SIGReg sample set for THIS micro-batch + its gradient rescale.
 
-        One micro-batch on one rank yields only S = M*N*K = 128..256 rows of dim Cz=768
+        One micro-batch on one rank yields only S = M*N*K = 128..256 rows of dim Cz
         (M = bsize * pairs_per_seq = 2, N = 1..2 cameras, K = 64) -- far too few for a
-        768-d isotropy test, whose finite-sample floor at S=128 buries the collapse
-        signal. So every micro-batch banks its rows and only the window's last one
-        (`ready`) runs the estimator, over all of them: S x grad_cum. SIGReg pools over
-        ranks too via its CF all-reduce -> grad_cum * world_size (8x here). Only the
-        last micro-batch's rows carry grad; the banked ones are detached (their graph
-        died with their backward), and the weight is scaled by grad_cum to compensate.
+        Cz-dim isotropy test, whose finite-sample floor at S=128 buries the collapse
+        signal. So a FIFO queue of detached rows from recent micro-batches is carried
+        alongside the live ones, and the estimator runs EVERY micro-batch over both.
+        Firing every time (rather than once per accum window) means the SIGReg term sits
+        in every backward like the recon loss, so the (loss/grad_cum) divisor cancels on
+        its own -- no grad_cum compensation, and no cross-rank "is the pool ready" vote
+        that a variable N (1..2 cameras) would otherwise make deadlock-prone.
+
+        Only the live rows carry grad; the queued ones are detached (their graph died
+        with their backward). Because the CF statistic is a MEAN over the pooled rows,
+        each live row's gradient carries a 1/pool factor -- so pressure would fall as
+        1/Q and a Q sweep would be confounded with sigreg_weight. ``scale`` = pool/live
+        undoes exactly that, keeping Q a pure estimator-quality knob.
+
+        sigreg_pool_samples is the queue size as a GLOBAL row count; the CF all-reduce
+        already pools ranks, so each rank holds target/world_size locally.
+
+        NOT pressure-compatible with the pre-queue code, which fired once per window at
+        w*grad_cum and so delivered w*D/grad_cum per optimizer step; this delivers w*D.
+        Same weight = grad_cum x the old pressure -- but unlike the old form it no longer
+        moves when grad_cum does, so arms transfer across cluster layouts.
         """
         live = z.reshape(-1, z.shape[-1])                    # (S, Cz) this micro-batch's rows
-        if not ready:
-            self._sigreg_zbuf.append(live.detach())          # bank samples; estimator waits for the window's end
-            return None
-        return torch.cat([live] + self._sigreg_zbuf, dim=0) if self._sigreg_zbuf else live
+        pooled = torch.cat([live] + self._sigreg_zbuf, dim=0) if self._sigreg_zbuf else live
+        self._sigreg_zbuf.append(live.detach())              # bank AFTER pooling: no row counted twice
+        cap_local = math.ceil(int(self.cfg.training.sigreg_pool_samples) / max(1, self.world_size))
+        rows = sum(t.shape[0] for t in self._sigreg_zbuf)
+        # len > 1 keeps one micro-batch banked even if it alone exceeds the cap, so the pool
+        # never drops below live + 1 (overshoot is bounded by one micro-batch).
+        while len(self._sigreg_zbuf) > 1 and rows > cap_local:
+            rows -= self._sigreg_zbuf.pop(0).shape[0]        # FIFO: evict the stalest rows
+        scale = pooled.shape[0] / max(1, live.shape[0])      # undo the 1/pool grad attenuation
+        return pooled, scale
 
     def _build_optimizer(self):
         """AdamW with DeltaTok-style param groups: weight decay applies only to
@@ -927,7 +958,7 @@ class DeltaTokTrainer(DeltaTokSharedMixin, Trainer):
         last_update_time = time.time()
         window_loss = deque(maxlen=self.grad_cum)
         self.optim.zero_grad(set_to_none=True)
-        self._sigreg_zbuf.clear()               # a short final window last epoch could leave rows banked
+        self._sigreg_zbuf.clear()               # drop last epoch's rows; the queue refills in a few micro-batches
 
         epoch = int(self.cfg.training.global_epoch)
         self._set_train_loader_epoch(epoch)
@@ -1000,20 +1031,24 @@ class DeltaTokTrainer(DeltaTokSharedMixin, Trainer):
                 loss_total = loss
 
             # Optional SIGReg anti-collapse loss on the z bottleneck (computed in fp32).
-            # Runs once per accum window, on the pooled rows; the * grad_cum makes that one
-            # call at w*grad_cum through (loss_total/grad_cum).backward() equal to grad_cum
-            # calls at w. Linear warmup ramps the weight in so it doesn't fight recon before
-            # the code forms. iter seeds the slice draw: same on every rank, checkpointed
-            # (so a resume doesn't replay seed 0) and fresh every optimizer step.
+            # Runs EVERY micro-batch on the live rows + the FIFO queue, so it rides the same
+            # (loss_total/grad_cum).backward() as the recon loss and needs no grad_cum factor;
+            # `scale` undoes the 1/pool attenuation instead (see _sigreg_pooled). Linear warmup
+            # ramps the weight in so it doesn't fight recon before the code forms. iter seeds
+            # the slice draw: same on every rank, checkpointed (so a resume doesn't replay
+            # seed 0) and fresh every micro-batch.
             loss_sigreg = None
             if self.sigreg is not None:
-                pooled = self._sigreg_pooled(z_bneck.float(), ready=update_grad)
-                if pooled is not None:
-                    warmup = int(self.cfg.training.get("sigreg_warmup", 0))
-                    ramp = 1.0 if warmup <= 0 else min(1.0, self.cfg.training.iter / max(1, warmup))
-                    with torch.autocast(device_type="cuda", enabled=False):
-                        loss_sigreg = self.sigreg(pooled, seed=int(self.cfg.training.iter))
-                    loss_total = loss_total + (self._sigreg_weight * ramp * self.grad_cum) * loss_sigreg
+                pooled, scale = self._sigreg_pooled(z_bneck.float())
+                warmup = int(self.cfg.training.get("sigreg_warmup", 0))
+                ramp = 1.0 if warmup <= 0 else min(1.0, self.cfg.training.iter / max(1, warmup))
+                # iter advances per optim step, so the grad_cum calls inside one accum window
+                # share a direction draw. Fine: num_slices >= 2*Cz already meets the coverage
+                # bar, and iter is the one counter guaranteed equal on every rank -- which the
+                # CF all-reduce requires (different directions per rank = corrupt statistic).
+                with torch.autocast(device_type="cuda", enabled=False):
+                    loss_sigreg = self.sigreg(pooled, seed=int(self.cfg.training.iter))
+                loss_total = loss_total + (self._sigreg_weight * ramp * scale) * loss_sigreg
 
             (loss_total / self.grad_cum).backward()
 
@@ -1034,7 +1069,8 @@ class DeltaTokTrainer(DeltaTokSharedMixin, Trainer):
                     print(f"[warn] skipping optim step at iter {self.cfg.training.iter} "
                           f"(grad_norm={grad_norm}, finite={finite}, thresh={skip_thresh})", flush=True)
                 self.optim.zero_grad(set_to_none=True)
-                self._sigreg_zbuf.clear()           # new accum window -> fresh SIGReg sample pool
+                # NOTE: the SIGReg queue deliberately survives the optim step -- it is a rolling
+                # sample pool now, not a per-window one (see _sigreg_pooled).
 
             loss_val = loss_total.detach().item()   # total (recon + feature) drives meters/LossTot
             cum_loss += loss_val

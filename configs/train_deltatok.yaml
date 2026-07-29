@@ -123,6 +123,14 @@ training:
   sigreg_weight: 0.0
   sigreg_num_slices: 256  # random 1D projections per step (more = lower-variance estimate)
   sigreg_warmup: 0  # linear ramp of sigreg_weight over N iters (0 = constant from step 0)
+  # Rolling FIFO pool of recent z rows the estimator runs over, as a GLOBAL row count
+  # (each rank holds 1/world_size of it; the CF all-reduce pools ranks). Sized to clear the
+  # finite-sample floor -- ~0.0085 at S=128,C=768, which buries a rank-290 collapse. Pressure
+  # is rescaled by pool/live, so this is an estimator knob only, independent of sigreg_weight.
+  # NOTE the queue fires every micro-batch, so at a given sigreg_weight the pressure is
+  # grad_cum x the pre-queue code's (and no longer varies with grad_cum) -- sigreg arms from
+  # before that change are not weight-comparable.
+  sigreg_pool_samples: 8192
   # z-spread diagnostics (Eval/<test>/Z*): effective rank of the z covariance, i.e. how
   # much of the Cz budget the code uses. One measurement per eval loader, over that
   # loader's rows pooled across ranks. Runs with or without SIGReg -- that is what makes

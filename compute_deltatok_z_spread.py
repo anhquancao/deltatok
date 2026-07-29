@@ -110,8 +110,26 @@ def get_args_parser() -> argparse.ArgumentParser:
         "--split", type=str, default="train", choices=("train", "val"),
         help="train: the distribution SIGReg actually regularized. val checks drift.",
     )
+    parser.add_argument(
+        "--whiten_stats", type=str, default=None, metavar="PATH",
+        help="Apply this run's whitening (latent_stats_*.pth) before measuring. Required to "
+             "compare against a flow run trained with model.whiten_stats: the flow sees the "
+             "WHITENED code, so the marginal-only floor must be measured on that, not on raw z.",
+    )
     parser.add_argument("--seed", type=int, default=0)
     return parser
+
+
+def _load_whiten(path: str, device):
+    """(mean, std) from a latent_stats file, shaped to broadcast over z's (M, N, K, Cz)."""
+    blob = torch.load(Path(path).expanduser(), map_location="cpu")
+    mean, std = blob["mean"].to(device).float(), blob["std"].to(device).float()  # (Cz,) or (K, Cz)
+    if mean.shape != std.shape:
+        raise ValueError(f"whiten stats mean {tuple(mean.shape)} != std {tuple(std.shape)}")
+    if mean.dim() not in (1, 2):
+        raise ValueError(f"whiten stats must be (Cz,) or (K, Cz), got {tuple(mean.shape)}")
+    print(f"[INFO] whitening with {path}  shape={tuple(mean.shape)}")
+    return mean, std
 
 
 def _sanitize(name: str) -> str:
@@ -184,6 +202,34 @@ def _load_tokenizer_weights(net, path: str) -> None:
     print(f"[INFO] loaded {path}  (iter={ckpt.get('iter')}, epoch={ckpt.get('global_epoch')})")
 
 
+def flow_loss_floor(evals, t_clamp: float = 0.05, n_t: int = 4096) -> float:
+    """Flow loss a model reaches on this code using ZERO conditional information.
+
+    Rectified flow adds isotropic N(0, I) noise to every one of the Cz directions, but the
+    code's variance is not isotropic -- a direction holding ~no variance has target ~0, a
+    constant the denoiser nails immediately and near-freely. This integrates that free part
+    out: per eigen-direction i, the Gaussian marginal-only residual under the trainer's
+    pred_mode=x / loss_mode=v (see occrae/deltatok_flow_trainer.flow_loss),
+
+        Var(x_i | z_t) = s_i^2 (1-t)^2 / (t^2 s_i^2 + (1-t)^2),  loss weight 1/clamp(1-t)^2
+
+    averaged over the configured t ~ U(0,1). Gaussian is the weak assumption, and it is
+    exactly what SIGReg buys -- on a sigreg arm this floor is tight, which is what makes
+    the comparison against the run's achieved Eval/Loss meaningful.
+
+    Read it as: achieved >> floor means the model is not using its conditioning at all;
+    achieved well below floor means real conditional structure was learned. SCALE-dependent
+    (unlike everything else in this report), so it is only comparable to a flow run trained
+    on this exact code -- an unwhitened arm at row mean-square 108 will read enormous.
+    """
+    t = torch.linspace(0.0, 1.0, n_t, dtype=torch.float64)                 # (n_t,) flow time
+    var = evals.double().clamp_min(0).unsqueeze(1)                         # (C, 1) per-direction variance
+    om = (1.0 - t).unsqueeze(0)                                            # (1, n_t) 1-t
+    resid = var * om.square() / (t.unsqueeze(0).square() * var + om.square()).clamp_min(1e-300)  # (C, n_t)
+    integrand = resid / om.clamp_min(t_clamp).square()                     # (C, n_t) v-space weighting
+    return float(torch.trapz(integrand, t, dim=1).mean())                  # mean over directions
+
+
 def summarize(label, s):
     """Print one arm's spread report and return the numbers the comparison table uses.
 
@@ -206,6 +252,12 @@ def summarize(label, s):
     print(f"[SPREAD] rows={n}  Cz={C}  mean row mean-square={row_ms:.4f}  "
           f"|mean| max={s['mean_abs_max']:.4f}  total var={tot:.4f}")
     print(f"[SPREAD] per-channel std: min={smin:.4f} max={smax:.4f} ratio={smax / max(smin, 1e-12):.2f}x")
+    # Row-scale tail. z_norm=true pins every row to unit RMS -> tail 1.00x; these _nozn arms
+    # leave it free, and a large tail means an MSE over these rows is carried by few tokens.
+    print(f"[SPREAD] row mean-square: p50={s['row_ms_p50']:.4f} p90={s['row_ms_p90']:.4f} "
+          f"p99={s['row_ms_p99']:.4f} max={s['row_ms_max']:.4f}  "
+          f"p99/p50={s['row_ms_tail']:.2f}x (norm ratio {s['row_ms_tail'] ** 0.5:.2f}x)  "
+          f"top1%share={s['row_ms_top1pct']:.3f}")
     print(f"[SPREAD] std percentiles: p0={pct[0]:.4f} p1={pct[1]:.4f} p50={pct[2]:.4f} "
           f"p99={pct[3]:.4f} p100={pct[4]:.4f}")
     print(f"[SPREAD] eigenvalues: l1={float(evals[0]):.4f} l_med={float(evals[C // 2]):.6f} "
@@ -216,10 +268,17 @@ def summarize(label, s):
           f"top50={float(p[:50].sum()):.3f} top290={float(p[:min(290, C)].sum()):.3f}")
     print(f"[SPREAD] effective rank: participation={pr:.1f}/{C}  entropy={ent:.1f}/{C}  "
           f"n90={n90}  n99={n99}")
+    # Finite-sample ceiling: even a perfect N(0,I) code reads below C when rows ~ C.
+    # PR only means "collapsed" when it is far under THIS, not under C.
+    print(f"[SPREAD] PR ceiling at n={n}: {C / (1.0 + C / n):.1f}/{C} "
+          f"(a perfect N(0,I) code would read this)")
+    floor = flow_loss_floor(evals)
+    print(f"[SPREAD] marginal-only flow loss floor={floor:.4f}  "
+          f"(what a flow reaches on this code using NO conditioning; scale-dependent)")
     return {
         "label": label, "C": C, "total_var": tot, "std_ratio": smax / max(smin, 1e-12),
         "pr": pr, "entropy_rank": ent, "n90": n90, "n99": n99,
-        "top1": float(p[0]), "top10": float(p[:10].sum()),
+        "top1": float(p[0]), "top10": float(p[:10].sum()), "row_ms_tail": s["row_ms_tail"],
     }
 
 
@@ -270,6 +329,7 @@ def main() -> None:
         _load_tokenizer_weights(net, path)
         nets.append((label, net))
 
+    whiten = _load_whiten(args.whiten_stats, device) if args.whiten_stats else None
     split_label, loader = _build_loader(cfg, args.split)
     print(f"\n[INFO] {split_label}: {len(loader)} batches available, using {args.num_batches}")
     _pin_loader_epoch(loader)
@@ -292,7 +352,14 @@ def main() -> None:
                     rope_local = net._compute_rope(H, W, x_prev.device, x_prev.dtype)
                     rope_global = net._compute_global_rope(H, W, num_cameras, x_prev.device, x_prev.dtype)
                     z = net.encode(x_prev, x, rope_local, rope_global)  # (M, N, K, Cz)
-                acc.update(z.float())
+                z = z.float()
+                if whiten is not None:
+                    # Same op as DeltaTokFlowTrainer._z_to_flow_latent: channels last, so
+                    # (Cz,) stats broadcast per channel and (K, Cz) per slot.
+                    assert whiten[0].dim() == 1 or z.shape[2:] == whiten[0].shape, \
+                        f"z slots {tuple(z.shape[2:])} != whiten stats {tuple(whiten[0].shape)}"
+                    z = (z - whiten[0]) / whiten[1]            # (M, N, K, Cz) z-scored
+                acc.update(z)
 
         done += 1
         print(f"[INFO]   batch {done}/{args.num_batches}  rows/arm={accs[0].n} "
@@ -308,13 +375,16 @@ def main() -> None:
 
     print(f"\n===== comparison ({split_label}, {done} batches, {accs[0].n} rows/arm) =====")
     print(f"{'arm':<14} {'totvar':>9} {'stdratio':>9} {'PR':>7} {'entrank':>8} "
-          f"{'n90':>5} {'n99':>5} {'top1':>6} {'top10':>6}")
+          f"{'n90':>5} {'n99':>5} {'top1':>6} {'top10':>6} {'rowtail':>8}")
     for r in reports:
         print(f"{r['label']:<14} {r['total_var']:>9.3f} {r['std_ratio']:>9.2f} {r['pr']:>7.1f} "
               f"{r['entropy_rank']:>8.1f} {r['n90']:>5d} {r['n99']:>5d} {r['top1']:>6.3f} "
-              f"{r['top10']:>6.3f}")
+              f"{r['top10']:>6.3f} {r['row_ms_tail']:>7.2f}x")
     print("[NOTE] higher PR / entrank / n90 / n99 and lower top1, top10, std ratio = "
           "variance spread more evenly across the 768-d budget.")
+    print("[NOTE] rowtail is a different axis: spread ACROSS rows, not across channels. "
+          "1.00x = every row the same scale (what z_norm=true forces); large = an MSE over "
+          "these rows is dominated by a few outlier tokens.")
 
 
 if __name__ == "__main__":

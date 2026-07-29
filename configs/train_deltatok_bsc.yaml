@@ -1,0 +1,71 @@
+defaults:
+  - train_deltatok
+
+dataset:
+  # BSC overlay of train_deltatok_jeanzay.yaml: same recipe, dataset roots on the
+  # ehpc1001 scratch tier (data migrated from ehpc793 by BSC:43929539).
+  train_dataset: "4000 @ WaymoSeqMultiView(ROOT='/gpfs/scratch/ehpc1001/occany_data/waymo_processed', \
+      seq_pkl_name='seq_surround_temporal_sub5_stride9_fs1_all.pkl', \
+      frame_interval=1, \
+      min_views_per_timestep=1, max_views_per_timestep=2, min_num_timesteps=6, max_num_timesteps=6, ray_map_prob=-1, \
+      z_far=50, split='train', no_partial_views=True, \
+      resolution=[(518, 294), (518, 280), (518, 266), (518, 210), (518, 168)], \
+      reverse_seq=True, base_model='da3') + \
+      2000 @ VKittiSeqMultiView(VKITTI_PROCESSED_ROOT='/gpfs/scratch/ehpc1001/occany_data/vkitti_processed', \
+      seq_pkl_name='seq_exact_len_sub5_stride9.pkl', \
+      frame_interval=1, min_views_per_timestep=1, max_views_per_timestep=2, min_num_timesteps=6, max_num_timesteps=6, ray_map_prob=-1, \
+      z_far=50, split='train', no_partial_views=True, \
+      resolution=[(518, 294), (518, 280), (518, 266), (518, 210), (518, 168)], \
+      reverse_seq=True, base_model='da3') + \
+      4000 @ DDADSeqMultiView(DDAD_PREPROCESSED_ROOT='/gpfs/scratch/ehpc1001/occany_data/ddad_processed', \
+      seq_pkl_name='seq_surround_temporal_sub5_stride9_fs1_all.pkl', \
+      frame_interval=1, \
+      min_views_per_timestep=1, max_views_per_timestep=2, min_num_timesteps=6, max_num_timesteps=6, ray_map_prob=-1, \
+      z_far=50, split='train', no_partial_views=True, \
+      resolution=[(518, 294), (518, 280), (518, 266), (518, 210), (518, 168)], \
+      reverse_seq=True, base_model='da3') + \
+      4000 @ PandasetSeqMultiView(PANDASET_PREPROCESSED_ROOT='/gpfs/scratch/ehpc1001/occany_data/pandaset_processed', \
+      seq_pkl_name='seq_surround_temporal_sub5_stride9_fs1_all.pkl', \
+      frame_interval=1, \
+      min_views_per_timestep=1, max_views_per_timestep=2, min_num_timesteps=6, max_num_timesteps=6, ray_map_prob=-1, \
+      z_far=50, split='train', no_partial_views=True, \
+      resolution=[(518, 294), (518, 280), (518, 266), (518, 210), (518, 168)], \
+      reverse_seq=True, base_model='da3') + \
+      4000 @ OnceSeqMultiView(ONCE_PREPROCESSED_ROOT='/gpfs/scratch/ehpc1001/occany_data/once_processed', \
+      seq_pkl_name='seq_surround_temporal_sub5_stride9_fs1_once_5cam_all.pkl', \
+      frame_interval=1, \
+      min_views_per_timestep=1, max_views_per_timestep=2, min_num_timesteps=6, max_num_timesteps=6, ray_map_prob=-1, \
+      z_far=50, split='train', no_partial_views=True, \
+      resolution=[(518, 294), (518, 280), (518, 266), (518, 210), (518, 168)], \
+      reverse_seq=True, base_model='da3')"
+  test_dataset: "206 @ KittiSeqMultiView(KITTI_PREPROCESSED_ROOT='/gpfs/scratch/ehpc1001/occany_data/kitti_processed', \
+      seq_pkl_name='seq_exact_len_sub5_stride9.pkl', frame_interval=1, \
+      min_memory_num_views=5, max_memory_num_views=5, reverse_seq=False, \
+      z_far=50, split='val', seed=42, no_partial_views=True, \
+      resolution=[(518, 168)], base_model='da3') + \
+      206 @ Occ3dNuscenesSeqMultiView(NUSCENES_PREPROCESSED_ROOT='/gpfs/scratch/ehpc1001/occany_data/occ3d_nuscenes_processed', \
+      seq_pkl_name='seq_surround_temporal_sub1_stride9_all.pkl', frame_interval=1, \
+      min_memory_num_views=10, max_memory_num_views=10, num_views_per_timestep=6, \
+      z_far=50, split='val', seed=42, no_partial_views=True, fixed_cams=[0,1], \
+      resolution=[(518, 266)], base_model='da3')"
+
+model:
+  # Base config's img_decoder.ckpt_path is a Karolina mount (/mnt/proj1/...) absent
+  # on BSC; repoint to the repo-local copy so eval RGB panels still work.
+  img_decoder:
+    ckpt_path: checkpoints/occrae_img_decoder.pt
+
+training:
+  # 18000 items/epoch / (4 GPU x bsize 2 x grad_cum 2) = 1125 iters/epoch; epoch 100 -> 112500 iters.
+  # max_iter raised to match: it is BOTH a hard stop and the LR-cosine horizon, so this makes the run
+  # do the full 100 epochs with the cosine (peak->1e-5) spanning it exactly; warm_up 5000 kept.
+  epoch: 100
+  max_iter: 112500
+  save_ckpt_every_n_epochs: 10   # permanent epoch_<N>.pth snapshot every 10 epochs (-> 10,20,...,100)
+  # bsize 2 + pairs_per_seq 1: forward 2 sequences (one frame-pair each) per rank.
+  # 4 GPU x bsize 2 x pairs_per_seq 1 = 8; effective_bsize 16 / 8 -> grad_cum 2.
+  bsize: 2
+  pairs_per_seq: 1
+  # acc gives 20 cpus/task; the base 4 workers starve the GPU. 10 keeps prefetch
+  # RAM in budget while leaving cores for the main proc.
+  num_workers: 10
