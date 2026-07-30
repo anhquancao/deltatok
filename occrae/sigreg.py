@@ -10,6 +10,8 @@ SIGReg is the pressure that spreads the code across all dims and Gaussianizes it
 (also an easier target for downstream flow matching). Self-contained reimpl of the
 paper's minimal snippet (LeJEPA MINIMAL.md); no dependency on the lejepa package.
 """
+from typing import Optional
+
 import torch
 import torch.nn as nn
 import torch.distributed as dist
@@ -19,11 +21,18 @@ from torch.distributed.nn import all_reduce as autograd_all_reduce  # differenti
 class SIGReg(nn.Module):
     """Sketched Isometric Gaussian Regularization loss.
 
-    ``forward(z, seed)`` flattens all leading dims of ``z`` into samples, treats the
+    ``forward(live, pool, seed)`` flattens all leading dims into samples, treats the
     last dim as features, projects onto ``num_slices`` random unit directions, and
     returns the mean Epps-Pulley discrepancy of each 1D marginal against N(0,1).
     The classical test-statistic ``* N`` (sample-count) scaling is dropped so the
     value is batch-size-independent and weights cleanly against the recon loss.
+    (Diverges from the reference, which keeps ``* N * world_size`` -- so our
+    ``sigreg_weight`` is not on the same scale as the paper's lamb.)
+
+    ``pool`` is kept separate from ``live`` because only ``live`` carries grad: the CF
+    is a MEAN, so ``(sum_pool + sum_live) / (n_pool + n_live)`` is exact, and running
+    the pool under ``no_grad`` keeps the retained ``(S, K, knots)`` down to the live
+    rows -- what made a large ``sigreg_pool_samples`` expensive.
 
     The statistic needs many samples relative to the feature dim: at S=128, C=768
     its finite-sample floor is ~0.0085 while a rank-290 collapse only adds ~0.0002,
@@ -62,14 +71,24 @@ class SIGReg(nn.Module):
         A = torch.randn(C, self.num_slices, device=device, dtype=dtype, generator=g)  # (C, K) K=num_slices
         return A / A.norm(p=2, dim=0, keepdim=True)                     # unit-norm columns -> points on the sphere
 
-    def forward(self, z: torch.Tensor, seed: int) -> torch.Tensor:
-        C = z.shape[-1]                                                 # feature dim (Cz)
-        s = z.reshape(-1, C).float()                                    # (S, C) samples x features
-        A = self._directions(C, s.device, s.dtype, seed)                # (C, K) shared across ranks; randn builds no graph
-        proj = s @ A                                                    # (S, K) 1D slices <z, a>
-        x_t = proj.unsqueeze(-1) * self.t                              # (S, K, knots) t * <z, a>
-        cos_mean = x_t.cos().mean(0)                                    # (K, knots) Re of empirical CF
-        sin_mean = x_t.sin().mean(0)                                    # (K, knots) Im of empirical CF
+    def forward(self, live: torch.Tensor, pool: Optional[torch.Tensor], seed: int) -> torch.Tensor:
+        C = live.shape[-1]                                              # feature dim (Cz)
+        s = live.reshape(-1, C).float()                                 # (L, C) L=live rows, the only ones with grad
+        A = self._directions(C, s.device, s.dtype, seed)                # (C, K) K=num_slices; shared across ranks
+        x_t = (s @ A).unsqueeze(-1) * self.t                            # (L, K, Q) Q=knots; t * <z, a>
+        cos_sum, sin_sum = x_t.cos().sum(0), x_t.sin().sum(0)           # (K, Q) each, differentiable
+        n = s.shape[0]                                                  # local rows behind the CF
+        if pool is not None and pool.numel():
+            p = pool.reshape(-1, C).float()                             # (P, C) P=detached queue rows
+            with torch.no_grad():
+                proj = p @ A                                            # (P, K) reused across knots
+                p_cos, p_sin = torch.zeros_like(cos_sum), torch.zeros_like(sin_sum)
+                for q in range(self.t.numel()):                         # per knot: (P, K, Q) never lands
+                    x = proj * self.t[q]                                # (P, K)
+                    p_cos[:, q], p_sin[:, q] = x.cos().sum(0), x.sin().sum(0)
+            cos_sum, sin_sum = cos_sum + p_cos, sin_sum + p_sin         # out-of-place: keeps the live graph
+            n += p.shape[0]
+        cos_mean, sin_mean = cos_sum / n, sin_sum / n                    # (K, Q) Re/Im of empirical CF
         if dist.is_available() and dist.is_initialized():
             # Pool the CF over all ranks (same directions, so the means are comparable):
             # S -> world_size * S effective samples. Differentiable, so each rank still

@@ -16,13 +16,25 @@ Use the `TaskCreate` tool to track progress whenever a task requires more than o
 
 ## Critical: Do not run code locally
 
-This is a local environment — do not run any code or scripts directly here. To test or run commands, SSH to Karolina first:
+This is a local environment — do not run any code or scripts directly here. To test or run commands, SSH to a cluster first:
 
 ```bash
-ssh karolina "<command>"
+ssh jean-zay "<command>"     # or: ssh bsc "<command>"
 ```
 
-Cluster context: project work runs on **Karolina** (account `eu-25-92`, partition `qgpu`). The previous BSC setup is deprecated.
+Cluster context: project work runs on **Jean Zay** and **BSC (MareNostrum)**. Karolina is deprecated.
+
+| | Jean Zay | BSC |
+|---|---|---|
+| SSH alias | `jean-zay` (reverse tunnel — see `jeanzay-karolina-tunnel` skill if refused) | `bsc` |
+| Account | `trg@h100` | `ehpc1001` |
+| Partition / QoS | `gpu_p6` via `-C h100`; `qos_gpu_h100-t3` (20 h) / `-t4` (100 h) / `-dev` | `acc`; `acc_ehpc` (prod) / `acc_debug` |
+| Node shape | 4 GPU, `--cpus-per-task=24` | 4 H100, `--cpus-per-task=20` |
+| Repo path | `$TRG_WORK/code/deltatok` | `/gpfs/projects/ehpc1001/code/deltatok` |
+| Env | `source env_jz_h100.sh` | `source env_bsc.sh` |
+| Scripts | `slurm/jz_*.slurm` | `slurm/bsc_*.slurm` |
+
+Many checked-in scripts carry **stale accounts** (`zuw@h100`, `cya@h100`, `lwy@h100`; `ehpc551`). New and edited scripts must use `trg@h100` / `ehpc1001`.
 
 ## Job monitor / RAG knowledge base
 
@@ -36,13 +48,16 @@ Cluster context: project work runs on **Karolina** (account `eu-25-92`, partitio
 
 ## Environment bootstrap
 
-Before any `python ...` command on Karolina, activate the conda env:
+Source the cluster's own env script before any `python ...` — there is no conda on either site:
 
 ```bash
-conda activate occany
+ssh jean-zay "cd \$TRG_WORK/code/deltatok && source env_jz_h100.sh && <command>"
+ssh bsc "cd /gpfs/projects/ehpc1001/code/deltatok && source env_bsc.sh && <command>"
 ```
 
-Do NOT `source env_bsc.sh` on Karolina. It is the deprecated BSC script (it `module purge`es, activates a non-existent `maskgit` venv, and clobbers `PYTHONPATH`), which breaks the `occany` env (e.g. `transformers` import fails on a missing `httpx`). Clean `occany` already has everything (transformers, httpx, ...); vendored `third_party/` paths come from entrypoints / `occany.utils.runtime_paths.prepend_vendored_import_paths()`.
+Jean Zay has `env_jz_{h100,a100,v100}.sh`; default to H100 unless the job targets another partition. Never cross them — `env_bsc.sh` `module purge`es and activates a venv that does not exist on Jean Zay. `conda activate occany` belongs to the deprecated Karolina setup only.
+
+Submit from a **login shell** (`ssh <host> "bash -lc '... sbatch ...'"`): `module` is defined only by the login profile and `--export=ALL` will not carry it into the job otherwise. Symptom is a ~1 s job death with `module: command not found` in `*.err` then `ModuleNotFoundError: No module named 'torch'`, while `*.out` still prints the env script's trailing echoes.
 
 `PROJECT` and `SCRATCH` env vars are part of the repo contract — evaluation helpers default datasets under `$PROJECT/data/...` and processed artifacts under `$SCRATCH/...`.
 
@@ -50,7 +65,7 @@ Do NOT `source env_bsc.sh` on Karolina. It is the deprecated BSC script (it `mod
 
 **Smoke test (OccRAE roundtrip):**
 ```bash
-conda activate occany && python test_occ_rae.py \
+source env_jz_h100.sh && python test_occ_rae.py \
   --occany_recon_ckpt checkpoints/occany_plus_recon_1B.pth \
   --input_dir ./demo_data/input \
   --output_dir ./demo_data/output_occ_rae
@@ -60,7 +75,7 @@ Add `--compare` to compare roundtrip output against direct model inference.
 
 **Demo inference:**
 ```bash
-conda activate occany && python inference.py \
+source env_jz_h100.sh && python inference.py \
   --batch_gen_view 2 --view_batch_size 2 \
   --semantic distill@SAM3 --compute_segmentation_masks \
   --gen -rot 30 -vpi 2 -fwd 5 \
@@ -78,12 +93,12 @@ USE_MAJORITY_POOLING=1 POOLING_MODE=separate EXP_LIST=metric_occany_plus EXP_ID=
 
 **Reconstruction metrics:**
 ```bash
-conda activate occany && python extract_recon.py \
+source env_jz_h100.sh && python extract_recon.py \
   --model occany_da3 --dataset nuscenes --setting surround \
   --exp_name occany_plus_recon_1B \
   --occany_recon_ckpt ./checkpoints/occany_plus_recon_1B.pth
 
-conda activate occany && python compute_recon_metrics.py \
+source env_jz_h100.sh && python compute_recon_metrics.py \
   --exp_dir ./outputs/occany_plus_recon_1B_occany_da3_nuscenes_surround_img512
 ```
 
@@ -97,11 +112,13 @@ bash sh/train_occrae_img_decoder.sh       # OccRAE image decoder (MAE-style)
 bash sh/train_deltatok.sh                 # DeltaTok tokenizer
 ```
 
-**SLURM:**
+**SLURM:** (always via `bash -lc` — see Environment bootstrap)
 ```bash
-sbatch slurm/train_occany_plus.slurm
-sbatch slurm/eval_occany.slurm
+ssh jean-zay "bash -lc 'cd \$TRG_WORK/code/deltatok && sbatch slurm/jz_<name>.slurm'"
+ssh bsc "bash -lc 'cd /gpfs/projects/ehpc1001/code/deltatok && sbatch slurm/bsc_<name>.slurm'"
 ```
+
+`RESUME` defaults to `0` in the `jz_*`/`bsc_*` train scripts, so a plain relaunch starts fresh and clobbers `ckpts/current.pth` (only one backup deep). Pass `--export=ALL,RESUME=1` to continue a run. Un-prefixed `slurm/*.slurm` (e.g. `train_occany_plus.slurm`) are Karolina-era and still `conda activate`.
 
 When submitting chained training jobs (a dependency chain of resume jobs for a long run), use the `chain-slurm-jobs` skill rather than hand-rolling the submission.
 
@@ -109,7 +126,7 @@ When submitting chained training jobs (a dependency chain of resume jobs for a l
 
 Before submitting any SLURM job on a cluster, always verify that the script on the cluster matches the local version. The user syncs files manually — never assume a local edit has been pushed, and never sync files to the cluster yourself (no scp/rsync); always ask the user to sync. Check with e.g.:
 ```bash
-ssh karolina "bash -lc 'grep -E \"partition|time\" ~/deltatok/slurm/<script>.slurm'"
+ssh jean-zay "bash -lc 'grep -E \"account|partition|time\" \$TRG_WORK/code/deltatok/slurm/<script>.slurm'"
 ```
 If the file is stale, tell the user to sync before submitting.
 
@@ -148,8 +165,14 @@ Caches DA3 intermediate tokens at **layer 18** (local-attention layer) to enable
 - `occrae/img_decoder_trainer.py` — MAE-style image decoder trainer on frozen OccRAE 3-level features
 - `occrae/deltatok_trainer.py` — DeltaTok tokenizer trainer over layer-18 frame features
 - `occrae/dataset/occrae_tokens.py` — OccRAETokenDataset
+- `occrae/deltatok_shared.py`, `occrae/network/` — shared blocks + tokenizer/flow nets
+- `occrae/sigreg.py`, `occrae/z_spread.py` — SIGReg latent regulariser + z-spread diagnostics
 
 Training entrypoints: `train_deltatok_flow.py` (flow matching), `train_occrae_img_decoder.py` (image decoder), `train_deltatok.py` (DeltaTok). All use Hydra configs under `configs/` and support SLURM distributed training.
+
+Configs are **per-cluster** — `configs/train_deltatok{,_flow}_{jeanzay,bsc,karolina}.yaml`, picked by `CONFIG_NAME` in the slurm script. Edit the one matching the cluster you submit to.
+
+DeltaTok is the active research direction. Read before proposing changes: `docs/deltatok.md`, `docs/deltatok_flow_*.md`, `docs/sigreg_*.md`, dated findings in `docs/journal/*.html`, and design docs in `docs/plans/*.md`.
 
 ### Vendored third-party dependencies
 
@@ -162,8 +185,7 @@ cd third_party/croco/models/curope && python setup.py install
 
 ## Tooling conventions
 
-- **Clarifying questions:** when the request is ambiguous or has multiple reasonable interpretations, use the `AskUserQuestion` tool to confirm before acting.
-- **Task tracking:** any task with more than one step must be tracked with the `TodoWrite` tool. Create todos up front and mark each one completed as soon as it's done.
+- **Clarifying questions / task tracking:** see "Asking questions" and "Task tracking" above — `AskUserQuestion` for ambiguity, `TaskCreate` for anything multi-step.
 - **Edits:** surgical and explainable — change only what the task requires (no drive-by refactors, renames, or reformatting), and explain each edit so a human can verify it easily.
 - **Comments:** be terse. Prefer the fewest words that convey the *why*, not the *what*; default to a single short line. No long prose blocks or multi-line docstring essays — this applies to shell/slurm/config comments too (one short line beats a multi-line block). The inline tensor shape annotations below are the only expected multi-part comments.
 - **New variant scripts:** when a new script is a variant of an existing one (e.g. a new `visualize_*`/`test_*` entrypoint), copy the closest existing file first (`cp old.py new.py`) and apply surgical edits to it — do not rewrite from scratch. This keeps the shared structure identical and makes the diff reviewable.
