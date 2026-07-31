@@ -317,8 +317,8 @@ class DeltaTokModule(nn.Module):
             keeps the prefix-token structure compatible with HF's
             ``apply_rotary_pos_emb`` (which skips the leading
             ``num_tokens - num_patches`` tokens).
-        With ``return_pre_bottleneck``, also returns the (M, N, K, C) tensor fed to
-        ``z_proj_down`` — the target the bottleneck round-trip loss reconstructs.
+        With ``return_pre_bottleneck``, also returns the raw (M, N, K, C) code from before
+        ``pre_bottleneck_norm`` — the target the bottleneck round-trip loss reconstructs.
         """
         M, N, P, C = x_prev.shape
         K = self.num_delta_tokens                          # delta tokens per camera
@@ -360,10 +360,10 @@ class DeltaTokModule(nn.Module):
                 prev_spatials = hidden[:, :, K : K + P]
                 next_spatials = hidden[:, :, K + P :]
 
-        z_pre = None                           # (M, N, K, C) z_proj_down's input, None without a bottleneck
+        z_pre = z                              # (M, N, K, C) raw code: round-trip target, constant under a frozen encoder
         if self.z_proj_down is not None:
-            z_pre = self.pre_bottleneck_norm(z)  # (M, N, K, C) unit-var before down-proj (no post-norm grad blow-up)
-            z = self.z_proj_down(z_pre)        # (M, N, K, Cz) channel bottleneck
+            z = self.pre_bottleneck_norm(z)    # (M, N, K, C) unit-var before down-proj (no post-norm grad blow-up)
+            z = self.z_proj_down(z)            # (M, N, K, Cz) channel bottleneck
         if return_pre_bottleneck:
             return self.norm(z), z_pre
         return self.norm(z)
@@ -459,8 +459,8 @@ class DeltaTokModule(nn.Module):
             height, width, int(num_cameras), x_prev.device, x_prev.dtype
         )
         if return_bneck:
-            # z_pre (M, N, K, C) is the bottleneck's input; the round-trip loss matches
-            # z_proj_up(z) against it. Cheap to recompute (one K-token matmul).
+            # z_pre (M, N, K, C) is the raw encoder code; the round-trip loss matches
+            # z_proj_up(z) against it -- the same thing decode() feeds the frozen decoder.
             z, z_pre = self.encode(x_prev, x, rope_local, rope_global, return_pre_bottleneck=True)
             z_rec = self.z_proj_up(z)                        # (M, N, K, C) round-trip of z_pre
         else:
@@ -1074,8 +1074,8 @@ class DeltaTokTrainer(DeltaTokSharedMixin, Trainer):
 
             # Optional bottleneck round-trip loss: make z_proj_up(z_proj_down(z)) reconstruct the
             # full 1536-d code. The decoder recon only supervises the pair through 12 more blocks,
-            # so the projections get a weak, indirect signal; this is the direct one. Target is
-            # detached (like the recon target) so it can't be met by collapsing the encoder.
+            # so the projections get a weak, indirect signal; this is the direct one. Target is the
+            # PRE-norm code: constant under a frozen encoder, so it can't be shrunk to cheat.
             loss_bneck = None
             if need_bneck:
                 with torch.autocast(device_type="cuda", enabled=False):

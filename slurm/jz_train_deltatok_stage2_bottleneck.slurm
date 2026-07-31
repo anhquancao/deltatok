@@ -55,7 +55,7 @@ export INIT_CKPT="$LOG_AND_CKPT_DIR/deltatok_surround_layer12_bsize2_dtok64_tc15
 # code. Starts ~40x the decoder recon (log-cosh of a unit-var residual), so it leads early by
 # design; lower it to rebalance. In the run name, so arms never share a dir.
 export BNECK_RECON_WEIGHT=${BNECK_RECON_WEIGHT:-1.0}
-export RUN_NAME=deltatok_l12_dtok64_tc768_nozn_bneckrec${BNECK_RECON_WEIGHT}_stage2bneck_ep40
+export RUN_NAME=deltatok_l12_dtok64_tc768_nozn_bneckrec${BNECK_RECON_WEIGHT}_rawtgt_stage2bneck_ep40
 export RESUME=${RESUME:-0}   # override with --export=ALL,RESUME=1 to resume current.pth (then INIT_CKPT is ignored)
 EXTRA_CFG_ARGS=(
     model.deltatok.num_delta_tokens=64         # K delta tokens/camera; must match stage 1
