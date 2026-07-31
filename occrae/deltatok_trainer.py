@@ -74,7 +74,6 @@ class DeltaTokModule(nn.Module):
         norm_affine: bool = True,
         z_norm: bool = True,
         target_channels: int = 0,
-        bottleneck_pre_norm: bool = False,
         bottleneck_mlp: bool = False,
     ):
         super().__init__()
@@ -164,9 +163,8 @@ class DeltaTokModule(nn.Module):
                         nn.init.zeros_(m.bias)
             # Affine LN before z_proj_down: gives it unit-var input so the post-bottleneck LN
             # can't ~60x-amplify its backward grad, and restores the learnable scale noaff drops.
-            self.pre_bottleneck_norm = (
-                nn.LayerNorm(cfg.hidden_size, cfg.layer_norm_eps, elementwise_affine=True)
-                if bottleneck_pre_norm else None
+            self.pre_bottleneck_norm = nn.LayerNorm(
+                cfg.hidden_size, cfg.layer_norm_eps, elementwise_affine=True
             )
         else:
             self.z_proj_down = None
@@ -293,6 +291,7 @@ class DeltaTokModule(nn.Module):
         x: torch.Tensor,
         rope_local,
         rope_global,
+        return_pre_bottleneck: bool = False,
     ) -> torch.Tensor:
         """Encode (x_prev, x) into N delta tokens (one per camera) with DA3-style alternation.
 
@@ -318,6 +317,8 @@ class DeltaTokModule(nn.Module):
             keeps the prefix-token structure compatible with HF's
             ``apply_rotary_pos_emb`` (which skips the leading
             ``num_tokens - num_patches`` tokens).
+        With ``return_pre_bottleneck``, also returns the (M, N, K, C) tensor fed to
+        ``z_proj_down`` — the target the bottleneck round-trip loss reconstructs.
         """
         M, N, P, C = x_prev.shape
         K = self.num_delta_tokens                          # delta tokens per camera
@@ -359,10 +360,12 @@ class DeltaTokModule(nn.Module):
                 prev_spatials = hidden[:, :, K : K + P]
                 next_spatials = hidden[:, :, K + P :]
 
+        z_pre = None                           # (M, N, K, C) z_proj_down's input, None without a bottleneck
         if self.z_proj_down is not None:
-            if self.pre_bottleneck_norm is not None:
-                z = self.pre_bottleneck_norm(z)   # (M, N, K, C) unit-var before down-proj (no post-norm grad blow-up)
-            z = self.z_proj_down(z)            # (M, N, K, Cz) channel bottleneck
+            z_pre = self.pre_bottleneck_norm(z)  # (M, N, K, C) unit-var before down-proj (no post-norm grad blow-up)
+            z = self.z_proj_down(z_pre)        # (M, N, K, Cz) channel bottleneck
+        if return_pre_bottleneck:
+            return self.norm(z), z_pre
         return self.norm(z)
 
     def decode(
@@ -432,6 +435,7 @@ class DeltaTokModule(nn.Module):
         width: int,
         num_cameras: int = 1,
         return_z: bool = False,
+        return_bneck: bool = False,
     ) -> torch.Tensor:
         """Reconstruct ``x`` from the (x_prev, x) pair via N delta tokens (one per camera).
 
@@ -439,7 +443,9 @@ class DeltaTokModule(nn.Module):
                     if x_prev is 3-D ``(M*N, P, C)`` it is interpreted as a single
                     -camera pair-batch (caller must then pass ``num_cameras=1``).
         Returns x_hat of the same shape as x, or ``(x_hat, z)`` when ``return_z``
-        (z is the (M, N, K, Cz) bottleneck latent, for the SIGReg regularizer).
+        (z is the (M, N, K, Cz) bottleneck latent, for the SIGReg regularizer), or
+        ``(x_hat, z, z_pre, z_rec)`` when ``return_bneck`` — the bottleneck's input and
+        its up-projected round-trip, both (M, N, K, C), for the round-trip loss.
         """
         if x_prev.dim() == 3:
             x_prev = x_prev.unsqueeze(1)
@@ -452,11 +458,19 @@ class DeltaTokModule(nn.Module):
         rope_global = self._compute_global_rope(
             height, width, int(num_cameras), x_prev.device, x_prev.dtype
         )
-        z = self.encode(x_prev, x, rope_local, rope_global)  # (M, N, K, Cz) flow-facing latent
+        if return_bneck:
+            # z_pre (M, N, K, C) is the bottleneck's input; the round-trip loss matches
+            # z_proj_up(z) against it. Cheap to recompute (one K-token matmul).
+            z, z_pre = self.encode(x_prev, x, rope_local, rope_global, return_pre_bottleneck=True)
+            z_rec = self.z_proj_up(z)                        # (M, N, K, C) round-trip of z_pre
+        else:
+            z = self.encode(x_prev, x, rope_local, rope_global)  # (M, N, K, Cz) flow-facing latent
         x_hat = self.decode(z, x_prev, rope_local, rope_global)
 
         if squeeze:
             x_hat = x_hat.squeeze(1)
+        if return_bneck:
+            return x_hat, z, z_pre, z_rec
         if return_z:
             return x_hat, z
         return x_hat
@@ -503,7 +517,8 @@ def _print_param_breakdown(model: nn.Module, archi: str) -> None:
         ("norm", model.norm),
     ]
     if model.z_proj_down is not None:
-        components += [("z_proj_down", model.z_proj_down), ("z_proj_up", model.z_proj_up)]
+        components += [("pre_bottleneck_norm", model.pre_bottleneck_norm),
+                       ("z_proj_down", model.z_proj_down), ("z_proj_up", model.z_proj_up)]
 
     grand_total, grand_train = _count(model)
     print(f"Parameter breakdown for {archi}:")
@@ -753,6 +768,22 @@ class DeltaTokTrainer(DeltaTokSharedMixin, Trainer):
 
         backbone = self.occ_rae.model._get_pretrained_backbone()
         model = self._make_deltatok_module(backbone)  # shared factory (mixin)
+
+        # Stage 2: only the fresh channel bottleneck learns. The stage-1 tokenizer becomes a
+        # fixed feature extractor, so the projection sees a stationary z instead of co-adapting
+        # with it (the joint tc768 arms plateau 7x above the uncompressed ceiling).
+        # Runs before _build_optimizer, which drops non-requires_grad params from AdamW.
+        if bool(self.cfg.training.get("freeze_except_bottleneck", False)):
+            assert model.z_proj_down is not None, (
+                "training.freeze_except_bottleneck needs a bottleneck "
+                "(model.deltatok.target_channels != hidden_size)"
+            )
+            model.requires_grad_(False)
+            # norm is nn.Identity under z_norm=false (no params); listed so an affine
+            # z-norm arm stays trainable too.
+            for mod in (model.pre_bottleneck_norm, model.z_proj_down, model.z_proj_up, model.norm):
+                if mod is not None:
+                    mod.requires_grad_(True)
 
         if self.is_master:
             _print_param_breakdown(model, archi)
@@ -1017,8 +1048,13 @@ class DeltaTokTrainer(DeltaTokSharedMixin, Trainer):
                 x_prev = x_prev[idx]
                 x = x[idx]
 
+            w_bneck = float(self.cfg.training.get("bottleneck_recon_weight", 0.0))
+            need_bneck = w_bneck > 0 and self._unwrapped_tokenizer().z_proj_down is not None
             with self.autocast:
-                if self.sigreg is not None:
+                if need_bneck:
+                    x_hat, z_bneck, z_pre, z_rec = self.tokenizer(
+                        x_prev, x, H, W, num_cameras=num_cameras, return_z=True, return_bneck=True)
+                elif self.sigreg is not None:
                     x_hat, z_bneck = self.tokenizer(x_prev, x, H, W, num_cameras=num_cameras, return_z=True)
                 else:
                     x_hat = self.tokenizer(x_prev, x, H, W, num_cameras=num_cameras)
@@ -1035,6 +1071,16 @@ class DeltaTokTrainer(DeltaTokSharedMixin, Trainer):
             else:
                 loss_feat = None
                 loss_total = loss
+
+            # Optional bottleneck round-trip loss: make z_proj_up(z_proj_down(z)) reconstruct the
+            # full 1536-d code. The decoder recon only supervises the pair through 12 more blocks,
+            # so the projections get a weak, indirect signal; this is the direct one. Target is
+            # detached (like the recon target) so it can't be met by collapsing the encoder.
+            loss_bneck = None
+            if need_bneck:
+                with torch.autocast(device_type="cuda", enabled=False):
+                    loss_bneck = _log_cosh(z_rec.float(), z_pre.detach().float()).mean()
+                loss_total = loss_total + w_bneck * loss_bneck
 
             # Optional SIGReg anti-collapse loss on the z bottleneck (computed in fp32).
             # Runs EVERY micro-batch on the live rows + the FIFO queue, so it rides the same
@@ -1103,6 +1149,7 @@ class DeltaTokTrainer(DeltaTokSharedMixin, Trainer):
                     self.log_add_scalar('Train/LossRecon', loss, self.cfg.training.iter)
                     self.log_add_scalar('Train/LossFeature', loss_feat if loss_feat is not None else 0.0, self.cfg.training.iter)
                     self.log_add_scalar('Train/LossSIGReg', loss_sigreg if loss_sigreg is not None else 0.0, self.cfg.training.iter)
+                    self.log_add_scalar('Train/LossBneck', loss_bneck if loss_bneck is not None else 0.0, self.cfg.training.iter)
                     self.log_add_scalar('Train/LossTot', mini_batch_loss, self.cfg.training.iter)
                     self.log_add_scalar('Train/SpeedSamplesPerSec', speed_samples_per_sec, self.cfg.training.iter)
 

@@ -36,6 +36,11 @@ if [[ -n "${OCCANY_RECON_CKPT:-}" ]]; then
     ARGS+=(--occany_recon_ckpt "$OCCANY_RECON_CKPT")
 fi
 
+# Weight-only init from another run's ckpt (stage 2). Ignored when RESUME=1.
+if [[ -n "${INIT_CKPT:-}" ]]; then
+    ARGS+=(--ckpt "$INIT_CKPT")
+fi
+
 if [[ -n "${ENCODE_LAYER:-}" ]]; then
     ARGS+=(--encode_layer "$ENCODE_LAYER")
 fi

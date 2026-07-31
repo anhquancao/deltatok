@@ -35,8 +35,7 @@ ulimit -n "$(ulimit -Hn)"
 # channel bottleneck REMOVED: TARGET_CHANNELS=1536 == hidden_size, so deltatok_trainer.py:150
 # ("if self.z_dim != cfg.hidden_size") builds NO z_proj_down/up and no pre-bottleneck LN at all.
 # z stays at the full 1536 dims -- K is then the only compression axis. Consequently
-# BOTTLENECK_MLP and bottleneck_pre_norm are inert here; BOTTLENECK_MLP defaults to false so the
-# name and the arch agree.
+# BOTTLENECK_MLP is inert here; it defaults to false so the name and the arch agree.
 # WHY this arm: the measured deficit on the tc768 arms was the 2:1 Cz ratio, not utilisation --
 # raw participation ratio was 173.1/768 for tc768 vs 332.2/1536 for uncompressed dtok64, i.e. BOTH
 # ~22% of their channel budget. Dropping the bottleneck while KEEPING SIGReg tests whether SIGReg's
@@ -88,7 +87,6 @@ EXTRA_CFG_ARGS=(
     model.deltatok.use_camera_rope=false       # no-camera-rope layer-12 run
     model.deltatok.norm_affine=false           # final z-norm stays non-affine -> unit-var/zero-mean latent for flow matching
     model.deltatok.z_norm=${Z_NORM}            # false: no z-norm at all; decoder + SIGReg both see raw z (see Z_NORM)
-    model.deltatok.bottleneck_pre_norm=true    # inert at tc1536; kept so a TARGET_CHANNELS override still gets the fix
     model.deltatok.bottleneck_mlp=${BOTTLENECK_MLP}  # inert at tc1536 (see BOTTLENECK_MLP)
     training.sigreg_weight=${SIGREG_WEIGHT}       # SIGReg anti-collapse loss weight on z (0 = off)
     training.sigreg_num_slices=${SIGREG_NUM_SLICES}  # sliced-Gaussian test directions/step

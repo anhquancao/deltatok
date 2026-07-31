@@ -97,7 +97,6 @@ EXTRA_CFG_ARGS=(
     model.deltatok.use_camera_rope=false       # no-camera-rope layer-12 run
     model.deltatok.norm_affine=false           # final z-norm stays non-affine -> unit-var/zero-mean latent for flow matching
     model.deltatok.z_norm=${Z_NORM}            # false: no z-norm at all; decoder + SIGReg both see raw z_proj_down (see Z_NORM)
-    model.deltatok.bottleneck_pre_norm=true    # affine LN before z_proj_down: kills the ~60x post-bottleneck grad amplification
     model.deltatok.bottleneck_mlp=${BOTTLENECK_MLP}  # nonlinear MLP down/up bottleneck (see BOTTLENECK_MLP)
     training.sigreg_weight=${SIGREG_WEIGHT}       # SIGReg anti-collapse loss weight on z (0 = off)
     training.sigreg_num_slices=${SIGREG_NUM_SLICES}  # sliced-Gaussian test directions/step

@@ -73,7 +73,6 @@ EXTRA_CFG_ARGS=(
     # parametered mismatch (tc768/mlp) aborts at startup — but use_camera_rope adds NO
     # parameters, so a mismatch there would silently produce the wrong z. Declared explicitly.
     model.deltatok.target_channels=768         # _tc768 channel bottleneck (flow cfg defaults to 0 = off)
-    model.deltatok.bottleneck_pre_norm=true    # _prenorm affine LN before z_proj_down
     model.deltatok.z_norm=false                # _nozn: no final z LayerNorm; SIGReg alone pins z's scale
     model.deltatok.norm_affine=false           # _noaff (declared true in flow cfg)
     model.deltatok.use_camera_rope=false       # layer-12 no-camera-rope arm; parameterless, so strict= cannot catch it

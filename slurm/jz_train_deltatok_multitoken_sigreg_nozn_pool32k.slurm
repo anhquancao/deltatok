@@ -63,7 +63,6 @@ EXTRA_CFG_ARGS=(
     model.deltatok.z_norm=false                # decoder + SIGReg both see raw z
     model.deltatok.use_camera_rope=false       # layer-12 no-rope run
     model.deltatok.norm_affine=false           # inert at z_norm=false; kept for name parity
-    model.deltatok.bottleneck_pre_norm=true    # inert at tc1536; kept so a tc override still gets the fix
     model.deltatok.bottleneck_mlp=false        # inert at tc1536 (no bottleneck to make nonlinear)
     training.lr=1e-3                           # peak lr, cosine-decayed to 1e-5
     training.grad_clip=0.1                     # tighter than base 1.0; tames early grads

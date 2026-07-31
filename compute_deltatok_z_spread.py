@@ -78,7 +78,6 @@ _TOKENIZER_DEFAULTS = {
     "model.deltatok.target_channels": 768,       # Cz=768 channel bottleneck
     "model.deltatok.norm_affine": False,         # _noaff
     "model.deltatok.z_norm": False,              # _nozn: no final LayerNorm, z is raw
-    "model.deltatok.bottleneck_pre_norm": True,  # _prenorm
     "model.deltatok.bottleneck_mlp": False,      # no _mlp tag in either run name
     "model.deltatok.use_camera_rope": False,     # layer-12 no-camera-rope run
 }

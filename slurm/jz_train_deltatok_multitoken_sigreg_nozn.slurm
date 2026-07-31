@@ -40,8 +40,8 @@ export TORCH_NCCL_HEARTBEAT_TIMEOUT_SEC="${TORCH_NCCL_HEARTBEAT_TIMEOUT_SEC:-100
 ulimit -n "$(ulimit -Hn)"
 
 # JZ port of slurm/bsc_train_deltatok_multitoken_sigreg.slurm with Z_NORM=false.
-# No channel bottleneck (tc1536 == hidden_size -> no z_proj_down/up, so BOTTLENECK_MLP and
-# bottleneck_pre_norm are inert) and now no z LayerNorm either: SIGReg shapes a raw 1536-d z
+# No channel bottleneck (tc1536 == hidden_size -> no z_proj_down/up, so BOTTLENECK_MLP is
+# inert) and now no z LayerNorm either: SIGReg shapes a raw 1536-d z
 # instead of one pinned to |z|=sqrt(Cz), as in LeJEPA. K is the only compression axis.
 # WATCH: LossSIGReg should DESCEND; flat = under-resolved estimator. ZTail is free without
 # z-norm, so a growing z scale lets the MSE term dominate.
@@ -81,7 +81,6 @@ EXTRA_CFG_ARGS=(
     model.deltatok.use_camera_rope=false       # no-camera-rope layer-12 run
     model.deltatok.norm_affine=false           # inert at z_norm=false; kept so a Z_NORM=true override stays non-affine
     model.deltatok.z_norm=${Z_NORM}            # false here: no z-norm; decoder + SIGReg see raw z (see Z_NORM)
-    model.deltatok.bottleneck_pre_norm=true    # inert at tc1536; kept so a TARGET_CHANNELS override still gets the fix
     model.deltatok.bottleneck_mlp=${BOTTLENECK_MLP}  # inert at tc1536 (see BOTTLENECK_MLP)
     training.sigreg_weight=${SIGREG_WEIGHT}       # SIGReg anti-collapse loss weight on z (0 = off)
     training.sigreg_num_slices=${SIGREG_NUM_SLICES}  # sliced-Gaussian test directions/step

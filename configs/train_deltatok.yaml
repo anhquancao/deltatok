@@ -74,7 +74,6 @@ model:
     num_hidden_layers: 12
     num_delta_tokens: 1  # delta tokens per camera per transition (1 = max compression)
     target_channels: 0  # z channel bottleneck (0 = off; e.g. 768 projects z 1536->768 at encode, back at decode)
-    bottleneck_pre_norm: false  # affine LN before z_proj_down (bottleneck only): removes post-norm grad amplification
     bottleneck_mlp: false  # bottleneck only: 2-layer SiLU MLP down/up instead of single Linear (beats linear-768 variance cap)
     use_delta: true
     use_swiglu: true
@@ -115,6 +114,12 @@ training:
   # run one frozen forward (blocks 13->39) over all views, and log-cosh-match the
   # out_layer [19,27,33,39] features vs the GT decode. 0 = off (no-op).
   feature_loss_weight: 0.0
+  # Stage 2: freeze everything but the channel bottleneck (needs target_channels != hidden_size).
+  freeze_except_bottleneck: false
+  # Auxiliary log-cosh loss making z_proj_up(z_proj_down(z)) reconstruct the full 1536-d z:
+  # a direct linear-autoencoder signal on the bottleneck, not routed through the decoder.
+  # 0 = off; only meaningful with target_channels > 0.
+  bottleneck_recon_weight: 0.0
   grad_clip: 1.0
   grad_skip_thresh: 0.0  # >0 skips optim steps whose pre-clip grad_norm exceeds this (finite-spike guard)
   # SIGReg (LeJEPA) anti-collapse loss on the z bottleneck: pushes the compressed

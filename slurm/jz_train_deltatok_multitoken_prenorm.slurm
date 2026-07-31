@@ -73,7 +73,6 @@ EXTRA_CFG_ARGS=(
     training.lr=${PEAK_LR}                      # peak lr override (default 1e-3; lower for high-K stability)
     model.deltatok.use_camera_rope=false       # no-camera-rope layer-12 run
     model.deltatok.norm_affine=false           # final z-norm stays non-affine -> unit-var/zero-mean latent for flow matching
-    model.deltatok.bottleneck_pre_norm=true    # affine LN before z_proj_down: kills the ~60x post-bottleneck grad amplification
     training.grad_clip=${GRAD_CLIP}            # tighter clip than base 1.0 (see GRAD_CLIP)
     training.grad_skip_thresh=${GRAD_SKIP_THRESH}  # finite grad_norm spike guard (0 = off)
     training.exit_before_time_limit=true       # stop after a ckpt when SLURM wall is near (chain-resume safe)
