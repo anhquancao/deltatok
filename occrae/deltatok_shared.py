@@ -158,12 +158,16 @@ class DeltaTokSharedMixin:
             })
         return out
 
-    def _extract_pair_feats(self, imgs, num_cameras=1, return_pairs=True):
+    def _extract_pair_feats(self, imgs, num_cameras=1, return_pairs=True, pair_t=None):
         """Run OccRAE.encode and split into (x_prev, x) pair tensors plus shape metadata.
 
         With ``return_pairs=False`` the (x_prev, x) slots are returned as None —
         for callers (the flow trainer) that only need ``feats`` and would
         otherwise rebuild the same pair inside ``_encode_pair_deltas``.
+
+        ``pair_t`` (B, n_pairs) encodes only the 2 timesteps each kept transition needs
+        (exact: blocks 0..encode_layer are per-view local). tokens/feats then cover only
+        those views and M = B*n_pairs, so feature-loss/eval callers must leave it None.
 
         Returns
         -------
@@ -185,6 +189,18 @@ class DeltaTokSharedMixin:
             "a wrong/missing batch['num_cameras'] would silently mispair frames"
         )
         T = V_total // num_cameras
+
+        if pair_t is not None:
+            # Transition t spans timesteps t, t+1; view v = t*num_cameras + cam.
+            n_pairs = pair_t.shape[1]                                    # transitions kept per sequence
+            steps = torch.stack([pair_t, pair_t + 1], dim=-1)            # (B, n_pairs, 2) timesteps per pair
+            cams = torch.arange(num_cameras, device=imgs.device)         # (num_cameras,)
+            views = (steps[..., None] * num_cameras + cams).reshape(B, -1)  # (B, n_pairs*2*num_cameras) views to keep
+            seqs = torch.arange(B, device=imgs.device)[:, None]          # (B, 1) broadcast against `views`
+            imgs = imgs[seqs, views]                                     # (B, n_pairs*2*num_cameras, 3, H, W)
+            # Fold pairs into the batch axis: local-only blocks make B vs S immaterial.
+            imgs = imgs.reshape(B * n_pairs, 2 * num_cameras, C_img, H, W)  # (M, 2*num_cameras, 3, H, W)
+            T = 2
 
         with torch.no_grad(), self.autocast:
             latents = self.occ_rae.encode(imgs)

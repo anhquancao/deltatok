@@ -122,7 +122,7 @@ ssh bsc "bash -lc 'cd /gpfs/projects/ehpc1001/code/deltatok && sbatch slurm/bsc_
 
 When submitting chained training jobs (a dependency chain of resume jobs for a long run), use the `chain-slurm-jobs` skill rather than hand-rolling the submission.
 
-On BSC, prefer chained 24 h jobs over one long job: the scheduler is `sched/backfill` (`bf_window=4320`) and walltime does **not** enter the priority formula, so a shorter request only ever fits more gaps — measured p90 queue wait was 4 min at 12 h vs 8.6 h at 48 h. `training.exit_before_time_limit=true` makes the split checkpoint-safe.
+On BSC, prefer chained jobs shorter than the 72 h cap (the deltatok arms use 40 h): the scheduler is `sched/backfill` (`bf_window=4320`) and walltime does **not** enter the priority formula, so a shorter request only ever fits more gaps — measured p90 queue wait was 4 min at 12 h vs 8.6 h at 48 h. `training.exit_before_time_limit=true` makes the split checkpoint-safe.
 
 ## Critical: Verify cluster files before submitting SLURM jobs
 
@@ -161,11 +161,11 @@ KITTI/nuScenes voxel grids differ: KITTI is 256×256×32 at 0.2 m; nuScenes is 2
 
 ### OccRAE (token caching)
 
-Caches DA3 intermediate tokens at **layer 18** (local-attention layer) to enable downstream flow-matching training and feature reuse. See `docs/occrae.md`. Components:
+Caches DA3 intermediate tokens at **layer 12** (pre-fusion local layer) to enable downstream flow-matching training and feature reuse. See `docs/occrae.md`. `OccRAE.encode()` early-exits through `DA3Wrapper.encode_to_layer`, running only blocks 0–12 of the giant's 40 — but that fast path is valid *only* while `encode_layer < alt_start=13`. `encode_layer: 18` is post-fusion and falls back to a **full 40-block forward** (~3× the backbone cost), so treat it as a deliberate, expensive choice. Components:
 - `extract_occany_features.py` — dump tokens dataset-wide
 - `occrae/deltatok_flow_trainer.py` — flow-matching trainer
 - `occrae/img_decoder_trainer.py` — MAE-style image decoder trainer on frozen OccRAE 3-level features
-- `occrae/deltatok_trainer.py` — DeltaTok tokenizer trainer over layer-18 frame features
+- `occrae/deltatok_trainer.py` — DeltaTok tokenizer trainer over layer-12 frame features
 - `occrae/dataset/occrae_tokens.py` — OccRAETokenDataset
 - `occrae/deltatok_shared.py`, `occrae/network/` — shared blocks + tokenizer/flow nets
 - `occrae/sigreg.py`, `occrae/z_spread.py` — SIGReg latent regulariser + z-spread diagnostics

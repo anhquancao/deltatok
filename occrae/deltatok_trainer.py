@@ -984,26 +984,36 @@ class DeltaTokTrainer(DeltaTokSharedMixin, Trainer):
 
             imgs = batch["imgs"].to(self.device, non_blocking=True)
             num_cameras = batch.get("num_cameras", 1)
-            tokens, _feats, x_prev, x, H, W = self._extract_pair_feats(imgs, num_cameras=num_cameras)
 
-            # Subsample to `pairs_per_seq` transitions PER sequence (not per micro-batch
-            # total), so the pairs actually used == bsize * pairs_per_seq and match the
-            # grad_cum accounting (effective_bsize = world_size * bsize * pairs_per_seq *
-            # grad_cum). x_prev is (B*(T-1), N, P, C), batch-major: row b*(T-1)+t is
-            # sequence b, transition t. B=bsize, T=timesteps, N=cameras, P=patches/view.
+            # Keep `pairs_per_seq` transitions PER sequence (not per micro-batch total), so
+            # the pairs used == bsize * pairs_per_seq and match the grad_cum accounting
+            # (effective_bsize = world_size * bsize * pairs_per_seq * grad_cum).
+            # B=bsize, T=timesteps, N=cameras, P=patches/view.
             pairs_per_seq = int(self.cfg.training.get("pairs_per_seq", 0))
+            w_feat = float(self.cfg.training.get("feature_loss_weight", 0.0))
             B = imgs.shape[0]                                   # sequences in this micro-batch
-            T_minus_1 = x_prev.shape[0] // B                    # transitions per seq (T-1), uniform across the batch
-            idx = None                                          # subsample row index; None == all pairs kept
-            if pairs_per_seq > 0 and T_minus_1 > pairs_per_seq:
-                # argsort of per-row random keys = an independent random permutation of the
-                # T-1 transitions for each of the B sequences (vectorized B-way randperm);
-                # the prefix is then a without-replacement sample of pairs_per_seq per seq.
-                perm = torch.argsort(
-                    torch.rand(B, T_minus_1, device=x_prev.device), dim=1
-                )[:, :pairs_per_seq]                           # (B, pairs_per_seq) transition idx within each seq
-                base = (torch.arange(B, device=x_prev.device) * T_minus_1).unsqueeze(1)  # (B, 1) seq offsets
-                idx = (base + perm).reshape(-1)               # (B*pairs_per_seq,) flat rows into x_prev
+            T_minus_1 = imgs.shape[1] // num_cameras - 1        # transitions per seq (T-1), uniform across the batch
+            keep = None                                         # None == every transition kept
+            if 0 < pairs_per_seq < T_minus_1:
+                # Sample without replacement, independently per sequence: argsort of random
+                # keys is a random permutation, and its prefix is the sample.
+                rand_keys = torch.rand(B, T_minus_1, device=imgs.device)     # (B, T-1)
+                keep = rand_keys.argsort(dim=1)[:, :pairs_per_seq]           # (B, pairs_per_seq) transition idx
+
+            # The feature loss reads every view's tokens (it runs blocks 13->39 over all V),
+            # so it needs the full encode. Without it only the kept pairs matter, and the
+            # frozen backbone can skip the other timesteps (2 of T instead of T).
+            encode_all_views = w_feat > 0
+            tokens, _feats, x_prev, x, H, W = self._extract_pair_feats(
+                imgs, num_cameras=num_cameras, pair_t=None if encode_all_views else keep,
+            )
+
+            # A full encode returns all B*(T-1) pairs, so drop the unkept rows here instead.
+            # x_prev is (B*(T-1), N, P, C) batch-major: row b*(T-1)+t is seq b, transition t.
+            idx = None                                          # row index into the full pair set
+            if encode_all_views and keep is not None:
+                seq_offset = torch.arange(B, device=x_prev.device) * T_minus_1  # (B,)
+                idx = (seq_offset[:, None] + keep).reshape(-1)  # (B*pairs_per_seq,) rows to keep
                 x_prev = x_prev[idx]
                 x = x[idx]
 
@@ -1019,7 +1029,6 @@ class DeltaTokTrainer(DeltaTokSharedMixin, Trainer):
             # Optional downstream DA3 feature loss: insert the predicted frames back among the
             # GT OccAny tokens, run one forward over all V views (blocks 13->39), and match the
             # predicted frames' out_layer features vs the pure-GT decode. 0 weight == no-op.
-            w_feat = float(self.cfg.training.get("feature_loss_weight", 0.0))
             if w_feat > 0:
                 loss_feat = self._feature_loss(tokens, x_hat, B, T_minus_1, idx, num_cameras, H, W)
                 loss_total = loss + w_feat * loss_feat

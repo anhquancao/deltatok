@@ -6,11 +6,11 @@
 #SBATCH --cpus-per-task=24
 #SBATCH --hint=nomultithread
 #SBATCH -C h100
-#SBATCH --account=zuw@h100
-#SBATCH --qos=qos_gpu_h100-t3
-#SBATCH --time=20:00:00
-##SBATCH --qos=qos_gpu_h100-dev
-##SBATCH --time=02:00:00
+#SBATCH --account=trg@h100
+##SBATCH --qos=qos_gpu_h100-t3
+##SBATCH --time=20:00:00
+#SBATCH --qos=qos_gpu_h100-dev
+#SBATCH --time=02:00:00
 #SBATCH --output=slurm/output/jz_train_deltatok_multitoken_sigreg_nozn_%j.out
 #SBATCH --error=slurm/output/jz_train_deltatok_multitoken_sigreg_nozn_%j.err
 
@@ -63,7 +63,7 @@ export SIGREG_POOL_SAMPLES=${SIGREG_POOL_SAMPLES:-8192}
 export PEAK_LR=${PEAK_LR:-1e-3}                   # peak lr (cosine-decayed); lower for high-K stability
 export GRAD_CLIP=${GRAD_CLIP:-0.1}               # tighter than base 1.0 (upstream DeltaTok uses 1e-2); tames early grads
 export GRAD_SKIP_THRESH=${GRAD_SKIP_THRESH:-0.0} # >0 also skips finite grad_norm spikes; set ~3-5x steady-state after a peek
-export RUN_SUFFIX=${RUN_SUFFIX:-}                 # appended to RUN_NAME for a distinct dir (e.g. _lr5e4_gradskip)
+export RUN_SUFFIX=${RUN_SUFFIX:-_pairslice}       # fresh dir for the sliced-encode code; "" restores the reference name
 # _cos1e3_1e5_b95: anti blow-up recipe (cosine peak_lr->1e-5 + AdamW beta2=0.95, eps 1e-8 default).
 # _gradskip: trainer skips non-finite-grad steps + won't overwrite a good ckpt with NaN.
 # _noaff/_prenorm: kept for name parity with the BSC arm; both inert here (no z-norm, no bottleneck).
