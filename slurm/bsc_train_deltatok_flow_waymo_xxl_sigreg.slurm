@@ -1,8 +1,8 @@
 #!/bin/bash
 #SBATCH --job-name=deltatok_flow_waymo_xxl_sigreg
 #SBATCH --nodes=1
-#SBATCH --ntasks-per-node=4
-#SBATCH --gres=gpu:4
+#SBATCH --ntasks-per-node=2
+#SBATCH --gres=gpu:2
 #SBATCH --cpus-per-task=20
 #SBATCH --account=ehpc1001
 #SBATCH --partition=acc
@@ -56,7 +56,6 @@ EXTRA_CFG_ARGS=(
     model.loss_mode=v                          # v-MSE: 1/(1-t)^2-weighted x-MSE, upweights t->1
     model.vit_size=xxlarge_d20                 # width 1536, 2x the latent Cz; held fixed so the tokenizer is the only variable
     model.vit_dit_adaln=true                   # per-block AdaLN-Zero + Fourier t-embed; ~1.2B total
-    training.bsize=8                           # 4 ranks x 8 = effective_bsize 32 -> grad_cum 1, as JZ's 2x16
     training.exit_before_time_limit=true       # clean exit near the SLURM wall (chain-resume safe)
     training.epoch=100                         # 100k updates, chained across SLURM walls
     training.max_iter=200000                   # lifted so epoch=100 is the sole stop
