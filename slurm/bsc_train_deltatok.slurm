@@ -14,7 +14,7 @@
 #SBATCH --error=slurm/output/bsc_train_deltatok_%j.err
 
 # BSC acc partition: 4 H100/node, 80 cores -> 20 cpus/task.
-# acc_ehpc caps walltime at 48h; acc_debug is 2h for smoke runs.
+# acc_ehpc caps walltime at 72h; acc_debug is 2h for smoke runs.
 #
 #   ssh bsc "cd /gpfs/projects/ehpc1001/code/deltatok && sbatch slurm/bsc_train_deltatok.slurm"
 

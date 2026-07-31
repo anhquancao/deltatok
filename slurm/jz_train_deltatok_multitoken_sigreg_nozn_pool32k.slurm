@@ -1,44 +1,51 @@
 #!/bin/bash
-#SBATCH --job-name=deltatok_bsc
+#SBATCH --job-name=deltatok_jz
 #SBATCH --nodes=1
 #SBATCH --ntasks-per-node=4
 #SBATCH --gres=gpu:4
-#SBATCH --cpus-per-task=20
-#SBATCH --account=ehpc1001
-#SBATCH --partition=acc
-#SBATCH --qos=acc_ehpc
-#SBATCH --time=40:00:00
-##SBATCH --qos=acc_debug
+#SBATCH --cpus-per-task=24
+#SBATCH --hint=nomultithread
+#SBATCH -C h100
+#SBATCH --account=trg@h100
+#SBATCH --qos=qos_gpu_h100-t3
+#SBATCH --time=20:00:00
+##SBATCH --qos=qos_gpu_h100-dev
 ##SBATCH --time=02:00:00
-#SBATCH --output=slurm/output/bsc_train_deltatok_multitoken_sigreg_nozn_%j.out
-#SBATCH --error=slurm/output/bsc_train_deltatok_multitoken_sigreg_nozn_%j.err
+#SBATCH --output=slurm/output/jz_train_deltatok_multitoken_sigreg_nozn_pool32k_%j.out
+#SBATCH --error=slurm/output/jz_train_deltatok_multitoken_sigreg_nozn_pool32k_%j.err
 
-# BSC acc: 4 H100/node, 80 cores -> 20 cpus/task. acc_ehpc caps 72h; acc_debug is 2h.
-# 40h not 72h: shorter backfills better (p90 4min@12h vs 8.6h@48h); ~53 ep/job, chain RESUME=1.
-#   ssh bsc "bash -lc 'cd /gpfs/projects/ehpc1001/code/deltatok && sbatch slurm/bsc_train_deltatok_multitoken_sigreg_nozn.slurm'"
+# JZ gpu_p6: 4 H100/node, 96 cores -> 24 cpus/task. -t3 caps 20h; -t4 is 100h with fewer GPUs.
+# Submit from a LOGIN shell so `module` (login-only) reaches the job:
+#   ssh jean-zay "bash -lc 'cd \$TRG_WORK/code/deltatok && sbatch slurm/jz_train_deltatok_multitoken_sigreg_nozn_pool32k.slurm'"
 #
+# JZ port of bsc_train_deltatok_multitoken_sigreg_nozn.slurm; same RUN_NAME, own LOG_AND_CKPT_DIR.
 # DeltaTok tokenizer, layer-12, no camera rope. tc1536 == hidden_size -> no channel bottleneck,
 # and z_norm=false -> no z LayerNorm: SIGReg alone shapes a raw 1536-d z. K is the only compression.
 # pool=32768 (was 8192): at 8192 the 1/S floor was 1.32e-4 == 80% of the 1.65e-4 anisotropy signal.
 # But pool is NOT weight-neutral: scale=n_pooled/n_live jumps 11.7 -> 43.7 and the staler pool delays
 # the feedback 4x, so at w=0.05 the stat spiked 39x at warmup end and Eval never left 0.126 (2026-07-31).
 # Hence w=0.01 ~= 0.05*11.7/43.7. WATCH: LossSIGReg must descend past iter 2000, floor ~3.2e-5.
-#   for W in 0.01 0.005; do sbatch --export=ALL,SIGREG_WEIGHT=$W slurm/bsc_train_deltatok_multitoken_sigreg_nozn.slurm; done
+#   for W in 0.01 0.005; do sbatch --export=ALL,SIGREG_WEIGHT=$W slurm/jz_train_deltatok_multitoken_sigreg_nozn_pool32k.slurm; done
 
 mkdir -p slurm/output
 
-cd /gpfs/projects/ehpc1001/code/deltatok
+cd /lustre/fswork/projects/rech/trg/uyl37fq/code/deltatok
 
-source env_bsc.sh
+source env_jz_h100.sh
 
+export PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
+
+# The module's site-packages bundles TensorFlow; silence its startup spam.
+export TF_CPP_MIN_LOG_LEVEL=3
+export TF_ENABLE_ONEDNN_OPTS=0
 export OMP_NUM_THREADS="${OMP_NUM_THREADS:-4}"
 export TORCH_NCCL_HEARTBEAT_TIMEOUT_SEC="${TORCH_NCCL_HEARTBEAT_TIMEOUT_SEC:-1000}"
 
 # file_descriptor shm strategy holds an fd per shared tensor per worker
 ulimit -n "$(ulimit -Hn)"
 
-export CONFIG_NAME=train_deltatok_bsc
-export LOG_AND_CKPT_DIR="$SCRATCH/deltatok_log"
+export CONFIG_NAME=train_deltatok_jeanzay
+export LOG_AND_CKPT_DIR="/lustre/fswork/projects/rech/trg/uyl37fq/deltatok_log"
 export RESULTS_DIR="$LOG_AND_CKPT_DIR"
 export RESUME=${RESUME:-0}   # 0 restarts and clobbers current.pth; --export=ALL,RESUME=1 to continue
 

@@ -28,7 +28,7 @@ Cluster context: project work runs on **Jean Zay** and **BSC (MareNostrum)**. Ka
 |---|---|---|
 | SSH alias | `jean-zay` (reverse tunnel — see `jeanzay-karolina-tunnel` skill if refused) | `bsc` |
 | Account | `trg@h100` | `ehpc1001` |
-| Partition / QoS | `gpu_p6` via `-C h100`; `qos_gpu_h100-t3` (20 h) / `-t4` (100 h) / `-dev` | `acc`; `acc_ehpc` (prod) / `acc_debug` |
+| Partition / QoS | `gpu_p6` via `-C h100`; `qos_gpu_h100-t3` (20 h) / `-t4` (100 h) / `-dev` (2 h) | `acc`; `acc_ehpc` (prod, 72 h) / `acc_debug` (2 h) |
 | Node shape | 4 GPU, `--cpus-per-task=24` | 4 H100, `--cpus-per-task=20` |
 | Repo path | `$TRG_WORK/code/deltatok` | `/gpfs/projects/ehpc1001/code/deltatok` |
 | Env | `source env_jz_h100.sh` | `source env_bsc.sh` |
@@ -122,6 +122,8 @@ ssh bsc "bash -lc 'cd /gpfs/projects/ehpc1001/code/deltatok && sbatch slurm/bsc_
 
 When submitting chained training jobs (a dependency chain of resume jobs for a long run), use the `chain-slurm-jobs` skill rather than hand-rolling the submission.
 
+On BSC, prefer chained 24 h jobs over one long job: the scheduler is `sched/backfill` (`bf_window=4320`) and walltime does **not** enter the priority formula, so a shorter request only ever fits more gaps — measured p90 queue wait was 4 min at 12 h vs 8.6 h at 48 h. `training.exit_before_time_limit=true` makes the split checkpoint-safe.
+
 ## Critical: Verify cluster files before submitting SLURM jobs
 
 Before submitting any SLURM job on a cluster, always verify that the script on the cluster matches the local version. The user syncs files manually — never assume a local edit has been pushed, and never sync files to the cluster yourself (no scp/rsync); always ask the user to sync. Check with e.g.:
@@ -188,6 +190,7 @@ cd third_party/croco/models/curope && python setup.py install
 - **Clarifying questions / task tracking:** see "Asking questions" and "Task tracking" above — `AskUserQuestion` for ambiguity, `TaskCreate` for anything multi-step.
 - **Edits:** surgical and explainable — change only what the task requires (no drive-by refactors, renames, or reformatting), and explain each edit so a human can verify it easily.
 - **Comments:** be terse. Prefer the fewest words that convey the *why*, not the *what*; default to a single short line. No long prose blocks or multi-line docstring essays — this applies to shell/slurm/config comments too (one short line beats a multi-line block). The inline tensor shape annotations below are the only expected multi-part comments.
+  - **Editing an existing comment must not lengthen it.** When revising a comment block, the replacement must be no longer than what it replaces — if a new finding needs recording, cut a stale line to make room. Comment blocks accrete otherwise. Long-form rationale (measurements, dated findings, sweep history) belongs in `docs/journal/*.html` or `../monitor_jobs` `data/research.json`, not in a slurm/config header.
 - **New variant scripts:** when a new script is a variant of an existing one (e.g. a new `visualize_*`/`test_*` entrypoint), copy the closest existing file first (`cp old.py new.py`) and apply surgical edits to it — do not rewrite from scratch. This keeps the shared structure identical and makes the diff reviewable.
 - **Tensor code comments:** comment each line of tensor-manipulation code, and always annotate the resulting tensor shape inline, e.g. `x = rearrange(x, 'b (t s) d -> (b s) t d', t=t, s=s)  # (B*S, T, D)`. Also state what each shape symbol means when it first appears.
 
