@@ -1068,7 +1068,8 @@ class DeltaTokFlowMatchingTrainer(DeltaTokSharedMixin, Trainer):
                 try:
                     loader = get_data_loader(
                         sub,
-                        batch_size=self.cfg.training.bsize,
+                        # val_bsize caps eval decode memory (0 = train bsize)
+                        batch_size=int(self.cfg.training.get("val_bsize", 0)) or self.cfg.training.bsize,
                         num_workers=int(self.cfg.training.get("val_num_workers", 2)),
                         shuffle=False,
                         drop_last=False,

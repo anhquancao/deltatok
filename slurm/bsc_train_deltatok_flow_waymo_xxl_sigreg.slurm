@@ -65,6 +65,9 @@ EXTRA_CFG_ARGS=(
     model.sampler_scheduler_mode=linear        # uniform-in-t grid, matching the train prior
     model.sampler_alpha=0                      # no per-frame stagger
     training.eval_num_steps=20                 # clamp(1-t,0.05) never binds: no residual noise
+    # 44035845: eval decode of 16x5 frames OOM'd the 64GB card (train peak 49.5GiB,
+    # eval needs ~62). expandable_segments doesn't work on BSC, so shrink the eval batch.
+    training.val_bsize=4                       # eval-only; JZ twin evals at 16 (weighting diff is small)
 )
 export EXTRA_CFG="${EXTRA_CFG_ARGS[*]}"
 # --resume is a no-op without current.pth, so job 1 starts fresh and chained jobs continue it:

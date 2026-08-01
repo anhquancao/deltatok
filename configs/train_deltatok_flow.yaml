@@ -123,6 +123,9 @@ training:
   effective_bsize: 32
   num_workers: 4
   val_num_workers: 2
+  # eval loader batch size; 0 = bsize. Lower on 64GB cards: the eval OccRAE decode
+  # of B*V frames OOMs at bsize 16 (BSC:44035845).
+  val_bsize: 0
   grad_clip: 1.0
   seed: 0
   # Overfit: memoize the frozen OccRAE(~1B)+DeltaTok encode per sample (keyed by

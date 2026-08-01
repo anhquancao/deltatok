@@ -48,11 +48,11 @@ dataset:
   # fixed_cams=[0] short-circuits vpt sampling (num_views_per_timestep=5 is only the
   # physical seq layout) and min=max_memory=5 pins the draw: every item is 5 timesteps
   # (anchor + 4 random later ones, sorted; NOT consecutive) x cam 0 at (518,266).
-  # sub1_stride49: seq slots are consecutive 10Hz frames (50/seq) -> item deltas
-  # 0.1-4.9s (was sub5_stride9: 0.5s slots, deltas 0.5-4.5s). Val pkl unchanged.
+  # sub5_stride9: 0.5s slots -> item deltas 0.5-4.5s, the pkl the tokenizer trained on
+  # (was sub1_stride49: consecutive 10Hz frames, 0.1-4.9s). Val pkl unchanged.
   # 32000/epoch = 1000 steps/epoch at effective_bsize 32 -> 50k steps over 50 epochs.
   train_dataset: "32000 @ WaymoSeqMultiView(ROOT='/lustre/fsn1/projects/rech/trg/uyl37fq/occany_dataset/waymo_processed', \
-      seq_pkl_name='seq_surround_temporal_sub1_stride49_fs1_all.pkl', \
+      seq_pkl_name='seq_surround_temporal_sub5_stride9_fs1_all.pkl', \
       min_memory_num_views=5, frame_interval=1, max_memory_num_views=5, \
       num_views_per_timestep=5, fixed_cams=[0], min_num_timesteps=2, ray_map_prob=-1, \
       z_far=50, split=None, exclude_scenes=${dataset._waymo_val_scenes}, no_partial_views=True, \
