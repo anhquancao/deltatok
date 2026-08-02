@@ -32,7 +32,7 @@ from occrae.deltatok_trainer import DeltaTokTrainer  # noqa: E402
 
 def get_args_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="Train DeltaTok tokenizer.")
-    parser.add_argument("--config-dir", type=str, default="configs")
+    parser.add_argument("--config-dir", type=str, default="configs/deltatok")
     parser.add_argument("--config-name", type=str, default="train_deltatok")
     parser.add_argument(
         "--cfg", type=str, nargs="*", default=[],

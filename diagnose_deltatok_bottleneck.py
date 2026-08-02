@@ -79,8 +79,8 @@ def get_args_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         description="Diagnose whether the DeltaTok 768 channel bottleneck is capacity- or optimization-limited."
     )
-    parser.add_argument("--config-dir", type=str, default="configs")
-    parser.add_argument("--config-name", type=str, default="train_deltatok_flow_jeanzay_waymo")
+    parser.add_argument("--config-dir", type=str, default="configs/deltatok_flow")
+    parser.add_argument("--config-name", type=str, default="train_deltatok_flow_waymo_jeanzay")
     parser.add_argument(
         "--cfg", type=str, nargs="*", default=[],
         help="Optional Hydra-style overrides, e.g. training.bsize=8. Takes precedence "

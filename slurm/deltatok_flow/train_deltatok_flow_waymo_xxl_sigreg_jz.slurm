@@ -39,7 +39,7 @@ ulimit -n "$(ulimit -Hn)"
 # TOKENIZER swap of train_deltatok_flow_waymo_xxl_uniformt_cross_jz.slurm: same flow recipe,
 # Cz 1536 -> 768 via the stage-2 bottleneck arm (tc1536 sigreg0.05 frozen, only the projections
 # trained on a raw-code round-trip; eval 0.0283). sub5 train pkl, so NOT matched to uniformt_cross.
-export CONFIG_NAME=train_deltatok_flow_jeanzay_waymo
+export CONFIG_NAME=train_deltatok_flow_waymo_jeanzay
 export RESULTS_DIR="/lustre/fswork/projects/rech/trg/uyl37fq/deltatok_flow_log"
 export RUN_NAME=deltatok_flow_waymo_tc768stage2bneckrawep20_deltaCtxCross_uniformTshared_lin20a0_wd05_raymapoff_sub5_100k_constlr_nowhiten_xxl_dit
 EXTRA_CFG_ARGS=(

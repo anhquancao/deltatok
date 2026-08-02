@@ -87,7 +87,7 @@ def get_args_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         description="Paired z spread/isotropy comparison of two DeltaTok checkpoints."
     )
-    parser.add_argument("--config-dir", type=str, default="configs")
+    parser.add_argument("--config-dir", type=str, default="configs/deltatok")
     parser.add_argument("--config-name", type=str, default="train_deltatok_jeanzay")
     parser.add_argument(
         "--cfg", type=str, nargs="*", default=[],

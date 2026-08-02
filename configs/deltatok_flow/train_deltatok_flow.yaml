@@ -7,34 +7,34 @@ dataset:
   train_dataset: "2000 @ WaymoSeqMultiView(ROOT='/scratch/project/eu-25-92/data/waymo_processed', \
       seq_pkl_name='seq_surround_temporal_sub5_stride9_all.pkl', \
       min_memory_num_views=5, frame_interval=1, max_memory_num_views=24, \
-      num_views_per_timestep=5, min_views_per_timestep=1, min_num_timesteps=2, ray_map_prob=-1, \
+      num_views_per_timestep=5, min_views_per_timestep=1, min_num_timesteps=2, \
       z_far=50, split='train', no_partial_views=True, \
       resolution=[(518, 294), (518, 280), (518, 266), (518, 210), (518, 168)], \
       reverse_seq=True, distill_model_name='SAM3', base_model='da3') + \
       1000 @ VKittiSeqMultiView(VKITTI_PROCESSED_ROOT='/scratch/project/eu-25-92/data/vkitti_processed', \
       seq_pkl_name='seq_exact_len_sub5_stride9.pkl', \
-      min_memory_num_views=5, frame_interval=1, max_memory_num_views=10, min_num_timesteps=2, ray_map_prob=-1, \
+      min_memory_num_views=5, frame_interval=1, max_memory_num_views=10, min_num_timesteps=2, \
       z_far=50, split='train', no_partial_views=True, \
       resolution=[(518, 294), (518, 280), (518, 266), (518, 210), (518, 168)], \
       reverse_seq=True, distill_model_name='SAM3', base_model='da3') + \
       2000 @ DDADSeqMultiView(DDAD_PREPROCESSED_ROOT='/scratch/project/eu-25-92/data/ddad_processed', \
       seq_pkl_name='seq_surround_temporal_sub5_stride9_all.pkl', \
       min_memory_num_views=6, frame_interval=1, max_memory_num_views=24, \
-      num_views_per_timestep=6, min_views_per_timestep=1, min_num_timesteps=2, ray_map_prob=-1, \
+      num_views_per_timestep=6, min_views_per_timestep=1, min_num_timesteps=2, \
       z_far=50, split='train', no_partial_views=True, \
       resolution=[(518, 294), (518, 280), (518, 266), (518, 210), (518, 168)], \
       reverse_seq=True, distill_model_name='SAM3', base_model='da3') + \
       2000 @ PandasetSeqMultiView(PANDASET_PREPROCESSED_ROOT='/scratch/project/eu-25-92/data/pandaset_processed', \
       seq_pkl_name='seq_surround_temporal_sub5_stride9_all.pkl', \
       min_memory_num_views=6, frame_interval=1, max_memory_num_views=24, \
-      num_views_per_timestep=6, min_views_per_timestep=1, min_num_timesteps=2, ray_map_prob=-1, \
+      num_views_per_timestep=6, min_views_per_timestep=1, min_num_timesteps=2, \
       z_far=50, split='train', no_partial_views=True, \
       resolution=[(518, 294), (518, 280), (518, 266), (518, 210), (518, 168)], \
       reverse_seq=True, distill_model_name='SAM3', base_model='da3') + \
       2000 @ OnceSeqMultiView(ONCE_PREPROCESSED_ROOT='/scratch/project/eu-25-92/data/once_processed', \
       seq_pkl_name='seq_surround_temporal_sub5_stride9_all.pkl', \
       min_memory_num_views=5, frame_interval=1, max_memory_num_views=24, \
-      num_views_per_timestep=5, min_views_per_timestep=1, min_num_timesteps=2, ray_map_prob=-1, \
+      num_views_per_timestep=5, min_views_per_timestep=1, min_num_timesteps=2, \
       z_far=50, split='train', no_partial_views=True, \
       resolution=[(518, 294), (518, 280), (518, 266), (518, 210), (518, 168)], \
       reverse_seq=True, distill_model_name='SAM3', base_model='da3')"
@@ -56,6 +56,7 @@ model:
   vit_use_camera_embed: false  # absolute learned per-camera identity over the flow-ViT camera axis; enable via EXTRA_CFG
   cond_mode: cross       # cross | delta_ctx | delta_ctx_cross | delta_ctx_incontext (delta_ctx = first delta token as clean in-seq context, no cross-attn; delta_ctx_cross = delta_ctx + frame-0 cross-attn; delta_ctx_incontext = delta_ctx + frame-0 patch grid CONCATENATED in-sequence, one global attention with per-token AdaLN, no cross-attn — requires attn_mode=global + vit_dit_adaln)
   attn_mode: factorized  # factorized | global (global = one attention over all delta tokens)
+  num_ctx_deltas: 1      # clean leading delta tokens in the delta_ctx modes; n = n+1 given frames (ignored by cond_mode=cross)
 
   # Temporal slot capacity: must be >= max T-1 transitions per item (worst case
   # above: max_memory_num_views=24 with min_views_per_timestep=1 -> T-1 = 23).

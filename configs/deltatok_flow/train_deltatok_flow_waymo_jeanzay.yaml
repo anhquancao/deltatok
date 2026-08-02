@@ -54,7 +54,7 @@ dataset:
   train_dataset: "32000 @ WaymoSeqMultiView(ROOT='/lustre/fsn1/projects/rech/trg/uyl37fq/occany_dataset/waymo_processed', \
       seq_pkl_name='seq_surround_temporal_sub5_stride9_fs1_all.pkl', \
       min_memory_num_views=5, frame_interval=1, max_memory_num_views=5, \
-      num_views_per_timestep=5, fixed_cams=[0], min_num_timesteps=2, ray_map_prob=-1, \
+      num_views_per_timestep=5, fixed_cams=[0], min_num_timesteps=2, \
       z_far=50, split=None, exclude_scenes=${dataset._waymo_val_scenes}, no_partial_views=True, \
       resolution=[(518, 266)], \
       reverse_seq=False, base_model='da3')"

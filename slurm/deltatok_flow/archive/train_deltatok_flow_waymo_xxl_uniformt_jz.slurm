@@ -44,7 +44,7 @@ ulimit -n "$(ulimit -Hn)"
 # the t schedule changes (train + sampler together). Tests the untested half of VGGT-World's
 # escape (docs/journal/deltatok_flow_wall_diagnosis.html): uniform t puts 5.0% of draws
 # above t=0.95 vs 0.46%. Judge on LossDepth vs the *_tok ceilings, not MSEToken.
-export CONFIG_NAME=train_deltatok_flow_jeanzay_waymo
+export CONFIG_NAME=train_deltatok_flow_waymo_jeanzay
 export RESULTS_DIR="/lustre/fswork/projects/rech/trg/uyl37fq/deltatok_flow_log"
 # Distinct name so this run lands in its own subdir (the incontext run keeps its dir).
 export RUN_NAME=deltatok_flow_waymo_dtok64_deltaCtxIncontext_uniformTshared_lin20a0_wd05_raymapoff_50k_whitenpos_xxl_dit

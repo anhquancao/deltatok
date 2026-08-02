@@ -44,7 +44,7 @@ ulimit -n "$(ulimit -Hn)"
 # recipe, one change back — cond_mode delta_ctx_incontext -> delta_ctx_cross, i.e. frame-0
 # returns to static per-camera cross-attn kv instead of in-sequence patch tokens (the
 # xxl_dit conditioning path). Judge on LossDepth vs the *_tok ceilings, not MSEToken.
-export CONFIG_NAME=train_deltatok_flow_jeanzay_waymo
+export CONFIG_NAME=train_deltatok_flow_waymo_jeanzay
 export RESULTS_DIR="/lustre/fswork/projects/rech/trg/uyl37fq/deltatok_flow_log"
 # Distinct name so this run lands in its own subdir (the uniformt run keeps its dir).
 export RUN_NAME=deltatok_flow_waymo_dtok64_deltaCtxCross_uniformTshared_lin20a0_wd05_raymapoff_sub1_100k_constlr_whitenpos_xxl_dit

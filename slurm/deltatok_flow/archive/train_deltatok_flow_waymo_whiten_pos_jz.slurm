@@ -50,7 +50,7 @@ ulimit -n "$(ulimit -Hn)"
 # (config bsize=16, effective_bsize=32 -> grad_cum 1); 32000-sample epochs
 # -> 1000 steps/epoch, 50k steps over 50 epochs. Same validated model settings
 # as the full-dataset dtok64 run; only the dataset differs.
-export CONFIG_NAME=train_deltatok_flow_jeanzay_waymo
+export CONFIG_NAME=train_deltatok_flow_waymo_jeanzay
 export RESULTS_DIR="/lustre/fswork/projects/rech/trg/uyl37fq/deltatok_flow_log"
 # Distinct name so this run lands in its own subdir (the baseline keeps its dir).
 export RUN_NAME=deltatok_flow_waymo_dtok64_deltaCtxCross_global_fullT_wd05_raymapoff_50k_whitenpos_v2

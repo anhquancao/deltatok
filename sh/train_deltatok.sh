@@ -3,7 +3,7 @@ set -euo pipefail
 
 # EVAL_ONLY=1 bash sh/train_deltatok.sh
 
-: "${CONFIG_DIR:=configs}"
+: "${CONFIG_DIR:=configs/deltatok}"
 : "${CONFIG_NAME:=train_deltatok_karolina}"
 : "${EVAL_ONLY:=0}"
 : "${RESUME:=0}"

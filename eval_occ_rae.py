@@ -10,7 +10,7 @@ Usage
 -----
 # Sample from a trained model and decode to 3D:
 python eval_occ_rae.py \
-    --config configs/train_deltatok_flow_overfit.yaml \
+    --config configs/deltatok_flow/train_deltatok_flow_overfit.yaml \
     --ckpt /gpfs/scratch/ehpc551/occrae_exps/overfit/ckpts/current.pth \
     --latent_path /gpfs/scratch/ehpc558/quan/occrae_emb_overfit/ddad_processed/val_0/000000_0.pth \
     --occany_recon_ckpt checkpoints/occany_plus_recon_1B.pth \
@@ -18,7 +18,7 @@ python eval_occ_rae.py \
 
 # Also decode ground-truth tokens for side-by-side comparison:
 python eval_occ_rae.py \\
-    --config configs/train_deltatok_flow_overfit.yaml \\
+    --config configs/deltatok_flow/train_deltatok_flow_overfit.yaml \\
     --ckpt /path/to/checkpoints/current.pth \\
     --latent_path /path/to/occrae_emb/dataset/scene/sample.pth \\
     --save_target
@@ -78,7 +78,7 @@ def get_args_parser() -> argparse.ArgumentParser:
         "--config",
         type=str,
         required=True,
-        help="Path to the YAML config used for training (e.g. configs/train_deltatok_flow_overfit.yaml).",
+        help="Path to the YAML config used for training (e.g. configs/deltatok_flow/train_deltatok_flow_overfit.yaml).",
     )
     parser.add_argument(
         "--ckpt",

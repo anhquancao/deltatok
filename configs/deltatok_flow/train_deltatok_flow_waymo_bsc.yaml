@@ -2,7 +2,7 @@ defaults:
   - train_deltatok_flow_bsc
   - _self_
 
-# BSC port of train_deltatok_flow_jeanzay_waymo: identical dataset recipe (Waymo
+# BSC port of train_deltatok_flow_waymo_jeanzay: identical dataset recipe (Waymo
 # train minus 32 held-out scenes, those 32 as val), only ROOT moves to the
 # ehpc1001 scratch tier. Keep the two in sync so the runs stay comparable.
 dataset:
@@ -53,7 +53,7 @@ dataset:
   train_dataset: "32000 @ WaymoSeqMultiView(ROOT='/gpfs/scratch/ehpc1001/occany_data/waymo_processed', \
       seq_pkl_name='seq_surround_temporal_sub5_stride9_fs1_all.pkl', \
       min_memory_num_views=5, frame_interval=1, max_memory_num_views=5, \
-      num_views_per_timestep=5, fixed_cams=[0], min_num_timesteps=2, ray_map_prob=-1, \
+      num_views_per_timestep=5, fixed_cams=[0], min_num_timesteps=2, \
       z_far=50, split=None, exclude_scenes=${dataset._waymo_val_scenes}, no_partial_views=True, \
       resolution=[(518, 266)], \
       reverse_seq=False, base_model='da3')"

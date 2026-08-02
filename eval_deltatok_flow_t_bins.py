@@ -30,7 +30,7 @@ Usage (on Jean Zay, from a GPU node; defaults target the
 deltatok_flow_waymo_dtok64_deltaCtxCross_global_fullT_wd05_raymapoff_50k run's last ckpt):
   source env_jz_h100.sh &&
   python eval_deltatok_flow_t_bins.py --output_dir results/deltatok_flow_t_bins
-  # Defaults: --config-name train_deltatok_flow_jeanzay_waymo, --ckpt the _50k run's
+  # Defaults: --config-name train_deltatok_flow_waymo_jeanzay, --ckpt the _50k run's
   # current.pth, and the run's arch flags from slurm/deltatok_flow/train_deltatok_flow_waymo_jz.slurm
   # (cond_mode=delta_ctx_cross, attn_mode=global, vit_use_camera_embed=true, dtok64
   # non-affine tokenizer) so the built flow ViT matches the saved weights. Override any
@@ -91,8 +91,8 @@ def get_args_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         description="DeltaTok flow-matching error per noise-level (t) bin."
     )
-    parser.add_argument("--config-dir", type=str, default="configs")
-    parser.add_argument("--config-name", type=str, default="train_deltatok_flow_jeanzay_waymo")
+    parser.add_argument("--config-dir", type=str, default="configs/deltatok_flow")
+    parser.add_argument("--config-name", type=str, default="train_deltatok_flow_waymo_jeanzay")
     parser.add_argument(
         "--cfg", type=str, nargs="*", default=[],
         help="Optional Hydra-style overrides, e.g. training.bsize=8. Takes precedence "

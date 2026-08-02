@@ -49,7 +49,7 @@ ulimit -n "$(ulimit -Hn)"
 #   2. vit_size=xxlarge_d20 — depth 28->20 (width kept at C=1536) so per-block
 #      adaLN doesn't blow the model to ~1.7B; ~1.2B fits bsize 16 like xxl. The
 #      tiny seq (4 transitions x 64 tok) doesn't need 28 layers (VGGT-World: 16).
-export CONFIG_NAME=train_deltatok_flow_jeanzay_waymo
+export CONFIG_NAME=train_deltatok_flow_waymo_jeanzay
 export RESULTS_DIR="/lustre/fswork/projects/rech/trg/uyl37fq/deltatok_flow_log"
 # Distinct name so this run lands in its own subdir (the xxl run keeps its dir).
 export RUN_NAME=deltatok_flow_waymo_dtok64_deltaCtxCross_global_fullT_wd05_raymapoff_50k_whitenpos_xxl_dit

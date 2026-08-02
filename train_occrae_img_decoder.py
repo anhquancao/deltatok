@@ -30,7 +30,7 @@ from occrae.img_decoder_trainer import ImgDecoderTrainer  # noqa: E402
 
 def get_args_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="Train OccRAE Image Decoder.")
-    parser.add_argument("--config-dir", type=str, default="configs")
+    parser.add_argument("--config-dir", type=str, default="configs/rae")
     parser.add_argument("--config-name", type=str, default="train_occrae_img_decoder")
     parser.add_argument(
         "--cfg", type=str, nargs="*", default=[],

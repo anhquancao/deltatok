@@ -32,7 +32,7 @@ ulimit -n "$(ulimit -Hn)"
 # BSC port of slurm/deltatok_flow/train_deltatok_flow_waymo_xxl_sigreg_jz.slurm: same recipe, ehpc1001 paths.
 # Frozen tokenizer is the stage-2 bottleneck arm (Cz 1536 -> 768: tc1536 sigreg0.05 frozen, only
 # the projections trained on a raw-code round-trip). Judge on LossDepth vs the JZ twin.
-export CONFIG_NAME=train_deltatok_flow_bsc_waymo
+export CONFIG_NAME=train_deltatok_flow_waymo_bsc
 export RESULTS_DIR="$SCRATCH/deltatok_flow_log"
 export RUN_NAME=deltatok_flow_waymo_tc768stage2bneckrawep20_deltaCtxCross_uniformTshared_lin20a0_wd05_raymapoff_sub1_100k_constlr_nowhiten_xxl_dit
 EXTRA_CFG_ARGS=(

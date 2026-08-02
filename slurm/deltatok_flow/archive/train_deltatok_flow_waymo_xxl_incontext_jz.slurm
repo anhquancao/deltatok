@@ -47,7 +47,7 @@ ulimit -n "$(ulimit -Hn)"
 # one joint global attention every block (cross-camera info flows; per-token AdaLN).
 # Tests the conditioning-extraction-gap hypothesis vs the walled xxl_dit run. The concat
 # makes the sequence ~4x longer (adds N*Hp*Wp frame-0 tokens), so bsize 16->8.
-export CONFIG_NAME=train_deltatok_flow_jeanzay_waymo
+export CONFIG_NAME=train_deltatok_flow_waymo_jeanzay
 export RESULTS_DIR="/lustre/fswork/projects/rech/trg/uyl37fq/deltatok_flow_log"
 # Distinct name so this run lands in its own subdir (the xxl_dit run keeps its dir).
 export RUN_NAME=deltatok_flow_waymo_dtok64_deltaCtxIncontext_global_fullT_wd05_raymapoff_50k_whitenpos_xxl_dit

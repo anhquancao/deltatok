@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-: "${CONFIG_DIR:=configs}"
+: "${CONFIG_DIR:=configs/deltatok_flow}"
 : "${CONFIG_NAME:=train_deltatok_flow}"
 : "${RESULTS_DIR:=/mnt/proj1/eu-25-92/deltatok_flow_log}"
 : "${RUN_NAME:=deltatok_flow}"

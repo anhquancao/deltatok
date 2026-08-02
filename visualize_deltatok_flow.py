@@ -75,7 +75,7 @@ def get_args_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         description="DeltaTok flow-matching forecast → vis_viser-compatible .npy output."
     )
-    parser.add_argument("--config-dir", type=str, default="configs")
+    parser.add_argument("--config-dir", type=str, default="configs/deltatok_flow")
     parser.add_argument("--config-name", type=str, default="train_deltatok_flow_jeanzay")
     parser.add_argument(
         "--cfg", type=str, nargs="*", default=[],
@@ -108,7 +108,7 @@ def get_args_parser() -> argparse.ArgumentParser:
     # Image-decoder spec. Flow generation ALWAYS decodes RGB with the OccRAE MAE
     # image decoder (per-variant point colours + saved PNGs); the flow config has
     # no img_decoder block (unlike the tokenizer config), so it is supplied here.
-    # These mirror the img_decoder block of configs/train_deltatok.yaml /
+    # These mirror the img_decoder block of configs/deltatok/train_deltatok.yaml /
     # test_occ_rae.py flags.
     parser.add_argument(
         "--img_decoder_ckpt", type=str,
@@ -193,7 +193,7 @@ def main() -> None:
         # Flow generation always decodes RGB: the flow config has no img_decoder
         # block (unlike the tokenizer config), so inject one from the CLI args —
         # OccRAE._build_occ_rae then loads the MAE decoder and decode_to_image
-        # yields per-variant RGB. Defaults mirror configs/train_deltatok.yaml.
+        # yields per-variant RGB. Defaults mirror configs/deltatok/train_deltatok.yaml.
         cfg.model.img_decoder = {
             "ckpt_path": args.img_decoder_ckpt,
             "config_path": args.img_decoder_config_path,

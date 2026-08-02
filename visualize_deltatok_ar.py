@@ -64,7 +64,7 @@ def get_args_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         description="DeltaTok autoregressive rollout → vis_viser-compatible .npy output."
     )
-    parser.add_argument("--config-dir", type=str, default="configs")
+    parser.add_argument("--config-dir", type=str, default="configs/deltatok")
     parser.add_argument("--config-name", type=str, default="train_deltatok_karolina")
     parser.add_argument(
         "--cfg", type=str, nargs="*", default=[],

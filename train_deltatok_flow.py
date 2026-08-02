@@ -47,7 +47,7 @@ def get_args_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--config-dir",
         type=str,
-        default="configs",
+        default="configs/deltatok_flow",
         help="Hydra config directory (default: configs).",
     )
     parser.add_argument(

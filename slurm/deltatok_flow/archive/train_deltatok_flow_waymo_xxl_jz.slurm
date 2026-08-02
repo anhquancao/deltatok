@@ -47,7 +47,7 @@ ulimit -n "$(ulimit -Hn)"
 # in code. EMA and mu/sigma deliberately left off to isolate the width fix (EMA
 # has never run in a flow job; the mu sweep + EMA are follow-ups). Everything
 # else matches whitenpos.
-export CONFIG_NAME=train_deltatok_flow_jeanzay_waymo
+export CONFIG_NAME=train_deltatok_flow_waymo_jeanzay
 export RESULTS_DIR="/lustre/fswork/projects/rech/trg/uyl37fq/deltatok_flow_log"
 # Distinct name so this run lands in its own subdir (the whitenpos run keeps its dir).
 export RUN_NAME=deltatok_flow_waymo_dtok64_deltaCtxCross_global_fullT_wd05_raymapoff_50k_whitenpos_xxl

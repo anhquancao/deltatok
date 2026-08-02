@@ -20,7 +20,7 @@ Usage (on Jean Zay, from a GPU node; defaults target the
 ..._50k_whitenpos_xxl_dit run's last ckpt):
   source env_jz_h100.sh &&
   python eval_deltatok_flow_sampler.py --output_dir results/deltatok_flow_sampler_eval
-  # Defaults: --config-name train_deltatok_flow_jeanzay_waymo, --ckpt the dit run's
+  # Defaults: --config-name train_deltatok_flow_waymo_jeanzay, --ckpt the dit run's
   # current.pth, and the run's arch flags from slurm/deltatok_flow/train_deltatok_flow_waymo_xxl_dit_jz.slurm
   # (dit AdaLN 1536x20, per-position whitening, delta_ctx_cross, dtok64 non-affine
   # tokenizer). Override any with --cfg model.<key>=... for a different flow run.
@@ -76,8 +76,8 @@ def get_args_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         description="Trainer-faithful generative eval with selectable sampler step modes."
     )
-    parser.add_argument("--config-dir", type=str, default="configs")
-    parser.add_argument("--config-name", type=str, default="train_deltatok_flow_jeanzay_waymo")
+    parser.add_argument("--config-dir", type=str, default="configs/deltatok_flow")
+    parser.add_argument("--config-name", type=str, default="train_deltatok_flow_waymo_jeanzay")
     parser.add_argument(
         "--cfg", type=str, nargs="*", default=[],
         help="Optional Hydra-style overrides, e.g. training.bsize=8. Takes precedence "
