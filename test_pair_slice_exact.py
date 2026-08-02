@@ -38,7 +38,7 @@ def main():
     ap.add_argument("--occany_recon_ckpt", default="checkpoints/occany_plus_recon_1B.pth")
     ap.add_argument("--encode_layer", type=int, default=12)
     ap.add_argument("--timesteps", type=int, default=6)       # T, as in the train configs
-    ap.add_argument("--num_cameras", type=int, default=2)     # max_views_per_timestep
+    ap.add_argument("--num_cameras", type=int, default=2)     # len(fixed_cams)
     ap.add_argument("--bsize", type=int, default=2)
     ap.add_argument("--pairs_per_seq", type=int, default=1)
     ap.add_argument("--height", type=int, default=294)        # 518x294 == the nuScenes preset

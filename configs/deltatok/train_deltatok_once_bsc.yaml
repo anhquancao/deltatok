@@ -1,0 +1,51 @@
+defaults:
+  - train_deltatok_bsc
+  - _self_
+
+# DATA swap of train_deltatok_bsc: the same tokenizer recipe on ONCE alone instead of
+# the 5-dataset mix, at the flow arm's single (518,266) rather than the mix's ladder.
+# 18000 items keeps 1125 iters/epoch, so epoch/max_iter/LR-cosine are untouched.
+# Eval is ONCE val too (the inherited KITTI+nuScenes is replaced), matching the flow
+# arm's held-out scenes: in-distribution, but NOT comparable to the mix arm's numbers.
+dataset:
+  # The 16 scenes the ONCE flow arm evaluates on. Held out here so a flow arm built on
+  # this frozen tokenizer is leak-free (the mix arm's split='train' does train on them).
+  # Costs 2311 of 845311 seqs (0.27%). Kept identical to
+  # configs/deltatok_flow/train_deltatok_flow_once_jeanzay.yaml.
+  _once_val_scenes:
+    - "000016"
+    - "000071"
+    - "000089"
+    - "000156"
+    - "000213"
+    - "000279"
+    - "000283"
+    - "000286"
+    - "000295"
+    - "000296"
+    - "000368"
+    - "000401"
+    - "000419"
+    - "000490"
+    - "000519"
+    - "000546"
+  # split=None bypasses once_pairs.py's own 2 val_scenes, so exclude_scenes is the only split.
+  # Monocular front cam (index 0 = cam01), as the flow arm: every item is 5 consecutive
+  # timesteps x cam01, i.e. a uniform 0.5s delta at the pkl's sub5 rate.
+  train_dataset: "18000 @ OnceSeqMultiView(ONCE_PREPROCESSED_ROOT='/gpfs/scratch/ehpc1001/occany_data/once_processed', \
+      seq_pkl_name='seq_surround_temporal_sub5_stride9_fs1_once_5cam_all.pkl', \
+      num_timesteps=5, num_views_per_timestep=5, fixed_cams=[0], \
+      z_far=50, split=None, exclude_scenes=${dataset._once_val_scenes}, \
+      resolution=[(518, 266)])"
+  # Val: the 16 held-out scenes at the SAME 5-timestep x cam01 shape as train, seed=42.
+  # Non-fs1 pkl, as the flow arm. Replaces the inherited KITTI+nuScenes eval, so
+  # Eval/Loss is NOT comparable to the mix arm's. 256 == training.eval_num_items.
+  test_dataset: "256 @ OnceSeqMultiView(ONCE_PREPROCESSED_ROOT='/gpfs/scratch/ehpc1001/occany_data/once_processed', \
+      seq_pkl_name='seq_surround_temporal_sub5_stride9_all.pkl', \
+      num_timesteps=5, num_views_per_timestep=5, fixed_cams=[0], \
+      z_far=50, split=None, select_scenes=${dataset._once_val_scenes}, seed=42, \
+      resolution=[(518, 266)])"
+      
+training:
+  # 4 GPU x bsize 4 x pairs_per_seq 1 = 16; effective_bsize 16 / 16 -> grad_cum 1.
+  bsize: 4

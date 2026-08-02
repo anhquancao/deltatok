@@ -3,51 +3,41 @@ exp_name: "deltatok"
 dataset:
   # Same dataset path as `train_occrae_img_decoder.yaml`: dust3r-style dataset
   # expression strings evaluated by `occany.datasets.get_data_loader`.
-  per_dataset_sampling: true
   train_dataset: "10000 @ WaymoSeqMultiView(ROOT='/gpfs/scratch/ehpc558/quan/occrae_data/waymo_processed', \
       seq_pkl_name='seq_surround_temporal_sub5_stride9_all.pkl', \
-      min_memory_num_views=5, frame_interval=1, max_memory_num_views=20, \
-      num_views_per_timestep=5, min_views_per_timestep=1, \
-      z_far=50, split='train', no_partial_views=True, \
-      resolution=[(518, 294), (518, 280), (518, 266), (518, 210), (518, 168)], \
-      reverse_seq=True, distill_model_name='SAM3', base_model='da3') + \
+      num_timesteps=5, num_views_per_timestep=5, fixed_cams=[0], \
+      z_far=50, split='train', distill_model_name='SAM3', \
+      resolution=[(518, 294), (518, 280), (518, 266), (518, 210), (518, 168)]) + \
       5000 @ VKittiSeqMultiView(VKITTI_PROCESSED_ROOT='/gpfs/scratch/ehpc558/quan/occrae_data/vkitti_processed', \
       seq_pkl_name='seq_exact_len_sub5_stride9.pkl', \
-      min_memory_num_views=5, frame_interval=1, max_memory_num_views=10, \
-      z_far=50, split='train', no_partial_views=True, \
-      resolution=[(518, 294), (518, 280), (518, 266), (518, 210), (518, 168)], \
-      reverse_seq=True, distill_model_name='SAM3', base_model='da3') + \
+      num_timesteps=5, fixed_cams=[0], \
+      z_far=50, split='train', distill_model_name='SAM3', \
+      resolution=[(518, 294), (518, 280), (518, 266), (518, 210), (518, 168)]) + \
       10000 @ DDADSeqMultiView(DDAD_PREPROCESSED_ROOT='/gpfs/scratch/ehpc558/quan/occrae_data/ddad_processed', \
       seq_pkl_name='seq_surround_temporal_sub5_stride9_all.pkl', \
-      min_memory_num_views=6, frame_interval=1, max_memory_num_views=20, \
-      num_views_per_timestep=6, min_views_per_timestep=1, \
-      z_far=50, split='train', no_partial_views=True, \
-      resolution=[(518, 294), (518, 280), (518, 266), (518, 210), (518, 168)], \
-      reverse_seq=True, distill_model_name='SAM3', base_model='da3') + \
+      num_timesteps=5, num_views_per_timestep=6, fixed_cams=[0], \
+      z_far=50, split='train', distill_model_name='SAM3', \
+      resolution=[(518, 294), (518, 280), (518, 266), (518, 210), (518, 168)]) + \
       10000 @ PandasetSeqMultiView(PANDASET_PREPROCESSED_ROOT='/gpfs/scratch/ehpc558/quan/occrae_data/pandaset_processed', \
       seq_pkl_name='seq_surround_temporal_sub5_stride9_all.pkl', \
-      min_memory_num_views=6, frame_interval=1, max_memory_num_views=20, \
-      num_views_per_timestep=6, min_views_per_timestep=1, \
-      z_far=50, split='train', no_partial_views=True, \
-      resolution=[(518, 294), (518, 280), (518, 266), (518, 210), (518, 168)], \
-      reverse_seq=True, distill_model_name='SAM3', base_model='da3') + \
+      num_timesteps=5, num_views_per_timestep=6, fixed_cams=[0], \
+      z_far=50, split='train', distill_model_name='SAM3', \
+      resolution=[(518, 294), (518, 280), (518, 266), (518, 210), (518, 168)]) + \
       10000 @ OnceSeqMultiView(ONCE_PREPROCESSED_ROOT='/gpfs/scratch/ehpc558/quan/occrae_data/once_processed', \
       seq_pkl_name='seq_surround_temporal_sub5_stride9_all.pkl', \
-      min_memory_num_views=5, frame_interval=1, max_memory_num_views=20, \
-      num_views_per_timestep=5, min_views_per_timestep=1, \
-      z_far=50, split='train', no_partial_views=True, \
-      resolution=[(518, 294), (518, 280), (518, 266), (518, 210), (518, 168)], \
-      reverse_seq=True, distill_model_name='SAM3', base_model='da3')"
+      num_timesteps=5, num_views_per_timestep=5, fixed_cams=[0], \
+      z_far=50, split='train', distill_model_name='SAM3', \
+      resolution=[(518, 294), (518, 280), (518, 266), (518, 210), (518, 168)])"
   test_dataset: "206 @ KittiSeqMultiView(KITTI_PREPROCESSED_ROOT='/gpfs/scratch/ehpc558/quan/occrae_data/kitti_processed', \
-      seq_pkl_name='seq_exact_len_sub5_stride9.pkl', frame_interval=1, \
-      min_memory_num_views=5, max_memory_num_views=5, reverse_seq=False, \
-      z_far=50, split='val', seed=42, no_partial_views=True, fixed_cams=[0], \
-      resolution=[(518, 168)], distill_model_name='SAM3', base_model='da3') + \
+      seq_pkl_name='seq_exact_len_sub5_stride9.pkl', \
+      num_timesteps=5, fixed_cams=[0], \
+      z_far=50, split='val', seed=42, distill_model_name='SAM3', \
+      resolution=[(518, 168)]) + \
       206 @ Occ3dNuscenesSeqMultiView(NUSCENES_PREPROCESSED_ROOT='/gpfs/scratch/ehpc558/quan/occrae_data/occ3d_nuscenes_processed', \
-      seq_pkl_name='seq_surround_temporal_sub1_stride9_all.pkl', frame_interval=1, \
-      min_memory_num_views=18, max_memory_num_views=18, num_views_per_timestep=6, \
-      z_far=50, split='val', seed=42, no_partial_views=True, fixed_cams=[0, 1, 2], \
-      resolution=[(518, 294)], distill_model_name='SAM3', base_model='da3')"
+      seq_pkl_name='seq_surround_temporal_sub5_stride9_all.pkl', \
+      num_timesteps=5, num_views_per_timestep=6, fixed_cams=[0, 1, 2], \
+      z_far=50, split='val', seed=42, distill_model_name='SAM3', \
+      resolution=[(518, 294)])"
 
 model:
   num_views: 4  # must equal max_stride + 1

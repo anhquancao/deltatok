@@ -237,7 +237,8 @@ class DeltaTokFlowMatchingTrainer(DeltaTokSharedMixin, Trainer):
             )
 
             # Load model checkpoint for resume or pretrained initialization.
-            ckpt = self.get_model_checkpoint_path()
+            resume_ckpt = self.get_resume_checkpoint_path()
+            ckpt = resume_ckpt if resume_ckpt is not None else self.get_pretrained_checkpoint_path()
             if ckpt is not None:
                 checkpoint = torch.load(ckpt, map_location='cpu', weights_only=False)
                 state_dict = checkpoint['model_state_dict']
@@ -246,7 +247,7 @@ class DeltaTokFlowMatchingTrainer(DeltaTokSharedMixin, Trainer):
 
                 if self.rank == 0:
                     print("Load ckpt from:", ckpt)
-                if getattr(self.args, "resume", False):
+                if resume_ckpt is not None:
                     # Update the current epoch and iteration only for true resume.
                     self.cfg.training.iter = checkpoint['iter']
                     self.cfg.training.global_epoch = checkpoint['global_epoch']
@@ -271,8 +272,7 @@ class DeltaTokFlowMatchingTrainer(DeltaTokSharedMixin, Trainer):
         return model
 
     def get_resume_checkpoint_path(self):
-        if not getattr(self.args, "resume", False):
-            return None
+        # Always resume: absent current.pth just means a fresh run.
         ckpt = os.path.join(self.cfg.training.vit_folder, "current.pth")
         if os.path.isfile(ckpt):
             return ckpt
@@ -905,6 +905,8 @@ class DeltaTokFlowMatchingTrainer(DeltaTokSharedMixin, Trainer):
                                 # Given views carry GT tokens (not predictions): timestep 0
                                 # (rollout seed) + timesteps 1..n_ctx (GT context deltas).
                                 # Mark them with a colored border instead of blanking them.
+                                # Correct only because timesteps are dense 0..k-1; on the old
+                                # sub5 labels (0,5,10,...) this marked the seed alone.
                                 ctx_mask = [batch["timesteps"][batch_idx][v] <= self.n_ctx for v in view_order]
                                 view_index = torch.as_tensor(view_order, dtype=torch.long)
                                 tok_depth = decoded_tok["depth"][batch_idx].detach().float().cpu()[view_index]  # (V, H, W)
@@ -1040,18 +1042,15 @@ class DeltaTokFlowMatchingTrainer(DeltaTokSharedMixin, Trainer):
         # expression strings), mirroring DeltaTokTrainer.fit.
         train_dataset_str = str(self.cfg.dataset.train_dataset)
         test_dataset_str = self.cfg.dataset.get("test_dataset", None)
-        per_dataset_sampling = bool(self.cfg.dataset.get("per_dataset_sampling", False))
 
         if self.is_master:
             print(f"Building train dataset: {train_dataset_str}")
-            print(f"Per-dataset sampling: {per_dataset_sampling}")
         self.train_loader = get_data_loader(
             train_dataset_str,
             batch_size=self.cfg.training.bsize,
             num_workers=self.cfg.training.num_workers,
             shuffle=True,
             drop_last=True,
-            per_dataset_sampling=per_dataset_sampling,
         )
 
         # One DataLoader per `+`-separated sub-dataset so each test set runs in

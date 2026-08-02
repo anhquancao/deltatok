@@ -7,9 +7,7 @@ Two modes (``--stats_mode``):
     cameras. Mirrors RAE's calculate_stat.py, which keeps stats per latent ELEMENT
     (C, H, W), not per channel: pooled-(C,) whitening folds slot-dependent offsets
     into std, so within-slot variation stays non-isotropic after whitening. The
-    camera axis is pooled, not resolved: the train sampler varies views_per_timestep
-    (observed N=1 batches), so a fixed per-camera axis can neither be measured from
-    train batches nor applied to them.
+    camera axis is pooled, not resolved.
 
 DeltaTok ends in a parameter-free ``nn.LayerNorm``, which normalizes each token ACROSS
 channels: every ROW of the (M, C) delta-token matrix gets mean 0 / RMS 1. Columns are
@@ -125,7 +123,7 @@ def _sanitize(name: str) -> str:
 def _build_split_loaders(cfg, split):
     """Return [(label, loader)] for a split.
 
-    train: the whole `+`-joined expression in ONE loader with per_dataset_sampling;
+    train: the whole `+`-joined expression in ONE loader;
     val: one loader per `+`-separated sub-dataset. Both mirror how
     `DeltaTokFlowMatchingTrainer.fit` builds them, so the samples match training/eval.
     """
@@ -136,7 +134,6 @@ def _build_split_loaders(cfg, split):
             num_workers=int(cfg.training.num_workers),
             shuffle=True,   # the first --num_batches batches should span scenes, not just the first ones
             drop_last=True,
-            per_dataset_sampling=bool(cfg.dataset.get("per_dataset_sampling", False)),
         )
         return [("train", loader)]
 

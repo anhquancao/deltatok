@@ -224,17 +224,14 @@ class ImgDecoderTrainer(Trainer):
         batch_size = int(self.cfg.training.batch_size)
         num_workers = int(self.cfg.training.num_workers)
 
-        per_dataset_sampling = self.cfg.dataset.get("per_dataset_sampling", False)
         if self.is_master:
             print(f"Building train dataset: {train_dataset_str}")
-            print(f"Per-dataset sampling: {per_dataset_sampling}")
         self.train_loader = get_data_loader(
             train_dataset_str,
             batch_size=batch_size,
             num_workers=num_workers,
             shuffle=True,
             drop_last=True,
-            per_dataset_sampling=per_dataset_sampling,
         )
 
         if test_dataset_str:

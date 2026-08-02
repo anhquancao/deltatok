@@ -7,7 +7,6 @@ set -euo pipefail
 : "${RUN_NAME:=deltatok_flow}"
 : "${PRECISION:=bf16}"
 : "${NUM_GPU_PER_NODE:=${SLURM_GPUS_ON_NODE:-1}}"
-: "${RESUME:=0}"
 
 ARGS=(
     --config-dir "$CONFIG_DIR"
@@ -17,11 +16,6 @@ ARGS=(
     --run-name "$RUN_NAME"
     # --ckpt "/gpfs/scratch/ehpc551/occrae_exps/overfit/ckpts/current.pth"
 )
-
-# RESUME=1 resumes from <RESULTS_DIR>/<RUN_NAME>/ckpts/current.pth (no-op if absent).
-if [[ "$RESUME" == "1" ]]; then
-    ARGS+=(--resume)
-fi
 
 # Forward extra Hydra overrides (space-separated, e.g.
 # "model.deltatok.use_camera_rope=true"). Unquoted on purpose so each override

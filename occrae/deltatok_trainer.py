@@ -801,8 +801,7 @@ class DeltaTokTrainer(DeltaTokSharedMixin, Trainer):
         return model
 
     def get_resume_checkpoint_path(self):
-        if not getattr(self.args, "resume", False):
-            return None
+        # Always resume: absent current.pth just means a fresh run.
         ckpt = os.path.join(self.cfg.training.vit_folder, "current.pth")
         if os.path.isfile(ckpt):
             return ckpt
@@ -1493,18 +1492,15 @@ class DeltaTokTrainer(DeltaTokSharedMixin, Trainer):
         #   "10000 @ WaymoSeqMultiView(...) + 5000 @ VKittiSeqMultiView(...)"
         train_dataset_str = str(self.cfg.dataset.train_dataset)
         test_dataset_str = self.cfg.dataset.get("test_dataset", None)
-        per_dataset_sampling = bool(self.cfg.dataset.get("per_dataset_sampling", False))
 
         if self.is_master:
             print(f"Building train dataset: {train_dataset_str}")
-            print(f"Per-dataset sampling: {per_dataset_sampling}")
         self.train_loader = get_data_loader(
             train_dataset_str,
             batch_size=self.cfg.training.bsize,
             num_workers=self.cfg.training.num_workers,
             shuffle=True,
             drop_last=True,
-            per_dataset_sampling=per_dataset_sampling,
         )
 
         # One DataLoader per `+`-separated sub-dataset (mirrors the build/eval

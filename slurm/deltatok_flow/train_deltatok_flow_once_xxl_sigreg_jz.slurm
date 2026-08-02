@@ -36,8 +36,8 @@ export TORCH_NCCL_HEARTBEAT_TIMEOUT_SEC="${TORCH_NCCL_HEARTBEAT_TIMEOUT_SEC:-100
 # file_descriptor shm strategy holds an fd per shared tensor per worker
 ulimit -n "$(ulimit -Hn)"
 
-# DATA swap of train_deltatok_flow_waymo_xxl_sigreg_jz.slurm: same tokenizer and flow
-# recipe on ONCE instead of Waymo — 843k vs 122k train seqs (~6.9x), 16 held-out scenes.
+# DATA swap of train_deltatok_flow_waymo_xxl_sigreg_jz.slurm onto ONCE — 843k vs 122k
+# train seqs (~6.9x), 16 held-out scenes, and n_ctx=2 as the mix arm (waymo: 1).
 # Eval is ONCE val, so NOT comparable to the waymo arm's numbers.
 export CONFIG_NAME=train_deltatok_flow_once_jeanzay
 export RESULTS_DIR="/lustre/fswork/projects/rech/trg/uyl37fq/deltatok_flow_log"
@@ -58,6 +58,7 @@ EXTRA_CFG_ARGS=(
     # scale: revisit first if the flow looks mis-scaled. The uniformt_cross file is Cz=1536 and
     # is rejected on shape; regenerate via STATS_MODE=position slurm/compute_deltatok_latent_stats_jz.slurm.
     model.cond_mode=delta_ctx_cross            # clean in-seq context + frame-0 tokens as cross-attn condition
+    model.num_ctx_deltas=2                     # 2 clean deltas = frames 0-2 given, 3-4 forecast (waymo arm: 1)
     model.attn_mode=global                     # one attention over all delta tokens
     model.vit_use_camera_embed=true            # per-camera identity in the flow ViT
     model.loss_mode=v                          # v-MSE: 1/(1-t)^2-weighted x-MSE, upweights t->1
@@ -76,8 +77,7 @@ EXTRA_CFG_ARGS=(
     training.eval_num_steps=20                 # clamp(1-t,0.05) never binds: no residual noise
 )
 export EXTRA_CFG="${EXTRA_CFG_ARGS[*]}"
-# --resume is a no-op without current.pth, so job 1 starts fresh and chained jobs continue it:
+# Resume is automatic; job 1 starts fresh, chained jobs continue it:
 #   sbatch --dependency=afterany:<prev_jobid> <this script>
-export RESUME=1
 
 srun --cpu-bind=none bash sh/train_deltatok_flow.sh

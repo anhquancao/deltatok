@@ -79,11 +79,6 @@ def get_args_parser() -> argparse.ArgumentParser:
     parser.add_argument("--run-name", type=str, default="deltatok_flow", help="Run name prefix.")
     parser.add_argument("--ckpt", type=str, default=None, help="Pretrained-init checkpoint (weights only).")
     parser.add_argument(
-        "--resume",
-        action="store_true",
-        help="Resume training from <results-dir>/<run-name>/ckpts/current.pth if it exists.",
-    )
-    parser.add_argument(
         "--occany_recon_ckpt",
         type=str,
         default=None,

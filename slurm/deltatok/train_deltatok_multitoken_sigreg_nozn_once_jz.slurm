@@ -1,21 +1,27 @@
 #!/bin/bash
-#SBATCH --job-name=deltatok_bsc
+#SBATCH --job-name=deltatok_once_jz
 #SBATCH --nodes=1
 #SBATCH --ntasks-per-node=4
 #SBATCH --gres=gpu:4
-#SBATCH --cpus-per-task=20
-#SBATCH --account=ehpc1001
-#SBATCH --partition=acc
-#SBATCH --qos=acc_ehpc
-#SBATCH --time=40:00:00
-##SBATCH --qos=acc_debug
+#SBATCH --cpus-per-task=24
+#SBATCH --hint=nomultithread
+#SBATCH -C h100
+#SBATCH --account=trg@h100
+#SBATCH --qos=qos_gpu_h100-t3
+#SBATCH --time=20:00:00
+##SBATCH --qos=qos_gpu_h100-dev
 ##SBATCH --time=02:00:00
-#SBATCH --output=slurm/output/train_deltatok_multitoken_sigreg_nozn_bsc_%j.out
-#SBATCH --error=slurm/output/train_deltatok_multitoken_sigreg_nozn_bsc_%j.err
+#SBATCH --output=slurm/output/train_deltatok_multitoken_sigreg_nozn_once_jz_%j.out
+#SBATCH --error=slurm/output/train_deltatok_multitoken_sigreg_nozn_once_jz_%j.err
 
-# BSC acc: 4 H100/node, 80 cores -> 20 cpus/task. acc_ehpc caps 72h; acc_debug is 2h.
-# 40h not 72h: shorter backfills better (p90 4min@12h vs 8.6h@48h); ~53 ep/job, chained.
-#   ssh bsc "bash -lc 'cd /gpfs/projects/ehpc1001/code/deltatok && sbatch slurm/deltatok/train_deltatok_multitoken_sigreg_nozn_bsc.slurm'"
+# JZ gpu_p6: 4 GPUs/node, 96 cores -> 24 cpus/task. t3 caps at 20h; -t4 gives 100h, fewer GPUs.
+# Submit from a LOGIN shell so `module` (login-only) reaches the job:
+#   ssh jean-zay "bash -lc 'cd \$TRG_WORK/code/deltatok && sbatch slurm/deltatok/train_deltatok_multitoken_sigreg_nozn_once_jz.slurm'"
+#
+# DATA swap of train_deltatok_multitoken_sigreg_nozn_jz: ONCE alone (843k seqs) instead of
+# the 5-dataset mix at a single (518,266), no time flips, 16 held-out scenes for the flow arm.
+# Same 18000 items -> same schedule.
+# Monocular front cam. Eval is ONCE val, so Eval/Loss is NOT comparable to the mix arm.
 #
 # DeltaTok tokenizer, layer-12, no camera rope. tc1536 == hidden_size -> no channel bottleneck,
 # and z_norm=false -> no z LayerNorm: SIGReg alone shapes a raw 1536-d z. K is the only compression.
@@ -23,22 +29,27 @@
 # But pool is NOT weight-neutral: scale=n_pooled/n_live jumps 11.7 -> 43.7 and the staler pool delays
 # the feedback 4x, so at w=0.05 the stat spiked 39x at warmup end and Eval never left 0.126 (2026-07-31).
 # Hence w=0.01 ~= 0.05*11.7/43.7. WATCH: LossSIGReg must descend past iter 2000, floor ~3.2e-5.
-#   for W in 0.01 0.005; do sbatch --export=ALL,SIGREG_WEIGHT=$W slurm/deltatok/train_deltatok_multitoken_sigreg_nozn_bsc.slurm; done
+#   for W in 0.01 0.005; do sbatch --export=ALL,SIGREG_WEIGHT=$W slurm/deltatok/train_deltatok_multitoken_sigreg_nozn_once_jz.slurm; done
 
 mkdir -p slurm/output
 
-cd /gpfs/projects/ehpc1001/code/deltatok
+cd /lustre/fswork/projects/rech/trg/uyl37fq/code/deltatok
 
-source env_bsc.sh
+source env_jz_h100.sh
 
+export PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
+
+# The module's site-packages bundles TensorFlow; silence its startup spam.
+export TF_CPP_MIN_LOG_LEVEL=3
+export TF_ENABLE_ONEDNN_OPTS=0
 export OMP_NUM_THREADS="${OMP_NUM_THREADS:-4}"
 export TORCH_NCCL_HEARTBEAT_TIMEOUT_SEC="${TORCH_NCCL_HEARTBEAT_TIMEOUT_SEC:-1000}"
 
 # file_descriptor shm strategy holds an fd per shared tensor per worker
 ulimit -n "$(ulimit -Hn)"
 
-export CONFIG_NAME=train_deltatok_bsc
-export LOG_AND_CKPT_DIR="$SCRATCH/deltatok_log"
+export CONFIG_NAME=train_deltatok_once_jeanzay
+export LOG_AND_CKPT_DIR="/lustre/fswork/projects/rech/trg/uyl37fq/deltatok_log"
 export RESULTS_DIR="$LOG_AND_CKPT_DIR"
 
 # The only three knobs; each changes the estimator or the pressure, so all three are in RUN_NAME.
@@ -47,7 +58,7 @@ export SIGREG_NUM_SLICES=${SIGREG_NUM_SLICES:-3072}  # 2*Cz; measured sufficient
 export SIGREG_POOL_SAMPLES=${SIGREG_POOL_SAMPLES:-32768}  # GLOBAL rows, S/C ~21; rescaled by pool/live
 
 # Only the architecture + the three swept knobs; the rest is fixed by this script.
-export RUN_NAME=deltatok_l12_dtok64_tc1536_nozn_sigreg${SIGREG_WEIGHT}_ns${SIGREG_NUM_SLICES}_pool${SIGREG_POOL_SAMPLES}
+export RUN_NAME=deltatok_once_l12_dtok64_tc1536_nozn_sigreg${SIGREG_WEIGHT}_ns${SIGREG_NUM_SLICES}_pool${SIGREG_POOL_SAMPLES}
 
 EXTRA_CFG_ARGS=(
     model.deltatok.num_delta_tokens=64         # K delta tokens/camera (~12:1 compression at full res)

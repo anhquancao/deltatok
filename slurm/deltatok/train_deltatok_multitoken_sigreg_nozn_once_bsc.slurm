@@ -1,21 +1,27 @@
 #!/bin/bash
-#SBATCH --job-name=deltatok_bsc
+#SBATCH --job-name=deltatok_once_bsc
 #SBATCH --nodes=1
 #SBATCH --ntasks-per-node=4
 #SBATCH --gres=gpu:4
 #SBATCH --cpus-per-task=20
-#SBATCH --account=ehpc1001
+#SBATCH --account=ehpc880
 #SBATCH --partition=acc
 #SBATCH --qos=acc_ehpc
 #SBATCH --time=40:00:00
 ##SBATCH --qos=acc_debug
 ##SBATCH --time=02:00:00
-#SBATCH --output=slurm/output/train_deltatok_multitoken_sigreg_nozn_bsc_%j.out
-#SBATCH --error=slurm/output/train_deltatok_multitoken_sigreg_nozn_bsc_%j.err
+#SBATCH --output=slurm/output/train_deltatok_multitoken_sigreg_nozn_once_bsc_%j.out
+#SBATCH --error=slurm/output/train_deltatok_multitoken_sigreg_nozn_once_bsc_%j.err
 
 # BSC acc: 4 H100/node, 80 cores -> 20 cpus/task. acc_ehpc caps 72h; acc_debug is 2h.
+# Charged to ehpc880 (400 khours unused) not ehpc1001; $SCRATCH/$PROJECT stay ehpc1001.
 # 40h not 72h: shorter backfills better (p90 4min@12h vs 8.6h@48h); ~53 ep/job, chained.
-#   ssh bsc "bash -lc 'cd /gpfs/projects/ehpc1001/code/deltatok && sbatch slurm/deltatok/train_deltatok_multitoken_sigreg_nozn_bsc.slurm'"
+#   ssh bsc "bash -lc 'cd /gpfs/projects/ehpc1001/code/deltatok && sbatch slurm/deltatok/train_deltatok_multitoken_sigreg_nozn_once_bsc.slurm'"
+#
+# DATA swap of train_deltatok_multitoken_sigreg_nozn_bsc: ONCE alone (843k seqs) instead of
+# the 5-dataset mix at a single (518,266), no time flips, 16 held-out scenes for the flow arm.
+# Same 18000 items -> same schedule.
+# Monocular front cam. Eval is ONCE val, so Eval/Loss is NOT comparable to the mix arm.
 #
 # DeltaTok tokenizer, layer-12, no camera rope. tc1536 == hidden_size -> no channel bottleneck,
 # and z_norm=false -> no z LayerNorm: SIGReg alone shapes a raw 1536-d z. K is the only compression.
@@ -37,7 +43,7 @@ export TORCH_NCCL_HEARTBEAT_TIMEOUT_SEC="${TORCH_NCCL_HEARTBEAT_TIMEOUT_SEC:-100
 # file_descriptor shm strategy holds an fd per shared tensor per worker
 ulimit -n "$(ulimit -Hn)"
 
-export CONFIG_NAME=train_deltatok_bsc
+export CONFIG_NAME=train_deltatok_once_bsc
 export LOG_AND_CKPT_DIR="$SCRATCH/deltatok_log"
 export RESULTS_DIR="$LOG_AND_CKPT_DIR"
 
@@ -47,7 +53,7 @@ export SIGREG_NUM_SLICES=${SIGREG_NUM_SLICES:-3072}  # 2*Cz; measured sufficient
 export SIGREG_POOL_SAMPLES=${SIGREG_POOL_SAMPLES:-32768}  # GLOBAL rows, S/C ~21; rescaled by pool/live
 
 # Only the architecture + the three swept knobs; the rest is fixed by this script.
-export RUN_NAME=deltatok_l12_dtok64_tc1536_nozn_sigreg${SIGREG_WEIGHT}_ns${SIGREG_NUM_SLICES}_pool${SIGREG_POOL_SAMPLES}
+export RUN_NAME=deltatok_once_l12_dtok64_tc1536_nozn_sigreg${SIGREG_WEIGHT}_ns${SIGREG_NUM_SLICES}_pool${SIGREG_POOL_SAMPLES}
 
 EXTRA_CFG_ARGS=(
     model.deltatok.num_delta_tokens=64         # K delta tokens/camera (~12:1 compression at full res)

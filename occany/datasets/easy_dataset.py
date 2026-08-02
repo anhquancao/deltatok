@@ -5,9 +5,9 @@
 # A dataset base class that you can easily resize and combine.
 # --------------------------------------------------------
 import numpy as np
-# Bases from dust3r: a duplicate EasyDataset would shadow EasyDataset_OccAny.make_sampler via MRO.
+# Bases from dust3r: a duplicate EasyDataset would shadow EasyDataset_MUSt3R.make_sampler via MRO.
 from dust3r.datasets.base.easy_dataset import EasyDataset, CatDataset, MulDataset, ResizedDataset
-from occany.datasets.batched_sampler import BatchedRandomSampleOccAny, DatasetAwareBatchSamplerOccAny
+from occany.datasets.batched_sampler import BatchedRandomSampleOccAny
 
 
 class EasyDataset_MUSt3R(EasyDataset):
@@ -22,55 +22,20 @@ class EasyDataset_MUSt3R(EasyDataset):
     def __rmatmul__(self, factor):
         return ResizedDataset_MUSt3R(factor, self)
 
-    def make_sampler(self, batch_size, shuffle=True, world_size=1, rank=0, drop_last=True, per_dataset_sampling=False):
+    def make_sampler(self, batch_size, shuffle=True, world_size=1, rank=0, drop_last=True):
         if not (shuffle):
             raise NotImplementedError()  # cannot deal yet
 
-        if per_dataset_sampling and hasattr(self, 'dataset_configs'):
-            return DatasetAwareBatchSamplerOccAny(self, batch_size,
-                                                  dataset_configs=self.dataset_configs,
-                                                  world_size=world_size, rank=rank, drop_last=drop_last)
-
-        num_of_aspect_ratios = len(self._resolutions)
-        min_memory_num_views = self.min_memory_num_views
-        max_memory_num_views = self.max_memory_num_views
+        # Item shape is fixed (num_timesteps x named cams), so the aspect ratio is
+        # the only thing a batch must agree on.
         return BatchedRandomSampleOccAny(self, batch_size,
-            num_of_aspect_ratios=num_of_aspect_ratios,
-            min_memory_num_views=min_memory_num_views,
-            max_memory_num_views=max_memory_num_views,
+            num_of_aspect_ratios=len(self._resolutions),
             world_size=world_size, rank=rank, drop_last=drop_last)
 
 
 class CatDataset_MUSt3R(CatDataset, EasyDataset_MUSt3R):
-
-    @property
-    def min_memory_num_views(self):
-        return self.datasets[0].min_memory_num_views
-
-    @property
-    def max_memory_num_views(self):
-        return self.datasets[0].max_memory_num_views
-
-    @property
-    def dataset_configs(self):
-        configs = []
-        for dataset in self.datasets:
-            config = {
-                'min_memory_num_views': getattr(dataset, 'min_memory_num_views', 2),
-                'max_memory_num_views': getattr(dataset, 'max_memory_num_views', 10),
-                # Pin views-per-timestep per batch so all items collate to one size.
-                'min_views_per_timestep': getattr(dataset, 'min_views_per_timestep', 1),
-                'num_views_per_timestep': getattr(dataset, 'num_views_per_timestep', 1),
-                # Sampling cap on cameras per timestep (<= num_views_per_timestep).
-                'max_views_per_timestep': getattr(dataset, 'max_views_per_timestep', None),
-                # When max_num_timesteps is set, sampler draws timesteps (not mem views).
-                'min_num_timesteps': getattr(dataset, 'min_num_timesteps', 1),
-                'max_num_timesteps': getattr(dataset, 'max_num_timesteps', None),
-                'num_of_aspect_ratios': len(dataset._resolutions) if hasattr(dataset, '_resolutions') else 1,
-                'resolutions': list(dataset._resolutions) if hasattr(dataset, '_resolutions') else [(512, 512)],
-            }
-            configs.append(config)
-        return configs, self._cum_sizes
+    # Shards must agree on item shape (num_timesteps x len(cams)); CatDataset._resolutions
+    # already asserts they agree on resolutions.
 
     def __getitem__(self, idx):
         other = None
@@ -91,22 +56,6 @@ class CatDataset_MUSt3R(CatDataset, EasyDataset_MUSt3R):
 
 class MulDataset_MUSt3R(MulDataset, EasyDataset_MUSt3R):
 
-    @property
-    def min_memory_num_views(self):
-        return self.dataset.min_memory_num_views
-
-    @property
-    def max_memory_num_views(self):
-        return self.dataset.max_memory_num_views
-
-    @property
-    def min_views_per_timestep(self):
-        return self.dataset.min_views_per_timestep
-
-    @property
-    def num_views_per_timestep(self):
-        return self.dataset.num_views_per_timestep
-
     def __getitem__(self, idx):
         if isinstance(idx, tuple):
             return self.dataset[idx[0] // self.multiplicator, *idx[1:]]
@@ -116,21 +65,25 @@ class MulDataset_MUSt3R(MulDataset, EasyDataset_MUSt3R):
 
 class ResizedDataset_MUSt3R(ResizedDataset, EasyDataset_MUSt3R):
 
-    @property
-    def min_memory_num_views(self):
-        return self.dataset.min_memory_num_views
-
-    @property
-    def max_memory_num_views(self):
-        return self.dataset.max_memory_num_views
-
-    @property
-    def min_views_per_timestep(self):
-        return self.dataset.min_views_per_timestep
-
-    @property
-    def num_views_per_timestep(self):
-        return self.dataset.num_views_per_timestep
+    def set_epoch(self, epoch):
+        """Read one continuous shuffled stream instead of dust3r's fresh-permutation-
+        per-epoch, which re-drew the first new_size and left new_size<<len(dataset)
+        arms covering only 1-(1-new_size/n)^epochs of the data. Pass p is permuted with
+        seed p+777, so epoch 0 is unchanged and every item is seen once per pass."""
+        n = len(self.dataset)
+        if n == 0:
+            raise ZeroDivisionError(
+                f"ResizedDataset error: self.dataset {repr(self.dataset)} has length 0. "
+                f"Cannot resize to {self.new_size}.")
+        chunks, taken = [], 0
+        while taken < self.new_size:
+            # Global stream position -> which pass, and how far into it.
+            p, off = divmod(epoch * self.new_size + taken, n)
+            perm = np.random.default_rng(seed=p + 777).permutation(n)
+            chunk = perm[off:off + (self.new_size - taken)]
+            chunks.append(chunk)
+            taken += len(chunk)
+        self._idxs_mapping = np.concatenate(chunks)
 
     def __getitem__(self, idx):
         assert hasattr(self, '_idxs_mapping'), 'You need to call dataset.set_epoch() to use ResizedDataset.__getitem__()'

@@ -156,7 +156,7 @@ def _train_t_mass(lo: float, hi: float, mu: float, sigma: float,
 def _build_split_loaders(cfg, split):
     """Return [(label, loader)] for a split.
 
-    train: the whole `+`-joined expression in ONE loader with per_dataset_sampling;
+    train: the whole `+`-joined expression in ONE loader;
     val: one loader per `+`-separated sub-dataset. Both mirror how
     `DeltaTokFlowMatchingTrainer.fit` builds them, so the samples match training/eval.
     """
@@ -167,7 +167,6 @@ def _build_split_loaders(cfg, split):
             num_workers=int(cfg.training.num_workers),
             shuffle=True,   # the first --num_batches batches should span scenes, not just the first ones
             drop_last=True,
-            per_dataset_sampling=bool(cfg.dataset.get("per_dataset_sampling", False)),
         )
         return [("train", loader)]
 
@@ -234,8 +233,7 @@ def sweep_split(trainer, cfg, loader, bin_centers, args):
         cross_cond = trainer._build_cross_cond(feat0, H, W) if trainer.build_frame0_ctx else None  # (B, N, Hp, Wp, C) or None
 
         # flow_loss masks the n_ctx clean context slots, so each reported mean is over
-        # predicted slots only. Element-weighted because the train split's T-1 varies
-        # per batch (max_memory_num_views=24).
+        # predicted slots only, element-weighted.
         b_, c_, t_, n_, k_ = x_spatial.shape                        # B, C, T-1 transitions, N cameras, K delta tokens
         n_elem = float(b_ * c_ * (t_ - trainer.n_ctx) * n_ * k_)    # == flow_loss's mask.sum()
         # Error of the trivial "predict 0" predictor on the same slots: delta tokens are

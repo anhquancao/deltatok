@@ -130,7 +130,7 @@ def _sanitize(name: str) -> str:
 def _build_split_loaders(cfg, split):
     """Return [(label, loader)] for a split.
 
-    train: the whole `+`-joined expression in ONE loader with per_dataset_sampling;
+    train: the whole `+`-joined expression in ONE loader;
     val: one loader per `+`-separated sub-dataset. Both mirror how
     `DeltaTokFlowMatchingTrainer.fit` builds them, so the samples match training/eval.
     """
@@ -141,7 +141,6 @@ def _build_split_loaders(cfg, split):
             num_workers=int(cfg.training.num_workers),
             shuffle=True,   # the first --num_batches batches should span scenes, not just the first ones
             drop_last=True,
-            per_dataset_sampling=bool(cfg.dataset.get("per_dataset_sampling", False)),
         )
         return [("train", loader)]
 

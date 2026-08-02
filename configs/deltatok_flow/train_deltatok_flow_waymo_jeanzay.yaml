@@ -45,25 +45,21 @@ dataset:
     - segment-1051897962568538022_238_170_258_170_with_camera_labels.tfrecord
     - segment-10526338824408452410_5714_660_5734_660_with_camera_labels.tfrecord
   # Train: Waymo train minus the 32 val scenes (split=None + exclude_scenes).
-  # fixed_cams=[0] short-circuits vpt sampling (num_views_per_timestep=5 is only the
-  # physical seq layout) and min=max_memory=5 pins the draw: every item is 5 timesteps
-  # (anchor + 4 random later ones, sorted; NOT consecutive) x cam 0 at (518,266).
-  # sub5_stride9: 0.5s slots -> item deltas 0.5-4.5s, the pkl the tokenizer trained on
-  # (was sub1_stride49: consecutive 10Hz frames, 0.1-4.9s). Val pkl unchanged.
+  # num_views_per_timestep=5 is only the physical seq layout; every item is 5
+  # consecutive timesteps x cam 0 at (518,266).
+  # sub5_stride9: 0.5s slots -> 0.5s item deltas, the pkl the tokenizer trained on
+  # (was sub1_stride49: consecutive 10Hz frames). Val pkl unchanged.
   # 32000/epoch = 1000 steps/epoch at effective_bsize 32 -> 50k steps over 50 epochs.
   train_dataset: "32000 @ WaymoSeqMultiView(ROOT='/lustre/fsn1/projects/rech/trg/uyl37fq/occany_dataset/waymo_processed', \
       seq_pkl_name='seq_surround_temporal_sub5_stride9_fs1_all.pkl', \
-      min_memory_num_views=5, frame_interval=1, max_memory_num_views=5, \
-      num_views_per_timestep=5, fixed_cams=[0], min_num_timesteps=2, \
-      z_far=50, split=None, exclude_scenes=${dataset._waymo_val_scenes}, no_partial_views=True, \
-      resolution=[(518, 266)], \
-      reverse_seq=False, base_model='da3')"
-  # Val: the 32 held-out scenes (128 seqs). Fixed 5-timestep x cam-0 (min=max=5;
-  # fixed_cams short-circuits vpt), single (518,266) resolution, seed=42.
+      num_timesteps=5, num_views_per_timestep=5, fixed_cams=[0], \
+      z_far=50, split=None, exclude_scenes=${dataset._waymo_val_scenes}, \
+      resolution=[(518, 266)])"
+  # Val: the 32 held-out scenes (128 seqs). Fixed 5 consecutive timesteps x cam-0,
+  # single (518,266) resolution, seed=42.
   # NOT comparable to the earlier 10-view evals (baseline 0.2816 = 9-transition rollouts).
   test_dataset: "128 @ WaymoSeqMultiView(ROOT='/lustre/fsn1/projects/rech/trg/uyl37fq/occany_dataset/waymo_processed', \
-      seq_pkl_name='seq_surround_temporal_sub5_stride9_all.pkl', frame_interval=1, \
-      min_memory_num_views=5, max_memory_num_views=5, num_views_per_timestep=5, min_num_timesteps=2, \
-      z_far=50, split=None, select_scenes=${dataset._waymo_val_scenes}, seed=42, no_partial_views=True, fixed_cams=[0], \
-      reverse_seq=False, \
-      resolution=[(518, 266)], base_model='da3')"
+      seq_pkl_name='seq_surround_temporal_sub5_stride9_all.pkl', \
+      num_timesteps=5, num_views_per_timestep=5, fixed_cams=[0], \
+      z_far=50, split=None, select_scenes=${dataset._waymo_val_scenes}, seed=42, \
+      resolution=[(518, 266)])"

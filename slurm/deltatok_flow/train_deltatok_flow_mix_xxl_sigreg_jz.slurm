@@ -78,8 +78,7 @@ EXTRA_CFG_ARGS=(
     training.eval_num_steps=20                 # clamp(1-t,0.05) never binds: no residual noise
 )
 export EXTRA_CFG="${EXTRA_CFG_ARGS[*]}"
-# --resume is a no-op without current.pth, so job 1 starts fresh and chained jobs continue it:
+# Resume is automatic; job 1 starts fresh, chained jobs continue it:
 #   sbatch --dependency=afterany:<prev_jobid> <this script>
-export RESUME=1
 
 srun --cpu-bind=none bash sh/train_deltatok_flow.sh

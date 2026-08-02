@@ -108,7 +108,8 @@ class DeltaTokSharedMixin:
 
         ``get_data_loader`` over ``BaseSeqDatasetMultiView`` returns one collated
         view-dict per timestep/camera; ``num_cameras`` is recovered from the per-
-        item ``timestep`` field (views are camera-major within each timestep).
+        item ``timestep`` field, which is dense 0..k-1 (views are timestep-major,
+        camera-minor).
         """
         if isinstance(batch, dict):
             return batch
@@ -122,18 +123,12 @@ class DeltaTokSharedMixin:
         num_unique_t = len(set(item0_t))
         num_cameras = V // num_unique_t if num_unique_t > 0 else 1
 
-        # The vpt the sampler actually drew (carried per view); should equal num_cameras.
-        vpt_field = batch[0].get("views_per_timestep")
-        sampled_vpt = int(vpt_field[0]) if torch.is_tensor(vpt_field) else (
-            int(vpt_field) if vpt_field is not None else None)
-
         out = {
             "imgs": imgs,
             "output_resolution_hw": (int(H), int(W)),
             "processed_root": list(batch[0]["dataset"]),
             "timesteps": timesteps_t,
             "num_cameras": num_cameras,
-            "sampled_vpt": sampled_vpt,
             "scene_name": list(batch[0]["scene_name"]),
             "frame_stems": list(zip(*[v["frame_id"] for v in batch])),
         }

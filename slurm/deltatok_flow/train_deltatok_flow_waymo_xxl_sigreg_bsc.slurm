@@ -70,15 +70,13 @@ EXTRA_CFG_ARGS=(
     training.val_bsize=4                       # eval-only; JZ twin evals at 16 (weighting diff is small)
 )
 export EXTRA_CFG="${EXTRA_CFG_ARGS[*]}"
-# --resume is a no-op without current.pth, so job 1 starts fresh and chained jobs continue it:
+# Resume is automatic; job 1 starts fresh, chained jobs continue it:
 #   sbatch --dependency=afterany:<prev_jobid> <this script>
-export RESUME=1
 
 echo "PWD=$(pwd)"
 echo "CONFIG_NAME=$CONFIG_NAME"
 echo "RESULTS_DIR=$RESULTS_DIR"
 echo "RUN_NAME=$RUN_NAME"
-echo "RESUME=$RESUME"
 echo "EXTRA_CFG=$EXTRA_CFG"
 
 srun --cpu-bind=none bash sh/train_deltatok_flow.sh

@@ -46,10 +46,6 @@ class Occ3dNuscenesSeqMultiView(BaseSeqDatasetMultiView):
         if select_scenes is not None:
             self.select_scene(select_scenes)
 
-        # Apply max_seqs AFTER split/scene selection so the kept sequences are
-        # actually drawn from the requested subset (not the full scene set).
-        self._truncate_to_max_seqs()
-
     @staticmethod
     def _resolve_annotations_path(preprocessed_root):
         candidates = [

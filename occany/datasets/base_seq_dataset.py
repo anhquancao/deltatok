@@ -2,128 +2,54 @@
 import torch
 import os.path as osp
 import numpy as np
-import cv2
-from dust3r.utils.image import imread_cv2
-from dust3r.datasets.base.base_stereo_view_dataset import BaseStereoViewDataset, transpose_to_landscape, is_good_type, view_name
-from occany.loss.infinidepth_pseudo import INFINIDEPTH_PSEUDO_SCALE, INFINIDEPTH_PSEUDO_SUFFIX
+from dust3r.datasets.base.base_stereo_view_dataset import BaseStereoViewDataset, is_good_type, view_name
 from occany.utils.image_util import get_SAM3_transforms
 from dust3r.utils.geometry import depthmap_to_absolute_camera_coordinates
 from occany.utils.helpers import project_lidar_world2camera
 from dust3r.utils.geometry import depthmap_to_camera_coordinates
 import pickle
-from occany.datasets.easy_dataset import EasyDataset, CatDataset_MUSt3R, MulDataset_MUSt3R, ResizedDataset_MUSt3R
-from occany.datasets.batched_sampler import DatasetAwareBatchSamplerOccAny
+from occany.datasets.easy_dataset import EasyDataset_MUSt3R
 from torchvision.transforms.functional import to_tensor
 from depth_anything_3.utils.io.input_processor import InputProcessor
 from depth_anything_3.utils.geometry import affine_inverse_np
 from occany.utils.helpers import intrinsics_c2w_to_raymap_np
 from occany.utils.transforms import SeqColorJitter, ImgNorm
 import copy
-import math
-import warnings
 
 
-class EasyDataset_OccAny(EasyDataset):
-    def __add__(self, other):
-        left = self.datasets if isinstance(self, CatDataset_MUSt3R) else [self]
-        right = other.datasets if isinstance(other, CatDataset_MUSt3R) else [other]
-        return CatDataset_MUSt3R([*left, *right])
-
-    def __rmul__(self, factor):
-        return MulDataset_MUSt3R(factor, self)
-
-    def __rmatmul__(self, factor):
-        return ResizedDataset_MUSt3R(factor, self)
-
-    def make_sampler(self, batch_size, shuffle=True, world_size=1, rank=0, drop_last=True, per_dataset_sampling=False):
-        if not (shuffle):
-            raise NotImplementedError()  # cannot deal yet
-
-        if per_dataset_sampling and hasattr(self, 'dataset_configs'):
-            return DatasetAwareBatchSamplerOccAny(self, batch_size,
-                                                  dataset_configs=self.dataset_configs,
-                                                  world_size=world_size, rank=rank, drop_last=drop_last)
-
-        num_of_aspect_ratios = len(self._resolutions)
-        min_memory_num_views = self.min_memory_num_views
-        max_memory_num_views = self.max_memory_num_views
-        return BatchedRandomSampleOccAny(self, batch_size,
-            num_of_aspect_ratios=num_of_aspect_ratios,
-            min_memory_num_views=min_memory_num_views,
-            max_memory_num_views=max_memory_num_views,
-            world_size=world_size, rank=rank, drop_last=drop_last)
-
-
-
-
-class BaseSeqDatasetMultiView(BaseStereoViewDataset, EasyDataset_OccAny):
+class BaseSeqDatasetMultiView(BaseStereoViewDataset, EasyDataset_MUSt3R):
 
     def __init__(self,
-                 recon_view_idx=None,
-                 reverse_seq=False,
-                 shuffle_seq_prob=0.0,
                  transform=ImgNorm,
-                 frame_interval=1,
-                 max_memory_num_views=10,
-                 min_memory_num_views=5,
                  num_views_per_timestep=1,
-                 min_views_per_timestep=1,
-                 max_views_per_timestep=None,
-                 min_num_timesteps=1,
-                 max_num_timesteps=None,
-                 anchor_cam=0,
                  fixed_cams=None,
-                 no_partial_views=False,
-                 load_infinidepth_pseudo=False,
-                 *args, ROOT, seq_pkl_name,
-                 distill_model_name=None, distill_img_size=None, img_size=512,
-                 base_model="must3r",
-                 max_seqs=None,
+                 *args, ROOT, seq_pkl_name, num_timesteps,
+                 distill_model_name=None,
                  select_scenes=None, exclude_scenes=None,
                  **kwargs):
-        self.max_memory_num_views = max_memory_num_views
-        self.min_memory_num_views = min_memory_num_views
-        # num_views_per_timestep = physical cameras per timestep (sequence layout
-        # constant); max_views_per_timestep caps how many the sampler draws (<= it).
+        # Timesteps in the consecutive window every item returns. Keyword-only and
+        # undefaulted: item shape is fixed, so each arm must state it.
+        self.num_timesteps = num_timesteps
+        # Physical cameras per timestep (sequence layout constant).
         self.num_views_per_timestep = num_views_per_timestep
-        self.min_views_per_timestep = min_views_per_timestep
-        self.max_views_per_timestep = max_views_per_timestep
-        self.min_num_timesteps = min_num_timesteps
-        # When set, the batch sampler draws num_timesteps in [min,max]_num_timesteps
-        # and total views = num_timesteps * vpt (memory_num_views range is ignored).
-        self.max_num_timesteps = max_num_timesteps
-        self.anchor_cam = anchor_cam
-        self.fixed_cams = list(fixed_cams) if fixed_cams is not None else None
-        if self.fixed_cams is not None:
-            assert all(0 <= c < num_views_per_timestep for c in self.fixed_cams), (
-                f"fixed_cams indices must lie in [0, num_views_per_timestep={num_views_per_timestep}); "
-                f"got {self.fixed_cams}"
-            )
-        self.no_partial_views = no_partial_views
-        self.load_infinidepth_pseudo = load_infinidepth_pseudo
+        # Cameras are named, never sampled; None = the whole rig.
+        self.cams = list(fixed_cams) if fixed_cams is not None else list(range(num_views_per_timestep))
+        assert all(0 <= c < num_views_per_timestep for c in self.cams), (
+            f"fixed_cams indices must lie in [0, num_views_per_timestep={num_views_per_timestep}); "
+            f"got {self.cams}"
+        )
 
         super().__init__(*args, **kwargs)
         self.ROOT = ROOT
-        self.base_model = base_model
-        self.distill_model_name = distill_model_name
-        # resolve distillation image size based on model type
-        if distill_img_size is None:
-            if distill_model_name == "SAM2":
-                distill_img_size = img_size
-            elif distill_model_name == "SAM3":
-                distill_img_size = 518
-        self.distill_img_size = distill_img_size
         # distill_model_name=None disables distill-image generation (flow training
         # doesn't consume view['distill_img']); skips the extra per-view tensor.
         if distill_model_name is None or str(distill_model_name).lower() == "none":
             self.distill_img_transform = None
         elif distill_model_name == "SAM3":
-            self.distill_img_transform = get_SAM3_transforms(resolution=self.distill_img_size)
+            self.distill_img_transform = get_SAM3_transforms(resolution=518)
         else:
             raise ValueError(f"Unsupported distill_model_name: {distill_model_name}")
         self.seq_pkl_name = seq_pkl_name
-        self.img_ext = ".jpg"
-        self.num_views = 3
         self._load_data()
         # Config-local scene filtering (default None = no-op), applied before any
         # subclass split filter so both compose. Carves a held-out val set without
@@ -132,35 +58,16 @@ class BaseSeqDatasetMultiView(BaseStereoViewDataset, EasyDataset_OccAny):
             self.select_scene(select_scenes)
         if exclude_scenes is not None:
             self.select_scene(exclude_scenes, opposite=True)
-        # `max_seqs` is applied later via `_truncate_to_max_seqs()` so it runs
-        # AFTER any split-based scene selection a subclass performs in its own
-        # __init__ (e.g. Occ3dNuscenesSeqMultiView). Truncating here would keep
-        # the first sequences across all scenes, which the split filter then
-        # drops, yielding an empty dataset.
-        self.max_seqs = max_seqs
         self.is_metric_scale = True
+        print(f"{self.__class__.__name__}: num_timesteps={self.num_timesteps}, cams={self.cams}")
 
-        self.reverse_seq = reverse_seq
-        self.shuffle_seq_prob = shuffle_seq_prob
-        self.recon_view_idx = recon_view_idx
-        self.frame_interval = frame_interval
-        print(f"{self.__class__.__name__}: reverse_seq={self.reverse_seq}, shuffle_seq_prob={self.shuffle_seq_prob}, anchor_cam={self.anchor_cam}")
-
-        self.is_seq_color_jitter = False
+        # transform only selects whether a per-item color jitter runs; DA3 normalization
+        # is unconditional afterwards.
         if isinstance(transform, str):
             transform = eval(transform)
-        if transform == SeqColorJitter:
-            self.is_seq_color_jitter = True
-        self.transform = transform
+        self.transform = transform  # inherited dust3r __repr__ reads it
+        self.is_seq_color_jitter = transform == SeqColorJitter
 
-    def _truncate_to_max_seqs(self):
-        # Overfit/smoke knob: keep only the first `max_seqs` sequences so the
-        # dataset can be pinned to a tiny fixed subset. Call this AFTER all
-        # scene/split selection so the kept sequences come from the final set.
-        if self.max_seqs is not None:
-            self.seqs = self.seqs[: self.max_seqs]
-            print(f"Truncated to {len(self.seqs)} seqs (max_seqs={self.max_seqs})")
-    
     def __len__(self):
         return len(self.seqs)
 
@@ -197,8 +104,9 @@ class BaseSeqDatasetMultiView(BaseStereoViewDataset, EasyDataset_OccAny):
             self.scenes = data['scenes']
             self.frames = data['frames']
             self.seqs = data['seqs']
-            # Filter sequences with length less than 3
-            self.seqs = [seq for seq in self.seqs if len(seq[1]) >= 3]
+            # Drop records too short for the fixed window (else _get_views asserts mid-run)
+            min_len = self.num_timesteps * self.num_views_per_timestep
+            self.seqs = [seq for seq in self.seqs if len(seq[1]) >= min_len]
 
         print(f'Loaded {self.get_stats()}')
 
@@ -221,101 +129,30 @@ class BaseSeqDatasetMultiView(BaseStereoViewDataset, EasyDataset_OccAny):
 
 
 
-    def _select_cameras(self, max_vpt, actual_vpt, rng):
-        anchor = self.anchor_cam
-        if actual_vpt >= max_vpt:
-            others = np.arange(max_vpt)
-            others = others[others != anchor]
-            rng.shuffle(others)
-            return np.concatenate([[anchor], others])
-        if actual_vpt == 1:
-            return np.array([anchor])
-        others = np.arange(max_vpt)
-        others = others[others != anchor]
-        rest = rng.choice(others, size=actual_vpt - 1, replace=False)
-        return np.concatenate([[anchor], rest])
-
-    def _build_view_indices(self, chosen_timesteps, selected_cams, max_vpt, partial, rng):
-        if partial:
-            partial_idx = int(rng.integers(1, len(chosen_timesteps))) if len(chosen_timesteps) > 1 else 0
-        else:
-            partial_idx = -1
-        indices = []
-        for i, t in enumerate(chosen_timesteps):
-            base = t * max_vpt
-            if i == partial_idx:
-                if i == 0:
-                    rest = rng.choice(selected_cams[1:], size=partial - 1, replace=False) if partial > 1 else np.array([], dtype=int)
-                    cams = np.concatenate([selected_cams[:1], rest])
-                else:
-                    cams = rng.choice(selected_cams, size=partial, replace=False)
-            else:
-                cams = selected_cams
-            indices.extend(int(base + c) for c in cams)
-        return indices
-
-    def _get_views(self, seq_idx, resolution, memory_num_views, rng, views_per_timestep=None):
-        scene_idx, seq, ts = self.seqs[seq_idx]
+    def _get_views(self, seq_idx, resolution, rng):
+        scene_idx, seq, _ = self.seqs[seq_idx]  # pkl stride offsets unused: labels are dense
         scene_name = self.scenes[scene_idx]
         preprocessed_scene_dir = osp.join(self.ROOT, scene_name)
 
-        seq_len = len(seq)
         max_vpt = self.num_views_per_timestep
-        if self.fixed_cams is not None:
-            selected_cams = np.array(self.fixed_cams, dtype=int)
-            actual_vpt = len(selected_cams)
-        elif views_per_timestep is not None:
-            # Per-batch pinned count (clamped to the configured range): drawing it
-            # per item here is what made batch items differ in size and broke
-            # default_collate for batch_size > 1. The chosen cameras still vary.
-            actual_vpt = int(np.clip(views_per_timestep, self.min_views_per_timestep, max_vpt))
-            selected_cams = self._select_cameras(max_vpt, actual_vpt, rng)
-        else:
-            # vpt_cap <= max_vpt: max_views_per_timestep limits sampled cameras
-            # without changing the physical layout (max_vpt = num_views_per_timestep).
-            vpt_cap = max_vpt if self.max_views_per_timestep is None else min(self.max_views_per_timestep, max_vpt)
-            actual_vpt = rng.integers(self.min_views_per_timestep, vpt_cap + 1)
-            selected_cams = self._select_cameras(max_vpt, actual_vpt, rng)
-        memory_num_views = max(memory_num_views, actual_vpt * self.min_num_timesteps)
-        num_timesteps = seq_len // max_vpt
-        assert num_timesteps > 0, (
-            f"seq_len ({seq_len}) must be >= num_views_per_timestep ({max_vpt})"
+        avail = len(seq) // max_vpt  # timesteps physically in the record
+        assert avail >= self.num_timesteps, (
+            f"{scene_name}: record has {avail} timesteps < num_timesteps={self.num_timesteps}"
         )
 
-        do_reverse = self.reverse_seq and rng.random() < 0.5
-
-        if self.no_partial_views:
-            # Truncate memory_num_views down to a clean multiple of actual_vpt so
-            # every timestep is full (no partial-camera timestep).
-            effective_memory = (memory_num_views // actual_vpt) * actual_vpt
-            assert effective_memory > 0, (
-                f"no_partial_views=True requires memory_num_views ({memory_num_views}) "
-                f">= actual_vpt ({actual_vpt})"
-            )
-            partial = 0
-            timesteps_needed = min(effective_memory // actual_vpt, num_timesteps)
-            effective_memory = timesteps_needed * actual_vpt
-        else:
-            effective_memory = memory_num_views
-            partial = memory_num_views % actual_vpt
-            timesteps_needed = min(math.ceil(memory_num_views / actual_vpt), num_timesteps)
-
-        anchor = num_timesteps - 1 if do_reverse else 0
-        candidates = np.delete(np.arange(num_timesteps), anchor)
-
-        chosen_timesteps = [anchor]
-        if timesteps_needed > 1:
-            chosen_timesteps += list(rng.choice(candidates, size=timesteps_needed - 1, replace=False))
-        chosen_timesteps = sorted((int(t) for t in chosen_timesteps), reverse=do_reverse)
-
-        memory_view_indices = self._build_view_indices(chosen_timesteps, selected_cams, max_vpt, partial, rng)
-        memory_view_indices = memory_view_indices[:effective_memory]
+        # One ordered, consecutive run of timesteps at a random offset in the record.
+        start = int(rng.integers(0, avail - self.num_timesteps + 1))
+        # Records are timestep-major, camera-minor: index = t * max_vpt + cam.
+        memory_view_indices = [t * max_vpt + c
+                               for t in range(start, start + self.num_timesteps)
+                               for c in self.cams]
 
         frames = [seq[i] for i in memory_view_indices]
-        times = [ts[i] for i in memory_view_indices]
+        # Dense labels: the window offset is a sampling detail, not a timestamp.
+        times = [t for t in range(self.num_timesteps) for _ in self.cams]
 
         views = []
-        for i, (frame_index, t) in enumerate(zip(frames, times)):
+        for frame_index, t in zip(frames, times):
             frame_id = self.frames[frame_index]
 
             npz_path = osp.join(preprocessed_scene_dir, f"{frame_id}.npz")
@@ -335,33 +172,14 @@ class BaseSeqDatasetMultiView(BaseStereoViewDataset, EasyDataset_OccAny):
             intrinsics[0, 1] = 0.0
             intrinsics[1, 0] = 0.0
 
-            pseudo_depthmap = None
-            if self.load_infinidepth_pseudo:
-                pseudo_path = osp.join(
-                    preprocessed_scene_dir, f"{frame_id}{INFINIDEPTH_PSEUDO_SUFFIX}"
-                )
-                pseudo_u16 = imread_cv2(pseudo_path, cv2.IMREAD_UNCHANGED)
-                if pseudo_u16.dtype != np.uint16:
-                    raise RuntimeError(
-                        f"Expected uint16 InfiniDepth pseudo-depth, got dtype={pseudo_u16.dtype} "
-                        f"at {pseudo_path}"
-                    )
-                if pseudo_u16.shape[:2] != (image.shape[0], image.shape[1]):
-                    raise RuntimeError(
-                        f"InfiniDepth pseudo-depth shape {pseudo_u16.shape[:2]} does not match "
-                        f"image shape {(image.shape[0], image.shape[1])} at {pseudo_path}"
-                    )
-                pseudo_depthmap = pseudo_u16.astype(np.float32) / INFINIDEPTH_PSEUDO_SCALE
-
-            image, depthmap, intrinsics, pseudo_depthmap = self._resize_image_and_sparse_depthmap(
+            image, depthmap, intrinsics, _ = self._resize_image_and_sparse_depthmap(
                 image, depthmap, intrinsics, resolution, rng,
-                info=(scene_name, frame_id), pseudo_depthmap=pseudo_depthmap,
+                info=(scene_name, frame_id),
             )
 
             view = dict(
                 img=image,
                 timestep=t,
-                views_per_timestep=int(actual_vpt),  # sampler-pinned vpt; for num_cameras verification
                 depthmap=depthmap,
                 camera_pose=camera_pose,  # cam2world
                 camera_intrinsics=intrinsics,
@@ -370,30 +188,17 @@ class BaseSeqDatasetMultiView(BaseStereoViewDataset, EasyDataset_OccAny):
                 frame_id=frame_id,
                 label=f"{scene_name}_{frame_id}",
                 instance=frame_id)
-            if pseudo_depthmap is not None:
-                view['pseudo_depthmap'] = pseudo_depthmap
             views.append(view)
-        
+
         return views
 
     def __getitem__(self, idx):
-        # views_per_timestep is pinned per batch by DatasetAwareBatchSamplerOccAny
-        # (5-tuple) so all items in a batch return the same view count; None means
-        # the legacy 4-tuple / eval int path, where _get_views draws it per item.
-        views_per_timestep = None
         if isinstance(idx, tuple):
-            # the idx is specifying the aspect-ratio (+ per-batch view budget)
-            if len(idx) == 4:
-                idx, resolution_idx, memory_num_views, views_per_timestep = idx
-            else:
-                idx, resolution_idx, memory_num_views = idx
+            idx, resolution_idx = idx  # the batch sampler pins the aspect ratio
         else:
             # This is used by test data as we don't implement the BatchSampler in test
             assert len(self._resolutions) == 1
             resolution_idx = 0
-            assert self.min_memory_num_views == self.max_memory_num_views, "Evaluation needs to be done with a fixed number of views, which is equal to min_memory_num_views and  min_memory_num_views must equal max_memory_num_views"
-            memory_num_views = self.min_memory_num_views
-        # idx, ar_idx, memory_num_views = 290, 0, 10 # TODO: remove later as this is only for overfitting 1 example
         # set-up the rng
         if self.seed:  # reseed for each __getitem__
             self._rng = np.random.default_rng(seed=self.seed + idx)
@@ -403,22 +208,16 @@ class BaseSeqDatasetMultiView(BaseStereoViewDataset, EasyDataset_OccAny):
 
         # over-loaded codez_far
         resolution = self._resolutions[resolution_idx]  # DO NOT CHANGE THIS (compatible with BatchedRandomSampler)
-        views = self._get_views(idx, resolution, memory_num_views, self._rng, views_per_timestep=views_per_timestep)
-        # _get_views may bump memory_num_views up (min_num_timesteps) or return
-        # fewer views when the source sequence is shorter than the requested
-        # budget. Sync to the actual returned count so view['idx'] and
-        # view['memory_num_views'] reflect reality.
-        memory_num_views = len(views)
+        views = self._get_views(idx, resolution, self._rng)
 
         # Build a PIL→PIL color jitter once so all views in this sample share the same params.
-        # Normalization is then handled by the base_model branch below.
+        # DA3 normalization is applied after it.
         pil_jitter = SeqColorJitter(normalize=False) if self.is_seq_color_jitter else None
 
         in_camera0 = affine_inverse_np(views[0]['camera_pose'])
         for v, view in enumerate(views):
             assert 'pts3d' not in view, f"pts3d should not be there, they will be computed afterwards based on intrinsics+depthmap for view {view_name(view)}"
-            view['idx'] = (idx, resolution_idx, v, memory_num_views)
-            view['memory_num_views'] = memory_num_views
+            view['idx'] = (idx, resolution_idx, v)
             view['is_metric_scale'] = self.is_metric_scale
             # encode the image
             width, height = view['img'].size
@@ -426,12 +225,7 @@ class BaseSeqDatasetMultiView(BaseStereoViewDataset, EasyDataset_OccAny):
             if self.distill_img_transform is not None:
                 view['distill_img'] = self.distill_img_transform(view['img'])
             img_pil = pil_jitter(view['img']) if pil_jitter is not None else view['img']
-            if self.base_model == 'da3':
-                view['img'] = InputProcessor.NORMALIZE(to_tensor(img_pil))
-            elif pil_jitter is not None:
-                view['img'] = ImgNorm(img_pil)
-            else:
-                view['img'] = self.transform(img_pil)
+            view['img'] = InputProcessor.NORMALIZE(to_tensor(img_pil))
 
             # convert all camera poses to the coordinate frame of camera 0
             view['camera_pose'] = in_camera0 @ view['camera_pose']
@@ -466,10 +260,7 @@ class BaseSeqDatasetMultiView(BaseStereoViewDataset, EasyDataset_OccAny):
                 res, err_msg = is_good_type(key, val)
                 assert res, f"{err_msg} with {key}={val} for view {view_name(view)}"
 
-        # recon_view_idx is only passed explicitly during test; None = keep every view.
-        recon_view_idx = range(len(views)) if self.recon_view_idx is None else self.recon_view_idx
-
-        ret_views = [copy.deepcopy(views[v]) for v in recon_view_idx]
+        ret_views = [copy.deepcopy(view) for view in views]
 
         # last thing done!
         for view in ret_views:

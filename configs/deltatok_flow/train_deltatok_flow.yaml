@@ -3,51 +3,41 @@ exp_name: "deltatok_flow"
 dataset:
   # Dust3r-style dataset expression strings evaluated by
   # `occany.datasets.get_data_loader` (same data path as train_deltatok_karolina).
-  per_dataset_sampling: true
   train_dataset: "2000 @ WaymoSeqMultiView(ROOT='/scratch/project/eu-25-92/data/waymo_processed', \
       seq_pkl_name='seq_surround_temporal_sub5_stride9_all.pkl', \
-      min_memory_num_views=5, frame_interval=1, max_memory_num_views=24, \
-      num_views_per_timestep=5, min_views_per_timestep=1, min_num_timesteps=2, \
-      z_far=50, split='train', no_partial_views=True, \
-      resolution=[(518, 294), (518, 280), (518, 266), (518, 210), (518, 168)], \
-      reverse_seq=True, distill_model_name='SAM3', base_model='da3') + \
+      num_timesteps=5, num_views_per_timestep=5, fixed_cams=[0], \
+      z_far=50, split='train', distill_model_name='SAM3', \
+      resolution=[(518, 294), (518, 280), (518, 266), (518, 210), (518, 168)]) + \
       1000 @ VKittiSeqMultiView(VKITTI_PROCESSED_ROOT='/scratch/project/eu-25-92/data/vkitti_processed', \
       seq_pkl_name='seq_exact_len_sub5_stride9.pkl', \
-      min_memory_num_views=5, frame_interval=1, max_memory_num_views=10, min_num_timesteps=2, \
-      z_far=50, split='train', no_partial_views=True, \
-      resolution=[(518, 294), (518, 280), (518, 266), (518, 210), (518, 168)], \
-      reverse_seq=True, distill_model_name='SAM3', base_model='da3') + \
+      num_timesteps=5, fixed_cams=[0], \
+      z_far=50, split='train', distill_model_name='SAM3', \
+      resolution=[(518, 294), (518, 280), (518, 266), (518, 210), (518, 168)]) + \
       2000 @ DDADSeqMultiView(DDAD_PREPROCESSED_ROOT='/scratch/project/eu-25-92/data/ddad_processed', \
       seq_pkl_name='seq_surround_temporal_sub5_stride9_all.pkl', \
-      min_memory_num_views=6, frame_interval=1, max_memory_num_views=24, \
-      num_views_per_timestep=6, min_views_per_timestep=1, min_num_timesteps=2, \
-      z_far=50, split='train', no_partial_views=True, \
-      resolution=[(518, 294), (518, 280), (518, 266), (518, 210), (518, 168)], \
-      reverse_seq=True, distill_model_name='SAM3', base_model='da3') + \
+      num_timesteps=5, num_views_per_timestep=6, fixed_cams=[0], \
+      z_far=50, split='train', distill_model_name='SAM3', \
+      resolution=[(518, 294), (518, 280), (518, 266), (518, 210), (518, 168)]) + \
       2000 @ PandasetSeqMultiView(PANDASET_PREPROCESSED_ROOT='/scratch/project/eu-25-92/data/pandaset_processed', \
       seq_pkl_name='seq_surround_temporal_sub5_stride9_all.pkl', \
-      min_memory_num_views=6, frame_interval=1, max_memory_num_views=24, \
-      num_views_per_timestep=6, min_views_per_timestep=1, min_num_timesteps=2, \
-      z_far=50, split='train', no_partial_views=True, \
-      resolution=[(518, 294), (518, 280), (518, 266), (518, 210), (518, 168)], \
-      reverse_seq=True, distill_model_name='SAM3', base_model='da3') + \
+      num_timesteps=5, num_views_per_timestep=6, fixed_cams=[0], \
+      z_far=50, split='train', distill_model_name='SAM3', \
+      resolution=[(518, 294), (518, 280), (518, 266), (518, 210), (518, 168)]) + \
       2000 @ OnceSeqMultiView(ONCE_PREPROCESSED_ROOT='/scratch/project/eu-25-92/data/once_processed', \
       seq_pkl_name='seq_surround_temporal_sub5_stride9_all.pkl', \
-      min_memory_num_views=5, frame_interval=1, max_memory_num_views=24, \
-      num_views_per_timestep=5, min_views_per_timestep=1, min_num_timesteps=2, \
-      z_far=50, split='train', no_partial_views=True, \
-      resolution=[(518, 294), (518, 280), (518, 266), (518, 210), (518, 168)], \
-      reverse_seq=True, distill_model_name='SAM3', base_model='da3')"
+      num_timesteps=5, num_views_per_timestep=5, fixed_cams=[0], \
+      z_far=50, split='train', distill_model_name='SAM3', \
+      resolution=[(518, 294), (518, 280), (518, 266), (518, 210), (518, 168)])"
   test_dataset: "206 @ KittiSeqMultiView(KITTI_PREPROCESSED_ROOT='/scratch/project/eu-25-92/data/kitti_processed', \
-      seq_pkl_name='seq_exact_len_sub5_stride9.pkl', frame_interval=1, \
-      min_memory_num_views=5, max_memory_num_views=5, reverse_seq=False, \
-      z_far=50, split='val', seed=42, no_partial_views=True, \
-      resolution=[(518, 168)], distill_model_name='SAM3', base_model='da3') + \
+      seq_pkl_name='seq_exact_len_sub5_stride9.pkl', \
+      num_timesteps=5, fixed_cams=[0], \
+      z_far=50, split='val', seed=42, distill_model_name='SAM3', \
+      resolution=[(518, 168)]) + \
       206 @ Occ3dNuscenesSeqMultiView(NUSCENES_PREPROCESSED_ROOT='/scratch/project/eu-25-92/data/occ3d_nuscenes_processed', \
-      seq_pkl_name='seq_surround_temporal_sub1_stride9_all.pkl', frame_interval=1, \
-      min_memory_num_views=10, max_memory_num_views=10, num_views_per_timestep=6, \
-      z_far=50, split='val', seed=42, no_partial_views=True, fixed_cams=[0,1], \
-      resolution=[(518, 266)], distill_model_name='SAM3', base_model='da3')"
+      seq_pkl_name='seq_surround_temporal_sub5_stride9_all.pkl', \
+      num_timesteps=5, num_views_per_timestep=6, fixed_cams=[0,1], \
+      z_far=50, split='val', seed=42, distill_model_name='SAM3', \
+      resolution=[(518, 266)])"
 
 model:
   vit_size: "xlarge"
@@ -58,8 +48,7 @@ model:
   attn_mode: factorized  # factorized | global (global = one attention over all delta tokens)
   num_ctx_deltas: 1      # clean leading delta tokens in the delta_ctx modes; n = n+1 given frames (ignored by cond_mode=cross)
 
-  # Temporal slot capacity: must be >= max T-1 transitions per item (worst case
-  # above: max_memory_num_views=24 with min_views_per_timestep=1 -> T-1 = 23).
+  # Temporal slot capacity: must be >= T-1 transitions per item (num_timesteps-1).
   # Only the first T-1 rows of the temporal embedding are looked up per forward,
   # so oversizing costs only unused embedding rows (no DDP unused-param issue:
   # a partial nn.Embedding lookup still yields one dense grad for the weight).

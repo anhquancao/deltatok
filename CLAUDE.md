@@ -95,16 +95,14 @@ source env_jz_h100.sh && python compute_recon_metrics.py \
   --exp_dir ./outputs/occany_plus_recon_1B_occany_da3_nuscenes_surround_img512
 ```
 
-**Training** (the repo trains DeltaTok, DeltaTok-flow, and OccRAE; the occany_plus scripts train the upstream OccAny+ backbone):
+**Training** (the repo trains DeltaTok, DeltaTok-flow, and OccRAE; OccAny+ is a frozen upstream backbone and is no longer trained here):
 ```bash
 bash sh/train_deltatok.sh                 # DeltaTok tokenizer
 bash sh/train_deltatok_flow.sh            # OccRAE flow matching
 bash sh/train_occrae_img_decoder.sh       # OccRAE image decoder (MAE-style)
-bash sh/train_occany_plus_recon.sh        # OccAny+ reconstruction (upstream)
-bash sh/train_occany_plus_recon_1B.sh     # 1.1B variant (upstream)
 ```
 
-`sh/train_occany_plus_gen.sh` is defunct: the novel-view/gen path was removed and the wrapper passes flags (`--gen`, `--gen_alt_start`, `--lambda_raymap`) that no longer exist in `launch_da3.py`.
+The `sh/train_occany_plus_*.sh` wrappers and `slurm/train_occany_plus.slurm` were deleted — they drove the removed gen/raymap path and a dataset API that no longer exists.
 
 **SLURM:** (always via `bash -lc` — see Environment bootstrap)
 ```bash
@@ -114,7 +112,7 @@ ssh bsc "bash -lc 'cd /gpfs/projects/ehpc1001/code/deltatok && sbatch slurm/<nam
 
 Scripts are named `<name>_<cluster>.slurm` (e.g. `train_deltatok_multitoken_sigreg_nozn_jz.slurm`). DeltaTok training scripts live in `slurm/deltatok/` (tokenizer, `sh/train_deltatok.sh`) and `slurm/deltatok_flow/` (flow matching, `sh/train_deltatok_flow.sh`); each has an `archive/` for retired arms. Eval/diagnostic scripts stay at `slurm/` root. Paths are relative to the repo root, so always `sbatch slurm/deltatok[_flow]/<name>.slurm` from there.
 
-`RESUME` defaults to `0` in the `*_jz`/`*_bsc` train scripts, so a plain relaunch starts fresh and clobbers `ckpts/current.pth` (only one backup deep). Pass `--export=ALL,RESUME=1` to continue a run. Un-suffixed `slurm/*.slurm` (e.g. `train_occany_plus.slurm`) are Karolina-era and still `conda activate`.
+Training **always** resumes from `<RESULTS_DIR>/<RUN_NAME>/ckpts/current.pth` when it exists — there is no `RESUME` env var and no `--resume` flag, so a plain relaunch continues the run and a chained job needs no extra `--export`. To start an arm over, change `RUN_NAME` or delete its `ckpts/`. Any remaining un-suffixed `slurm/*.slurm` is Karolina-era and still `conda activate`s.
 
 For chained training jobs (dependency chain of resume jobs for a long run), use the `chain-slurm-jobs` skill rather than hand-rolling the submission.
 
@@ -208,7 +206,7 @@ cd third_party/croco/models/curope && python setup.py install
 
 - **Code search:** prefer `grep` over `rg` in this repo.
 - **Benchmark presets:** evaluation/training is selected via `EXP_LIST` + `EXP_ID`; new benchmark variants belong in `sh/exp_lists/*.sh`, not hardcoded branches in wrappers.
-- **Training dataset strings** in `sh/train_occany_plus_*.sh` are passed to `occany.datasets.get_data_loader()` via `eval()` — do not simplify them; quoting and constructor names must stay valid Python expressions.
+- **Training dataset strings** in `configs/**/*.yaml` are `eval()`-ed by `occany.datasets.get_data_loader()`, so quoting and constructor names must stay valid Python. Every entry states `num_timesteps` (the consecutive-window length) and names its cameras via `fixed_cams`; cameras and view budgets are never sampled.
 - **Semantic mode strings** follow `<source>@<model>` (e.g., `distill@SAM3`, `pretrained@SAM3`), parsed centrally by `occany.utils.inference_helper.parse_semantic_mode()`.
 - **Output resolution** is dataset-specific. Use `occany.utils.resolution.get_output_resolution()` or existing eval presets — common defaults are `518×294` for nuScenes and `518×168` for KITTI.
 - **Sharded batch processing** uses `--world` and `--pid` consistently across extraction scripts and dataset preprocessing.

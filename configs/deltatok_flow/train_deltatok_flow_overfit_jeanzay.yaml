@@ -5,25 +5,24 @@ defaults:
 exp_name: "deltatok_flow_overfit"
 
 dataset:
-  # Single fixed nuScenes sample (select_scenes pins scene-0625, max_seqs=1)
+  # Single fixed nuScenes scene (select_scenes pins scene-0625)
   # repeated 256x for train, on the Jean Zay fsn1 root (the Karolina /scratch
-  # path is not mounted on JZ). scene-0625 is a reasonably dynamic, daytime
+  # path is not mounted on JZ). sub1: the sub5 dump is partial (31 seqs, 8
+  # scenes, none of them 0625). scene-0625 is a reasonably dynamic, daytime
   # surround drive (~26.5 m ego displacement over the 10-timestep window vs the
   # near-static ~1.9 m of the previous default first val seq), so the flow model
   # has real temporal motion to overfit. training.bsize/effective_bsize=32 is
   # inherited from train_deltatok_flow_overfit.
   train_dataset: "512 @ Occ3dNuscenesSeqMultiView(NUSCENES_PREPROCESSED_ROOT='/lustre/fsn1/projects/rech/trg/uyl37fq/occany_dataset/occ3d_nuscenes_processed', \
-      seq_pkl_name='seq_surround_temporal_sub1_stride9_all.pkl', frame_interval=1, \
-      min_memory_num_views=10, max_memory_num_views=10, num_views_per_timestep=6, \
-      z_far=50, split='val', seed=42, no_partial_views=True, fixed_cams=[0,1], \
-      select_scenes=['scene-0625'], max_seqs=1, \
-      resolution=[(518, 266)], distill_model_name=None, base_model='da3')"
+      seq_pkl_name='seq_surround_temporal_sub1_stride9_all.pkl', \
+      num_timesteps=5, num_views_per_timestep=6, fixed_cams=[0,1], \
+      z_far=50, split='val', select_scenes=['scene-0625'], seed=42, distill_model_name=None, \
+      resolution=[(518, 266)])"
   test_dataset: "2 @ Occ3dNuscenesSeqMultiView(NUSCENES_PREPROCESSED_ROOT='/lustre/fsn1/projects/rech/trg/uyl37fq/occany_dataset/occ3d_nuscenes_processed', \
-      seq_pkl_name='seq_surround_temporal_sub1_stride9_all.pkl', frame_interval=1, \
-      min_memory_num_views=10, max_memory_num_views=10, num_views_per_timestep=6, \
-      z_far=50, split='val', seed=42, no_partial_views=True, fixed_cams=[0,1], \
-      select_scenes=['scene-0625'], max_seqs=1, \
-      resolution=[(518, 266)], distill_model_name=None, base_model='da3')"
+      seq_pkl_name='seq_surround_temporal_sub1_stride9_all.pkl', \
+      num_timesteps=5, num_views_per_timestep=6, fixed_cams=[0,1], \
+      z_far=50, split='val', select_scenes=['scene-0625'], seed=42, distill_model_name=None, \
+      resolution=[(518, 266)])"
 
 model:
   # Frozen tokenizer ckpt, copied into the repo on Jean Zay (same as the JZ base

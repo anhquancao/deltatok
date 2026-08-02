@@ -73,7 +73,6 @@ MLP_TAG=""; [ "${BOTTLENECK_MLP}" = "true" ] && MLP_TAG="_mlp"                 #
 case "${SIGREG_WEIGHT}" in 0|0.0|0.00|"") SIGREG_TAG="" ;; *) SIGREG_TAG="_sigreg${SIGREG_WEIGHT}_ns${SIGREG_NUM_SLICES}_pool${SIGREG_POOL_SAMPLES}" ;; esac
 ZN_TAG=""; [ "${Z_NORM}" = "false" ] && ZN_TAG="_nozn"                        # no z-norm -> distinct arch, fresh dir
 export RUN_NAME=deltatok_surround_layer12_bsize2_dtok${NUM_DELTA_TOKENS}${TC_TAG}_cos1e3_1e5_b95_gradskip_noaff_prenorm${MLP_TAG}${SIGREG_TAG}${ZN_TAG}${RUN_SUFFIX}
-export RESUME=${RESUME:-0}   # override with --export=ALL,RESUME=1 to resume current.pth
 EXTRA_CFG_ARGS=(
     model.deltatok.num_delta_tokens=${NUM_DELTA_TOKENS}   # K delta tokens/camera (K=64 ~12:1 compression at full res)
     model.deltatok.target_channels=${TARGET_CHANNELS}     # 1536 == hidden_size -> no channel bottleneck built
@@ -97,7 +96,6 @@ echo "PWD=$(pwd)"
 echo "CONFIG_NAME=$CONFIG_NAME"
 echo "LOG_AND_CKPT_DIR=$LOG_AND_CKPT_DIR"
 echo "RUN_NAME=$RUN_NAME"
-echo "RESUME=$RESUME"
 echo "EXTRA_CFG=$EXTRA_CFG"
 
 srun --cpu-bind=none bash sh/train_deltatok.sh

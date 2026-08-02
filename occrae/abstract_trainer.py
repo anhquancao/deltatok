@@ -96,9 +96,7 @@ class Trainer(object):
         pass
 
     def get_resume_checkpoint_path(self):
-        if not self.args.resume:
-            return None
-
+        # Always resume: absent current.pth just means a fresh run.
         ckpt = os.path.join(self.args.vit_folder, "current.pth")
         if os.path.isfile(ckpt):
             return ckpt

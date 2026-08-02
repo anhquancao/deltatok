@@ -43,7 +43,7 @@ ulimit -n "$(ulimit -Hn)"
 # and train ONLY z_proj_down/up + pre_bottleneck_norm. The joint tc768 arms plateau ~7x above the
 # uncompressed ceiling although a plain PCA-768 reaches 0.023 -- an optimization failure, so the
 # projection gets a stationary code plus a direct round-trip loss instead of decoder grads alone.
-# RESUME=1 overrides INIT_CKPT (fit() prefers current.pth), which is what chained jobs want.
+# current.pth overrides INIT_CKPT (fit() prefers it), which is what chained jobs want.
 # EXPECTED in the log: "[warn] ckpt has no z bottleneck projections" + trainable ~2.4M of 460M.
 #   sbatch --export=ALL,BNECK_RECON_WEIGHT=0.3 slurm/deltatok/train_deltatok_stage2_bottleneck_jz.slurm
 export CONFIG_NAME=train_deltatok_jeanzay
@@ -56,7 +56,6 @@ export INIT_CKPT="$LOG_AND_CKPT_DIR/deltatok_surround_layer12_bsize2_dtok64_tc15
 # design; lower it to rebalance. In the run name, so arms never share a dir.
 export BNECK_RECON_WEIGHT=${BNECK_RECON_WEIGHT:-1.0}
 export RUN_NAME=deltatok_l12_dtok64_tc768_nozn_bneckrec${BNECK_RECON_WEIGHT}_rawtgt_stage2bneck_ep40
-export RESUME=${RESUME:-0}   # override with --export=ALL,RESUME=1 to resume current.pth (then INIT_CKPT is ignored)
 EXTRA_CFG_ARGS=(
     model.deltatok.num_delta_tokens=64         # K delta tokens/camera; must match stage 1
     model.deltatok.target_channels=768         # builds z_proj_down/up + pre_bottleneck_norm
@@ -86,7 +85,6 @@ echo "PWD=$(pwd)"
 echo "CONFIG_NAME=$CONFIG_NAME"
 echo "LOG_AND_CKPT_DIR=$LOG_AND_CKPT_DIR"
 echo "RUN_NAME=$RUN_NAME"
-echo "RESUME=$RESUME"
 echo "EXTRA_CFG=$EXTRA_CFG"
 
 srun --cpu-bind=none bash sh/train_deltatok.sh

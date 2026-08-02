@@ -4,8 +4,8 @@ defaults:
 
 # DATA swap of train_deltatok_flow_waymo_jeanzay: same 5-cam surround layout and
 # item shape, on ONCE instead of Waymo — 843k vs 122k train seqs (~6.9x). Model,
-# frozen tokenizer, img_decoder and training schedule are inherited unchanged;
-# num_ctx_deltas stays 1 (2 given, 3 forecast) so only the data differs.
+# frozen tokenizer, img_decoder and training schedule are inherited unchanged.
+# num_ctx_deltas=2 in the SLURM script: 3 given frames, 2 forecast (waymo arm: 1).
 dataset:
   # 16 held-out ONCE scenes = 264 val seqs. Referenced by BOTH dataset strings via
   # ${dataset._once_val_scenes} so the train exclusion and the val selection stay
@@ -31,23 +31,19 @@ dataset:
     - "000546"
   # Train: ONCE minus the 16 val scenes (split=None + exclude_scenes, so once_pairs.py's
   # own val_scenes filter is bypassed and exclude_scenes is the only split).
-  # fixed_cams=[0] short-circuits vpt sampling (num_views_per_timestep=5 is only the
-  # physical seq layout) and min=max_memory=5 pins the draw: every item is 5 timesteps
-  # (anchor + 4 random later ones, sorted; NOT consecutive) x cam 0 at (518,266).
+  # num_views_per_timestep=5 is only the physical seq layout; every item is 5
+  # consecutive timesteps x cam 0 at (518,266).
   # 32000/epoch = 1000 steps/epoch at effective_bsize 32 -> 100k steps over 100 epochs.
   train_dataset: "32000 @ OnceSeqMultiView(ONCE_PREPROCESSED_ROOT='/lustre/fsn1/projects/rech/trg/uyl37fq/occany_dataset/once_processed', \
       seq_pkl_name='seq_surround_temporal_sub5_stride9_fs1_once_5cam_all.pkl', \
-      min_memory_num_views=5, frame_interval=1, max_memory_num_views=5, \
-      num_views_per_timestep=5, fixed_cams=[0], min_num_timesteps=2, \
-      z_far=50, split=None, exclude_scenes=${dataset._once_val_scenes}, no_partial_views=True, \
-      resolution=[(518, 266)], \
-      reverse_seq=False, base_model='da3')"
+      num_timesteps=5, num_views_per_timestep=5, fixed_cams=[0], \
+      z_far=50, split=None, exclude_scenes=${dataset._once_val_scenes}, \
+      resolution=[(518, 266)])"
   # Val: the 16 held-out scenes (264 seqs available, 256 drawn -> no repeats).
   # Fixed 5-timestep x cam-0, single (518,266), seed=42. Non-fs1 pkl, as the waymo arm.
   # NOT comparable to the Waymo arm's eval: different scenes and dataset.
   test_dataset: "256 @ OnceSeqMultiView(ONCE_PREPROCESSED_ROOT='/lustre/fsn1/projects/rech/trg/uyl37fq/occany_dataset/once_processed', \
-      seq_pkl_name='seq_surround_temporal_sub5_stride9_all.pkl', frame_interval=1, \
-      min_memory_num_views=5, max_memory_num_views=5, num_views_per_timestep=5, min_num_timesteps=2, \
-      z_far=50, split=None, select_scenes=${dataset._once_val_scenes}, seed=42, no_partial_views=True, fixed_cams=[0], \
-      reverse_seq=False, \
-      resolution=[(518, 266)], base_model='da3')"
+      seq_pkl_name='seq_surround_temporal_sub5_stride9_all.pkl', \
+      num_timesteps=5, num_views_per_timestep=5, fixed_cams=[0], \
+      z_far=50, split=None, select_scenes=${dataset._once_val_scenes}, seed=42, \
+      resolution=[(518, 266)])"

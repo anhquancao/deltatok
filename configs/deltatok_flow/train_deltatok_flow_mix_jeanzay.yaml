@@ -45,43 +45,33 @@ dataset:
     - segment-10526338824408452410_5714_660_5734_660_with_camera_labels.tfrecord
   train_dataset: "7200 @ WaymoSeqMultiView(ROOT='/lustre/fsn1/projects/rech/trg/uyl37fq/occany_dataset/waymo_processed', \
       seq_pkl_name='seq_surround_temporal_sub5_stride9_fs1_all.pkl', \
-      frame_interval=1, \
-      min_views_per_timestep=1, max_views_per_timestep=1, min_num_timesteps=5, max_num_timesteps=5, \
-      z_far=50, split='train', exclude_scenes=${dataset._waymo_val_scenes}, no_partial_views=True, \
-      resolution=[(518, 266)], \
-      reverse_seq=False, base_model='da3') + \
+      num_timesteps=5, fixed_cams=[0], \
+      z_far=50, split='train', exclude_scenes=${dataset._waymo_val_scenes}, \
+      resolution=[(518, 266)]) + \
       3200 @ VKittiSeqMultiView(VKITTI_PROCESSED_ROOT='/lustre/fsn1/projects/rech/trg/uyl37fq/occany_dataset/vkitti_processed', \
       seq_pkl_name='seq_exact_len_sub5_stride9.pkl', \
-      frame_interval=1, min_views_per_timestep=1, max_views_per_timestep=1, min_num_timesteps=5, max_num_timesteps=5, \
-      z_far=50, split='train', no_partial_views=True, \
-      resolution=[(518, 266)], \
-      reverse_seq=False, base_model='da3') + \
+      num_timesteps=5, fixed_cams=[0], \
+      z_far=50, split='train', \
+      resolution=[(518, 266)]) + \
       7200 @ DDADSeqMultiView(DDAD_PREPROCESSED_ROOT='/lustre/fsn1/projects/rech/trg/uyl37fq/occany_dataset/ddad_processed', \
       seq_pkl_name='seq_surround_temporal_sub5_stride9_fs1_all.pkl', \
-      frame_interval=1, \
-      min_views_per_timestep=1, max_views_per_timestep=1, min_num_timesteps=5, max_num_timesteps=5, \
-      z_far=50, split='train', no_partial_views=True, \
-      resolution=[(518, 266)], \
-      reverse_seq=False, base_model='da3') + \
+      num_timesteps=5, fixed_cams=[0], \
+      z_far=50, split='train', \
+      resolution=[(518, 266)]) + \
       7200 @ PandasetSeqMultiView(PANDASET_PREPROCESSED_ROOT='/lustre/fsn1/projects/rech/trg/uyl37fq/occany_dataset/pandaset_processed', \
       seq_pkl_name='seq_surround_temporal_sub5_stride9_fs1_all.pkl', \
-      frame_interval=1, \
-      min_views_per_timestep=1, max_views_per_timestep=1, min_num_timesteps=5, max_num_timesteps=5, \
-      z_far=50, split='train', no_partial_views=True, \
-      resolution=[(518, 266)], \
-      reverse_seq=False, base_model='da3') + \
+      num_timesteps=5, fixed_cams=[0], \
+      z_far=50, split='train', \
+      resolution=[(518, 266)]) + \
       7200 @ OnceSeqMultiView(ONCE_PREPROCESSED_ROOT='/lustre/fsn1/projects/rech/trg/uyl37fq/occany_dataset/once_processed', \
       seq_pkl_name='seq_surround_temporal_sub5_stride9_fs1_once_5cam_all.pkl', \
-      frame_interval=1, \
-      min_views_per_timestep=1, max_views_per_timestep=1, min_num_timesteps=5, max_num_timesteps=5, \
-      z_far=50, split='train', no_partial_views=True, \
-      resolution=[(518, 266)], \
-      reverse_seq=False, base_model='da3')"
+      num_timesteps=5, fixed_cams=[0], \
+      z_far=50, split='train', \
+      resolution=[(518, 266)])"
   # Val: the 32 held-out scenes (128 seqs), identical to the Waymo arm's test_dataset
   # so the two arms' eval numbers are directly comparable.
   test_dataset: "128 @ WaymoSeqMultiView(ROOT='/lustre/fsn1/projects/rech/trg/uyl37fq/occany_dataset/waymo_processed', \
-      seq_pkl_name='seq_surround_temporal_sub5_stride9_all.pkl', frame_interval=1, \
-      min_memory_num_views=5, max_memory_num_views=5, num_views_per_timestep=5, min_num_timesteps=2, \
-      z_far=50, split=None, select_scenes=${dataset._waymo_val_scenes}, seed=42, no_partial_views=True, fixed_cams=[0], \
-      reverse_seq=False, \
-      resolution=[(518, 266)], base_model='da3')"
+      seq_pkl_name='seq_surround_temporal_sub5_stride9_all.pkl', \
+      num_timesteps=5, num_views_per_timestep=5, fixed_cams=[0], \
+      z_far=50, split=None, select_scenes=${dataset._waymo_val_scenes}, seed=42, \
+      resolution=[(518, 266)])"
