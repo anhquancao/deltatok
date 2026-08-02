@@ -32,7 +32,7 @@ Cluster context: project work runs on **Jean Zay** and **BSC (MareNostrum)**. Ka
 | Node shape | 4 GPU, `--cpus-per-task=24` | 4 H100, `--cpus-per-task=20` |
 | Repo path | `$TRG_WORK/code/deltatok` | `/gpfs/projects/ehpc1001/code/deltatok` |
 | Env | `source env_jz_h100.sh` | `source env_bsc.sh` |
-| Scripts | `slurm/jz_*.slurm` | `slurm/bsc_*.slurm` |
+| Scripts | `slurm/*_jz.slurm` | `slurm/*_bsc.slurm` |
 
 Many checked-in scripts carry **stale accounts** (`zuw@h100`, `cya@h100`, `lwy@h100`; `ehpc551`). New and edited scripts must use `trg@h100` / `ehpc1001`.
 
@@ -114,11 +114,15 @@ bash sh/train_deltatok.sh                 # DeltaTok tokenizer
 
 **SLURM:** (always via `bash -lc` — see Environment bootstrap)
 ```bash
-ssh jean-zay "bash -lc 'cd \$TRG_WORK/code/deltatok && sbatch slurm/jz_<name>.slurm'"
-ssh bsc "bash -lc 'cd /gpfs/projects/ehpc1001/code/deltatok && sbatch slurm/bsc_<name>.slurm'"
+ssh jean-zay "bash -lc 'cd \$TRG_WORK/code/deltatok && sbatch slurm/<name>_jz.slurm'"
+ssh bsc "bash -lc 'cd /gpfs/projects/ehpc1001/code/deltatok && sbatch slurm/<name>_bsc.slurm'"
 ```
 
-`RESUME` defaults to `0` in the `jz_*`/`bsc_*` train scripts, so a plain relaunch starts fresh and clobbers `ckpts/current.pth` (only one backup deep). Pass `--export=ALL,RESUME=1` to continue a run. Un-prefixed `slurm/*.slurm` (e.g. `train_occany_plus.slurm`) are Karolina-era and still `conda activate`.
+DeltaTok training scripts live in `slurm/deltatok/` (tokenizer, `sh/train_deltatok.sh`) and `slurm/deltatok_flow/` (flow matching, `sh/train_deltatok_flow.sh`); each has an `archive/` for retired arms. Eval/diagnostic scripts stay at `slurm/` root. Paths are relative to the repo root, so always `sbatch slurm/deltatok[_flow]/<name>.slurm` from there.
+
+Scripts are named `<name>_<cluster>.slurm` (cluster suffix, e.g. `train_deltatok_multitoken_sigreg_nozn_jz.slurm`).
+
+`RESUME` defaults to `0` in the `*_jz`/`*_bsc` train scripts, so a plain relaunch starts fresh and clobbers `ckpts/current.pth` (only one backup deep). Pass `--export=ALL,RESUME=1` to continue a run. Un-suffixed `slurm/*.slurm` (e.g. `train_occany_plus.slurm`) are Karolina-era and still `conda activate`.
 
 When submitting chained training jobs (a dependency chain of resume jobs for a long run), use the `chain-slurm-jobs` skill rather than hand-rolling the submission.
 

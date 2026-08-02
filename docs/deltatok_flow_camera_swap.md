@@ -86,7 +86,7 @@ so each generated delta binds to a fixed camera.
   `forward` as `repeat(camera_embed(arange(S)), 's d -> (t s) d', t=t)` (S = N_cam).
 - `occrae/deltatok_flow_trainer.py`: passes `vit_use_camera_embed`.
 - `configs/train_deltatok_flow.yaml`: `vit_use_camera_embed: false` default.
-- `slurm/jz_train_deltatok_flow.slurm`: overfit run `deltatok_flow_overfit_camEmbed`
+- `slurm/deltatok_flow/train_deltatok_flow_jz.slurm`: overfit run `deltatok_flow_overfit_camEmbed`
   — `model.vit_use_camera_embed=true`, tokenizer reverted to **const-global-rope**
   (config-default ckpt `deltatok_surround_constGlobalRope_layer12`, no camera rope).
 

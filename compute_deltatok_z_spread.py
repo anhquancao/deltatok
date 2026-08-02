@@ -72,7 +72,7 @@ _DEFAULT_CKPTS = [
 ]
 
 # Architecture of BOTH arms (they differ only in the sigreg loss term, which is not a
-# parameter). Mirrors slurm/jz_train_deltatok_multitoken_mlp_sigreg.slurm's EXTRA_CFG.
+# parameter). Mirrors slurm/deltatok/archive/train_deltatok_multitoken_mlp_sigreg_jz.slurm's EXTRA_CFG.
 _TOKENIZER_DEFAULTS = {
     "model.deltatok.num_delta_tokens": 64,       # K=64 delta tokens/camera
     "model.deltatok.target_channels": 768,       # Cz=768 channel bottleneck

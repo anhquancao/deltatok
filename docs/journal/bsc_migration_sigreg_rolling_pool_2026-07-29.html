@@ -100,7 +100,7 @@
       <li><b>Pressure changed by <code>grad_cum</code>× (2× here).</b> Derived below and confirmed by an
         independent review. The new definition is layout-invariant, which the old one was not — but
         sigreg arms from before this change are <b>not weight-comparable</b>.</li>
-      <li><b class="del">Open hazard.</b> <code>slurm/jz_train_deltatok_multitoken_mlp_sigreg.slurm</code>
+      <li><b class="del">Open hazard.</b> <code>slurm/train_deltatok_multitoken_mlp_sigreg_jz.slurm</code>
         shares this trainer, sets no <code>SIGREG_POOL_SAMPLES</code>, and its RUN_NAME tag is a bare
         <code>_pool</code> with no number — so resuming an existing JZ dir on this code silently gets 2×
         pressure with <i>no name change to warn you</i>. Left untouched deliberately (editing it would
@@ -154,10 +154,10 @@
       <td>new — JZ recipe, roots → <code>ehpc1001</code>, <code>num_workers</code> 12→10</td></tr>
     <tr><td><code>configs/train_deltatok_flow_bsc.yaml</code></td>
       <td>new — same, flow variant</td></tr>
-    <tr><td><code>slurm/bsc_train_deltatok.slurm</code></td><td>new — tokenizer arm</td></tr>
-    <tr><td><code>slurm/bsc_train_deltatok_multitoken_sigreg.slurm</code></td>
+    <tr><td><code>slurm/train_deltatok_bsc.slurm</code></td><td>new — tokenizer arm</td></tr>
+    <tr><td><code>slurm/train_deltatok_multitoken_sigreg_bsc.slurm</code></td>
       <td>new — the arm run here</td></tr>
-    <tr><td><code>slurm/bsc_train_deltatok_flow.slurm</code></td>
+    <tr><td><code>slurm/train_deltatok_flow_bsc.slurm</code></td>
       <td>refreshed — was stale (<code>ehpc551</code>, <code>cd ~/code/OccAny</code>)</td></tr>
     <tr><td><code>env_bsc.sh</code></td>
       <td><code>PYTHONPATH</code> pointed into the <i>VATIX</i> checkout; now resolves against its own repo root</td></tr>

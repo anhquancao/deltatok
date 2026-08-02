@@ -27,7 +27,7 @@ The target arm is the best by a wide margin — ~33% under its no-sigreg `_nozn`
 descending when it stopped (ep44: KITTI `LossRecon_AR` 0.03893, nuScenes 0.02989). So this is a
 **refinement around a known-good point**, not a rescue.
 
-It also settles a contradiction: `slurm/jz_train_deltatok_multitoken_mlp_sigreg.slurm` advises that
+It also settles a contradiction: `slurm/deltatok/archive/train_deltatok_multitoken_mlp_sigreg_jz.slurm` advises that
 `SIGREG_WEIGHT` "is a knob to RAISE". Measured, the opposite holds — 1.0 gives `Eval/Loss` 0.112,
 0.05 gives 0.033. That comment should be corrected when the script is next touched.
 
@@ -131,7 +131,7 @@ only `num_slices`. Four surgical edits:
 
 1. `configs/train_deltatok.yaml` (after line 125) — add `sigreg_knots: 17` and `sigreg_t_max: 3.0`.
 2. `occrae/deltatok_trainer.py:592-594` — pass both through to the `SIGReg(...)` constructor.
-3. `slurm/jz_train_deltatok_multitoken_mlp_sigreg.slurm` — add `SIGREG_KNOTS` / `SIGREG_TMAX` env
+3. `slurm/deltatok/archive/train_deltatok_multitoken_mlp_sigreg_jz.slurm` — add `SIGREG_KNOTS` / `SIGREG_TMAX` env
    defaults and the matching `EXTRA_CFG_ARGS` entries.
 4. Same script — extend the `RUN_NAME` tag so a non-default value gets its own directory.
 
@@ -142,7 +142,7 @@ Wave 1 needs none of this.
 Per repo policy: **verify the cluster copy first, ask the user to sync, never sync from here.**
 
 ```bash
-ssh jean-zay "bash -lc 'grep -n \"SIGREG_NUM_SLICES\|RUN_SUFFIX\" \$TRG_WORK/code/deltatok/slurm/jz_train_deltatok_multitoken_mlp_sigreg.slurm'"
+ssh jean-zay "bash -lc 'grep -n \"SIGREG_NUM_SLICES\|RUN_SUFFIX\" \$TRG_WORK/code/deltatok/slurm/deltatok/archive/train_deltatok_multitoken_mlp_sigreg_jz.slurm'"
 ```
 
 Then one job per arm, e.g. wave 1 arm A:
@@ -150,7 +150,7 @@ Then one job per arm, e.g. wave 1 arm A:
 ```bash
 ssh jean-zay "bash -lc 'cd \$TRG_WORK/code/deltatok && sbatch \
   --export=ALL,BOTTLENECK_MLP=false,Z_NORM=false,SIGREG_WEIGHT=0.05,SIGREG_NUM_SLICES=512,RUN_SUFFIX=_sl512,RESUME=0 \
-  slurm/jz_train_deltatok_multitoken_mlp_sigreg.slurm'"
+  slurm/deltatok/archive/train_deltatok_multitoken_mlp_sigreg_jz.slurm'"
 ```
 
 - **`RUN_SUFFIX` is mandatory on every arm.** Without it the job resolves to the incumbent's

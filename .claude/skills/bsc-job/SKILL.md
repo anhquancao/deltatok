@@ -5,7 +5,7 @@ description: Submit, monitor, and tail SLURM jobs on the BSC (MareNostrum) clust
 
 # Running work on BSC (MareNostrum)
 
-BSC is the secondary GPU site for OccAny. Primary GPU work goes to Karolina (`karolina-job` skill); BSC is used only for jobs that explicitly target it (`slurm/bsc_*.slurm`, `sh/*_bsc.sh`, `env_bsc.sh`). This skill captures the conventions.
+BSC is the secondary GPU site for OccAny. Primary GPU work goes to Karolina (`karolina-job` skill); BSC is used only for jobs that explicitly target it (`slurm/*_bsc.slurm`, `sh/*_bsc.sh`, `env_bsc.sh`). This skill captures the conventions.
 
 ## Cluster context
 
@@ -20,7 +20,7 @@ BSC is the secondary GPU site for OccAny. Primary GPU work goes to Karolina (`ka
 | Data root | `/gpfs/scratch/ehpc793/occany_data` |
 | Train logs / ckpts | `/gpfs/scratch/ehpc793/tb_log_occany/<EXP_NAME>` |
 
-> Note: many checked-in `slurm/bsc_*.slurm` scripts still carry `--account=ehpc551` (stale). The current allocation is **`ehpc793`** — prefer that.
+> Note: many checked-in `slurm/*_bsc.slurm` scripts still carry `--account=ehpc551` (stale). The current allocation is **`ehpc793`** — prefer that.
 
 ## One-shot remote command
 
@@ -32,17 +32,17 @@ ssh bsc "cd ~/code/OccAny && source env_bsc.sh && <command>"
 
 ## SLURM job submission
 
-SLURM scripts live under `slurm/bsc_*.slurm`. They `cd "$HOME/code/OccAny"` and `source env_bsc.sh` internally.
+SLURM scripts live under `slurm/*_bsc.slurm`; DeltaTok training is under `slurm/deltatok/` and `slurm/deltatok_flow/` (each with an `archive/`). They `cd "$HOME/code/OccAny"` and `source env_bsc.sh` internally.
 
 ```bash
-ssh bsc "cd ~/code/OccAny && sbatch slurm/bsc_<name>.slurm"
+ssh bsc "cd ~/code/OccAny && sbatch slurm/<name>_bsc.slurm"
 ```
 
 Current scripts:
-- `bsc_train_occany_plus_recon_1B.slurm` — main recon training (8 nodes × 4 GPU)
-- `bsc_train_occany_plus_recon_dinov3_vith16plus.slurm` — DINOv3 ViT-H+/16 recon variant
-- `bsc_train_occrae.slurm` / `bsc_train_occrae_overfit.slurm` — OccRAE flow-matching trainer
-- `bsc_extract_occany_features.slurm` — feature extraction
+- `train_occany_plus_recon_1B_bsc.slurm` — main recon training (8 nodes × 4 GPU)
+- `train_occany_plus_recon_dinov3_vith16plus_bsc.slurm` — DINOv3 ViT-H+/16 recon variant
+- `train_occrae_bsc.slurm` / `train_occrae_overfit_bsc.slurm` — OccRAE flow-matching trainer
+- `extract_occany_features_bsc.slurm` — feature extraction
 
 ### `acc` partition conventions
 

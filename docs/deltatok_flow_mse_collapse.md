@@ -138,7 +138,7 @@ target that was secretly moving.
 multi-step integrate. The real generative test is whether the **full** velocity
 field, trained over all `t`, still fits the single sample under a multi-step ODE.
 Run `deltatok_flow_overfit_deltaCtx_global_fullT_wd0_raymapoff`
-(`slurm/jz_train_deltatok_flow.slurm`), fresh (`RESUME=0`, no `fixedT0` inheritance):
+(`slurm/deltatok_flow/train_deltatok_flow_jz.slurm`), fresh (`RESUME=0`, no `fixedT0` inheritance):
 
 - **`train_fixed_t` dropped** → sample the full logit-normal(`mu=-0.7`, `sigma=1.4`)
   `t` again.

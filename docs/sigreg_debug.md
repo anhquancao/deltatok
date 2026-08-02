@@ -6,7 +6,7 @@ Status as of 2026-07-25. The fix is **applied, validated, committed** (`e95de40`
 
 ## TL;DR
 
-Job `Jeanzay:168363` (`jz_train_deltatok_multitoken_mlp_sigreg.slurm`, SIGReg weight 1.0) never
+Job `Jeanzay:168363` (`train_deltatok_multitoken_mlp_sigreg_jz.slurm`, SIGReg weight 1.0) never
 learned and was **cancelled** after 05:44:25. The cause was the SIGReg *estimator*, not the weight
 and not the LayerNorm: it saw only 128–256 samples of dim 768 per call, where its own
 finite-sample floor buries the collapse signal it exists to detect.
@@ -87,7 +87,7 @@ only variable vs `168363`. Not adopting `clip_value` or the reference's `lamb` c
 2. `occrae/deltatok_trainer.py` — `_sigreg_pooled()` banks each micro-batch's detached rows in
    `_sigreg_zbuf` and runs the estimator **only on the accum window's last micro-batch**, over all
    of them. Cleared at each optimizer step and at epoch start.
-3. `slurm/jz_train_deltatok_multitoken_mlp_sigreg.slurm` — `SIGREG_NUM_SLICES` 256 → **2048**
+3. `slurm/deltatok/archive/train_deltatok_multitoken_mlp_sigreg_jz.slurm` — `SIGREG_NUM_SLICES` 256 → **2048**
    (≥2·Cz, since directions no longer vary per rank); run-name tag gains `_pool` so it cannot
    resume `168363`'s stuck checkpoint. Header comment rewritten with the diagnosis + WATCH criteria.
 

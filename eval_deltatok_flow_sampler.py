@@ -21,7 +21,7 @@ Usage (on Jean Zay, from a GPU node; defaults target the
   source env_jz_h100.sh &&
   python eval_deltatok_flow_sampler.py --output_dir results/deltatok_flow_sampler_eval
   # Defaults: --config-name train_deltatok_flow_jeanzay_waymo, --ckpt the dit run's
-  # current.pth, and the run's arch flags from slurm/jz_train_deltatok_flow_waymo_xxl_dit.slurm
+  # current.pth, and the run's arch flags from slurm/deltatok_flow/train_deltatok_flow_waymo_xxl_dit_jz.slurm
   # (dit AdaLN 1536x20, per-position whitening, delta_ctx_cross, dtok64 non-affine
   # tokenizer). Override any with --cfg model.<key>=... for a different flow run.
 """
@@ -52,7 +52,7 @@ torch.backends.cudnn.allow_tf32 = True
 from occrae.deltatok_flow_trainer import DeltaTokFlowMatchingTrainer  # noqa: E402
 from occany.datasets import get_data_loader  # noqa: E402
 
-# Default target run. Its arch flags live in slurm/jz_train_deltatok_flow_waymo_xxl_dit.slurm
+# Default target run. Its arch flags live in slurm/deltatok_flow/train_deltatok_flow_waymo_xxl_dit_jz.slurm
 # (EXTRA_CFG), NOT in the config — replicated in `_RUN_DEFAULTS` below.
 _RUN_ROOT = ("/lustre/fswork/projects/rech/trg/uyl37fq/deltatok_flow_log/"
              "deltatok_flow_waymo_dtok64_deltaCtxCross_global_fullT_wd05_raymapoff_50k_whitenpos_xxl_dit")

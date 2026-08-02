@@ -58,7 +58,7 @@ from occany.datasets import get_data_loader  # noqa: E402
 
 # The stats belong to the TOKENIZER, not to any flow run, so only the keys that pin
 # which frozen tokenizer is built are replicated here (the flow-ViT arch flags in
-# slurm/jz_train_deltatok_flow_waymo.slurm cannot change z). Defaults = the dtok64
+# slurm/deltatok_flow/train_deltatok_flow_waymo_jz.slurm cannot change z). Defaults = the dtok64
 # non-affine tokenizer the waymo flow runs freeze.
 _DTOK64_CKPT = ("/lustre/fswork/projects/rech/trg/uyl37fq/deltatok_log/"
                 "deltatok_surround_layer12_bsize2_dtok64_cos1e3_1e5_b95_gradskip_noaff/ckpts/current.pth")

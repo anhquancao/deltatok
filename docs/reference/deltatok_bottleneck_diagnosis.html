@@ -153,14 +153,14 @@ python diagnose_deltatok_bottleneck.py --num_batches 100 --recon_num_batches 32
 #   -> saves pca_basis_waymo.pth (PCA basis) beside the dtok64 ckpt
 
 # MLP-bottleneck fix (from scratch):
-sbatch slurm/jz_train_deltatok_multitoken_mlp.slurm   # BOTTLENECK_MLP=true default
+sbatch slurm/train_deltatok_multitoken_mlp_jz.slurm   # BOTTLENECK_MLP=true default
 </code></pre>
 <div class="tblwrap"><table>
 <thead><tr><th>artifact</th><th>value</th></tr></thead>
 <tbody>
 <tr><td>diagnostic script</td><td><code>diagnose_deltatok_bottleneck.py</code></td></tr>
 <tr><td>model flag</td><td><code>model.deltatok.bottleneck_mlp</code> (occrae/deltatok_trainer.py)</td></tr>
-<tr><td>MLP launcher</td><td><code>slurm/jz_train_deltatok_multitoken_mlp.slurm</code></td></tr>
+<tr><td>MLP launcher</td><td><code>slurm/train_deltatok_multitoken_mlp_jz.slurm</code></td></tr>
 <tr><td>uncompressed run</td><td><code>...dtok64_cos1e3_1e5_b95_gradskip_noaff</code></td></tr>
 <tr><td>tc768 run</td><td><code>...dtok64_tc768_..._noaff[_prenorm]</code></td></tr>
 <tr><td>MLP run</td><td><code>...dtok64_tc768_..._noaff_prenorm_mlp</code></td></tr>

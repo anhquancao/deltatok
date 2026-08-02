@@ -369,10 +369,10 @@ return self.norm(z)</code></pre>
     <tr><td class="fileh">occrae/deltatok_shared.py:472</td><td>plumbs <code>z_norm</code> from config</td></tr>
     <tr><td class="fileh">configs/train_deltatok.yaml</td><td><code>z_norm: true</code> default — every existing run unchanged</td></tr>
     <tr><td class="fileh">configs/train_deltatok_flow.yaml</td><td><code>z_norm: true</code>; must match the frozen ckpt</td></tr>
-    <tr><td class="fileh">slurm/jz_train_deltatok_multitoken_mlp_sigreg.slurm</td><td><code>Z_NORM</code> env knob, <code>_nozn</code> RUN_NAME tag, <code>model.deltatok.z_norm</code> cfg arg</td></tr>
+    <tr><td class="fileh">slurm/train_deltatok_multitoken_mlp_sigreg_jz.slurm</td><td><code>Z_NORM</code> env knob, <code>_nozn</code> RUN_NAME tag, <code>model.deltatok.z_norm</code> cfg arg</td></tr>
   </table>
-  <p class="small">Verified: with comments stripped, <code>jz_train_deltatok_multitoken_mlp_sigreg.slurm</code>
-  differs from <code>jz_train_deltatok_multitoken_prenorm.slurm</code> only by the MLP/SIGReg/Z_NORM knobs.
+  <p class="small">Verified: with comments stripped, <code>train_deltatok_multitoken_mlp_sigreg_jz.slurm</code>
+  differs from <code>train_deltatok_multitoken_prenorm_jz.slurm</code> only by the MLP/SIGReg/Z_NORM knobs.
   So <code>SIGREG_WEIGHT=0 BOTTLENECK_MLP=false</code> reproduces the baseline exactly.</p>
 
   <h2>Runs</h2>

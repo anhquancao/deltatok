@@ -17,7 +17,7 @@ Karolina is the **primary** GPU site for OccAny — most Python and GPU work run
 | Repo path on cluster | `/home/it4i-anhquan/OccAny` |
 | Conda env | `occany` |
 
-For jobs that explicitly target BSC (`env_bsc.sh`, `slurm/bsc_*.slurm`, `sh/*_bsc.sh`) or Jean Zay (`env_jz_*.sh`, `slurm/jz_*.slurm`), use the `bsc-job` / `jeanzay-job` skill instead.
+For jobs that explicitly target BSC (`env_bsc.sh`, `slurm/*_bsc.slurm`, `sh/*_bsc.sh`) or Jean Zay (`env_jz_*.sh`, `slurm/*_jz.slurm`), use the `bsc-job` / `jeanzay-job` skill instead.
 
 ## One-shot remote command
 
@@ -56,19 +56,19 @@ ssh karolina "cd ~/OccAny && srun -A eu-25-92 -p qgpu_exp --gpus=1 -t 1:00:00 -c
 
 ## SLURM job submission
 
-SLURM scripts live under `slurm/karolina_*.slurm` (NOT `slurm/bsc_*.slurm`).
+SLURM scripts live under `slurm/*_karolina.slurm` (NOT `slurm/*_bsc.slurm`).
 
 ```bash
-ssh karolina "cd ~/OccAny && sbatch slurm/karolina_<name>.slurm"
+ssh karolina "cd ~/OccAny && sbatch slurm/<name>_karolina.slurm"
 ```
 
 Common ones:
-- `karolina_train_occany_plus_recon_1B.slurm` — main recon training
-- `karolina_train_occany_plus_recon_1B_infinite_depth.slurm` — infinite-depth variant
-- `karolina_train_occrae.slurm` — OccRAE flow-matching trainer
-- `karolina_train_occrae_img_decoder.slurm` — MAE-style image decoder
-- `karolina_train_deltatok.slurm` — DeltaTok
-- `karolina_extract_*.slurm` / `karolina_eval_*.slurm` — extraction + eval
+- `train_occany_plus_recon_1B_karolina.slurm` — main recon training
+- `train_occany_plus_recon_1B_infinite_depth_karolina.slurm` — infinite-depth variant
+- `train_occrae_karolina.slurm` — OccRAE flow-matching trainer
+- `train_occrae_img_decoder_karolina.slurm` — MAE-style image decoder
+- `train_deltatok_karolina.slurm` — DeltaTok
+- `extract_*_karolina.slurm` / `eval_*_karolina.slurm` — extraction + eval
 
 ## Monitoring
 

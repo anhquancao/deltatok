@@ -5,7 +5,7 @@ description: Submit, monitor, and tail SLURM jobs on the Jean Zay (IDRIS) H100 c
 
 # Running work on Jean Zay (IDRIS)
 
-Jean Zay is the tertiary GPU site for the DeltaTok/OccRAE project — H100 training plus a data-backup tier. Primary GPU work goes to Karolina (`karolina-job` skill); Jean Zay is used for jobs that explicitly target it (`slurm/jz_*.slurm`, `env_jz_*.sh`). This skill captures the conventions.
+Jean Zay is the tertiary GPU site for the DeltaTok/OccRAE project — H100 training plus a data-backup tier. Primary GPU work goes to Karolina (`karolina-job` skill); Jean Zay is used for jobs that explicitly target it (`slurm/*_jz.slurm`, `env_jz_*.sh`). This skill captures the conventions.
 
 ## Cluster context
 
@@ -36,20 +36,20 @@ There are also `env_jz_a100.sh` and `env_jz_v100.sh` for the other partitions; d
 
 ## SLURM job submission
 
-SLURM scripts live under `slurm/jz_*.slurm`. They `source env_jz_h100.sh` and `cd` to the fswork checkout internally.
+SLURM scripts live under `slurm/*_jz.slurm`; DeltaTok training is under `slurm/deltatok/` and `slurm/deltatok_flow/` (each with an `archive/`). They `source env_jz_h100.sh` and `cd` to the fswork checkout internally.
 
 **Always submit from a login shell — wrap the remote command in `bash -lc`:**
 
 ```bash
-ssh jean-zay "bash -lc 'cd \$TRG_WORK/code/deltatok && sbatch slurm/jz_<name>.slurm'"
+ssh jean-zay "bash -lc 'cd \$TRG_WORK/code/deltatok && sbatch slurm/<name>_jz.slurm'"
 ```
 
 A bare `ssh jean-zay "... sbatch ..."` runs **non-login**, so the `module` shell function (defined only by the login profile) is never initialized in the submission shell and does **not** propagate into the job via `--export=ALL`. The batch script's `source ~/.bashrc` does **not** rescue this — `.bashrc` early-returns for non-interactive shells, so `module` stays undefined. Symptom: the job starts then dies in ~1s with `module: command not found` (in `*.err`) followed by `ModuleNotFoundError: No module named 'torch'` — `env_jz_h100.sh`'s trailing `echo`s still print to `*.out`, so the OUT log looks like the env was set even though no module loaded. Fix: resubmit with `bash -lc`.
 
 Current scripts:
-- `jz_train_deltatok.slurm` — DeltaTok tokenizer trainer
-- `jz_train_deltatok_camera_rope.slurm` — DeltaTok tokenizer with camera rope
-- `jz_train_deltatok_flow.slurm` — DeltaTok flow-matching trainer (overfit-debug variant)
+- `train_deltatok_jz.slurm` — DeltaTok tokenizer trainer
+- `train_deltatok_camera_rope_jz.slurm` — DeltaTok tokenizer with camera rope
+- `train_deltatok_flow_jz.slurm` — DeltaTok flow-matching trainer (overfit-debug variant)
 
 ### H100 partition (gpu_p6) conventions
 

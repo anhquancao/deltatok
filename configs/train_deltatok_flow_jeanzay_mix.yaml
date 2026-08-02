@@ -1,0 +1,60 @@
+defaults:
+  - train_deltatok_flow_jeanzay
+  - _self_
+
+# Dataset swap of train_deltatok_flow_jeanzay_waymo: train on the DeltaTok
+# tokenizer's own mix (configs/train_deltatok_jeanzay.yaml, verbatim) — 5 datasets,
+# 6 timesteps x 1-2 cams, multi-res — so the flow sees the distribution its frozen
+# tokenizer was fit on. Model, frozen tokenizer and schedule are inherited.
+# Eval is KITTI+nuScenes val, so NOT comparable to the Waymo arm's eval numbers.
+dataset:
+  train_dataset: "4000 @ WaymoSeqMultiView(ROOT='/lustre/fsn1/projects/rech/trg/uyl37fq/occany_dataset/waymo_processed', \
+      seq_pkl_name='seq_surround_temporal_sub5_stride9_fs1_all.pkl', \
+      frame_interval=1, \
+      min_views_per_timestep=1, max_views_per_timestep=2, min_num_timesteps=6, max_num_timesteps=6, ray_map_prob=-1, \
+      z_far=50, split='train', no_partial_views=True, \
+      resolution=[(518, 294), (518, 280), (518, 266), (518, 210), (518, 168)], \
+      reverse_seq=True, base_model='da3') + \
+      2000 @ VKittiSeqMultiView(VKITTI_PROCESSED_ROOT='/lustre/fsn1/projects/rech/trg/uyl37fq/occany_dataset/vkitti_processed', \
+      seq_pkl_name='seq_exact_len_sub5_stride9.pkl', \
+      frame_interval=1, min_views_per_timestep=1, max_views_per_timestep=2, min_num_timesteps=6, max_num_timesteps=6, ray_map_prob=-1, \
+      z_far=50, split='train', no_partial_views=True, \
+      resolution=[(518, 294), (518, 280), (518, 266), (518, 210), (518, 168)], \
+      reverse_seq=True, base_model='da3') + \
+      4000 @ DDADSeqMultiView(DDAD_PREPROCESSED_ROOT='/lustre/fsn1/projects/rech/trg/uyl37fq/occany_dataset/ddad_processed', \
+      seq_pkl_name='seq_surround_temporal_sub5_stride9_fs1_all.pkl', \
+      frame_interval=1, \
+      min_views_per_timestep=1, max_views_per_timestep=2, min_num_timesteps=6, max_num_timesteps=6, ray_map_prob=-1, \
+      z_far=50, split='train', no_partial_views=True, \
+      resolution=[(518, 294), (518, 280), (518, 266), (518, 210), (518, 168)], \
+      reverse_seq=True, base_model='da3') + \
+      4000 @ PandasetSeqMultiView(PANDASET_PREPROCESSED_ROOT='/lustre/fsn1/projects/rech/trg/uyl37fq/occany_dataset/pandaset_processed', \
+      seq_pkl_name='seq_surround_temporal_sub5_stride9_fs1_all.pkl', \
+      frame_interval=1, \
+      min_views_per_timestep=1, max_views_per_timestep=2, min_num_timesteps=6, max_num_timesteps=6, ray_map_prob=-1, \
+      z_far=50, split='train', no_partial_views=True, \
+      resolution=[(518, 294), (518, 280), (518, 266), (518, 210), (518, 168)], \
+      reverse_seq=True, base_model='da3') + \
+      4000 @ OnceSeqMultiView(ONCE_PREPROCESSED_ROOT='/lustre/fsn1/projects/rech/trg/uyl37fq/occany_dataset/once_processed', \
+      seq_pkl_name='seq_surround_temporal_sub5_stride9_fs1_once_5cam_all.pkl', \
+      frame_interval=1, \
+      min_views_per_timestep=1, max_views_per_timestep=2, min_num_timesteps=6, max_num_timesteps=6, ray_map_prob=-1, \
+      z_far=50, split='train', no_partial_views=True, \
+      resolution=[(518, 294), (518, 280), (518, 266), (518, 210), (518, 168)], \
+      reverse_seq=True, base_model='da3')"
+  test_dataset: "206 @ KittiSeqMultiView(KITTI_PREPROCESSED_ROOT='/lustre/fsn1/projects/rech/trg/uyl37fq/occany_dataset/kitti_processed', \
+      seq_pkl_name='seq_exact_len_sub5_stride9.pkl', frame_interval=1, \
+      min_memory_num_views=5, max_memory_num_views=5, reverse_seq=False, \
+      z_far=50, split='val', seed=42, no_partial_views=True, \
+      resolution=[(518, 168)], base_model='da3') + \
+      206 @ Occ3dNuscenesSeqMultiView(NUSCENES_PREPROCESSED_ROOT='/lustre/fsn1/projects/rech/trg/uyl37fq/occany_dataset/occ3d_nuscenes_processed', \
+      seq_pkl_name='seq_surround_temporal_sub1_stride9_all.pkl', frame_interval=1, \
+      min_memory_num_views=10, max_memory_num_views=10, num_views_per_timestep=6, \
+      z_far=50, split='val', seed=42, no_partial_views=True, fixed_cams=[0,1], \
+      resolution=[(518, 266)], base_model='da3')"
+
+training:
+  # Items hold up to 6 timesteps x 2 cams = 12 views (Waymo arm: 5), and global
+  # attention runs over (T-1)*N*K = 640 delta tokens (vs 256): bsize 16 -> 4
+  # (effective_bsize 32 / 2 ranks -> grad_cum 4).
+  bsize: 4

@@ -1,0 +1,85 @@
+#!/bin/bash
+#SBATCH --job-name=deltatok_jz
+#SBATCH --nodes=1
+#SBATCH --ntasks-per-node=4
+#SBATCH --gres=gpu:4
+#SBATCH --cpus-per-task=24
+#SBATCH --hint=nomultithread
+#SBATCH -C h100
+#SBATCH --account=trg@h100
+#SBATCH --qos=qos_gpu_h100-t3
+#SBATCH --time=20:00:00
+##SBATCH --qos=qos_gpu_h100-dev
+##SBATCH --time=02:00:00
+#SBATCH --output=slurm/output/train_deltatok_multitoken_sigreg_nozn_pool32k_jz_%j.out
+#SBATCH --error=slurm/output/train_deltatok_multitoken_sigreg_nozn_pool32k_jz_%j.err
+
+# JZ gpu_p6: 4 H100/node, 96 cores -> 24 cpus/task. -t3 caps 20h; -t4 is 100h with fewer GPUs.
+# Submit from a LOGIN shell so `module` (login-only) reaches the job:
+#   ssh jean-zay "bash -lc 'cd \$TRG_WORK/code/deltatok && sbatch slurm/deltatok/train_deltatok_multitoken_sigreg_nozn_pool32k_jz.slurm'"
+#
+# JZ port of train_deltatok_multitoken_sigreg_nozn_bsc.slurm; same RUN_NAME, own LOG_AND_CKPT_DIR.
+# DeltaTok tokenizer, layer-12, no camera rope. tc1536 == hidden_size -> no channel bottleneck,
+# and z_norm=false -> no z LayerNorm: SIGReg alone shapes a raw 1536-d z. K is the only compression.
+# pool=32768 (was 8192): at 8192 the 1/S floor was 1.32e-4 == 80% of the 1.65e-4 anisotropy signal.
+# But pool is NOT weight-neutral: scale=n_pooled/n_live jumps 11.7 -> 43.7 and the staler pool delays
+# the feedback 4x, so at w=0.05 the stat spiked 39x at warmup end and Eval never left 0.126 (2026-07-31).
+# Hence w=0.01 ~= 0.05*11.7/43.7. WATCH: LossSIGReg must descend past iter 2000, floor ~3.2e-5.
+#   for W in 0.01 0.005; do sbatch --export=ALL,SIGREG_WEIGHT=$W slurm/deltatok/train_deltatok_multitoken_sigreg_nozn_pool32k_jz.slurm; done
+
+mkdir -p slurm/output
+
+cd /lustre/fswork/projects/rech/trg/uyl37fq/code/deltatok
+
+source env_jz_h100.sh
+
+export PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
+
+# The module's site-packages bundles TensorFlow; silence its startup spam.
+export TF_CPP_MIN_LOG_LEVEL=3
+export TF_ENABLE_ONEDNN_OPTS=0
+export OMP_NUM_THREADS="${OMP_NUM_THREADS:-4}"
+export TORCH_NCCL_HEARTBEAT_TIMEOUT_SEC="${TORCH_NCCL_HEARTBEAT_TIMEOUT_SEC:-1000}"
+
+# file_descriptor shm strategy holds an fd per shared tensor per worker
+ulimit -n "$(ulimit -Hn)"
+
+export CONFIG_NAME=train_deltatok_jeanzay
+export LOG_AND_CKPT_DIR="/lustre/fswork/projects/rech/trg/uyl37fq/deltatok_log"
+export RESULTS_DIR="$LOG_AND_CKPT_DIR"
+export RESUME=${RESUME:-0}   # 0 restarts and clobbers current.pth; --export=ALL,RESUME=1 to continue
+
+# The only three knobs; each changes the estimator or the pressure, so all three are in RUN_NAME.
+export SIGREG_WEIGHT=${SIGREG_WEIGHT:-0.01}          # 0.05*11.7/43.7: undoes the scale jump 8192->32768
+export SIGREG_NUM_SLICES=${SIGREG_NUM_SLICES:-3072}  # 2*Cz; measured sufficient (signal is K-invariant)
+export SIGREG_POOL_SAMPLES=${SIGREG_POOL_SAMPLES:-32768}  # GLOBAL rows, S/C ~21; rescaled by pool/live
+
+# Only the architecture + the three swept knobs; the rest is fixed by this script.
+export RUN_NAME=deltatok_l12_dtok64_tc1536_nozn_sigreg${SIGREG_WEIGHT}_ns${SIGREG_NUM_SLICES}_pool${SIGREG_POOL_SAMPLES}
+
+EXTRA_CFG_ARGS=(
+    model.deltatok.num_delta_tokens=64         # K delta tokens/camera (~12:1 compression at full res)
+    model.deltatok.target_channels=1536        # == hidden_size -> no z_proj_down/up built
+    model.deltatok.z_norm=false                # decoder + SIGReg both see raw z
+    model.deltatok.use_camera_rope=false       # layer-12 no-rope run
+    model.deltatok.norm_affine=false           # inert at z_norm=false; kept for name parity
+    model.deltatok.bottleneck_mlp=false        # inert at tc1536 (no bottleneck to make nonlinear)
+    training.lr=1e-3                           # peak lr, cosine-decayed to 1e-5
+    training.grad_clip=0.1                     # tighter than base 1.0; tames early grads
+    training.grad_skip_thresh=0.0               # >0 also skips finite grad_norm spikes
+    training.sigreg_weight=${SIGREG_WEIGHT}
+    training.sigreg_num_slices=${SIGREG_NUM_SLICES}
+    training.sigreg_pool_samples=${SIGREG_POOL_SAMPLES}
+    training.sigreg_warmup=2000                 # linear weight ramp (iters)
+    training.exit_before_time_limit=true        # stop after a ckpt near the wall (chain-resume safe)
+)
+export EXTRA_CFG="${EXTRA_CFG_ARGS[*]}"
+
+echo "PWD=$(pwd)"
+echo "CONFIG_NAME=$CONFIG_NAME"
+echo "LOG_AND_CKPT_DIR=$LOG_AND_CKPT_DIR"
+echo "RUN_NAME=$RUN_NAME"
+echo "RESUME=$RESUME"
+echo "EXTRA_CFG=$EXTRA_CFG"
+
+srun --cpu-bind=none bash sh/train_deltatok.sh

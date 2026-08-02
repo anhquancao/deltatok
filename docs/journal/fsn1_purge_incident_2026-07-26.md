@@ -7,7 +7,7 @@ what was done, and what is still unknown.
 
 ## Symptom
 
-`276534` (`jz_train_deltatok_multitoken_mlp_sigreg.slurm`) ran fine into epoch 2, then:
+`276534` (`train_deltatok_multitoken_mlp_sigreg_jz.slurm`) ran fine into epoch 2, then:
 
 ```
 [rank3]: FileNotFoundError: [Errno 2] No such file or directory:
@@ -78,7 +78,7 @@ resume.
 
 ## Timestamp refresh
 
-`slurm/jz_touch_occany_data.slurm` — array `0-9` on `archive`, scene dirs sharded
+`slurm/touch_occany_data_jz.slurm` — array `0-9` on `archive`, scene dirs sharded
 round-robin, `xargs -P 8 touch` (both atime and mtime). Job `284624`: all 10 shards
 COMPLETED, 13-16 min each.
 
@@ -141,7 +141,7 @@ kitti and waymo have no usable archive, so Karolina is their only restore path.
 
 ### Re-backup 2026-07-27 (closes all three gaps)
 
-Job `304546` (array 0-9, `archive`, `slurm/jz_backup.slurm`) tarred all seven fsn1 datasets
+Job `304546` (array 0-9, `archive`, `slurm/backup_jz.slurm`) tarred all seven fsn1 datasets
 into a **new** dir, `$TRG_STORE/datasets_preprocess_backup_2026-07` — 9.9 TB, all 10 shards
 COMPLETED 0:0 in under 2h20m. `backup.py` gained `--dst_name` (default unchanged) so a
 re-backup never overwrites the old set.
@@ -165,8 +165,8 @@ check.
 ## Changes committed
 
 - deltatok `bc30735` — all JZ paths -> `occany_dataset`; added `dataset_setup/backup.py`,
-  `slurm/jz_backup.slurm`, `slurm/jz_extract_backup.slurm`,
-  `slurm/jz_touch_occany_data.slurm`.
+  `slurm/backup_jz.slurm`, `slurm/extract_backup_jz.slurm`,
+  `slurm/touch_occany_data_jz.slurm`.
 - OccAny `89e8458` — 31 files repointed; merge of `origin/revert-cvpr` resolved by
   accepting upstream's deletion of four `jz_*.slurm` scripts we had only path-edited.
 

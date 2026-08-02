@@ -223,8 +223,8 @@ deltatok_surround_layer12_bsize2_dtok64_cos1e3_1e5_b95_gradskip_noaff/ckpts/late
     right axis). Default is now <code>--num_batches 500</code>.</p>
   </div>
 
-  <p>New <span class="fileh">slurm/jz_compute_deltatok_latent_stats.slurm</span> (copy of
-  <code>jz_eval_deltatok_flow_t_bins.slurm</code>): <code>zuw@h100</code>, <code>qos_gpu_h100-dev</code>, 1 GPU, 1h.</p>
+  <p>New <span class="fileh">slurm/compute_deltatok_latent_stats_jz.slurm</span> (copy of
+  <code>eval_deltatok_flow_t_bins_jz.slurm</code>): <code>zuw@h100</code>, <code>qos_gpu_h100-dev</code>, 1 GPU, 1h.</p>
 
   <h2>Phase 1 — Wire whitening</h2>
   <p><span class="fileh">occrae/deltatok_shared.py:232-240</span>. The pair is <code>@staticmethod</code> today, but
@@ -278,8 +278,8 @@ def _flow_latent_to_z(self, x):          # (B, C, T-1, N, K) -> (B, T-1, N, K, C
   </ul>
 
   <h2>Phase 3 — Train</h2>
-  <p><span class="fileh">slurm/jz_train_deltatok_flow_waymo_whiten.slurm</span> (copy of
-  <code>jz_train_deltatok_flow_waymo.slurm</code>): same settings as the current run, plus
+  <p><span class="fileh">slurm/train_deltatok_flow_waymo_whiten_jz.slurm</span> (copy of
+  <code>train_deltatok_flow_waymo_jz.slurm</code>): same settings as the current run, plus
   <code>model.whiten_stats=&lt;path&gt;</code>, <code>RUN_NAME=..._50k_whiten</code>, <code>RESUME=0</code>
   (the latent distribution changed → the 50k ckpt cannot transfer).</p>
   <p><b>Baseline: the existing run as-is</b> — <code>MSEToken 0.2816</code> @ iter 40000.</p>
@@ -407,11 +407,11 @@ predicted LossFlow ratio = 1.0 / 0.2126     = <b>4.70×</b></code></pre>
     <thead><tr><th>File</th><th>Change</th></tr></thead>
     <tbody>
       <tr><td><code>compute_deltatok_latent_stats.py</code></td><td><span class="add">new</span> — <code>cp</code> from <code>eval_deltatok_flow_t_bins.py</code></td></tr>
-      <tr><td><code>slurm/jz_compute_deltatok_latent_stats.slurm</code></td><td><span class="add">new</span> — <code>cp</code> from <code>jz_eval_deltatok_flow_t_bins.slurm</code></td></tr>
+      <tr><td><code>slurm/compute_deltatok_latent_stats_jz.slurm</code></td><td><span class="add">new</span> — <code>cp</code> from <code>eval_deltatok_flow_t_bins_jz.slurm</code></td></tr>
       <tr><td><code>occrae/deltatok_shared.py</code></td><td><code>_z_to_flow_latent</code>/<code>_flow_latent_to_z</code> → instance methods; add <code>_load_whiten_stats()</code></td></tr>
       <tr><td><code>occrae/deltatok_flow_trainer.py</code></td><td>call <code>_load_whiten_stats()</code> in <code>__init__</code>; stats path into ckpt</td></tr>
       <tr><td><code>configs/train_deltatok_flow.yaml</code></td><td>add <code>model.whiten_stats: null</code></td></tr>
-      <tr><td><code>slurm/jz_train_deltatok_flow_waymo_whiten.slurm</code></td><td><span class="add">new</span> — <code>cp</code> from <code>jz_train_deltatok_flow_waymo.slurm</code></td></tr>
+      <tr><td><code>slurm/train_deltatok_flow_waymo_whiten_jz.slurm</code></td><td><span class="add">new</span> — <code>cp</code> from <code>train_deltatok_flow_waymo_jz.slurm</code></td></tr>
       <tr><td><code>eval_deltatok_flow_t_bins.py</code></td><td><code>_RUN_DEFAULTS</code> gains <code>model.whiten_stats</code> (Phase 4)</td></tr>
     </tbody>
   </table>

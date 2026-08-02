@@ -209,7 +209,7 @@ cam_idx = torch.arange(S, device=x.device) // k_p    # slot s = n*K + k  →  ca
   struct mode, so a bare <code>model.deltatok.num_delta_tokens=32</code> override <b>crashes</b> without the key
   present. Default 1 = backward compatible; base K=1 ckpt path untouched.</p>
 
-  <h3>8. <span class="fileh">slurm/jz_train_deltatok_flow.slurm</span> — wire the K=32 run (in place)</h3>
+  <h3>8. <span class="fileh">slurm/train_deltatok_flow_jz.slurm</span> — wire the K=32 run (in place)</h3>
   <p>Recipe <b>unchanged from today</b>. Only add the K=32 selection to <code>EXTRA_CFG_ARGS</code>:</p>
   <table>
     <tr><th>Action</th><th>Override</th></tr>
@@ -291,7 +291,7 @@ cam_idx = torch.arange(S, device=x.device) // k_p    # slot s = n*K + k  →  ca
     <tr><td><code>occrae/deltatok_flow_trainer.py</code></td><td>native 5D flow: K read, ref_spatial_size=(1,K), pack/unpack via shared helpers, cross-cond ×K (cross-mode only); removed obsolete camera_rope guard; comments</td></tr>
     <tr><td><code>visualize_deltatok_flow.py</code></td><td>pack/unpack via shared helpers; init noise via <code>_sample_noise</code></td></tr>
     <tr><td><code>configs/train_deltatok_flow.yaml</code></td><td>add <code>num_delta_tokens: 1</code></td></tr>
-    <tr><td><code>slurm/jz_train_deltatok_flow.slurm</code></td><td>dtok32 run; recipe kept (delta_ctx + global + camera_embed)</td></tr>
+    <tr><td><code>slurm/train_deltatok_flow_jz.slurm</code></td><td>dtok32 run; recipe kept (delta_ctx + global + camera_embed)</td></tr>
   </table>
 
   <p class="small tag">docs/journal/deltatok_flow_dtok32_plan.html · native-K DeltaTok flow · K=32 = best tokenizer of the sweep.</p>

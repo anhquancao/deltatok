@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Evaluate a trained OccRAE flow-matching model on pre-extracted token dumps.
 
-Loads a checkpoint produced by train_deltatok_flow.py (via bsc_train_deltatok_flow.slurm),
+Loads a checkpoint produced by train_deltatok_flow.py (via train_deltatok_flow_bsc.slurm),
 runs flow-matching Euler sampling to generate target-view tokens conditioned
 on the first ``cond_num`` reference views, decodes the sampled tokens through
 OccRAE into 3D outputs, and saves vis_viser-compatible .npy files.

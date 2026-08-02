@@ -71,7 +71,7 @@
     <tr><td><code>occrae/deltatok_trainer.py</code></td><td class="wrap-cell"><code>DeltaTokModule</code> ctor gains <code>num_delta_tokens</code>; <code>z_embed = nn.Embedding(K, hidden)</code>; <code>encode</code>/<code>decode</code> prefix slicing generalized <b>1→K</b> (local) and <b>N→N·K</b> (global).</td></tr>
     <tr><td><code>occrae/deltatok_shared.py</code></td><td class="wrap-cell">Factory <code>_make_deltatok_module</code> passes <code>num_delta_tokens</code>; <code>_encode_pair_deltas</code> keeps the K axis and <b>squeezes when K==1</b> → existing 1-token consumers (flow trainer) unchanged.</td></tr>
     <tr><td><code>configs/train_deltatok.yaml</code></td><td class="wrap-cell"><code>num_delta_tokens: 1</code> (default + valid Hydra override target).</td></tr>
-    <tr><td><code>slurm/jz_train_deltatok_multitoken.slurm</code></td><td class="wrap-cell">K-sweep variant, feature loss <b>off</b>; token count via <code>NUM_DELTA_TOKENS</code> env (default 64), <code>RUN_NAME</code> auto-derived <code>…_dtok&lt;K&gt;</code>.</td></tr>
+    <tr><td><code>slurm/train_deltatok_multitoken_jz.slurm</code></td><td class="wrap-cell">K-sweep variant, feature loss <b>off</b>; token count via <code>NUM_DELTA_TOKENS</code> env (default 64), <code>RUN_NAME</code> auto-derived <code>…_dtok&lt;K&gt;</code>.</td></tr>
   </table>
   <div class="card">
     <b>No RoPE change needed.</b> <code>apply_rotary_pos_emb</code> rotates the trailing <code>len(rope)</code>
@@ -144,7 +144,7 @@
 
   <h2>How to run / monitor</h2>
   <pre>ssh jean-zay "bash -lc 'cd $TRG_WORK/code/deltatok &amp;&amp; \
-  sbatch --export=ALL,NUM_DELTA_TOKENS=16 slurm/jz_train_deltatok_multitoken.slurm'"
+  sbatch --export=ALL,NUM_DELTA_TOKENS=16 slurm/train_deltatok_multitoken_jz.slurm'"
 
 # monitor
 ssh jean-zay "squeue -u uyl37fq -n deltatok_jz"

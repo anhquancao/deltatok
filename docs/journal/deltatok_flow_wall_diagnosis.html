@@ -351,7 +351,7 @@ x = x + step_ratio * (x_hat - x)</code></pre>
 
   <h2>Evidence</h2>
   <ul class="small">
-    <li>DiT run: <code>slurm/jz_train_deltatok_flow_waymo_xxl_dit.slurm</code>
+    <li>DiT run: <code>slurm/train_deltatok_flow_waymo_xxl_dit_jz.slurm</code>
       (<code>vit_size=xxlarge_d20</code>, <code>vit_dit_adaln=true</code>); log
       <code>slurm/output/jz_train_deltatok_flow_waymo_xxl_dit_2066610.out</code> (1214.137M params; LossDepth
       5.75–6.02 ep 6–46; MSEToken 0.289–0.300; eval LossFlow 1.21→1.32).</li>
@@ -378,7 +378,7 @@ x = x + step_ratio * (x_hat - x)</code></pre>
       <code>occrae/network/efficient_transformer.py</code> (<code>in_context</code> flag; per-token AdaLN gather
       via <code>grp</code>; concat + slice in <code>Transformer.forward</code>),
       <code>occrae/deltatok_flow_trainer.py</code> (<code>build_frame0_ctx</code>, <code>n_ctx=1</code>);
-      run <code>slurm/jz_train_deltatok_flow_waymo_xxl_incontext.slurm</code>
+      run <code>slurm/train_deltatok_flow_waymo_xxl_incontext_jz.slurm</code>
       (<code>..._deltaCtxIncontext_..._xxl_dit</code>, <code>bsize=8</code>), <b>job 2096639</b>.</li>
     <li>Prior analysis: <a href="deltatok_flow_whitenpos_failure_analysis.html">whitenpos failure analysis</a>
       (width hypothesis — now superseded by this diagnosis; its secondary fixes EMA/zero-init were applied in

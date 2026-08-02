@@ -26,7 +26,7 @@ These training scripts run on **Jean Zay** (SSH alias `jean-zay`), not Karolina.
 `module` is login-only, so always submit through a login shell: `ssh jean-zay "bash -lc '...'"`.
 
 - Working dir on JZ: `/lustre/fswork/projects/rech/trg/uyl37fq/code/deltatok` (`$TRG_WORK/code/deltatok`).
-- Example script: `slurm/jz_train_deltatok_flow.slurm` (`RESULTS_DIR`, `RUN_NAME`,
+- Example script: `slurm/deltatok_flow/train_deltatok_flow_jz.slurm` (`RESULTS_DIR`, `RUN_NAME`,
   `RESUME` are set near the bottom; `RESUME` defaults to `0` for fresh runs).
 
 ## Pre-flight checks (do these every time)
@@ -34,8 +34,8 @@ These training scripts run on **Jean Zay** (SSH alias `jean-zay`), not Karolina.
 1. **Verify the cluster script matches local.** The user syncs files manually; never
    sync yourself. Compare checksums and stop if they differ — tell the user to sync first.
    ```bash
-   md5sum slurm/jz_train_deltatok_flow.slurm
-   ssh jean-zay "bash -lc 'cd /lustre/fswork/projects/rech/trg/uyl37fq/code/deltatok && md5sum slurm/jz_train_deltatok_flow.slurm'"
+   md5sum slurm/deltatok_flow/train_deltatok_flow_jz.slurm
+   ssh jean-zay "bash -lc 'cd /lustre/fswork/projects/rech/trg/uyl37fq/code/deltatok && md5sum slurm/deltatok_flow/train_deltatok_flow_jz.slurm'"
    ```
 2. **Check the queue for an existing tail job.** "N *more*" chained jobs should chain
    after whatever is already queued, not start a parallel chain. If a job is queued/running,
@@ -62,9 +62,9 @@ cd /lustre/fswork/projects/rech/trg/uyl37fq/code/deltatok || exit 1
 prev=\"\"                      # set to an existing tail job id to chain after it
 for i in 1 2 3 4; do          # N = number of chained jobs
   if [ -z \"\$prev\" ]; then
-    out=\$(sbatch --export=ALL,RESUME=1 slurm/jz_train_deltatok_flow.slurm)
+    out=\$(sbatch --export=ALL,RESUME=1 slurm/deltatok_flow/train_deltatok_flow_jz.slurm)
   else
-    out=\$(sbatch --dependency=afterany:\$prev --export=ALL,RESUME=1 slurm/jz_train_deltatok_flow.slurm)
+    out=\$(sbatch --dependency=afterany:\$prev --export=ALL,RESUME=1 slurm/deltatok_flow/train_deltatok_flow_jz.slurm)
   fi
   echo \"job \$i: \$out (dep=\${prev:-none})\"
   prev=\$(echo \"\$out\" | awk \"{print \\\$NF}\")
