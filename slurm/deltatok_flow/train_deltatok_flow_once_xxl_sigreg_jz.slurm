@@ -1,5 +1,5 @@
 #!/bin/bash
-#SBATCH --job-name=deltatok_flow_mix_xxl_sigreg
+#SBATCH --job-name=deltatok_flow_once_xxl_sigreg
 #SBATCH --nodes=1
 #SBATCH --ntasks-per-node=2
 #SBATCH --gres=gpu:2
@@ -9,12 +9,12 @@
 #SBATCH --account=trg@h100
 #SBATCH --qos=qos_gpu_h100-t3
 #SBATCH --time=20:00:00
-#SBATCH --output=slurm/output/train_deltatok_flow_mix_xxl_sigreg_jz_%j.out
-#SBATCH --error=slurm/output/train_deltatok_flow_mix_xxl_sigreg_jz_%j.err
+#SBATCH --output=slurm/output/train_deltatok_flow_once_xxl_sigreg_jz_%j.out
+#SBATCH --error=slurm/output/train_deltatok_flow_once_xxl_sigreg_jz_%j.err
 
 # JZ gpu_p6: 4 GPUs/node, 24 cpus/task. t3 caps at 20h; -t4 gives 100h, fewer GPUs.
 # Submit from a LOGIN shell so `module` reaches the job:
-#   ssh jean-zay "bash -lc 'cd \$TRG_WORK/code/deltatok && sbatch slurm/deltatok_flow/train_deltatok_flow_mix_xxl_sigreg_jz.slurm'"
+#   ssh jean-zay "bash -lc 'cd \$TRG_WORK/code/deltatok && sbatch slurm/deltatok_flow/train_deltatok_flow_once_xxl_sigreg_jz.slurm'"
 
 mkdir -p slurm/output
 
@@ -36,14 +36,13 @@ export TORCH_NCCL_HEARTBEAT_TIMEOUT_SEC="${TORCH_NCCL_HEARTBEAT_TIMEOUT_SEC:-100
 # file_descriptor shm strategy holds an fd per shared tensor per worker
 ulimit -n "$(ulimit -Hn)"
 
-# DATA swap of train_deltatok_flow_waymo_xxl_sigreg_jz.slurm: same tc768 stage-2 tokenizer
-# and flow recipe, on the tokenizer's 5-dataset mix, monocular, 5 frames. Also 3 given
-# frames -> 2 forecast (waymo arm: 2 -> 3). Eval KITTI+nuScenes: NOT comparable to 0.0283.
-export CONFIG_NAME=train_deltatok_flow_mix_jeanzay
+# DATA swap of train_deltatok_flow_waymo_xxl_sigreg_jz.slurm: same tokenizer and flow
+# recipe on ONCE instead of Waymo — 843k vs 122k train seqs (~6.9x), 16 held-out scenes.
+# Eval is ONCE val, so NOT comparable to the waymo arm's numbers.
+export CONFIG_NAME=train_deltatok_flow_once_jeanzay
 export RESULTS_DIR="/lustre/fswork/projects/rech/trg/uyl37fq/deltatok_flow_log"
-# Only the data + ctx split differ from the waymo arm; the shared recipe tags
-# (uniformTshared, lin20a0, constlr, nowhiten, wd05) live in this script, not the name.
-export RUN_NAME=deltatok_flow_mix5mono_ctx3fwd2_tc768s2bneck_xxl_dit
+# Only the data differs from the waymo arm; the shared recipe tags live in this script, not the name.
+export RUN_NAME=deltatok_flow_once_tc768s2bneck_xxl_dit
 EXTRA_CFG_ARGS=(
     model.deltatok.num_delta_tokens=64         # K=64 delta tokens/camera; must match the frozen ckpt
     # epoch_20 (stage 2's last) not current.pth: immutable if that arm resumes.
@@ -59,7 +58,6 @@ EXTRA_CFG_ARGS=(
     # scale: revisit first if the flow looks mis-scaled. The uniformt_cross file is Cz=1536 and
     # is rejected on shape; regenerate via STATS_MODE=position slurm/compute_deltatok_latent_stats_jz.slurm.
     model.cond_mode=delta_ctx_cross            # clean in-seq context + frame-0 tokens as cross-attn condition
-    model.num_ctx_deltas=2                     # 2 clean deltas = frames 0-2 given, 3-4 forecast (waymo arm: 1)
     model.attn_mode=global                     # one attention over all delta tokens
     model.vit_use_camera_embed=true            # per-camera identity in the flow ViT
     model.loss_mode=v                          # v-MSE: 1/(1-t)^2-weighted x-MSE, upweights t->1

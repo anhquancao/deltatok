@@ -100,7 +100,8 @@ class DeltaTokFlowMatchingTrainer(DeltaTokSharedMixin, Trainer):
         self.use_cross = self.cond_mode in ("cross", "delta_ctx_cross")             # frame-0 cross-attn conditioning
         self.in_context = self.cond_mode == "delta_ctx_incontext"                   # frame-0 grid concatenated in-sequence (no cross-attn)
         self.build_frame0_ctx = self.use_cross or self.in_context                    # need the frame-0 patch grids either way
-        self.n_ctx = 1 if self.cond_mode in ("delta_ctx", "delta_ctx_cross", "delta_ctx_incontext") else 0  # clean leading delta-token slots
+        # Clean leading delta-token slots: n_ctx deltas = n_ctx+1 given frames.
+        self.n_ctx = int(self.cfg.model.get("num_ctx_deltas", 1)) if self.cond_mode in ("delta_ctx", "delta_ctx_cross", "delta_ctx_incontext") else 0
 
         # Frozen OccRAE encoder/decoder (mixin; never DDP-wrapped, no optimizer).
         self._build_occ_rae()
