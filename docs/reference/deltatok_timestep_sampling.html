@@ -1,0 +1,241 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>DeltaTok timestep sampling: before and after 1ecb17c</title>
+<style>
+  :root {
+    color-scheme: light;
+    --plane:          #f9f9f7;
+    --surface-1:      #fcfcfb;
+    --text-primary:   #0b0b0b;
+    --text-secondary: #52514e;
+    --text-muted:     #898781;
+    --grid:           #e1e0d9;
+    --axis:           #c3c2b7;
+    --border:         rgba(11,11,11,0.10);
+    --old:            #eb6834;
+    --new:            #2a78d6;
+    --good:           #006300;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:where(:not([data-theme="light"])) {
+      color-scheme: dark;
+      --plane:          #0d0d0d;
+      --surface-1:      #1a1a19;
+      --text-primary:   #ffffff;
+      --text-secondary: #c3c2b7;
+      --text-muted:     #898781;
+      --grid:           #2c2c2a;
+      --axis:           #383835;
+      --border:         rgba(255,255,255,0.10);
+      --old:            #d95926;
+      --new:            #3987e5;
+      --good:           #0ca30c;
+    }
+  }
+  :root[data-theme="dark"] {
+    color-scheme: dark;
+    --plane:          #0d0d0d;
+    --surface-1:      #1a1a19;
+    --text-primary:   #ffffff;
+    --text-secondary: #c3c2b7;
+    --text-muted:     #898781;
+    --grid:           #2c2c2a;
+    --axis:           #383835;
+    --border:         rgba(255,255,255,0.10);
+    --old:            #d95926;
+    --new:            #3987e5;
+    --good:           #0ca30c;
+  }
+
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; padding: 32px 20px 72px;
+    background: var(--plane); color: var(--text-primary);
+    font: 15px/1.6 system-ui, -apple-system, "Segoe UI", sans-serif;
+  }
+  main { max-width: 860px; margin: 0 auto; }
+  h1 { font-size: 26px; line-height: 1.25; margin: 0 0 6px; letter-spacing: -0.01em; }
+  h2 { font-size: 17px; margin: 40px 0 10px; letter-spacing: -0.005em; }
+  h3 { font-size: 14px; margin: 22px 0 6px; color: var(--text-secondary); font-weight: 600; }
+  p  { margin: 0 0 12px; color: var(--text-secondary); }
+  .lede { font-size: 16px; color: var(--text-secondary); margin-bottom: 4px; }
+  .meta { font-size: 13px; color: var(--text-muted); margin-bottom: 28px; }
+  code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 0.88em;
+         background: color-mix(in srgb, var(--text-primary) 7%, transparent);
+         padding: 1px 5px; border-radius: 4px; }
+  strong { color: var(--text-primary); }
+  a { color: var(--new); }
+
+  .card {
+    background: var(--surface-1); border: 1px solid var(--border);
+    border-radius: 10px; padding: 20px; margin: 16px 0;
+  }
+  .swatch { display: inline-block; width: 10px; height: 10px; border-radius: 3px;
+            margin-right: 6px; vertical-align: -1px; }
+  .scroll { overflow-x: auto; }
+
+  table { border-collapse: collapse; width: 100%; font-size: 13.5px; margin: 6px 0 4px; }
+  th, td { text-align: left; padding: 7px 10px; border-bottom: 1px solid var(--grid); }
+  thead th { color: var(--text-muted); font-weight: 600; font-size: 12px;
+             text-transform: uppercase; letter-spacing: 0.04em; border-bottom: 1px solid var(--axis); }
+  tbody td { color: var(--text-secondary); }
+  tbody td:first-child { color: var(--text-primary); }
+  tbody tr:last-child td { border-bottom: none; }
+  td.mono, th.mono { font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+                     font-size: 12.5px; font-variant-numeric: tabular-nums; }
+
+  ul { margin: 0 0 12px; padding-left: 20px; color: var(--text-secondary); }
+  li { margin-bottom: 7px; }
+  pre { background: var(--surface-1); border: 1px solid var(--border); border-radius: 8px;
+        padding: 14px 16px; overflow-x: auto; font-size: 12.5px; line-height: 1.5;
+        color: var(--text-secondary); }
+  pre b { color: var(--text-primary); font-weight: 600; }
+  .note { border-left: 2px solid var(--axis); padding-left: 14px; margin: 14px 0;
+          font-size: 14px; color: var(--text-secondary); }
+  .tag { display: inline-block; font-size: 11px; text-transform: uppercase;
+         letter-spacing: 0.05em; font-weight: 650; padding: 2px 7px; border-radius: 4px;
+         vertical-align: 2px; margin-left: 8px; }
+  .tag.measured { color: var(--good);
+                  background: color-mix(in srgb, var(--good) 14%, transparent); }
+  .tag.derived  { color: var(--text-muted);
+                  background: color-mix(in srgb, var(--text-muted) 16%, transparent); }
+</style>
+</head>
+<body>
+<main>
+
+<h1>DeltaTok timestep sampling: before and after <code>1ecb17c</code></h1>
+<p class="lede">The sequence datasets moved from randomly chosen, non-adjacent timesteps
+labelled with raw stride offsets to one consecutive window labelled <code>0..k-1</code>.
+This is what an item actually contains on either side of the change, and what the
+flow-matching network does with those labels.</p>
+<p class="meta">2026-08-02 &middot; commit <code>1ecb17c</code> &middot;
+measured on Jean Zay against <code>once_processed</code></p>
+
+<h2>The record</h2>
+<p>Every example below reads the same real record — scene <code>000000</code>, entry 0 of
+<code>seq_surround_temporal_sub5_stride9_fs1_once_5cam_all.pkl</code>:</p>
+
+<pre>len(seq) = 50 frame indices          # 10 timesteps x 5 cameras
+ts       = [0,0,0,0,0, 5,5,5,5,5, 10,10,10,10,10, ..., 45,45,45,45,45]</pre>
+
+<p>The layout is <strong>timestep-major, camera-minor</strong>: entry <code>t*5 + c</code>.
+<code>ts</code> is the pkl's raw frame offset — this pkl is <code>sub5</code>, so consecutive
+timesteps are 5 frames apart in the source capture. The ONCE arms set
+<code>fixed_cams=[0]</code>, so only one camera is ever read and an item is one view per
+timestep.</p>
+
+<h2>Before <span class="tag measured">measured</span></h2>
+<p>ONCE flow arm at <code>1ecb17c^</code>: <code>memory_num_views=5</code>,
+<code>min_num_timesteps=2</code>, <code>no_partial_views=True</code>,
+<code>reverse_seq=False</code>. <code>_get_views</code> pinned an anchor timestep, drew the
+rest at random without replacement from the remaining slots, sorted them, and labelled each
+view with <code>ts[i]</code>:</p>
+
+<pre>anchor = num_timesteps - 1 if do_reverse else 0
+chosen = [anchor] + list(rng.choice(candidates, size=timesteps_needed - 1, replace=False))
+chosen = sorted(chosen, reverse=do_reverse)
+times  = [ts[i] for i in memory_view_indices]     <b># raw stride offsets</b></pre>
+
+<p>Six real draws over that record:</p>
+<div class="scroll">
+<table>
+<thead><tr><th>rng seed</th><th class="mono">slots chosen</th><th class="mono">timesteps seen by the net</th></tr></thead>
+<tbody>
+<tr><td>0</td><td class="mono">[0, 3, 5, 6, 8]</td><td class="mono">[0, 15, 25, 30, 40]</td></tr>
+<tr><td>1</td><td class="mono">[0, 3, 4, 7, 9]</td><td class="mono">[0, 15, 20, 35, 45]</td></tr>
+<tr><td>2</td><td class="mono">[0, 1, 2, 3, 6]</td><td class="mono">[0, 5, 10, 15, 30]</td></tr>
+<tr><td>3</td><td class="mono">[0, 1, 2, 3, 5]</td><td class="mono">[0, 5, 10, 15, 25]</td></tr>
+<tr><td>4</td><td class="mono">[0, 5, 7, 8, 9]</td><td class="mono">[0, 25, 35, 40, 45]</td></tr>
+<tr><td>5</td><td class="mono">[0, 1, 5, 6, 8]</td><td class="mono">[0, 5, 25, 30, 40]</td></tr>
+</tbody>
+</table>
+</div>
+<p>Irregular gaps, a different gap pattern every draw, and the label carrying the physical
+offset rather than a position in the window.</p>
+
+<div class="note">
+Reversal (<code>reverse_seq=True</code>, 50&#37; chance of a descending window) was on the
+<em>tokenizer</em> arms, not this flow arm. On a tokenizer item the same block could return
+<code>[45, 35, 30, 15, 10, 0]</code>.
+</div>
+
+<h2>After <span class="tag measured">measured</span></h2>
+<p>One ordered, consecutive run at a random offset in the record; labels dense:</p>
+
+<pre>start = int(rng.integers(0, avail - self.num_timesteps + 1))     <b># avail = 10, so start in 0..5</b>
+memory_view_indices = [t * max_vpt + c
+                       for t in range(start, start + self.num_timesteps)
+                       for c in self.cams]
+times = [t for t in range(self.num_timesteps) for _ in self.cams] <b># 0,1,2,3,4</b></pre>
+
+<p>Six real <code>OnceSeqMultiView.__getitem__</code> calls:</p>
+<div class="scroll">
+<table>
+<thead><tr><th>item</th><th class="mono">timesteps</th><th class="mono">frame ids read</th></tr></thead>
+<tbody>
+<tr><td>0</td><td class="mono">[0, 1, 2, 3, 4]</td><td class="mono">000000, 000005, 000010, 000015, 000020</td></tr>
+<tr><td>1</td><td class="mono">[0, 1, 2, 3, 4]</td><td class="mono">000020, 000025, 000030, 000035, 000040</td></tr>
+<tr><td>2</td><td class="mono">[0, 1, 2, 3, 4]</td><td class="mono">000030, 000035, 000040, 000045, 000050</td></tr>
+<tr><td>3</td><td class="mono">[0, 1, 2, 3, 4]</td><td class="mono">000040, 000045, 000050, 000055, 000060</td></tr>
+<tr><td>4</td><td class="mono">[0, 1, 2, 3, 4]</td><td class="mono">000035, 000040, 000045, 000050, 000055</td></tr>
+<tr><td>5</td><td class="mono">[0, 1, 2, 3, 4]</td><td class="mono">000075, 000080, 000085, 000090, 000095</td></tr>
+</tbody>
+</table>
+</div>
+<p>The frame ids show the mechanism: the window slides across the record while the labels the
+network sees stay <code>[0,1,2,3,4]</code> in every item, uniformly spaced and always forward.
+The window offset is a sampling detail, not a timestamp.</p>
+
+<h2>What the flow network consumes</h2>
+<p>With <code>cond_mode=delta_ctx_cross</code> and <code>num_ctx_deltas=2</code>
+(so <code>n_ctx = 2</code>), <code>num_cameras=1</code> and <code>V = 5</code>:</p>
+
+<div class="scroll">
+<table>
+<thead><tr><th>timestep</th><th>role</th></tr></thead>
+<tbody>
+<tr><td class="mono">0</td><td>rollout seed — GT tokens, also the frame-0 cross-attn condition</td></tr>
+<tr><td class="mono">1, 2</td><td>clean context deltas — GT, no noise, no loss</td></tr>
+<tr><td class="mono">3, 4</td><td><strong>forecast</strong> — noised, predicted, supervised</td></tr>
+</tbody>
+</table>
+</div>
+
+<p>Both the loss slice and the visualisation mask are literal arithmetic on those labels:</p>
+<pre>pred_slice = slice((1 + self.n_ctx) * num_cameras, V)          <b># slice(3, 5)</b>
+ctx_mask   = [batch["timesteps"][b][v] &lt;= self.n_ctx ...]      <b># t &lt;= 2 is given</b></pre>
+
+<p>Both are correct only because the labels are dense. Under the old <code>ts</code> values —
+<code>[0, 15, 25, 30, 40]</code> — <code>t &lt;= n_ctx</code> matches the seed alone, and
+<code>slice(3, 5)</code> indexes positions with no relation to which frames were actually
+given. That is what the in-code comment at
+<code>occrae/deltatok_flow_trainer.py:908</code> records.</p>
+
+<h2>How this was measured</h2>
+<ul>
+<li><strong>Record contents</strong> — <code>pickle.load</code> on Jean Zay against the real pkl.</li>
+<li><strong>After</strong> — the real <code>OnceSeqMultiView</code> class from the working
+tree at <code>1ecb17c</code>, six real <code>__getitem__</code> calls.</li>
+<li><strong>Before</strong> — the sampling block lifted verbatim from
+<code>1ecb17c^:occany/datasets/base_seq_dataset.py:303-315</code> and driven by a real
+<code>np.random.default_rng</code> over the same record. This re-executes the old algorithm
+standalone; it is <em>not</em> the old class instantiated in place.</li>
+<li><strong>End-to-end confirmation</strong> — job <code>Jeanzay:538873</code> writes eval
+viz filenames as <code>..._t0-4_epoch0_concat.jpg</code>. Pre-refactor runs wrote
+<code>_t0-45</code>, straight from the raw offsets.</li>
+</ul>
+
+<div class="note">
+<code>num_ctx_deltas=2</code> was an uncommitted working-tree change to
+<code>slurm/deltatok_flow/train_deltatok_flow_once_xxl_sigreg_jz.slurm</code> when this was
+written; the waymo arm uses <code>1</code>, giving 2 given / 3 forecast. The dense-label
+mechanism is unchanged either way — only the split moves.
+</div>
+
+</main>
+</body>
+</html>
