@@ -12,12 +12,8 @@ from depth_anything_3.api import DepthAnything3
 from depth_anything_3.utils.geometry import affine_inverse
 from depth_anything_3.utils.ray_utils import get_extrinsic_from_camray
 from depth_anything_3.model.utils.transform import pose_encoding_to_extri_intri
-from dust3r.utils.geometry import geotrf
-from occany.utils.helpers import convert_depth_to_point_cloud, intrinsics_c2w_to_raymap
+from occany.utils.helpers import convert_depth_to_point_cloud
 from occany.model.must3r_blocks.head import SAM3Head
-from occany.model.raymap_encoder_da3 import RaymapEncoderDA3
-from occany.da3_inference import create_gen_conditioning, concat_preds
-from tqdm import tqdm
 
 
 logger = logging.getLogger(__name__)
@@ -30,10 +26,8 @@ class DA3Wrapper(DepthAnything3):
         self.projection_features = projection_features
         self.head_sam = None  # Will be initialized by init_sam3_head if SAM3 distillation is enabled
         
-        # Gen encoder is lazily initialized
-        self.gen_input_encoder = None
         self.slice_layer_idx = None  # Layer index after which recon tokens are sliced in gen mode
-        
+
         # Remove unused cam_enc and cam_dec modules to save memory
         self._remove_unused_modules()
 
@@ -77,21 +71,6 @@ class DA3Wrapper(DepthAnything3):
             f"alt_start={metadata['alt_start']}, total_layers={metadata['total_layers']}"
         )
         return metadata
-
-    def init_gen_encoders(self):
-        """Initialize raymap encoder for generation mode."""
-        device = self._get_model_device()
-        backbone_metadata = self._log_backbone_metadata('[INFO] Initializing generation encoder for backbone')
-        self.gen_input_encoder = RaymapEncoderDA3(
-            img_size=(self.img_size, self.img_size),
-            patch_size=14,
-            embed_dim=backbone_metadata['token_dim'],
-            output_embed_dim=backbone_metadata['token_dim'],
-            depth=0,
-            num_heads=backbone_metadata['num_heads'],
-            projection_features=self.projection_features,
-        ).to(device)
-        return self
 
     def set_slice_layer(self, layer_idx):
         """Set layer index where recon-token slicing is applied in gen mode."""
@@ -390,223 +369,12 @@ class DA3Wrapper(DepthAnything3):
         
         return x
 
-    def forward(self, images=None, recon_output=None, img_views=None, gen_views=None, **kwargs):
-        if images is not None:
-            # Reconstruction mode
-            return self.inference_batch(images, **kwargs)
-        elif recon_output is not None:
-            # Generation mode
-            return self.forward_gen(recon_output, img_views, gen_views, **kwargs)
-        else:
-            raise ValueError("Either 'images' or 'recon_output' must be provided")
+    def forward(self, images=None, **kwargs):
+        if images is None:
+            raise ValueError("'images' must be provided")
+        return self.inference_batch(images, **kwargs)
 
 
-    def forward_gen(
-        self,
-        recon_output,
-        img_views,
-        gen_views,
-        projection_features=None,
-        pose_from_depth_ray=False,
-        point_from_depth_and_pose=False,
-        return_loss_stats=False,
-        gen_batch_size=8,
-        keep_sam_feats=True,
-        keep_aux_feats=True,
-        **kwargs
-    ):
-        if self.gen_input_encoder is None:
-            raise RuntimeError("Gen encoder not initialized. Call init_gen_encoders() first.")
-
-        if projection_features is None:
-            projection_features = self.projection_features
-
-        device = self._get_model_device()
-        B = img_views[0]['img'].shape[0]
-        nimgs = len(img_views)
-        n_gen_views = len(gen_views)
-     
-        
-        # Get image dimensions
-        _, _, H, W = img_views[0]['img'].shape
-        
-        # Extract reconstruction outputs
-        depth_conf = recon_output.get('depth_conf')
-        pointmap = recon_output.get('pointmap')
-        c2w = recon_output.get('c2w')
-        intrinsics = recon_output.get('intrinsics')
-        sam_feats = recon_output.get('sam_feats')
-        
-        # Build projection features
-        projection_feature_list = [f.strip() for f in projection_features.split(',')]
-        
-        pts3d = pointmap.detach()  # (B, T, H, W, 3)
-        conf = depth_conf.detach()  # (B, T, H, W)
-        
-        # Get RGB from views
-        rgb = torch.stack([v['img'] for v in img_views], dim=1).to(device)
-        rgb = rgb.permute(0, 1, 3, 4, 2)  # (B, T, H, W, 3)
-        
-        # Compute pts3d_local (in camera frame)
-        # Use detached c2w to avoid gradient flow through frozen recon outputs
-        if 'pts3d_local' in projection_feature_list:
-            w2c = affine_inverse(c2w.detach())
-            pts3d_flat = pts3d.reshape(B, nimgs, -1, 3)
-            pts3d_local = geotrf(w2c, pts3d_flat)
-            pts3d_local = pts3d_local.reshape(B, nimgs, H, W, 3)
-        
-        # Compute estimated focal from intrinsics (detach to avoid gradient flow)
-        if intrinsics is not None:
-            focal = intrinsics.detach()[:, :, 0, 0].mean(dim=1)  # (B,)
-        else:
-            focal = torch.ones(B, device=device) * 500.0  # Fallback
-        
-        # Build pts_features for projection
-        feature_parts = []
-        if 'pts3d_local' in projection_feature_list:
-            feature_parts.append(pts3d_local)
-        if 'pts3d' in projection_feature_list:
-            feature_parts.append(pts3d)
-        if 'rgb' in projection_feature_list:
-            feature_parts.append(rgb)
-        if 'conf' in projection_feature_list:
-            feature_parts.append((conf.unsqueeze(-1) - 1.0))
-        
-        # Handle SAM3 features if enabled (3 scales, each 256 channels)
-        if 'sam3' in projection_feature_list:
-            if sam_feats is None:
-                raise RuntimeError(
-                    "projection_features includes 'sam3' but recon_output['sam_feats'] is None. "
-                    "Initialize SAM3Head before loading the checkpoint, or remove 'sam3' "
-                    "from projection_features for this run."
-                )
-            if len(sam_feats) < 3:
-                raise RuntimeError(
-                    f"projection_features includes 'sam3' but received only {len(sam_feats)} "
-                    "SAM feature levels; expected at least 3."
-                )
-
-            for i in range(3):
-                sam_feat = sam_feats[i]
-                sam_feat_resized = F.interpolate(
-                    sam_feat.reshape(B * nimgs, -1, sam_feat.shape[3], sam_feat.shape[4]),
-                    (H, W),
-                    mode="bilinear",
-                    align_corners=False,
-                )
-                sam_feat_resized = sam_feat_resized.reshape(B, nimgs, -1, H, W)
-                sam_feat_resized = sam_feat_resized.permute(0, 1, 3, 4, 2)
-                feature_parts.append(sam_feat_resized)
-        pts_features = torch.cat(feature_parts, dim=-1) if feature_parts else None
-        del feature_parts  # Free memory
-        
-        # Get gen view camera poses
-        gen_c2w = torch.stack([v['camera_pose'] for v in gen_views], dim=1).to(device)
-        
-        # Build gen_intrinsics
-        cx, cy = W / 2.0, H / 2.0
-        gen_intrinsics = torch.zeros((B, n_gen_views, 3, 3), device=device, dtype=focal.dtype)
-        gen_intrinsics[:, :, 0, 0] = focal.unsqueeze(1)  # fx
-        gen_intrinsics[:, :, 1, 1] = focal.unsqueeze(1)  # fy
-        gen_intrinsics[:, :, 0, 2] = cx
-        gen_intrinsics[:, :, 1, 2] = cy
-        gen_intrinsics[:, :, 2, 2] = 1.0
-        
-        # Prepare context for gen views
-        recon_cond_features = pts_features  # (B, nimgs, H, W, C)
-        
-        true_shape_recon = torch.stack([torch.tensor(v['true_shape']) for v in img_views], dim=1).to(device)
-        recon_full_raymap = intrinsics_c2w_to_raymap(intrinsics[:, :1].detach(), c2w[:, :1].detach(), H, W, device=device)
-        
-        if gen_batch_size >= n_gen_views:
-            gen_batch_size = n_gen_views
-
-        gen_outputs = []
-        gen_ranges = range(0, n_gen_views, gen_batch_size)
-        if len(gen_ranges) > 1:
-            gen_ranges = tqdm(gen_ranges, desc="Processing gen views")
-        for i in gen_ranges:
-            i_end = min(i + gen_batch_size, n_gen_views)
-            gen_views_batch = gen_views[i:i_end]
-            n_gen_views_batch = len(gen_views_batch)
-            
-            # 1. Compute raymap for this batch
-            gen_intrinsics_batch = gen_intrinsics[:, i:i_end]
-            gen_c2w_batch = gen_c2w[:, i:i_end]
-            gen_raymap_batch = intrinsics_c2w_to_raymap(gen_intrinsics_batch, gen_c2w_batch, H, W, device=device)
-            
-            # 2. Create conditioning features via projection for current batch
-            gen_cond_features_batch = create_gen_conditioning(
-                pts3d, pts_features, focal, gen_c2w_batch,
-                return_projected_pts3d=False,
-                gen_views=gen_views_batch,
-                projection_features=projection_features,
-            )
-            
-            # 3. Concatenate recon + gen conditioning features
-            cond_features_batch = torch.cat([recon_cond_features, gen_cond_features_batch], dim=1)
-            n_total_views_batch = cond_features_batch.shape[1]
-            
-            # 4. Prepare for raymap encoder
-            cond_features_flat_batch = cond_features_batch.permute(0, 1, 4, 2, 3)
-            cond_features_flat_batch = cond_features_flat_batch.reshape(B * n_total_views_batch, -1, H, W)
-            gen_input_dtype = next(self.gen_input_encoder.parameters()).dtype
-            if cond_features_flat_batch.dtype != gen_input_dtype:
-                cond_features_flat_batch = cond_features_flat_batch.to(gen_input_dtype)
-            
-            true_shape_gen_batch = torch.stack([torch.tensor(v['true_shape']) for v in gen_views_batch], dim=1).to(device)
-            true_shape_batch = torch.cat([true_shape_recon, true_shape_gen_batch], dim=1)
-            true_shape_flat_batch = true_shape_batch.reshape(B * n_total_views_batch, 2)
-            
-            # 5. Encode batch
-            patch_tokens_batch, _ = self.gen_input_encoder(cond_features_flat_batch.detach(), true_shape_flat_batch)
-            
-            # Reshape
-            N_patches, embed_dim = patch_tokens_batch.shape[1], patch_tokens_batch.shape[2]
-            patch_tokens_batch = patch_tokens_batch.view(B, n_total_views_batch, N_patches, embed_dim)
-            
-            # 6. Full raymap for this batch
-            full_raymap_batch = torch.cat([recon_full_raymap, gen_raymap_batch], dim=1)
-            
-             # 7. Run inference for this batch
-            gen_output_batch = self.inference_batch_gen(
-                patch_tokens_batch,
-                H=H, W=W,
-                gen_raymap=full_raymap_batch,
-                n_gen_views=n_gen_views_batch,
-                export_feat_layers=kwargs.get('export_feat_layers', None),
-                return_aux_feats=keep_aux_feats,
-            )
-
-            if not keep_sam_feats:
-                gen_output_batch.pop('sam_feats', None)
-             
-            # Add gen_c2w_batch to the output
-            gen_output_batch['c2w'] = gen_c2w_batch
-            
-            gen_outputs.append(gen_output_batch)
-            
-            # Free batch memory
-            del gen_cond_features_batch, cond_features_batch, cond_features_flat_batch
-            del patch_tokens_batch, gen_raymap_batch, full_raymap_batch
-            if i + gen_batch_size < n_gen_views:
-                torch.cuda.empty_cache()
-        
-        del pts_features, recon_cond_features  # Free remaining large tensors
-        
-        # Remove keys not needed for gen output
-        for gen_out in gen_outputs:
-            for k in ["ray_conf", "c2w", "intrinsics"]:
-                gen_out.pop(k, None)
-
-        # Merge results from all batches
-        if len(gen_outputs) > 1:
-            gen_output = concat_preds(*gen_outputs)
-        else:
-            gen_output = gen_outputs[0]
-       
-        return gen_output
-        
     def _process_ray_pose_estimation(
         self, ray: torch.Tensor, ray_conf: torch.Tensor, height: int, width: int
     ) -> Dict[str, torch.Tensor]:
@@ -650,7 +418,6 @@ class DA3Wrapper(DepthAnything3):
         h,
         w,
         device_type,
-        gen_raymap=None,
         pose_from_depth_ray=False,
         pose_from_cam_dec=False,
         point_from_depth_and_pose=False,
@@ -680,18 +447,11 @@ class DA3Wrapper(DepthAnything3):
         depth = depth * default_scale
         depth_conf = output["depth_conf"]  # (B, T, H_proc, W_proc)
 
-        if gen_raymap is not None:
-            # Use provided gen_raymap (ground-truth or from camera poses)
-            ray = gen_raymap
-            ray_conf = None  # No confidence when using provided raymap
-        else:
-            # Use predicted raymap from the model
-            ray = output["ray"]  # (B, T, H_proc, W_proc, 6) with [ray_dirs(3), ray_origins(3)]
-            ray_conf = output["ray_conf"]  # (B, T, H_proc, W_proc)
-            
-            # Apply default scaling to ray origins
-            ray[..., 3:] = ray[..., 3:] * default_scale
-        
+        # Predicted raymap from the model
+        ray = output["ray"]  # (B, T, H_proc, W_proc, 6) with [ray_dirs(3), ray_origins(3)]
+        ray_conf = output["ray_conf"]  # (B, T, H_proc, W_proc)
+        ray[..., 3:] = ray[..., 3:] * default_scale  # scale ray origins
+
         c2w = None
         intrinsics = None
         if pose_from_depth_ray:
@@ -958,86 +718,6 @@ class DA3Wrapper(DepthAnything3):
         )
 
         if aux_feats is not None:
-            output["aux_feats"] = aux_feats
-
-        return output
-    
-    def inference_batch_gen(
-        self,
-        patch_tokens,
-        H, W,
-        gen_raymap=None,
-        n_gen_views=None,
-        export_feat_layers=None,
-        pose_from_depth_ray=False,
-        point_from_depth_and_pose=False,
-        return_aux_feats=True,
-    ):
-        """
-        Inference for gen views using pre-computed patch tokens from RaymapEncoderDA3.
-        
-        Args:
-            patch_tokens: (B, T, N, embed_dim) pre-computed tokens from RaymapEncoderDA3
-            H, W: original image dimensions
-            gen_raymap: optional raymap for all views (recon + gen)
-            n_gen_views: number of gen views to process in the depth head (last n views)
-            export_feat_layers: layers to export features from
-            pose_from_depth_ray: whether to estimate pose from depth and ray
-            
-        Returns:
-            Dict with pointmap, depth, depth_conf, ray, ray_conf
-        """
-        b, t, n, _ = patch_tokens.shape
-
-        if export_feat_layers is None:
-            export_feat_layers = list(self.get_backbone_metadata()['out_layers'])
-        else:
-            export_feat_layers = list(export_feat_layers)
-        
-        # Pass patch tokens through DinoV2 backbone using is_gen=True
-        # This uses the same backbone forward API as reconstruction mode.
-        feats, aux_feats = self.model.backbone(
-            patch_tokens,
-            is_gen=True,
-            H=H,
-            W=W,
-            n_gen_views=n_gen_views,
-            slice_layer_idx=self.slice_layer_idx,
-            export_feat_layers=export_feat_layers,
-            ref_view_strategy="first"
-        )
-        
-        # If n_gen_views is provided, slice feats and gen_raymap to only include gen views.
-        # This avoids processing recon views in the depth head.
-        if n_gen_views is not None and n_gen_views < t:
-            # feats is a list of (feat, camera_token) tuples
-            # Slice each element in the tuple along the view dimension (dim 1)
-            feats = [
-                (f[:, -n_gen_views:], c[:, -n_gen_views:])
-                for f, c in feats
-            ]
-            if gen_raymap is not None:
-                gen_raymap = gen_raymap[:, -n_gen_views:]
-            
-            for i, feat in enumerate(aux_feats):
-                processed_feat, raw_state = feat
-                processed_feat = processed_feat[:, -n_gen_views:]
-                raw_state = tuple(state[:, -n_gen_views:] for state in raw_state)
-                aux_feats[i] = (processed_feat, raw_state)
-        
-        device_type = patch_tokens.device.type
-        output = self._process_depth_output(
-            feats=feats,
-            gen_raymap=gen_raymap,
-            h=H,
-            w=W,
-            device_type=device_type,
-            pose_from_depth_ray=pose_from_depth_ray,
-            pose_from_cam_dec=False,
-            point_from_depth_and_pose=point_from_depth_and_pose,
-        )
-
-        if aux_feats is not None and return_aux_feats:
             output["aux_feats"] = aux_feats
 
         return output

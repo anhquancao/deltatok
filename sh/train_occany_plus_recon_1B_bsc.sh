@@ -28,67 +28,66 @@ HEIGHT=168
 
 
 
-RAY_MAP_PROB=0.4
 
 $CMD \
     --train_dataset="6000 @ WaymoSeqMultiView(ROOT='/gpfs/scratch/ehpc558/quan/occrae_data/waymo_processed', \
         seq_pkl_name='seq_exact_len_sub5_stride9_all.pkl', \
-        min_memory_num_views=5, frame_interval=1, max_memory_num_views=10, ray_map_prob=$RAY_MAP_PROB,\
+        min_memory_num_views=5, frame_interval=1, max_memory_num_views=10, \
         aug_crop=128, z_far=50, split='train', \
         resolution=[(518, 294), (518, 280), (518, 266), (518, 210), (518, 168)], \
         transform=SeqColorJitter, aug_focal=0.9, reverse_seq=True, distill_model_name='SAM3', base_model='da3') + \
         5000 @ VKittiSeqMultiView(VKITTI_PROCESSED_ROOT='/gpfs/scratch/ehpc558/quan/occrae_data/vkitti_processed', \
         seq_pkl_name='seq_exact_len_sub5_stride9.pkl', \
-        min_memory_num_views=5, frame_interval=1, max_memory_num_views=10, ray_map_prob=$RAY_MAP_PROB,\
+        min_memory_num_views=5, frame_interval=1, max_memory_num_views=10, \
         aug_crop=128, z_far=50, split='train', \
         resolution=[(518, 294), (518, 280), (518, 266), (518, 210), (518, 168)], \
         transform=SeqColorJitter, aug_focal=0.9, reverse_seq=True, distill_model_name='SAM3', base_model='da3') + \
         6000 @ DDADSeqMultiView(DDAD_PREPROCESSED_ROOT='/gpfs/scratch/ehpc558/quan/occrae_data/ddad_processed', \
         seq_pkl_name='seq_exact_len_sub5_stride9_all.pkl',\
-        min_memory_num_views=5, frame_interval=1, max_memory_num_views=10, ray_map_prob=$RAY_MAP_PROB,
+        min_memory_num_views=5, frame_interval=1, max_memory_num_views=10, 
         aug_crop=128, z_far=50, split='train', \
         resolution=[(518, 294), (518, 280), (518, 266), (518, 210), (518, 168)], \
         transform=SeqColorJitter, aug_focal=0.9, reverse_seq=True, distill_model_name='SAM3', base_model='da3') + \
         6000 @ PandasetSeqMultiView(PANDASET_PREPROCESSED_ROOT='/gpfs/scratch/ehpc558/quan/occrae_data/pandaset_processed', \
         seq_pkl_name='seq_exact_len_sub5_stride9_all.pkl', \
-        min_memory_num_views=5, frame_interval=1, max_memory_num_views=10, ray_map_prob=$RAY_MAP_PROB,
+        min_memory_num_views=5, frame_interval=1, max_memory_num_views=10, 
         aug_crop=128, z_far=50, split='train', \
         resolution=[(518, 294), (518, 280), (518, 266), (518, 210), (518, 168)], \
         transform=SeqColorJitter, aug_focal=0.9, reverse_seq=True, distill_model_name='SAM3', base_model='da3') + \
         6000 @ OnceSeqMultiView(ONCE_PREPROCESSED_ROOT='/gpfs/scratch/ehpc558/quan/occrae_data/once_processed', \
         seq_pkl_name='seq_exact_len_sub5_stride9_all.pkl', \
-        min_memory_num_views=5, frame_interval=1, max_memory_num_views=10, ray_map_prob=$RAY_MAP_PROB,
+        min_memory_num_views=5, frame_interval=1, max_memory_num_views=10, 
         aug_crop=128, z_far=50, split='train', \
         resolution=[(518, 294), (518, 280), (518, 266), (518, 210), (518, 168)], \
         transform=SeqColorJitter, aug_focal=0.9, reverse_seq=True, distill_model_name='SAM3', base_model='da3') + \
         4000 @ WaymoSeqMultiView(ROOT='/gpfs/scratch/ehpc558/quan/occrae_data/waymo_processed', \
         seq_pkl_name='seq_surround_all.pkl', \
-        min_memory_num_views=5, frame_interval=1, max_memory_num_views=5, ray_map_prob=$RAY_MAP_PROB,\
+        min_memory_num_views=5, frame_interval=1, max_memory_num_views=5, \
         aug_crop=128, z_far=50, split='train', \
         resolution=[(518, 294), (518, 280), (518, 266), (518, 210), (518, 168)], \
         transform=SeqColorJitter, aug_focal=0.9, shuffle_seq_prob=1.0, distill_model_name='SAM3', base_model='da3') + \
         4000 @ DDADSeqMultiView(DDAD_PREPROCESSED_ROOT='/gpfs/scratch/ehpc558/quan/occrae_data/ddad_processed', \
         seq_pkl_name='seq_surround_all.pkl',\
-        min_memory_num_views=6, frame_interval=1, max_memory_num_views=6, ray_map_prob=$RAY_MAP_PROB,
+        min_memory_num_views=6, frame_interval=1, max_memory_num_views=6, 
         aug_crop=128, z_far=50, split='train', \
         resolution=[(518, 294), (518, 280), (518, 266), (518, 210), (518, 168)], \
         transform=SeqColorJitter, aug_focal=0.9, shuffle_seq_prob=1.0, distill_model_name='SAM3', base_model='da3') + \
         4000 @ PandasetSeqMultiView(PANDASET_PREPROCESSED_ROOT='/gpfs/scratch/ehpc558/quan/occrae_data/pandaset_processed', \
         seq_pkl_name='seq_surround_all.pkl', \
-        min_memory_num_views=6, frame_interval=1, max_memory_num_views=6, ray_map_prob=$RAY_MAP_PROB,
+        min_memory_num_views=6, frame_interval=1, max_memory_num_views=6, 
         aug_crop=128, z_far=50, split='train', \
         resolution=[(518, 294), (518, 280), (518, 266), (518, 210), (518, 168)], \
         transform=SeqColorJitter, aug_focal=0.9, shuffle_seq_prob=1.0, distill_model_name='SAM3', base_model='da3') + \
         4000 @ OnceSeqMultiView(ONCE_PREPROCESSED_ROOT='/gpfs/scratch/ehpc558/quan/occrae_data/once_processed', \
         seq_pkl_name='seq_surround_all.pkl', \
-        min_memory_num_views=5, frame_interval=1, max_memory_num_views=5, ray_map_prob=$RAY_MAP_PROB,
+        min_memory_num_views=5, frame_interval=1, max_memory_num_views=5, 
         aug_crop=128, z_far=50, split='train', \
         resolution=[(518, 294), (518, 280), (518, 266), (518, 210), (518, 168)], \
         transform=SeqColorJitter, aug_focal=0.9, shuffle_seq_prob=1.0, distill_model_name='SAM3', base_model='da3')"  \
     --test_dataset="206 @ KittiSeqMultiView(KITTI_PREPROCESSED_ROOT='/gpfs/scratch/ehpc558/quan/occrae_data/kitti_processed', \
         seq_pkl_name='seq_exact_len_sub5_stride9.pkl', frame_interval=1, \
         min_memory_num_views=10, max_memory_num_views=10, reverse_seq=False, \
-        z_far=50, split='val', recon_view_idx=[0, 2, 4, 6, 8], ray_map_idx=[1, 3, 5, 7], \
+        z_far=50, split='val', recon_view_idx=[0, 2, 4, 6, 8], \
         resolution=[(518, 168)], distill_model_name='SAM3', base_model='da3')" \
     --lr=5e-5 --min_lr=1e-6 --warmup_epochs=3 --epochs=$EPOCHS \
     --batch_size=$BATCH_SIZE --accum_iter=$ACCUM_ITER \

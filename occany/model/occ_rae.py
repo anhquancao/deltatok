@@ -69,7 +69,6 @@ class OccRAE(nn.Module):
                 semantic_feat_src=None,
                 semantic_family=None,
                 device=device,
-                is_gen_model=False,
             )
             self.model = model
             self.checkpoint_args = checkpoint_args

@@ -70,7 +70,6 @@ def load_occany_model(args):
         semantic_feat_src=None,
         semantic_family=None,
         device=args.device,
-        is_gen_model=False,
     )
     return model
 

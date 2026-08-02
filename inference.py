@@ -42,14 +42,12 @@ from occany.utils.helpers import (
 )
 from occany.utils.image_util import ImgNorm, get_SAM3_transforms, convert_images_to_uint8_hwc
 from PIL import Image
-from occany.utils.io_da3 import setup_da3_models
 from occany.utils.inference_helper import (
     build_demo_reconstruction_views,
     build_intrinsics_from_focal,
     convert_da3_output_to_occany_format,
     denormalize_da3_imgs_to_minus1_1,
     extract_demo_rgb_images,
-    get_allowed_gen_view_ids,
     get_pts3d_from_voxel,
     is_distill_source,
     normalize_demo_rgb_image,
@@ -174,11 +172,9 @@ def get_args_parser():
         '--model',
         type=str,
         default='occany_da3',
-        choices=['occany_must3r', 'occany_da3'],
+        choices=['occany_da3'],
         help='Model to use',
     )
-    parser.add_argument('--gen', action='store_true', default=False, help='Predict raymap')
-    
     parser.add_argument(
         '--semantic', "-sem",
         type=str,
@@ -199,12 +195,6 @@ def get_args_parser():
                         help='Key to get pts3d from the output')
     parser.add_argument('--views_per_interval', '-vpi', type=int, default=2,
                         help='Number of views per interval for inference')
-    parser.add_argument('--gen_rotate_novel_poses_angle', '-rot', type=int, default=0,
-                        help='Angle to rotate novel poses')
-    parser.add_argument('--gen_forward_novel_poses_dist', '-fwd', type=int, default=1,
-                        help='Distance to move forward for novel poses (in meters)')
-    parser.add_argument('--num_seed_rotations', '-nseed', type=int, default=0,
-                        help='Number of seed rotations to generate (e.g., 5 for [-10, -5, 0, 5, 10]). If 0, uses standard mode.')
     parser.add_argument('--seed_rotation_angle', '-seed_rot', type=int, default=None,
                         help='Angle in degrees between seed rotations. If None, defaults to 15.0 degrees.')
     parser.add_argument('--seed_translation_distance', '-seed_trans', type=int, default=None,
@@ -234,9 +224,6 @@ def get_args_parser():
                         help='Compute pointmap from depth, intrinsics and c2w')
     parser.add_argument('--recon_conf_thres', type=float, default=2.0,
                         help='Reconstruction confidence threshold.')
-    parser.add_argument('--gen_conf_thres', type=float, default=6.0,
-                        help='Generation confidence threshold.')
-    
 
     return parser
 
@@ -266,11 +253,9 @@ if __name__ == '__main__':
         )
 
     semantic_feat_src, semantic_model_type, semantic_family = parse_semantic_mode(args.semantic)
-    model_family = "da3" if args.model == "occany_da3" else "must3r"
+    model_family = "da3"
 
     if semantic_family is not None:
-        if model_family == "must3r":
-            assert semantic_family == "SAM2", f"must3r model requires SAM2 semantic family, but got {semantic_family}"
         if model_family == "da3":
             assert semantic_family == "SAM3", f"da3 model requires SAM3 semantic family, but got {semantic_family}"
     from occany.model.attention import toggle_memory_efficient_attention
@@ -311,128 +296,36 @@ if __name__ == '__main__':
     )
 
 
-    raymap_encoder = None
-    gen_decoder = None  # Initialize gen_decoder for all model types
-    use_raymap_only_conditioning = False
     checkpoint_args = None
-    da3_model_gen = None
-    da3_model_recon = None
 
-    if args.model == "occany_must3r":
-        from occany.model.model_must3r import Must3r, Dust3rEncoder, RaymapEncoderDiT, Must3rDecoder  # noqa: F401
-        from occany.model.must3r_blocks.head import ActivationType  # noqa: F401
-        from occany.must3r_inference import inference_occany_gen
-        weights_path = REPO_ROOT / "checkpoints" / "occany.pth"
-        if not weights_path.is_file():
-            raise FileNotFoundError(
-                f"OccAny Must3R checkpoint not found: {weights_path}. "
-                "Expected the merged checkpoint at checkpoints/occany.pth."
-            )
-        encoder = Dust3rEncoder()
-        checkpoint = torch.load(weights_path, map_location='cpu', weights_only=False)
-        checkpoint_args = checkpoint['args']
-        decoder = eval(checkpoint_args.decoder)
-        
-        use_raymap_only_conditioning = getattr(checkpoint_args, 'use_raymap_only_conditioning', False)
-        if args.gen:
-            print("use_raymap_only_conditioning:", use_raymap_only_conditioning)
-            projection_features = getattr(checkpoint_args, 'projection_features', 'pts3d_local,pts3d,rgb,conf,sam')
-            print("    Projection features:", projection_features)
-            raymap_encoder = RaymapEncoderDiT(
-                use_time_cond=False,    
-                use_raymap_only_conditioning=use_raymap_only_conditioning,
-                projection_features=projection_features,
-            )
-            raymap_encoder.load_state_dict(checkpoint['raymap_encoder'], strict=False)
-        print("Loaded model from", weights_path)
-        encoder.load_state_dict(checkpoint['encoder'], strict=False)
-        decoder.load_state_dict(checkpoint['decoder'], strict=False)
-       
-        # Load gen_decoder if it exists in checkpoint (double decoder setup)
-        if 'gen_decoder' in checkpoint:
-            print("Loading gen_decoder from checkpoint")
-            gen_decoder = eval(checkpoint['args'].decoder)
-            gen_decoder.load_state_dict(checkpoint['gen_decoder'], strict=False)
-            gen_decoder.pointmaps_activation = checkpoint['args'].pointmaps_activation
-            gen_decoder.to(args.device)
-            gen_decoder.eval()
-        
-        if args.gen and 'raymap_encoder' in checkpoint:
-            raymap_encoder.load_state_dict(checkpoint['raymap_encoder'], strict=False)
-        decoder.pointmaps_activation = checkpoint['args'].pointmaps_activation
-        print("Set pointmaps_activation to", decoder.pointmaps_activation)
-        del checkpoint
+    from occany.da3_inference import inference_occany_da3
+    from occany.utils.io_da3 import load_da3_model_from_checkpoint
 
-        encoder.to(args.device)
-        decoder.to(args.device)
-        if args.gen:
-            raymap_encoder.to(args.device)
-            raymap_encoder.eval()
-        encoder.eval()
-        decoder.eval()
-    elif args.model == "occany_da3":
-        from occany.da3_inference import inference_occany_da3, inference_occany_da3_gen
-
-        
-        gen_weights = REPO_ROOT / "checkpoints" / "occany_plus_gen.pth"
-        recon_weights = REPO_ROOT / "checkpoints" / "occany_plus_recon.pth"
-        print("[INFO] Preparing DA3 model(s)")
-        da3_model_input_size = max(output_resolution)
-        da3_model_gen, da3_model_recon, checkpoint_args = setup_da3_models(
-            recon_model_path=recon_weights,
-            gen_model_path=gen_weights,
-            output_resolution=(da3_model_input_size, da3_model_input_size),
-            semantic_feat_src=semantic_feat_src,
-            semantic_family=semantic_family,
-            device=args.device,
-            use_generation=args.gen,
-        )
-    else:
-        raise ValueError(f"Model {args.model} not supported")
+    recon_weights = REPO_ROOT / "checkpoints" / "occany_plus_recon.pth"
+    print("[INFO] Preparing DA3 model")
+    da3_model_input_size = max(output_resolution)
+    da3_model_recon, checkpoint_args = load_da3_model_from_checkpoint(
+        weights_path=recon_weights,
+        output_resolution=(da3_model_input_size, da3_model_input_size),
+        semantic_feat_src=semantic_feat_src,
+        semantic_family=semantic_family,
+        device=args.device,
+    )
 
     sam_model_for_inference = "SAM3"
         if isinstance(checkpoint_sam_model, str) and checkpoint_sam_model.upper() in ["SAM3"]:
             sam_model_for_inference = checkpoint_sam_model.upper()
     
 
-    if args.model == "occany_must3r":
-        modules = [m for m in [encoder, decoder, raymap_encoder] if m is not None]
-        if gen_decoder is not None:
-            modules.append(gen_decoder)
-        total_params = sum(p.numel() for m in modules for p in m.parameters())
-        trainable_params = sum(
-            p.numel() for m in modules for p in m.parameters() if p.requires_grad
-        )
-        extra = "+gen_decoder" if gen_decoder is not None else ""
-        print(
-            f"Model 'occany_must3r' (encoder+decoder+raymap_encoder{extra}) - "
-            f"total parameters: {total_params:,}, trainable parameters: {trainable_params:,}"
-        )
-    elif args.model == "occany_da3":
-        total_params = sum(p.numel() for p in da3_model_gen.parameters())
-        trainable_params = sum(p.numel() for p in da3_model_gen.parameters() if p.requires_grad)
-        primary_model_label = "occany_plus_gen" if args.gen else "occany_plus_recon"
-        print(
-            f"Model '{primary_model_label}' - total parameters: {total_params:,}, "
-            f"trainable parameters: {trainable_params:,}"
-        )
-        if args.gen and da3_model_recon is not None and da3_model_recon is not da3_model_gen:
-            recon_total_params = sum(p.numel() for p in da3_model_recon.parameters())
-            recon_trainable_params = sum(
-                p.numel() for p in da3_model_recon.parameters() if p.requires_grad
-            )
-            print(
-                f"Model 'occany_plus_recon' - total parameters: {recon_total_params:,}, "
-                f"trainable parameters: {recon_trainable_params:,}"
-            )
-
-  
-  
+    total_params = sum(p.numel() for p in da3_model_recon.parameters())
+    trainable_params = sum(p.numel() for p in da3_model_recon.parameters() if p.requires_grad)
+    print(
+        f"Model 'occany_plus_recon' - total parameters: {total_params:,}, "
+        f"trainable parameters: {trainable_params:,}"
+    )
 
     recon_conf_thres = args.recon_conf_thres
-    gen_conf_thres = args.gen_conf_thres
     print(f"recon_conf_thres: {recon_conf_thres}")
-    print(f"gen_conf_thres:   {gen_conf_thres}")
 
     voxel_size = 0.4
     occ_size = [200, 200, 24]
@@ -443,9 +336,6 @@ if __name__ == '__main__':
     print("voxel_origin:", voxel_origin)
     print(f"Found {len(frame_dirs)} RGB demo frame directories in {args.input_dir}")
     print("output_resolution (first frame):", output_resolution)
-
-    if not args.gen:
-        raymap_encoder = None
 
     item_count = 0
     T_cam_to_voxel = torch.tensor(
@@ -506,162 +396,27 @@ if __name__ == '__main__':
         with torch.inference_mode():
             x_ray = None
             sam_feats = None
-            sam_feats_raymap = None
-            recon_2_gen_mapping = None
-            generated_output_c2w = None
 
             if model_family == "da3":
-                recon_model_to_use = da3_model_recon if da3_model_recon is not None else da3_model_gen
-                force_pose_from_depth_ray_for_da3_gen = args.gen
-                pose_from_depth_ray_for_da3 = args.pose_from_depth_ray or force_pose_from_depth_ray_for_da3_gen
-                if force_pose_from_depth_ray_for_da3_gen and not args.pose_from_depth_ray and not getattr(args, "_logged_da3_pose_override", False):
-                    print(
-                        "[INFO] DA3 generation enabled: forcing pose_from_depth_ray=True "
-                        "to generate novel views from predicted reconstruction poses."
-                    )
-                    args._logged_da3_pose_override = True
                 recon_output = inference_occany_da3(
                     recon_views,
-                    recon_model_to_use,
+                    da3_model_recon,
                     args.device,
                     dtype=torch.float32,
                     sam_model=sam_model_for_inference,
-                    pose_from_depth_ray=pose_from_depth_ray_for_da3,
+                    pose_from_depth_ray=args.pose_from_depth_ray,
                     point_from_depth_and_pose=args.point_from_depth_and_pose,
                 )
                 recon_output.pop('aux_feats', None)
                 recon_output.pop('aux_outputs', None)
 
-                projection_features = getattr(da3_model_gen, "projection_features", "")
-                needs_sam3_projection_for_gen = uses_sam3_projection_features(projection_features)
-                if args.gen and needs_sam3_projection_for_gen and recon_output.get("sam_feats") is None:
-                    raise RuntimeError(
-                        "Generation checkpoint expects 'sam3' projection features, but reconstruction output "
-                        "does not provide distilled SAM3 features. Ensure SAM3 head is initialized for the "
-                        "reconstruction model."
-                    )
-
                 img_out = convert_da3_output_to_occany_format(recon_output)
                 if args.key_to_get_pts3d not in img_out:
                     img_out[args.key_to_get_pts3d] = img_out['pts3d']
                 sam_feats = recon_output.get('sam_feats')
-                raymap_out = None
-
-                if args.gen:
-                    pred_recon_camera_poses = recon_output.get("c2w")
-                    if pred_recon_camera_poses is None:
-                        raise RuntimeError(
-                            "DA3 generation requires predicted reconstruction poses, but recon_output['c2w'] is missing. "
-                            "Ensure pose estimation from depth/ray is enabled."
-                        )
-                    if pred_recon_camera_poses.shape[-2:] == (3, 4):
-                        bottom_row = torch.tensor(
-                            [0.0, 0.0, 0.0, 1.0],
-                            device=pred_recon_camera_poses.device,
-                            dtype=pred_recon_camera_poses.dtype,
-                        )
-                        bottom_row = bottom_row.view(1, 1, 1, 4).expand(
-                            pred_recon_camera_poses.shape[0],
-                            pred_recon_camera_poses.shape[1],
-                            1,
-                            4,
-                        )
-                        pred_recon_camera_poses = torch.cat([pred_recon_camera_poses, bottom_row], dim=-2)
-                   
-                    gen_poses, recon_2_gen_mapping = generate_intermediate_poses(
-                        pred_recon_camera_poses,
-                        args.views_per_interval,
-                        args.device,
-                        forward=args.gen_forward_novel_poses_dist,
-                        rotate_angle=args.gen_rotate_novel_poses_angle,
-                        num_seed_rotations=args.num_seed_rotations,
-                        seed_rotation_angle=args.seed_rotation_angle,
-                        seed_translation_distance=args.seed_translation_distance,
-                    )
-                    gen_poses = gen_poses.float()
-                    generated_output_c2w = gen_poses
-                    gen_views = []
-                    for gen_idx in range(gen_poses.shape[1]):
-                        gen_views.append(
-                            {
-                                'camera_pose': gen_poses[:, gen_idx],
-                                'true_shape': recon_views[0]['true_shape'],
-                                'is_raymap': True,
-                            }
-                        )
-
-                    keep_gen_sam_feats = (
-                        args.semantic is not None
-                        and semantic_family == "SAM3"
-                        and (
-                            is_distill_source(semantic_feat_src)
-                            or (
-                                semantic_feat_src == "pretrained"
-                                and args.gen_semantic_from_distill_sam3
-                            )
-                        )
-                    )
-                    gen_output = inference_occany_da3_gen(
-                        recon_output=recon_output,
-                        img_views=recon_views,
-                        gen_views=gen_views,
-                        model=da3_model_gen,
-                        device=args.device,
-                        dtype=torch.float32,
-                        pose_from_depth_ray=pose_from_depth_ray_for_da3,
-                        point_from_depth_and_pose=args.point_from_depth_and_pose,
-                        gen_batch_size=max(1, int(args.batch_gen_view)),
-                        keep_aux_feats=False,
-                        keep_sam_feats=keep_gen_sam_feats,
-                    )
-                    gen_output.pop('aux_feats', None)
-                    gen_output.pop('aux_outputs', None)
-
-                    raymap_out = convert_da3_output_to_occany_format(
-                        gen_output,
-                        fallback_focal=img_out['focal'],
-                    )
-                    if args.key_to_get_pts3d not in raymap_out:
-                        raymap_out[args.key_to_get_pts3d] = raymap_out['pts3d']
-                    sam_feats_raymap = gen_output.get('sam_feats')
-            else:
-                img_out, raymap_out, x_ray, sam_feats, sam_feats_raymap, recon_2_gen_mapping = inference_occany_gen(
-                    recon_views,
-                    None,
-                    raymap_encoder,
-                    encoder,
-                    decoder,
-                    gen_decoder,
-                    decoder.pointmaps_activation,
-                    args.device,
-                    gen_rotate_novel_poses_angle=args.gen_rotate_novel_poses_angle,
-                    gen_novel_poses=args.gen,
-                    pred_raymap=args.gen,
-                    views_per_interval=args.views_per_interval,
-                    gen_forward_novel_poses_dist=args.gen_forward_novel_poses_dist,
-                    num_seed_rotations=args.num_seed_rotations,
-                    seed_rotation_angle=args.seed_rotation_angle,
-                    seed_translation_distance=args.seed_translation_distance,
-                    use_local_points_with_pose_as_pts3d=False,
-                    use_raymap_only_conditioning=use_raymap_only_conditioning,
-                    raymap_batch_size=args.batch_gen_view,
-                    key_to_get_pts3d=args.key_to_get_pts3d,
-                    dtype=torch.float32,
-                    sam_model=sam_model_for_inference,
-                )
-
-            sam_feats_img_and_raymap = None
+            sam_feats_recon = sam_feats
             sam3_recon_distill_feats = sam_feats[:3] if sam_feats is not None else None
-            sam3_gen_distill_feats = sam_feats_raymap[:3] if sam_feats_raymap is not None else None
-            
-                if sam_feats is not None and sam_feats_raymap is not None:
-                    sam_feats_img_and_raymap = [
-                        torch.cat([sam_feats[level_idx], sam_feats_raymap[level_idx]], dim=1)
-                        for level_idx in range(min(len(sam_feats), len(sam_feats_raymap)))
-                    ]
-                elif sam_feats is not None:
-                    sam_feats_img_and_raymap = sam_feats
-            
+            sam3_gen_distill_feats = None
 
 
         res = img_out
@@ -676,7 +431,7 @@ if __name__ == '__main__':
         gen_semantic_2ds = None        if args.semantic is not None:
             feat_src = semantic_feat_src
             n_recon_views = len(recon_views)
-            n_gen_views = 0 if raymap_out is None else raymap_out['pts3d'].shape[1]
+            n_gen_views = 0
             n_recon_and_gen_views = n_recon_views + n_gen_views
 
             semantic_fill_value = empty_class
@@ -712,16 +467,16 @@ if __name__ == '__main__':
                                 max_bs=args.batch_gen_view,
                             )
                         elif is_distill_source(feat_src):
-                            if sam_feats_img_and_raymap is None or len(sam_feats_img_and_raymap) < 3:
+                            if sam_feats_recon is None or len(sam_feats_recon) < 3:
                                 print(
                                     "[WARNING] SAM2 distill mode requested but distilled SAM features are unavailable"
                                 )
                                 continue
                             sam2_feats = {
-                                "image_embed": sam_feats_img_and_raymap[0][batch_i],
+                                "image_embed": sam_feats_recon[0][batch_i],
                                 "high_res_feats": [
-                                    sam_feats_img_and_raymap[2][batch_i],
-                                    sam_feats_img_and_raymap[1][batch_i],
+                                    sam_feats_recon[2][batch_i],
+                                    sam_feats_recon[1][batch_i],
                                 ],
                             }
                         else:
@@ -751,22 +506,7 @@ if __name__ == '__main__':
                             conf_np = conf_np.reshape(-1)[valid_indices]
                             label_ids = [class2idx[labels[idx]] for idx in valid_indices]
 
-                            if args.gen:
-                                if recon_2_gen_mapping is not None and recon_view_i in recon_2_gen_mapping:
-                                    corresponding_gen_view_ids = [
-                                        view_idx + n_recon_views
-                                        for view_idx in recon_2_gen_mapping[recon_view_i]
-                                    ]
-                                    if args.no_semantic_from_rotated_views and args.gen_rotate_novel_poses_angle > 0:
-                                        n_total_gen = len(corresponding_gen_view_ids)
-                                        n_straight = n_total_gen // 3
-                                        corresponding_gen_view_ids = corresponding_gen_view_ids[:n_straight]
-                                else:
-                                    corresponding_gen_view_ids = []
-                                if args.only_semantic_from_recon_view:
-                                    corresponding_gen_view_ids = []
-                            else:
-                                corresponding_gen_view_ids = []
+                            corresponding_gen_view_ids = []
 
                             for gen_view_i in range(
                                 0,
@@ -837,13 +577,7 @@ if __name__ == '__main__':
                 else:
                     prompts, prompt_to_class_mapping = build_fine_prompt_metadata(PROMPT)
                     ignore_ids = {empty_class, other_class, 255}
-                    allowed_gen_view_ids = get_allowed_gen_view_ids(
-                        n_gen_views=n_gen_views,
-                        recon_2_gen_mapping=recon_2_gen_mapping,
-                        only_semantic_from_recon_view=args.only_semantic_from_recon_view,
-                        no_semantic_from_rotated_views=args.no_semantic_from_rotated_views,
-                        gen_rotate_novel_poses_angle=args.gen_rotate_novel_poses_angle,
-                    )
+                    allowed_gen_view_ids = []
 
                     recon_distill_feats = sam3_recon_distill_feats
                     gen_distill_feats = sam3_gen_distill_feats
@@ -1008,45 +742,6 @@ if __name__ == '__main__':
         }
             
 
-        if args.gen and raymap_out is not None:
-            pts3d_gen = raymap_out[args.key_to_get_pts3d]
-            pts3d_local_gen = raymap_out['pts3d_local']
-            conf_gen = raymap_out['conf']
-            render_gen_c2w = generated_output_c2w
-            if render_gen_c2w is None:
-                render_gen_c2w = raymap_out.get('c2w_input')
-            if render_gen_c2w is None:
-                render_gen_c2w = raymap_out['c2w']
-
-            outputs["render_gen"] = {
-                "pts3d": pts3d_gen,
-                "pts3d_local": pts3d_local_gen,
-                "conf": conf_gen,
-                "colors": torch.zeros(B, pts3d_gen.shape[1], 3, H, W, device=pts3d_gen.device),
-                "focal": raymap_out['focal'],
-                "c2w": render_gen_c2w,
-                "semantic_2ds": gen_semantic_2ds,
-                "is_recon": torch.zeros(B, pts3d_gen.shape[1], dtype=torch.bool, device=pts3d_gen.device),
-                # "c2w_pose": gen_out['c2w_pose']
-            }
-
-            outputs['render_recon_gen'] = {
-                "pts3d": torch.cat([outputs['render']['pts3d'], outputs['render_gen']['pts3d']], dim=1),
-                "pts3d_local": torch.cat([outputs['render']['pts3d_local'], outputs['render_gen']['pts3d_local']], dim=1),
-                "conf": torch.cat([outputs['render']['conf'], outputs['render_gen']['conf']], dim=1),
-                "colors": torch.cat([outputs['render']['colors'], outputs['render_gen']['colors']], dim=1),
-                "focal": torch.cat([outputs['render']['focal'], outputs['render_gen']['focal']], dim=1),
-                "c2w": torch.cat([outputs['render']['c2w'], outputs['render_gen']['c2w']], dim=1),
-                "semantic_2ds": (
-                    torch.cat([outputs['render']['semantic_2ds'], outputs['render_gen']['semantic_2ds']], dim=1)
-                    if outputs['render']['semantic_2ds'] is not None and outputs['render_gen']['semantic_2ds'] is not None
-                    else None
-                ),
-                "is_recon": torch.cat([outputs['render']['is_recon'], outputs['render_gen']['is_recon']], dim=1),
-                # "c2w_pose": torch.cat([outputs['render']['c2w_pose'], outputs['render_gen']['c2w_pose']], dim=1)
-            }
-        elif args.gen:
-            print("[WARNING] Generation was requested but no generated views were produced")
             
             
         
@@ -1119,64 +814,6 @@ if __name__ == '__main__':
             
             voxel_predictions_dict[f"render_th{recon_conf_thres}"] = render_voxel_pred_np
             
-            # If render_gen exists, also create and save combined output
-            if 'render_gen' in outputs:
-                gen_output = outputs['render_gen']
-
-                # Filter generation output
-                gen_conf_mask = gen_output['conf'][j] > gen_conf_thres
-                gen_pts3d_th = gen_output['pts3d'][j][gen_conf_mask]
-                gen_conf_th = gen_output['conf'][j][gen_conf_mask]
-
-                if args.semantic is not None:
-                    gen_semantic_2ds_th = gen_output.get('semantic_2ds', [None])[j]
-                    if gen_semantic_2ds_th is not None:
-                        gen_semantic_2ds_th = gen_semantic_2ds_th.to(gen_conf_mask.device)
-                        gen_semantic_2ds_th = gen_semantic_2ds_th[gen_conf_mask]
-                        gen_has_semantic = True
-                    else:
-                        gen_has_semantic = False
-                        gen_semantic_2ds_th = None
-                else:
-                    gen_has_semantic = False
-                    gen_semantic_2ds_th = None
-
-                if gen_pts3d_th.numel() == 0:
-                    gen_voxel_pred = torch.full(
-                        grid_size,
-                        empty_class,
-                        dtype=torch.long,
-                        device=render_voxel_pred.device,
-                    )
-                else:
-                    gen_pts3d_in_velo = transform_points_torch(
-                        T=T_cam_to_voxel.float(),
-                        points=gen_pts3d_th,
-                    )
-                    gen_voxel_pred = create_voxel_prediction(
-                        gen_pts3d_in_velo,
-                        gen_has_semantic,
-                        gen_semantic_2ds_th,
-                        gen_conf_th,
-                        grid_size,
-                        voxel_origin,
-                        voxel_size,
-                        n_classes,
-                        other_class,
-                        empty_class,
-                    )
-
-                voxel_pred = gen_voxel_pred.clone()
-                non_empty_mask = render_voxel_pred != empty_class
-                voxel_pred[non_empty_mask] = render_voxel_pred[non_empty_mask]
-
-                voxel_pred_np = voxel_pred.cpu().numpy().astype(np.uint8)
-                voxel_pred_np = maybe_apply_pooling(voxel_pred_np)
-                print("Number of occupied voxels:", np.sum(voxel_pred_np != empty_class))
-                key = f"render_recon_gen_recon{recon_conf_thres}_gen{gen_conf_thres}"
-                voxel_predictions_dict[key] = voxel_pred_np
-                print(f"Added combined voxel prediction: {key}")
-
             save_path = os.path.join(voxel_pred_save_dir, "voxel_predictions.pkl")
             with open(save_path, 'wb') as f:
                 pickle.dump(voxel_predictions_dict, f)

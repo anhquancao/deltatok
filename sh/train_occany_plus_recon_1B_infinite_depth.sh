@@ -28,40 +28,39 @@ HEIGHT=168
 
 
 
-RAY_MAP_PROB=-1
 
 $CMD \
     --train_dataset="5000 @ WaymoSeqMultiView(ROOT='$SCRATCH/data/waymo_processed', \
         seq_pkl_name='seq_surround_temporal_sub5_stride9_all.pkl', \
         min_memory_num_views=5, frame_interval=1, max_memory_num_views=30, \
-        num_views_per_timestep=5, min_views_per_timestep=1, min_num_timesteps=2, ray_map_prob=-1, \
+        num_views_per_timestep=5, min_views_per_timestep=1, min_num_timesteps=2, \
         z_far=50, split='train', no_partial_views=True, \
         resolution=[(518, 294), (518, 280), (518, 266), (518, 210), (518, 168)], \
         reverse_seq=True, distill_model_name='SAM3', base_model='da3', load_infinidepth_pseudo=True) + \
         2000 @ VKittiSeqMultiView(VKITTI_PROCESSED_ROOT='$SCRATCH/data/vkitti_processed', \
         seq_pkl_name='seq_exact_len_sub5_stride9.pkl', \
-        min_memory_num_views=5, frame_interval=1, max_memory_num_views=10, min_num_timesteps=2, ray_map_prob=-1, \
+        min_memory_num_views=5, frame_interval=1, max_memory_num_views=10, min_num_timesteps=2, \
         z_far=50, split='train', no_partial_views=True, \
         resolution=[(518, 294), (518, 280), (518, 266), (518, 210), (518, 168)], \
         reverse_seq=True, distill_model_name='SAM3', base_model='da3', load_infinidepth_pseudo=True) + \
         5000 @ DDADSeqMultiView(DDAD_PREPROCESSED_ROOT='$SCRATCH/data/ddad_processed', \
         seq_pkl_name='seq_surround_temporal_sub5_stride9_all.pkl', \
         min_memory_num_views=6, frame_interval=1, max_memory_num_views=30, \
-        num_views_per_timestep=6, min_views_per_timestep=1, min_num_timesteps=2, ray_map_prob=-1, \
+        num_views_per_timestep=6, min_views_per_timestep=1, min_num_timesteps=2, \
         z_far=50, split='train', no_partial_views=True, \
         resolution=[(518, 294), (518, 280), (518, 266), (518, 210), (518, 168)], \
         reverse_seq=True, distill_model_name='SAM3', base_model='da3', load_infinidepth_pseudo=True) + \
         5000 @ PandasetSeqMultiView(PANDASET_PREPROCESSED_ROOT='$SCRATCH/data/pandaset_processed', \
         seq_pkl_name='seq_surround_temporal_sub5_stride9_all.pkl', \
         min_memory_num_views=6, frame_interval=1, max_memory_num_views=30, \
-        num_views_per_timestep=6, min_views_per_timestep=1, min_num_timesteps=2, ray_map_prob=-1, \
+        num_views_per_timestep=6, min_views_per_timestep=1, min_num_timesteps=2, \
         z_far=50, split='train', no_partial_views=True, \
         resolution=[(518, 294), (518, 280), (518, 266), (518, 210), (518, 168)], \
         reverse_seq=True, distill_model_name='SAM3', base_model='da3', load_infinidepth_pseudo=True) + \
         5000 @ OnceSeqMultiView(ONCE_PREPROCESSED_ROOT='$SCRATCH/data/once_processed', \
         seq_pkl_name='seq_surround_temporal_sub5_stride9_all.pkl', \
         min_memory_num_views=5, frame_interval=1, max_memory_num_views=30, \
-        num_views_per_timestep=5, min_views_per_timestep=1, min_num_timesteps=2, ray_map_prob=-1, \
+        num_views_per_timestep=5, min_views_per_timestep=1, min_num_timesteps=2, \
         z_far=50, split='train', no_partial_views=True, \
         resolution=[(518, 294), (518, 280), (518, 266), (518, 210), (518, 168)], \
         reverse_seq=True, distill_model_name='SAM3', base_model='da3', load_infinidepth_pseudo=True)"  \

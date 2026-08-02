@@ -262,7 +262,6 @@ def load_occany_plus_model(
             semantic_feat_src=None,
             semantic_family=None,
             device=device,
-            is_gen_model=False,
         )
         if da3_model_recon is None:
             raise RuntimeError("Failed to load DA3 reconstruction model from checkpoint.")
@@ -328,7 +327,6 @@ def build_recon_views(
                 "true_shape": torch.tensor([height, width], device=device).view(1, 2).expand(batch_size, 2),
                 "camera_pose": camera_poses[:, original_view_idx],
                 "gt_depth": gt_depths[:, original_view_idx],
-                "is_raymap": False,
             }
         )
 

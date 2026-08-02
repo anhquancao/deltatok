@@ -8,7 +8,7 @@ from .kitti import KittiDataset  # noqa: F401
 from .nuscenes import NuScenesDataset  # noqa: F401
 
 # Training datasets
-from .base_seq_dataset import BaseSeqDataset, BaseSeqDatasetMultiView  # noqa: F401
+from .base_seq_dataset import BaseSeqDatasetMultiView  # noqa: F401
 from .waymo import WaymoSeqMultiView  # noqa: F401
 from .vkitti_pairs import VKittiSeqMultiView  # noqa: F401
 from .ddad_pairs import DDADSeqMultiView  # noqa: F401

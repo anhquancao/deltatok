@@ -337,39 +337,6 @@ def populate_demo_sam2_box_dicts(
     }
 
 
-def get_allowed_gen_view_ids(
-    n_gen_views: int,
-    recon_2_gen_mapping: Optional[Dict[int, List[int]]],
-    only_semantic_from_recon_view: bool,
-    no_semantic_from_rotated_views: bool,
-    gen_rotate_novel_poses_angle: int,
-) -> List[int]:
-    """Return generated-view ids that should receive semantic labels."""
-    if n_gen_views <= 0 or only_semantic_from_recon_view:
-        return []
-
-    if (
-        not no_semantic_from_rotated_views
-        or gen_rotate_novel_poses_angle <= 0
-        or recon_2_gen_mapping is None
-    ):
-        return list(range(n_gen_views))
-
-    allowed_ids: List[int] = []
-    for gen_ids in recon_2_gen_mapping.values():
-        if len(gen_ids) == 0:
-            continue
-        n_straight = len(gen_ids) // 3
-        if n_straight == 0:
-            n_straight = len(gen_ids)
-        allowed_ids.extend(gen_ids[:n_straight])
-
-    if len(allowed_ids) == 0:
-        return list(range(n_gen_views))
-    return sorted(set(idx for idx in allowed_ids if 0 <= idx < n_gen_views))
-
-
-
 def convert_da3_output_to_occany_format(
     da3_output: Dict[str, torch.Tensor],
     fallback_focal: Optional[torch.Tensor] = None,

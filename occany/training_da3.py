@@ -33,7 +33,7 @@ from occany.loss.losses import *  # noqa: F401, needed when loading the model
 from occany.loss.losses_da3 import *  # noqa: F401, needed when loading the model
 
 from occany.model.model_da3 import DA3Wrapper
-from occany.da3_inference import loss_of_one_batch_occany_da3, loss_of_one_batch_occany_da3_gen
+from occany.da3_inference import loss_of_one_batch_occany_da3
 from occany.utils.helpers import depth2rgb
 from dust3r.utils.geometry import geotrf
  
@@ -107,8 +107,6 @@ def get_args_parser():
     parser.add_argument('--sam_model', default='SAM2', type=str, help='SAM model version (SAM2 or SAM3)')
     parser.add_argument('--da3_model_name', default='depth-anything/DA3-LARGE-1.1', type=str,
                         help='Hugging Face model name/path for DA3 backbone initialization')
-    parser.add_argument('--gen', action='store_true', default=False,
-                        help='activate generation training with raymap prediction')
     
     # SAM3Head settings
     parser.add_argument('--sam3_use_dpt_proj', action='store_true', default=False,
@@ -131,8 +129,6 @@ def get_args_parser():
     # Gen views settings (used when --gen is enabled)
     parser.add_argument('--projection_features', type=str, default='pts3d_local,pts3d,rgb,conf',
                         help='Comma-separated list of features to project for gen views: pts3d_local, pts3d, rgb, conf, sam')
-    parser.add_argument('--gen_alt_start', type=int, default=None,
-                        help='alt_start layer override for model_gen backbone. If unset, keep the default from the loaded DA3 variant (for example, 8 for DA3-LARGE and 13 for DA3-GIANT)')
     parser.add_argument('--pretrained_recon_model', type=str, default=None,
                         help='Path to pretrained reconstruction model checkpoint to load for gen views training')
     
@@ -173,8 +169,6 @@ def get_args_parser():
                         help='Lidar-GT depth weight under --infinidepth_pseudo_supervision (multiplies --lambda_depth)')
     parser.add_argument('--lambda_depth_pseudo', type=float, default=1.0,
                         help='InfiniDepth pseudo-GT depth weight under --infinidepth_pseudo_supervision (multiplies --lambda_depth)')
-    parser.add_argument('--lambda_feat_matching', type=float, default=1.0,
-                        help='Weight for feature matching loss (used when --gen is enabled)')
 
     return parser
 
@@ -246,18 +240,13 @@ def train(args):
 
     print('job dir: {}'.format(os.path.dirname(os.path.realpath(__file__))))
     print("{}".format(args).replace(', ', ',\n'))
-    print(f"training_mode: {'gen' if args.gen else 'recon'}")
 
     if args.scale_inv_depth_loss and args.aux_metric_pseudo_supervision:
         raise ValueError('--scale_inv_depth_loss and --aux_metric_pseudo_supervision are mutually exclusive')
     if args.scale_inv_depth_loss:
-        if args.gen:
-            raise ValueError('--scale_inv_depth_loss is only supported in reconstruction training')
         if args.aux_branch_layers <= 0:
             raise ValueError('--scale_inv_depth_loss requires --aux_branch_layers > 0')
     if args.aux_metric_pseudo_supervision:
-        if args.gen:
-            raise ValueError('--aux_metric_pseudo_supervision is only supported in reconstruction training')
         if args.aux_branch_layers <= 0:
             raise ValueError('--aux_metric_pseudo_supervision requires --aux_branch_layers > 0')
         if args.training_objective == 'raymap' or (args.lambda_depth <= 0 and args.lambda_pointmap <= 0):
@@ -265,8 +254,6 @@ def train(args):
     if args.infinidepth_pseudo_supervision:
         if args.scale_inv_depth_loss or args.aux_metric_pseudo_supervision:
             raise ValueError('--infinidepth_pseudo_supervision is mutually exclusive with --scale_inv_depth_loss and --aux_metric_pseudo_supervision')
-        if args.gen:
-            raise ValueError('--infinidepth_pseudo_supervision is only supported in reconstruction training')
         if args.aux_branch_layers > 0:
             raise ValueError('--infinidepth_pseudo_supervision must not be combined with --aux_branch_layers > 0 (no aux teacher tail is needed; keeping the aux branch wastes GPU memory)')
         if args.training_objective == 'raymap' or (args.lambda_depth <= 0 and args.lambda_pointmap <= 0):
@@ -396,14 +383,14 @@ def train(args):
     model_without_ddp = model
 
     # Initialize aux branch for either legacy scale-invariant loss or aux pseudo supervision.
-    if args.aux_branch_layers > 0 and not args.gen and (args.aux_metric_pseudo_supervision or args.scale_inv_depth_loss):
+    if args.aux_branch_layers > 0 and (args.aux_metric_pseudo_supervision or args.scale_inv_depth_loss):
         print(f'Initializing aux branch with {args.aux_branch_layers} frozen layers...')
         model.init_aux_branch(n_layers=args.aux_branch_layers)
         print(f'  - Aux input layer idx: {model.aux_input_layer_idx}')
         print(f'  - Aux blocks: {len(model.aux_blocks)}')
     elif args.aux_branch_layers > 0:
         print(
-            f'Aux branch NOT initialized: requires recon mode (gen={args.gen}) and '
+            f'Aux branch NOT initialized: requires '
             f'(aux_metric_pseudo_supervision={args.aux_metric_pseudo_supervision} '
             f'or scale_inv_depth_loss={args.scale_inv_depth_loss})'
         )
@@ -436,147 +423,6 @@ def train(args):
             param.requires_grad = False
         print('Froze model.head_sam.neck parameters')
 
-    # Initialize variables for gen views (encoder is now handled within DA3Wrapper)
-    gen_input_encoder = None
-    model_recon = None  # Will be set if pretrained_recon_model is specified
-    if args.gen:
-        
-        # Load pretrained reconstruction model if specified
-        # Create dual models: model_recon (frozen) for reconstruction, model_gen (trainable) for generation
-        if args.pretrained_recon_model is not None:
-            print(f'Loading pretrained reconstruction checkpoint from: {args.pretrained_recon_model}')
-            checkpoint = torch.load(args.pretrained_recon_model, map_location=device, weights_only=False)
-            model_state = checkpoint.get('model', checkpoint)
-            
-            # Delete unwanted keys from checkpoint
-            to_delete = ['aux_head', 'aux_blocks', 'cam_dec', 'cam_enc']
-            for k in list(model_state.keys()):
-                if any(prefix in k for prefix in to_delete):
-                    del model_state[k]
-
-            
-            # Parse fine_tune_layers for selective backbone tuning
-            fine_tune_layers = None
-            if args.fine_tune_layers is not None:
-                fine_tune_layers = [int(x.strip()) for x in args.fine_tune_layers.split(',')]
-            
-            # === model_recon: Frozen reconstruction model ===
-            print('Creating model_recon (frozen)...')
-            model_recon = DA3Wrapper.from_pretrained(args.da3_model_name).to(device)
-            
-            # Initialize SAM3 head BEFORE loading checkpoint so that SAM3 weights can be loaded
-            if 'sam3' in getattr(args, 'projection_features', ''):
-                model_recon.init_sam3_head(img_size=args.img_size, device=device, use_dpt_proj=args.sam3_use_dpt_proj)
-            
-            # Load checkpoint (includes SAM3 head weights if sam3 was initialized above)
-            load_status_recon = model_recon.load_state_dict(model_state, strict=False)
-            print(f'model_recon load status: {load_status_recon}')
-            
-            # Freeze all parameters
-            for param in model_recon.parameters():
-                param.requires_grad = False
-            model_recon.eval()
-            print('model_recon: Frozen (no gradients)')
-            
-            # === model_gen: Trainable generation model wrapped with encoders ===
-            print('Creating model_gen via DA3Wrapper.from_pretrained...')
-            model_gen = DA3Wrapper.from_pretrained(
-                args.da3_model_name,
-                img_size=args.img_size,
-                projection_features=getattr(args, 'projection_features', 'pts3d_local,pts3d,rgb,conf'),
-            )
-
-            # Initialize SAM3 head BEFORE loading checkpoint so that DPTProj/Mlp weights are loaded.
-            # This is required when --freeze_head is OFF (no head sharing from model_recon).
-            if args.distill_model is not None and args.distill_model.upper() == 'SAM3':
-                model_gen.init_sam3_head(img_size=args.img_size, device=device, use_dpt_proj=args.sam3_use_dpt_proj)
-
-            # Initialize model_gen weights from model_recon
-            load_status_gen = model_gen.load_state_dict(model_state, strict=False)
-            print(f'model_gen load status (backbone/head): {load_status_gen}')
-            
-            # Override alt_start for gen mode only when explicitly requested.
-            if args.gen_alt_start is not None:
-                print(f'Setting model_gen alt_start = {args.gen_alt_start}')
-                model_gen.set_alt_start(args.gen_alt_start)
-            
-            model_gen.init_gen_encoders()
-            
-            # Move to device AFTER init_gen_encoders() to ensure encoders are on CUDA
-            model_gen = model_gen.to(device)
-            
-            # Share frozen heads from model_recon to save GPU memory (~350M parameters)
-            if args.freeze_head:
-                # Share DualDPT head from model_recon (already frozen)
-                print('Sharing DualDPT head from model_recon to model_gen (saves ~300M params)...')
-                del model_gen.model.head
-                model_gen.model.head = model_recon.model.head
-                
-                # Share SAM3 head from model_recon if it exists
-                if model_recon.head_sam is not None:
-                    print('Sharing SAM3 head from model_recon to model_gen (saves ~50M params)...')
-                    if model_gen.head_sam is not None:
-                        del model_gen.head_sam
-                    model_gen.head_sam = model_recon.head_sam
-            
-            # Selective fine-tuning for model_gen
-            if args.fine_tune_layers is not None:
-                fine_tune_layers_gen = [int(x.strip()) for x in args.fine_tune_layers.split(',')]
-                print(f'Selective fine-tuning (model_gen): freezing backbone except layers {fine_tune_layers_gen}...')
-
-                # Set slice layer for memory optimization in generation mode
-                if len(fine_tune_layers_gen) > 0:
-                    model_gen.set_slice_layer(max(fine_tune_layers_gen))
-
-                for param in model_gen.model.backbone.parameters():
-                    param.requires_grad = False
-                for layer_idx in fine_tune_layers_gen:
-                    block = model_gen.model.backbone.pretrained.blocks[layer_idx]
-                    for param in block.parameters():
-                        param.requires_grad = True
-
-                # Share frozen backbone blocks from model_recon to save memory
-                if model_recon is not None:
-                    total_layers = len(model_gen.model.backbone.pretrained.blocks)
-                    # Use the gen-specific fine-tuned layers list
-                    ft_layers = fine_tune_layers_gen if fine_tune_layers_gen is not None else []
-                    frozen_layers = [i for i in range(total_layers) if i not in ft_layers]
-                    print(f'Sharing {len(frozen_layers)} frozen backbone blocks from model_recon to model_gen...')
-                    
-                    # Use setattr with string index to replace blocks without shifting indices
-                    # nn.ModuleList uses string keys internally (e.g., '0', '1', '2', ...)
-                    blocks_gen = model_gen.model.backbone.pretrained.blocks
-                    blocks_recon = model_recon.model.backbone.pretrained.blocks
-                    for layer_idx in frozen_layers:
-                        # Replace model_gen's block with reference to model_recon's block
-                        setattr(blocks_gen, str(layer_idx), blocks_recon[layer_idx])
-                    
-                    # Estimate memory savings
-                    block_params = sum(p.numel() for p in blocks_recon[frozen_layers[0]].parameters())
-                    # Assuming 4 bytes per param (float32) for the shared weights
-                    savings_mb = block_params * len(frozen_layers) * 4 / (1024 * 1024)
-                    import gc; gc.collect(); torch.cuda.empty_cache()
-                    print(f'  Memory saved by sharing {len(frozen_layers)} backbone blocks: ~{savings_mb:.1f} MB')
-
-
-            # Note: DualDPT head freezing is handled above via sharing or needs explicit freeze
-            if not args.freeze_head:
-                # Head is not shared, so we need to explicitly set trainability
-                pass  # Head remains trainable by default
-            
-            # Ensure raymap encoder is trainable
-            for param in model_gen.gen_input_encoder.parameters():
-                param.requires_grad = True
-            
-            # Replace main model with model_gen
-            model = model_gen
-            model_without_ddp = model_gen
-            
-            # Parameters from model_gen.gen_input_encoder
-            # are now part of model.parameters() and will be picked up by optimizer.
-            # We don't need separate variables for encoders anymore.
-            gen_input_encoder = None
-        
     if args.distributed:
         # Check if model has any trainable parameters before wrapping with DDP
         has_trainable_params = any(p.requires_grad for p in model.parameters())
@@ -591,8 +437,6 @@ def train(args):
         # Single DDP wrapping for the whole model covers them
         pass
     
-    # Checkpoint references
-    gen_input_encoder_without_ddp = None
         
 
     # training dataset and loader
@@ -726,10 +570,6 @@ def train(args):
         print(f'>> Trainable parameters: {trainable_params/1e6:.2f}M ({100*trainable_params/total_params:.1f}%)')
         print(f'>> Frozen parameters: {frozen_params/1e6:.2f}M ({100*frozen_params/total_params:.1f}%)')
         
-        if isinstance(model_without_ddp, DA3Wrapper) and model_without_ddp.gen_input_encoder is not None:
-            print("Parameter breakdown for model_gen encoder:")
-            gen_enc_params = sum(p.numel() for p in model_without_ddp.gen_input_encoder.parameters())
-            print(f'>> GenInputEncoder: {gen_enc_params/1e6:.2f}M')
 
     
     optimizer = torch.optim.AdamW(param_groups, lr=args.lr, betas=(0.9, 0.95))
@@ -817,8 +657,7 @@ def train(args):
                                        distill_criterion=distill_criterion,
                                        log_writer=log_writer, args=args, prefix=test_name,
                                        depth_criterion=depth_criterion_test,
-                                       raymap_criterion=raymap_criterion_test,
-                                       model_recon=model_recon)
+                                       raymap_criterion=raymap_criterion_test)
                 test_stats[test_name] = stats
             
             # Synchronize all processes after test phase before starting training
@@ -842,7 +681,6 @@ def train(args):
             raymap_criterion=raymap_criterion,
             pointmap_criterion=pointmap_criterion_train,
             scale_inv_depth_criterion=scale_inv_depth_criterion,
-            model_recon=model_recon,
             da3_metric_model=da3_metric_model)
 
         # Save more stuff
@@ -897,7 +735,7 @@ def build_dataset(dataset, batch_size, num_workers, test=False):
 
 def _log_viz_sample(
         batch_result, batch_idx, epoch, epoch_step, output_dir, log_writer, tb_prefix,
-        extra_panels=None, is_raymap=None, view_order=None, max_depth=50.0):
+        extra_panels=None, view_order=None, max_depth=50.0):
     """Shared visualization helper for train_one_epoch and test_one_epoch.
 
     Renders a side-by-side image: [GT image | pred depth | *extra_panels]
@@ -906,8 +744,6 @@ def _log_viz_sample(
     Args:
         extra_panels:  list of (T, H, W, 3) float tensors in [0, 255], already in
                        the desired view order (pre-sorted by the caller if needed).
-        is_raymap:     list of T bools — draws a red border on those views across
-                       all panels (top+bottom everywhere, left on first, right on last).
         view_order:    list of T indices to reorder the internally extracted gt_img
                        and pred_depth columns; extra_panels must be pre-sorted by
                        the caller to match.
@@ -941,18 +777,6 @@ def _log_viz_sample(
 
     all_panels = [gt_img_b, pred_depth_color] + (extra_panels or [])
 
-    # Red borders for raymap views: top+bottom on every panel, left on first, right on last
-    if is_raymap is not None:
-        bw, sw = 2, 5
-        red = torch.tensor([255.0, 0.0, 0.0])
-        for t, is_ray in enumerate(is_raymap):
-            if is_ray:
-                for panel in all_panels:
-                    panel[t, :bw] = red
-                    panel[t, -bw:] = red
-                all_panels[0][t, :, :sw] = red   # left border on first panel
-                all_panels[-1][t, :, -sw:] = red  # right border on last panel
-
     cols = [torch.cat([p[t] for t in range(T)], dim=0) for p in all_panels]
     combined_np = torch.cat(cols, dim=1).numpy()
 
@@ -971,8 +795,7 @@ def train_one_epoch(model: torch.nn.Module,
                     device: torch.device, epoch: int, loss_scaler,
                     args, distill_model, distill_criterion, log_writer=None,
                     depth_criterion=None, raymap_criterion=None, pointmap_criterion=None,
-                    scale_inv_depth_criterion=None,
-                    model_recon=None, da3_metric_model=None):
+                    scale_inv_depth_criterion=None, da3_metric_model=None):
 
     assert torch.backends.cuda.matmul.allow_tf32 == True
     model.train(True)
@@ -1003,79 +826,56 @@ def train_one_epoch(model: torch.nn.Module,
             if not args.disable_lr_scheduler:
                 misc.adjust_learning_rate(optimizer, epoch_f, args)
         dtype = get_dtype(args)
-        # Use loss_of_one_batch_occany_da3_gen in generation mode.
-        if args.gen:
-            
-            batch_result = loss_of_one_batch_occany_da3_gen(
-                views=batch, 
-                model=model,
-                device=device,
-                model_recon=model_recon,
-                dtype=dtype,
-                distill_criterion=distill_criterion,
-                distill_model=distill_model,
-                sam_model=args.sam_model,
-                pointmap_criterion=pointmap_criterion,
-                depth_criterion=depth_criterion,
-                raymap_criterion=raymap_criterion,
-                lambda_depth=args.lambda_depth,
-                lambda_raymap=args.lambda_raymap,
-                lambda_pointmap=args.lambda_pointmap,
-                pose_from_depth_ray=False,
-                projection_features=getattr(args, 'projection_features', 'pts3d_local,pts3d,rgb,conf'),
-                lambda_feat_matching=args.lambda_feat_matching,
-            )
-        else:
 
-            # Determine lambda values based on training_objective
-            # depth_ray: use raymap + depth loss
-            # pointmap: use pointmap + depth loss
-            # pointmap_depth_ray: use pointmap + depth + raymap loss (pointmap from depth+ray)
-            # raymap: use only raymap loss
-            if args.training_objective == 'depth_ray':
-                lambda_depth_train = args.lambda_depth
-                lambda_raymap_train = args.lambda_raymap
-                lambda_pointmap_train = 0.0  # disable pointmap loss for depth_ray
-            elif args.training_objective == 'pointmap_depth_ray':
-                lambda_depth_train = args.lambda_depth
-                lambda_raymap_train = args.lambda_raymap  # enable raymap loss for pointmap_depth_ray
-                lambda_pointmap_train = args.lambda_pointmap
-            elif args.training_objective == 'raymap':
-                lambda_depth_train = 0.0  # disable depth loss for raymap
-                lambda_raymap_train = args.lambda_raymap
-                lambda_pointmap_train = 0.0  # disable pointmap loss for raymap
-            else:  # pointmap
-                lambda_depth_train = args.lambda_depth  # enable depth loss for pointmap
-                lambda_raymap_train = 0.0  # disable raymap loss for pointmap
-                lambda_pointmap_train = args.lambda_pointmap
-            
-            batch_result = loss_of_one_batch_occany_da3(views=batch, 
-                                                    model=model,
-                                                    device=device,
-                                                    dtype=dtype,
-                                                    distill_criterion=distill_criterion,
-                                                    distill_model=distill_model,
-                                                    sam_model=args.sam_model,
-                                                    depth_criterion=depth_criterion,
-                                                    raymap_criterion=raymap_criterion,
-                                                    pointmap_criterion=pointmap_criterion,
-                                                    lambda_depth=lambda_depth_train,
-                                                    lambda_raymap=lambda_raymap_train,
-                                                    lambda_pointmap=lambda_pointmap_train,
-                                                    pose_from_depth_ray=False,
-                                                    scale_inv_depth_criterion=scale_inv_depth_criterion,
-                                                    lambda_scale_inv_depth=args.lambda_scale_inv_depth,
-                                                    aux_metric_pseudo_supervision=args.aux_metric_pseudo_supervision,
-                                                    da3_metric_model=da3_metric_model,
-                                                    sky_mask_threshold=args.sky_mask_threshold,
-                                                    infinidepth_pseudo_supervision=args.infinidepth_pseudo_supervision,
-                                                    infinidepth_depth_min=args.infinidepth_depth_min,
-                                                    infinidepth_depth_max=args.infinidepth_depth_max,
-                                                    lambda_pointmap_lidar=args.lambda_pointmap_lidar,
-                                                    lambda_pointmap_pseudo=args.lambda_pointmap_pseudo,
-                                                    lambda_depth_lidar=args.lambda_depth_lidar,
-                                                    lambda_depth_pseudo=args.lambda_depth_pseudo)
+        # Determine lambda values based on training_objective
+        # depth_ray: use raymap + depth loss
+        # pointmap: use pointmap + depth loss
+        # pointmap_depth_ray: use pointmap + depth + raymap loss (pointmap from depth+ray)
+        # raymap: use only raymap loss
+        if args.training_objective == 'depth_ray':
+            lambda_depth_train = args.lambda_depth
+            lambda_raymap_train = args.lambda_raymap
+            lambda_pointmap_train = 0.0  # disable pointmap loss for depth_ray
+        elif args.training_objective == 'pointmap_depth_ray':
+            lambda_depth_train = args.lambda_depth
+            lambda_raymap_train = args.lambda_raymap  # enable raymap loss for pointmap_depth_ray
+            lambda_pointmap_train = args.lambda_pointmap
+        elif args.training_objective == 'raymap':
+            lambda_depth_train = 0.0  # disable depth loss for raymap
+            lambda_raymap_train = args.lambda_raymap
+            lambda_pointmap_train = 0.0  # disable pointmap loss for raymap
+        else:  # pointmap
+            lambda_depth_train = args.lambda_depth  # enable depth loss for pointmap
+            lambda_raymap_train = 0.0  # disable raymap loss for pointmap
+            lambda_pointmap_train = args.lambda_pointmap
         
+        batch_result = loss_of_one_batch_occany_da3(views=batch, 
+                                                model=model,
+                                                device=device,
+                                                dtype=dtype,
+                                                distill_criterion=distill_criterion,
+                                                distill_model=distill_model,
+                                                sam_model=args.sam_model,
+                                                depth_criterion=depth_criterion,
+                                                raymap_criterion=raymap_criterion,
+                                                pointmap_criterion=pointmap_criterion,
+                                                lambda_depth=lambda_depth_train,
+                                                lambda_raymap=lambda_raymap_train,
+                                                lambda_pointmap=lambda_pointmap_train,
+                                                pose_from_depth_ray=False,
+                                                scale_inv_depth_criterion=scale_inv_depth_criterion,
+                                                lambda_scale_inv_depth=args.lambda_scale_inv_depth,
+                                                aux_metric_pseudo_supervision=args.aux_metric_pseudo_supervision,
+                                                da3_metric_model=da3_metric_model,
+                                                sky_mask_threshold=args.sky_mask_threshold,
+                                                infinidepth_pseudo_supervision=args.infinidepth_pseudo_supervision,
+                                                infinidepth_depth_min=args.infinidepth_depth_min,
+                                                infinidepth_depth_max=args.infinidepth_depth_max,
+                                                lambda_pointmap_lidar=args.lambda_pointmap_lidar,
+                                                lambda_pointmap_pseudo=args.lambda_pointmap_pseudo,
+                                                lambda_depth_lidar=args.lambda_depth_lidar,
+                                                lambda_depth_pseudo=args.lambda_depth_pseudo)
+    
 
         loss, loss_details = batch_result['loss']  # criterion returns two values
         
@@ -1096,8 +896,7 @@ def train_one_epoch(model: torch.nn.Module,
             optimizer.zero_grad()
 
         # Visualize pseudo-depth supervision labels (aux_metric or infinidepth pseudo supervision)
-        if (not args.gen
-                and (args.aux_metric_pseudo_supervision or args.infinidepth_pseudo_supervision)
+        if ((args.aux_metric_pseudo_supervision or args.infinidepth_pseudo_supervision)
                 and misc.is_main_process() and n_train_draw < 10):
             pseudo_depth_vis = batch_result.get('pseudo_depth')
             pseudo_mask_vis  = batch_result.get('pseudo_supervision_mask')
@@ -1157,8 +956,7 @@ def test_one_epoch(model: torch.nn.Module,
                    pointmap_criterion: torch.nn.Module,
                    data_loader: Sized, device: torch.device, epoch: int,
                    args, distill_model, distill_criterion, log_writer=None, prefix='test',
-                   depth_criterion=None, raymap_criterion=None,
-                   model_recon=None):
+                   depth_criterion=None, raymap_criterion=None):
     model.eval()
     metric_logger = misc.MetricLogger(delimiter="  ")
     metric_logger.meters = defaultdict(lambda: misc.SmoothedValue(window_size=9**9))
@@ -1181,42 +979,20 @@ def test_one_epoch(model: torch.nn.Module,
 
     
         dtype = get_dtype(args)
-        # Use loss_of_one_batch_occany_da3_gen in generation mode.
-        if args.gen:
-            batch_result = loss_of_one_batch_occany_da3_gen(
-                views=batch, 
-                model=model,
-                device=device,
-                model_recon=model_recon,
-                dtype=dtype,
-                distill_criterion=distill_criterion,
-                distill_model=distill_model,
-                sam_model=args.sam_model,
-                pointmap_criterion=pointmap_criterion,
-                depth_criterion=depth_criterion,
-                raymap_criterion=raymap_criterion,
-                lambda_depth=1.0,
-                lambda_raymap=0.0,
-                lambda_pointmap=1.0,
-                pose_from_depth_ray=True,
-                projection_features=getattr(args, 'projection_features', 'pts3d_local,pts3d,rgb,conf'),
-                lambda_feat_matching=getattr(args, 'lambda_feat_matching', 1.0),
-            )
-        else:
-            batch_result = loss_of_one_batch_occany_da3(views=batch,
-                                                    model=model,
-                                                    pointmap_criterion=pointmap_criterion,
-                                                    device=device,
-                                                    distill_criterion=distill_criterion,
-                                                    distill_model=distill_model,
-                                                    sam_model=args.sam_model,
-                                                    depth_criterion=depth_criterion,
-                                                    raymap_criterion=raymap_criterion,
-                                                    lambda_depth=1.0,
-                                                    lambda_raymap=1.0,
-                                                    lambda_pointmap=1.0,
-                                                    pose_from_depth_ray=True,
-                                                    aux_metric_pseudo_supervision=False)
+        batch_result = loss_of_one_batch_occany_da3(views=batch,
+                                                model=model,
+                                                pointmap_criterion=pointmap_criterion,
+                                                device=device,
+                                                distill_criterion=distill_criterion,
+                                                distill_model=distill_model,
+                                                sam_model=args.sam_model,
+                                                depth_criterion=depth_criterion,
+                                                raymap_criterion=raymap_criterion,
+                                                lambda_depth=1.0,
+                                                lambda_raymap=1.0,
+                                                lambda_pointmap=1.0,
+                                                pose_from_depth_ray=True,
+                                                aux_metric_pseudo_supervision=False)
 
         loss_tuple = batch_result['loss']
         loss_value, loss_details = loss_tuple  # criterion returns two values
@@ -1234,13 +1010,11 @@ def test_one_epoch(model: torch.nn.Module,
 
                 # Collect per-view data and sort by timestep
                 timestep    = [batch_result[gt_key][t]['timestep'][batch_idx] for t in range(T)]
-                is_raymap   = [batch_result[gt_key][t]['is_raymap'][batch_idx] for t in range(T)]
                 gt_pts3d    = torch.stack([batch_result[gt_key][t]['pts3d'][batch_idx] for t in range(T)])  # (T, H, W, 3)
                 gt_c2w      = torch.stack([batch_result[gt_key][t]['camera_pose'][batch_idx] for t in range(T)])
                 valid_mask  = [batch_result[gt_key][t]['valid_mask'][batch_idx].detach().cpu().numpy() for t in range(T)]
 
                 sorted_idx  = sorted(range(T), key=lambda i: timestep[i])
-                is_raymap   = [is_raymap[i] for i in sorted_idx]
                 gt_pts3d    = gt_pts3d[sorted_idx]
                 gt_c2w      = gt_c2w[sorted_idx]
                 valid_mask  = [valid_mask[i] for i in sorted_idx]
@@ -1256,8 +1030,7 @@ def test_one_epoch(model: torch.nn.Module,
                 _log_viz_sample(
                     batch_result, batch_idx, epoch, 1000 * epoch,
                     args.output_dir, log_writer, tb_prefix=f'{prefix}_combined_preds',
-                    extra_panels=[gt_depth_color], is_raymap=is_raymap,
-                    view_order=sorted_idx)
+                    extra_panels=[gt_depth_color], view_order=sorted_idx)
 
 
     # gather the stats from all processes

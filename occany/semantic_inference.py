@@ -7,22 +7,6 @@ from tqdm import tqdm
 from typing import Optional, List, Dict, Any, Tuple
 
 
-def split_distilled_sam_feats(
-    sam_feats_img_and_raymap: Optional[List[torch.Tensor]],
-    n_recon_views: int,
-) -> Tuple[Optional[List[torch.Tensor]], Optional[List[torch.Tensor]]]:
-    """Split concatenated SAM features into reconstruction and generated-view chunks."""
-    if sam_feats_img_and_raymap is None or len(sam_feats_img_and_raymap) < 3:
-        return None, None
-
-    recon_feats = [feat[:, :n_recon_views] for feat in sam_feats_img_and_raymap[:3]]
-    n_total_views = sam_feats_img_and_raymap[0].shape[1]
-    if n_total_views <= n_recon_views:
-        return recon_feats, None
-    gen_feats = [feat[:, n_recon_views:] for feat in sam_feats_img_and_raymap[:3]]
-    return recon_feats, gen_feats
-
-    
 def get_box_dict_for_view(data: Dict[str, Any], batch_idx: int, view_idx: int) -> Dict[str, Any]:
     """Safely fetch a per-view box dictionary with empty fallback."""
     empty_box_dict: Dict[str, Any] = {"boxes": [], "confidences": [], "labels": []}
