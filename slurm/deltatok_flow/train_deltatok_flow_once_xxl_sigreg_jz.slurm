@@ -42,7 +42,7 @@ ulimit -n "$(ulimit -Hn)"
 export CONFIG_NAME=train_deltatok_flow_once_jeanzay
 export RESULTS_DIR="/lustre/fswork/projects/rech/trg/uyl37fq/deltatok_flow_log"
 # Only the data differs from the waymo arm; the shared recipe tags live in this script, not the name.
-export RUN_NAME=deltatok_flow_once_tc768s2bneck_xxl_dit
+export RUN_NAME=deltatok_flow_once_tc768s2bneck_xxl_dit_cam03
 EXTRA_CFG_ARGS=(
     model.deltatok.num_delta_tokens=64         # K=64 delta tokens/camera; must match the frozen ckpt
     # epoch_20 (stage 2's last) not current.pth: immutable if that arm resumes.

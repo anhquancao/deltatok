@@ -21,7 +21,7 @@
 # DATA swap of train_deltatok_multitoken_sigreg_nozn_bsc: ONCE alone (843k seqs) instead of
 # the 5-dataset mix at a single (518,266), no time flips, 16 held-out scenes for the flow arm.
 # Same 18000 items -> same schedule.
-# Monocular front cam. Eval is ONCE val, so Eval/Loss is NOT comparable to the mix arm.
+# Monocular cam03; train and eval share the 6cam pkl. NOT comparable to the mix arm.
 #
 # DeltaTok tokenizer, layer-12, no camera rope. tc1536 == hidden_size -> no channel bottleneck,
 # and z_norm=false -> no z LayerNorm: SIGReg alone shapes a raw 1536-d z. K is the only compression.
@@ -53,7 +53,7 @@ export SIGREG_NUM_SLICES=${SIGREG_NUM_SLICES:-3072}  # 2*Cz; measured sufficient
 export SIGREG_POOL_SAMPLES=${SIGREG_POOL_SAMPLES:-32768}  # GLOBAL rows, S/C ~21; rescaled by pool/live
 
 # Only the architecture + the three swept knobs; the rest is fixed by this script.
-export RUN_NAME=deltatok_once_l12_dtok64_tc1536_nozn_sigreg${SIGREG_WEIGHT}_ns${SIGREG_NUM_SLICES}_pool${SIGREG_POOL_SAMPLES}
+export RUN_NAME=deltatok_once_l12_dtok64_tc1536_nozn_sigreg${SIGREG_WEIGHT}_ns${SIGREG_NUM_SLICES}_pool${SIGREG_POOL_SAMPLES}_cam03
 
 EXTRA_CFG_ARGS=(
     model.deltatok.num_delta_tokens=64         # K delta tokens/camera (~12:1 compression at full res)

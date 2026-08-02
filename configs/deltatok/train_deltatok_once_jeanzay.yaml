@@ -30,19 +30,19 @@ dataset:
     - "000519"
     - "000546"
   # split=None bypasses once_pairs.py's own 2 val_scenes, so exclude_scenes is the only split.
-  # Monocular front cam (index 0 = cam01), as the flow arm: every item is 5 consecutive
-  # timesteps x cam01, i.e. a uniform 0.5s delta at the pkl's sub5 rate.
+  # Monocular cam03 (6cam pkl slot 0, the tele), as the flow arm: every item is 5
+  # consecutive timesteps x cam03, i.e. a uniform 0.5s delta at the pkl's sub5 rate.
   train_dataset: "18000 @ OnceSeqMultiView(ONCE_PREPROCESSED_ROOT='/lustre/fsn1/projects/rech/trg/uyl37fq/occany_dataset/once_processed', \
-      seq_pkl_name='seq_surround_temporal_sub5_stride9_fs1_once_5cam_all.pkl', \
-      num_timesteps=5, num_views_per_timestep=5, fixed_cams=[0], \
+      seq_pkl_name='seq_surround_temporal_sub5_stride9_fs1_once_6cam_all.pkl', \
+      num_timesteps=5, num_views_per_timestep=6, fixed_cams=[0], \
       z_far=50, split=None, exclude_scenes=${dataset._once_val_scenes}, \
       resolution=[(518, 266)])"
-  # Val: the 16 held-out scenes at the SAME 5-timestep x cam01 shape as train, seed=42.
-  # Non-fs1 pkl, as the flow arm. Replaces the inherited KITTI+nuScenes eval, so
+  # Val: the 16 held-out scenes at the SAME 5-timestep x cam03 shape as train, seed=42.
+  # Same pkl as train (2311 val seqs). Replaces the inherited KITTI+nuScenes eval, so
   # Eval/Loss is NOT comparable to the mix arm's. 256 == training.eval_num_items.
   test_dataset: "256 @ OnceSeqMultiView(ONCE_PREPROCESSED_ROOT='/lustre/fsn1/projects/rech/trg/uyl37fq/occany_dataset/once_processed', \
-      seq_pkl_name='seq_surround_temporal_sub5_stride9_all.pkl', \
-      num_timesteps=5, num_views_per_timestep=5, fixed_cams=[0], \
+      seq_pkl_name='seq_surround_temporal_sub5_stride9_fs1_once_6cam_all.pkl', \
+      num_timesteps=5, num_views_per_timestep=6, fixed_cams=[0], \
       z_far=50, split=None, select_scenes=${dataset._once_val_scenes}, seed=42, \
       resolution=[(518, 266)])"
 

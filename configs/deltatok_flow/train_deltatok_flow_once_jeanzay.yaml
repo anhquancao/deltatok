@@ -31,19 +31,19 @@ dataset:
     - "000546"
   # Train: ONCE minus the 16 val scenes (split=None + exclude_scenes, so once_pairs.py's
   # own val_scenes filter is bypassed and exclude_scenes is the only split).
-  # num_views_per_timestep=5 is only the physical seq layout; every item is 5
-  # consecutive timesteps x cam 0 at (518,266).
+  # num_views_per_timestep=6 is only the physical seq layout; every item is 5
+  # consecutive timesteps x cam03 (slot 0 of the 6cam pkl) at (518,266).
   # 32000/epoch = 1000 steps/epoch at effective_bsize 32 -> 100k steps over 100 epochs.
   train_dataset: "32000 @ OnceSeqMultiView(ONCE_PREPROCESSED_ROOT='/lustre/fsn1/projects/rech/trg/uyl37fq/occany_dataset/once_processed', \
-      seq_pkl_name='seq_surround_temporal_sub5_stride9_fs1_once_5cam_all.pkl', \
-      num_timesteps=5, num_views_per_timestep=5, fixed_cams=[0], \
+      seq_pkl_name='seq_surround_temporal_sub5_stride9_fs1_once_6cam_all.pkl', \
+      num_timesteps=5, num_views_per_timestep=6, fixed_cams=[0], \
       z_far=50, split=None, exclude_scenes=${dataset._once_val_scenes}, \
       resolution=[(518, 266)])"
-  # Val: the 16 held-out scenes (264 seqs available, 256 drawn -> no repeats).
-  # Fixed 5-timestep x cam-0, single (518,266), seed=42. Non-fs1 pkl, as the waymo arm.
+  # Val: the 16 held-out scenes (2311 seqs available, 256 drawn -> no repeats).
+  # Fixed 5-timestep x cam03, single (518,266), seed=42. Same pkl as train.
   # NOT comparable to the Waymo arm's eval: different scenes and dataset.
   test_dataset: "256 @ OnceSeqMultiView(ONCE_PREPROCESSED_ROOT='/lustre/fsn1/projects/rech/trg/uyl37fq/occany_dataset/once_processed', \
-      seq_pkl_name='seq_surround_temporal_sub5_stride9_all.pkl', \
-      num_timesteps=5, num_views_per_timestep=5, fixed_cams=[0], \
+      seq_pkl_name='seq_surround_temporal_sub5_stride9_fs1_once_6cam_all.pkl', \
+      num_timesteps=5, num_views_per_timestep=6, fixed_cams=[0], \
       z_far=50, split=None, select_scenes=${dataset._once_val_scenes}, seed=42, \
       resolution=[(518, 266)])"
