@@ -25,11 +25,10 @@
 #
 # DeltaTok tokenizer, layer-12, no camera rope. tc1536 == hidden_size -> no channel bottleneck,
 # and z_norm=false -> no z LayerNorm: SIGReg alone shapes a raw 1536-d z. K is the only compression.
-# pool=32768 (was 8192): at 8192 the 1/S floor was 1.32e-4 == 80% of the 1.65e-4 anisotropy signal.
-# But pool is NOT weight-neutral: scale=n_pooled/n_live jumps 11.7 -> 43.7 and the staler pool delays
-# the feedback 4x, so at w=0.05 the stat spiked 39x at warmup end and Eval never left 0.126 (2026-07-31).
-# Hence w=0.01 ~= 0.05*11.7/43.7. WATCH: LossSIGReg must descend past iter 2000, floor ~3.2e-5.
-#   for W in 0.01 0.005; do sbatch --export=ALL,SIGREG_WEIGHT=$W slurm/deltatok/train_deltatok_multitoken_sigreg_nozn_once_jz.slurm; done
+# SIGReg matches the mix arm (w=0.05, pool=8192): pool=32768 is not weight-neutral -- it jumps
+# scale=n_pooled/n_live 11.7 -> 43.7 and delays feedback 4x, and Eval never left 0.126 (2026-07-31).
+# WATCH: LossSIGReg must descend past iter 2000.
+#   sbatch --export=ALL,SIGREG_WEIGHT=0.05 slurm/deltatok/train_deltatok_multitoken_sigreg_nozn_once_jz.slurm
 
 mkdir -p slurm/output
 
@@ -53,9 +52,9 @@ export LOG_AND_CKPT_DIR="/lustre/fswork/projects/rech/trg/uyl37fq/deltatok_log"
 export RESULTS_DIR="$LOG_AND_CKPT_DIR"
 
 # The only three knobs; each changes the estimator or the pressure, so all three are in RUN_NAME.
-export SIGREG_WEIGHT=${SIGREG_WEIGHT:-0.01}          # 0.05*11.7/43.7: undoes the scale jump 8192->32768
+export SIGREG_WEIGHT=${SIGREG_WEIGHT:-0.05}          # LeJEPA lamb; same pressure as the mix arm
 export SIGREG_NUM_SLICES=${SIGREG_NUM_SLICES:-3072}  # 2*Cz; measured sufficient (signal is K-invariant)
-export SIGREG_POOL_SAMPLES=${SIGREG_POOL_SAMPLES:-32768}  # GLOBAL rows, S/C ~21; rescaled by pool/live
+export SIGREG_POOL_SAMPLES=${SIGREG_POOL_SAMPLES:-8192}  # GLOBAL rows; rescaled by pool/live
 
 # Only the architecture + the three swept knobs; the rest is fixed by this script.
 export RUN_NAME=deltatok_once_l12_dtok64_tc1536_nozn_sigreg${SIGREG_WEIGHT}_ns${SIGREG_NUM_SLICES}_pool${SIGREG_POOL_SAMPLES}
