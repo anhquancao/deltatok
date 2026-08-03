@@ -4,9 +4,14 @@ defaults:
 dataset:
   # BSC overlay of train_deltatok_jeanzay.yaml: same recipe, dataset roots on the
   # ehpc1001 scratch tier (data migrated from ehpc793 by BSC:43929539).
+  # Pre-1ecb17c camera sampling restored: 1-2 cameras per timestep, count pinned per
+  # batch. num_views_per_timestep is the PHYSICAL rig (Waymo 5, DDAD/Pandaset 6, ONCE 5,
+  # VKitti 1) — omitting it made the loader read consecutive cameras as timesteps.
+  per_dataset_sampling: true
   train_dataset: "4000 @ WaymoSeqMultiView(ROOT='/gpfs/scratch/ehpc1001/occany_data/waymo_processed', \
       seq_pkl_name='seq_surround_temporal_sub5_stride9_fs1_all.pkl', \
-      num_timesteps=5, fixed_cams=[0], \
+      num_timesteps=5, num_views_per_timestep=5, \
+      min_views_per_timestep=1, max_views_per_timestep=2, \
       z_far=50, split='train', \
       resolution=[(518, 294), (518, 280), (518, 266), (518, 210), (518, 168)]) + \
       2000 @ VKittiSeqMultiView(VKITTI_PROCESSED_ROOT='/gpfs/scratch/ehpc1001/occany_data/vkitti_processed', \
@@ -16,17 +21,20 @@ dataset:
       resolution=[(518, 294), (518, 280), (518, 266), (518, 210), (518, 168)]) + \
       4000 @ DDADSeqMultiView(DDAD_PREPROCESSED_ROOT='/gpfs/scratch/ehpc1001/occany_data/ddad_processed', \
       seq_pkl_name='seq_surround_temporal_sub5_stride9_fs1_all.pkl', \
-      num_timesteps=5, fixed_cams=[0], \
+      num_timesteps=5, num_views_per_timestep=6, \
+      min_views_per_timestep=1, max_views_per_timestep=2, \
       z_far=50, split='train', \
       resolution=[(518, 294), (518, 280), (518, 266), (518, 210), (518, 168)]) + \
       4000 @ PandasetSeqMultiView(PANDASET_PREPROCESSED_ROOT='/gpfs/scratch/ehpc1001/occany_data/pandaset_processed', \
       seq_pkl_name='seq_surround_temporal_sub5_stride9_fs1_all.pkl', \
-      num_timesteps=5, fixed_cams=[0], \
+      num_timesteps=5, num_views_per_timestep=6, \
+      min_views_per_timestep=1, max_views_per_timestep=2, \
       z_far=50, split='train', \
       resolution=[(518, 294), (518, 280), (518, 266), (518, 210), (518, 168)]) + \
       4000 @ OnceSeqMultiView(ONCE_PREPROCESSED_ROOT='/gpfs/scratch/ehpc1001/occany_data/once_processed', \
       seq_pkl_name='seq_surround_temporal_sub5_stride9_fs1_once_5cam_all.pkl', \
-      num_timesteps=5, fixed_cams=[0], \
+      num_timesteps=5, num_views_per_timestep=5, \
+      min_views_per_timestep=1, max_views_per_timestep=2, \
       z_far=50, split='train', \
       resolution=[(518, 294), (518, 280), (518, 266), (518, 210), (518, 168)])"
   test_dataset: "206 @ KittiSeqMultiView(KITTI_PREPROCESSED_ROOT='/gpfs/scratch/ehpc1001/occany_data/kitti_processed', \
@@ -35,7 +43,7 @@ dataset:
       z_far=50, split='val', seed=42, \
       resolution=[(518, 168)]) + \
       206 @ Occ3dNuscenesSeqMultiView(NUSCENES_PREPROCESSED_ROOT='/gpfs/scratch/ehpc1001/occany_data/occ3d_nuscenes_processed', \
-      seq_pkl_name='seq_surround_temporal_sub5_stride9_all.pkl', \
+      seq_pkl_name='seq_surround_temporal_sub1_stride9_all.pkl', \
       num_timesteps=5, num_views_per_timestep=6, fixed_cams=[0,1], \
       z_far=50, split='val', seed=42, \
       resolution=[(518, 266)])"
@@ -47,15 +55,15 @@ model:
     ckpt_path: checkpoints/occrae_img_decoder.pt
 
 training:
-  # 18000 items/epoch / (4 GPU x bsize 2 x grad_cum 2) = 1125 iters/epoch; epoch 100 -> 112500 iters.
+  # 18000 items/epoch / (4 GPU x bsize 4 x grad_cum 1) = 1125 iters/epoch; epoch 100 -> 112500 iters.
   # max_iter raised to match: it is BOTH a hard stop and the LR-cosine horizon, so this makes the run
   # do the full 100 epochs with the cosine (peak->1e-5) spanning it exactly; warm_up 5000 kept.
   epoch: 100
   max_iter: 112500
   save_ckpt_every_n_epochs: 10   # permanent epoch_<N>.pth snapshot every 10 epochs (-> 10,20,...,100)
-  # bsize 2 + pairs_per_seq 1: forward 2 sequences (one frame-pair each) per rank.
-  # 4 GPU x bsize 2 x pairs_per_seq 1 = 8; effective_bsize 16 / 8 -> grad_cum 2.
-  bsize: 2
+  # bsize 4 + pairs_per_seq 1: forward 4 sequences (one frame-pair each) per rank.
+  # 4 GPU x bsize 4 x pairs_per_seq 1 = 16; effective_bsize 16 / 16 -> grad_cum 1.
+  bsize: 4
   pairs_per_seq: 1
   # acc gives 20 cpus/task; the base 4 workers starve the GPU. 10 keeps prefetch
   # RAM in budget while leaving cores for the main proc.

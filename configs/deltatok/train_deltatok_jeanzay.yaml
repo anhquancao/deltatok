@@ -4,9 +4,14 @@ defaults:
 dataset:
   # Jean Zay overlay of train_deltatok_karolina.yaml: same recipe, dataset roots
   # on the fsn1 working tier (mirrors train_deltatok_flow_jeanzay.yaml).
+  # Pre-1ecb17c camera sampling restored: 1-2 cameras per timestep, count pinned per
+  # batch. num_views_per_timestep is the PHYSICAL rig (Waymo 5, DDAD/Pandaset 6, ONCE 5,
+  # VKitti 1) — omitting it made the loader read consecutive cameras as timesteps.
+  per_dataset_sampling: true
   train_dataset: "4000 @ WaymoSeqMultiView(ROOT='/lustre/fsn1/projects/rech/trg/uyl37fq/occany_dataset/waymo_processed', \
       seq_pkl_name='seq_surround_temporal_sub5_stride9_fs1_all.pkl', \
-      num_timesteps=5, fixed_cams=[0], \
+      num_timesteps=5, num_views_per_timestep=5, \
+      min_views_per_timestep=1, max_views_per_timestep=2, \
       z_far=50, split='train', \
       resolution=[(518, 294), (518, 280), (518, 266), (518, 210), (518, 168)]) + \
       2000 @ VKittiSeqMultiView(VKITTI_PROCESSED_ROOT='/lustre/fsn1/projects/rech/trg/uyl37fq/occany_dataset/vkitti_processed', \
@@ -16,17 +21,20 @@ dataset:
       resolution=[(518, 294), (518, 280), (518, 266), (518, 210), (518, 168)]) + \
       4000 @ DDADSeqMultiView(DDAD_PREPROCESSED_ROOT='/lustre/fsn1/projects/rech/trg/uyl37fq/occany_dataset/ddad_processed', \
       seq_pkl_name='seq_surround_temporal_sub5_stride9_fs1_all.pkl', \
-      num_timesteps=5, fixed_cams=[0], \
+      num_timesteps=5, num_views_per_timestep=6, \
+      min_views_per_timestep=1, max_views_per_timestep=2, \
       z_far=50, split='train', \
       resolution=[(518, 294), (518, 280), (518, 266), (518, 210), (518, 168)]) + \
       4000 @ PandasetSeqMultiView(PANDASET_PREPROCESSED_ROOT='/lustre/fsn1/projects/rech/trg/uyl37fq/occany_dataset/pandaset_processed', \
       seq_pkl_name='seq_surround_temporal_sub5_stride9_fs1_all.pkl', \
-      num_timesteps=5, fixed_cams=[0], \
+      num_timesteps=5, num_views_per_timestep=6, \
+      min_views_per_timestep=1, max_views_per_timestep=2, \
       z_far=50, split='train', \
       resolution=[(518, 294), (518, 280), (518, 266), (518, 210), (518, 168)]) + \
       4000 @ OnceSeqMultiView(ONCE_PREPROCESSED_ROOT='/lustre/fsn1/projects/rech/trg/uyl37fq/occany_dataset/once_processed', \
       seq_pkl_name='seq_surround_temporal_sub5_stride9_fs1_once_5cam_all.pkl', \
-      num_timesteps=5, fixed_cams=[0], \
+      num_timesteps=5, num_views_per_timestep=5, \
+      min_views_per_timestep=1, max_views_per_timestep=2, \
       z_far=50, split='train', \
       resolution=[(518, 294), (518, 280), (518, 266), (518, 210), (518, 168)])"
   test_dataset: "206 @ KittiSeqMultiView(KITTI_PREPROCESSED_ROOT='/lustre/fsn1/projects/rech/trg/uyl37fq/occany_dataset/kitti_processed', \
@@ -35,7 +43,7 @@ dataset:
       z_far=50, split='val', seed=42, \
       resolution=[(518, 168)]) + \
       206 @ Occ3dNuscenesSeqMultiView(NUSCENES_PREPROCESSED_ROOT='/lustre/fsn1/projects/rech/trg/uyl37fq/occany_dataset/occ3d_nuscenes_processed', \
-      seq_pkl_name='seq_surround_temporal_sub5_stride9_all.pkl', \
+      seq_pkl_name='seq_surround_temporal_sub1_stride9_all.pkl', \
       num_timesteps=5, num_views_per_timestep=6, fixed_cams=[0,1], \
       z_far=50, split='val', seed=42, \
       resolution=[(518, 266)])"

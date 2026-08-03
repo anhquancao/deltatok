@@ -23,6 +23,9 @@ class BaseSeqDatasetMultiView(BaseStereoViewDataset, EasyDataset_MUSt3R):
                  transform=ImgNorm,
                  num_views_per_timestep=1,
                  fixed_cams=None,
+                 min_views_per_timestep=None,
+                 max_views_per_timestep=None,
+                 anchor_cam=0,
                  *args, ROOT, seq_pkl_name, num_timesteps,
                  distill_model_name=None,
                  select_scenes=None, exclude_scenes=None,
@@ -38,6 +41,19 @@ class BaseSeqDatasetMultiView(BaseStereoViewDataset, EasyDataset_MUSt3R):
             f"fixed_cams indices must lie in [0, num_views_per_timestep={num_views_per_timestep}); "
             f"got {self.cams}"
         )
+        # Variable-camera mode: max_views_per_timestep turns cams into a per-item draw.
+        # The batch sampler pins the COUNT per batch (items must collate to one shape);
+        # which cameras are drawn still varies per item.
+        self.anchor_cam = int(anchor_cam)
+        self.min_views_per_timestep = 1 if min_views_per_timestep is None else int(min_views_per_timestep)
+        self.max_views_per_timestep = None if max_views_per_timestep is None else int(max_views_per_timestep)
+        if self.max_views_per_timestep is not None:
+            assert fixed_cams is None, "fixed_cams names the cameras; drop it to sample them"
+            assert 1 <= self.min_views_per_timestep <= self.max_views_per_timestep <= num_views_per_timestep, (
+                f"need 1 <= min_views_per_timestep ({self.min_views_per_timestep}) <= max_views_per_timestep "
+                f"({self.max_views_per_timestep}) <= num_views_per_timestep ({num_views_per_timestep})"
+            )
+            assert 0 <= self.anchor_cam < num_views_per_timestep, f"bad anchor_cam={self.anchor_cam}"
 
         super().__init__(*args, **kwargs)
         self.ROOT = ROOT
@@ -59,7 +75,9 @@ class BaseSeqDatasetMultiView(BaseStereoViewDataset, EasyDataset_MUSt3R):
         if exclude_scenes is not None:
             self.select_scene(exclude_scenes, opposite=True)
         self.is_metric_scale = True
-        print(f"{self.__class__.__name__}: num_timesteps={self.num_timesteps}, cams={self.cams}")
+        cams_desc = (f"cams={self.cams}" if self.max_views_per_timestep is None else
+                     f"cams~[{self.min_views_per_timestep},{self.max_views_per_timestep}] anchor={self.anchor_cam}")
+        print(f"{self.__class__.__name__}: num_timesteps={self.num_timesteps}, {cams_desc}")
 
         # transform only selects whether a per-item color jitter runs; DA3 normalization
         # is unconditional afterwards.
@@ -129,7 +147,16 @@ class BaseSeqDatasetMultiView(BaseStereoViewDataset, EasyDataset_MUSt3R):
 
 
 
-    def _get_views(self, seq_idx, resolution, rng):
+    def _select_cameras(self, actual_vpt, rng):
+        """anchor_cam is always in; the rest are drawn without replacement and sorted,
+        so a given camera set always appears in one canonical order. The constructor
+        pins actual_vpt to [1, num_views_per_timestep], so no clamping is needed here."""
+        others = np.arange(self.num_views_per_timestep)
+        others = others[others != self.anchor_cam]           # (max_vpt-1,) drawable cameras
+        rest = rng.choice(others, size=actual_vpt - 1, replace=False)  # (actual_vpt-1,)
+        return [self.anchor_cam, *sorted(int(c) for c in rest)]
+
+    def _get_views(self, seq_idx, resolution, rng, views_per_timestep=None):
         scene_idx, seq, _ = self.seqs[seq_idx]  # pkl stride offsets unused: labels are dense
         scene_name = self.scenes[scene_idx]
         preprocessed_scene_dir = osp.join(self.ROOT, scene_name)
@@ -140,16 +167,23 @@ class BaseSeqDatasetMultiView(BaseStereoViewDataset, EasyDataset_MUSt3R):
             f"{scene_name}: record has {avail} timesteps < num_timesteps={self.num_timesteps}"
         )
 
+        # Named cams win: a sampler-supplied count is ignored unless this dataset
+        # actually declared a range (max_views_per_timestep).
+        if self.max_views_per_timestep is None or views_per_timestep is None:
+            cams = self.cams
+        else:
+            cams = self._select_cameras(int(views_per_timestep), rng)
+
         # One ordered, consecutive run of timesteps at a random offset in the record.
         start = int(rng.integers(0, avail - self.num_timesteps + 1))
         # Records are timestep-major, camera-minor: index = t * max_vpt + cam.
         memory_view_indices = [t * max_vpt + c
                                for t in range(start, start + self.num_timesteps)
-                               for c in self.cams]
+                               for c in cams]
 
         frames = [seq[i] for i in memory_view_indices]
         # Dense labels: the window offset is a sampling detail, not a timestamp.
-        times = [t for t in range(self.num_timesteps) for _ in self.cams]
+        times = [t for t in range(self.num_timesteps) for _ in cams]
 
         views = []
         for frame_index, t in zip(frames, times):
@@ -193,8 +227,12 @@ class BaseSeqDatasetMultiView(BaseStereoViewDataset, EasyDataset_MUSt3R):
         return views
 
     def __getitem__(self, idx):
+        views_per_timestep = None  # None = named cams; set by the dataset-aware sampler
         if isinstance(idx, tuple):
-            idx, resolution_idx = idx  # the batch sampler pins the aspect ratio
+            if len(idx) == 3:
+                idx, resolution_idx, views_per_timestep = idx  # ratio + camera count, pinned per batch
+            else:
+                idx, resolution_idx = idx  # the batch sampler pins the aspect ratio
         else:
             # This is used by test data as we don't implement the BatchSampler in test
             assert len(self._resolutions) == 1
@@ -208,7 +246,7 @@ class BaseSeqDatasetMultiView(BaseStereoViewDataset, EasyDataset_MUSt3R):
 
         # over-loaded codez_far
         resolution = self._resolutions[resolution_idx]  # DO NOT CHANGE THIS (compatible with BatchedRandomSampler)
-        views = self._get_views(idx, resolution, self._rng)
+        views = self._get_views(idx, resolution, self._rng, views_per_timestep=views_per_timestep)
 
         # Build a PIL→PIL color jitter once so all views in this sample share the same params.
         # DA3 normalization is applied after it.

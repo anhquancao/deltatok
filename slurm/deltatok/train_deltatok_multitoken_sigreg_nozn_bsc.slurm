@@ -19,11 +19,9 @@
 #
 # DeltaTok tokenizer, layer-12, no camera rope. tc1536 == hidden_size -> no channel bottleneck,
 # and z_norm=false -> no z LayerNorm: SIGReg alone shapes a raw 1536-d z. K is the only compression.
-# pool=32768 (was 8192): at 8192 the 1/S floor was 1.32e-4 == 80% of the 1.65e-4 anisotropy signal.
-# But pool is NOT weight-neutral: scale=n_pooled/n_live jumps 11.7 -> 43.7 and the staler pool delays
-# the feedback 4x, so at w=0.05 the stat spiked 39x at warmup end and Eval never left 0.126 (2026-07-31).
-# Hence w=0.01 ~= 0.05*11.7/43.7. WATCH: LossSIGReg must descend past iter 2000, floor ~3.2e-5.
-#   for W in 0.01 0.005; do sbatch --export=ALL,SIGREG_WEIGHT=$W slurm/deltatok/train_deltatok_multitoken_sigreg_nozn_bsc.slurm; done
+# Back to the known-good pool=8192 / w=0.05 pair: pool is NOT weight-neutral (scale=n_pooled/n_live
+# 11.7 -> 43.7), and the 32768 arm spiked 39x at warmup end, stalling Eval at 0.126 (2026-07-31).
+# WATCH: LossSIGReg must descend past iter 2000; the 1/S floor at 8192 is 1.32e-4.
 
 mkdir -p slurm/output
 
@@ -41,13 +39,8 @@ export CONFIG_NAME=train_deltatok_bsc
 export LOG_AND_CKPT_DIR="$SCRATCH/deltatok_log"
 export RESULTS_DIR="$LOG_AND_CKPT_DIR"
 
-# The only three knobs; each changes the estimator or the pressure, so all three are in RUN_NAME.
-export SIGREG_WEIGHT=${SIGREG_WEIGHT:-0.01}          # 0.05*11.7/43.7: undoes the scale jump 8192->32768
-export SIGREG_NUM_SLICES=${SIGREG_NUM_SLICES:-3072}  # 2*Cz; measured sufficient (signal is K-invariant)
-export SIGREG_POOL_SAMPLES=${SIGREG_POOL_SAMPLES:-32768}  # GLOBAL rows, S/C ~21; rescaled by pool/live
-
-# Only the architecture + the three swept knobs; the rest is fixed by this script.
-export RUN_NAME=deltatok_l12_dtok64_tc1536_nozn_sigreg${SIGREG_WEIGHT}_ns${SIGREG_NUM_SLICES}_pool${SIGREG_POOL_SAMPLES}
+# Architecture + window + the three SIGReg knobs; everything else is fixed by this script.
+export RUN_NAME=deltatok_l12_dtok64_tc1536_nozn_consec5_vpt1to2_sigreg0.05_ns3072_pool8192
 
 EXTRA_CFG_ARGS=(
     model.deltatok.num_delta_tokens=64         # K delta tokens/camera (~12:1 compression at full res)
@@ -59,9 +52,9 @@ EXTRA_CFG_ARGS=(
     training.lr=1e-3                           # peak lr, cosine-decayed to 1e-5
     training.grad_clip=0.1                     # tighter than base 1.0; tames early grads
     training.grad_skip_thresh=0.0               # >0 also skips finite grad_norm spikes
-    training.sigreg_weight=${SIGREG_WEIGHT}
-    training.sigreg_num_slices=${SIGREG_NUM_SLICES}
-    training.sigreg_pool_samples=${SIGREG_POOL_SAMPLES}
+    training.sigreg_weight=0.05                 # the pre-32768 setting; pairs with pool=8192
+    training.sigreg_num_slices=3072              # 2*Cz; measured sufficient (signal is K-invariant)
+    training.sigreg_pool_samples=8192            # GLOBAL rows, S/C ~5.3; rescaled by pool/live
     training.sigreg_warmup=2000                 # linear weight ramp (iters)
     training.exit_before_time_limit=true        # stop after a ckpt near the wall (chain-resume safe)
 )

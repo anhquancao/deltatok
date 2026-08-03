@@ -7,7 +7,19 @@
 import numpy as np
 # Bases from dust3r: a duplicate EasyDataset would shadow EasyDataset_MUSt3R.make_sampler via MRO.
 from dust3r.datasets.base.easy_dataset import EasyDataset, CatDataset, MulDataset, ResizedDataset
-from occany.datasets.batched_sampler import BatchedRandomSampleOccAny
+from occany.datasets.batched_sampler import BatchedRandomSampleOccAny, DatasetAwareBatchSamplerOccAny
+
+
+class _ForwardsCameraSampling:
+    """Size wrappers hide the shard's camera-sampling range; the sampler needs it."""
+
+    @property
+    def min_views_per_timestep(self):
+        return getattr(self.dataset, 'min_views_per_timestep', 1)
+
+    @property
+    def max_views_per_timestep(self):
+        return getattr(self.dataset, 'max_views_per_timestep', None)
 
 
 class EasyDataset_MUSt3R(EasyDataset):
@@ -22,10 +34,34 @@ class EasyDataset_MUSt3R(EasyDataset):
     def __rmatmul__(self, factor):
         return ResizedDataset_MUSt3R(factor, self)
 
-    def make_sampler(self, batch_size, shuffle=True, world_size=1, rank=0, drop_last=True):
+    def _sampler_config(self):
+        """One shard's per-batch draw ranges: aspect ratio, and cameras per timestep."""
+        return {
+            'num_of_aspect_ratios': len(self._resolutions),
+            'min_views_per_timestep': getattr(self, 'min_views_per_timestep', 1),
+            'max_views_per_timestep': getattr(self, 'max_views_per_timestep', None),
+        }
+
+    @property
+    def dataset_configs(self):
+        # A lone dataset is a single shard spanning the whole index range.
+        return [self._sampler_config()], [len(self)]
+
+    def make_sampler(self, batch_size, shuffle=True, world_size=1, rank=0, drop_last=True,
+                     per_dataset_sampling=False):
         if not (shuffle):
             raise NotImplementedError()  # cannot deal yet
 
+        configs, cum_sizes = self.dataset_configs
+        if per_dataset_sampling:
+            # Batches never span shards, and each pins one cameras-per-timestep count.
+            return DatasetAwareBatchSamplerOccAny(self, batch_size, (configs, cum_sizes),
+                world_size=world_size, rank=rank, drop_last=drop_last)
+
+        # Without it the dataset never receives a count and silently returns the whole rig.
+        assert all(c['max_views_per_timestep'] is None for c in configs), (
+            "max_views_per_timestep requires dataset.per_dataset_sampling=true"
+        )
         # Item shape is fixed (num_timesteps x named cams), so the aspect ratio is
         # the only thing a batch must agree on.
         return BatchedRandomSampleOccAny(self, batch_size,
@@ -34,8 +70,12 @@ class EasyDataset_MUSt3R(EasyDataset):
 
 
 class CatDataset_MUSt3R(CatDataset, EasyDataset_MUSt3R):
-    # Shards must agree on item shape (num_timesteps x len(cams)); CatDataset._resolutions
-    # already asserts they agree on resolutions.
+    # Shards must agree on item shape (num_timesteps x len(cams)) unless batches are
+    # per-shard; CatDataset._resolutions already asserts they agree on resolutions.
+
+    @property
+    def dataset_configs(self):
+        return [d._sampler_config() for d in self.datasets], list(self._cum_sizes)
 
     def __getitem__(self, idx):
         other = None
@@ -54,7 +94,7 @@ class CatDataset_MUSt3R(CatDataset, EasyDataset_MUSt3R):
         return dataset[new_idx]
 
 
-class MulDataset_MUSt3R(MulDataset, EasyDataset_MUSt3R):
+class MulDataset_MUSt3R(MulDataset, _ForwardsCameraSampling, EasyDataset_MUSt3R):
 
     def __getitem__(self, idx):
         if isinstance(idx, tuple):
@@ -63,7 +103,7 @@ class MulDataset_MUSt3R(MulDataset, EasyDataset_MUSt3R):
             return self.dataset[idx // self.multiplicator]
 
 
-class ResizedDataset_MUSt3R(ResizedDataset, EasyDataset_MUSt3R):
+class ResizedDataset_MUSt3R(ResizedDataset, _ForwardsCameraSampling, EasyDataset_MUSt3R):
 
     def set_epoch(self, epoch):
         """Read one continuous shuffled stream instead of dust3r's fresh-permutation-

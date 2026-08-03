@@ -157,6 +157,7 @@ def _build_loader(cfg, split):
             num_workers=int(cfg.training.num_workers),
             shuffle=True,      # the first --num_batches batches should span scenes
             drop_last=True,
+            per_dataset_sampling=bool(cfg.dataset.get("per_dataset_sampling", False)),
         )
 
     subs = [s.strip() for s in str(cfg.dataset.test_dataset).split("+") if s.strip()]

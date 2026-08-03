@@ -36,7 +36,7 @@ dataset:
       z_far=50, split='val', seed=42, distill_model_name='SAM3', \
       resolution=[(518, 168)]) + \
       206 @ Occ3dNuscenesSeqMultiView(NUSCENES_PREPROCESSED_ROOT='/lustre/fsn1/projects/rech/trg/uyl37fq/occany_dataset/occ3d_nuscenes_processed', \
-      seq_pkl_name='seq_surround_temporal_sub5_stride9_all.pkl', \
+      seq_pkl_name='seq_surround_temporal_sub1_stride9_all.pkl', \
       num_timesteps=5, num_views_per_timestep=6, fixed_cams=[0], \
       z_far=50, split='val', seed=42, distill_model_name='SAM3', \
       resolution=[(518, 266)])"

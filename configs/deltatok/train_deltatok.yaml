@@ -1,6 +1,9 @@
 exp_name: "deltatok"
 
 dataset:
+  # Batches drawn per sub-dataset instead of across the whole mix. Required by any arm
+  # that sets max_views_per_timestep (a batch must pin one camera count).
+  per_dataset_sampling: false
   # Same dataset path as `train_occrae_img_decoder.yaml`: dust3r-style dataset
   # expression strings evaluated by `occany.datasets.get_data_loader`.
   train_dataset: "10000 @ WaymoSeqMultiView(ROOT='/gpfs/scratch/ehpc558/quan/occrae_data/waymo_processed', \
@@ -28,13 +31,14 @@ dataset:
       num_timesteps=5, num_views_per_timestep=5, fixed_cams=[0], \
       z_far=50, split='train', distill_model_name='SAM3', \
       resolution=[(518, 294), (518, 280), (518, 266), (518, 210), (518, 168)])"
+  # nuScenes is 2 Hz keyframes: sub1 = 0.5 s, the spacing sub5 buys on the 10 Hz sets.
   test_dataset: "206 @ KittiSeqMultiView(KITTI_PREPROCESSED_ROOT='/gpfs/scratch/ehpc558/quan/occrae_data/kitti_processed', \
       seq_pkl_name='seq_exact_len_sub5_stride9.pkl', \
       num_timesteps=5, fixed_cams=[0], \
       z_far=50, split='val', seed=42, distill_model_name='SAM3', \
       resolution=[(518, 168)]) + \
       206 @ Occ3dNuscenesSeqMultiView(NUSCENES_PREPROCESSED_ROOT='/gpfs/scratch/ehpc558/quan/occrae_data/occ3d_nuscenes_processed', \
-      seq_pkl_name='seq_surround_temporal_sub5_stride9_all.pkl', \
+      seq_pkl_name='seq_surround_temporal_sub1_stride9_all.pkl', \
       num_timesteps=5, num_views_per_timestep=6, fixed_cams=[0, 1, 2], \
       z_far=50, split='val', seed=42, distill_model_name='SAM3', \
       resolution=[(518, 294)])"
