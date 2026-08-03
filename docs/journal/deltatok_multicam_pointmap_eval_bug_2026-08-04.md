@@ -84,11 +84,10 @@ initial commit (no OOM rationale). `num_cameras` arg kept for caller parity but 
 **VALIDATION (in progress):** BSC `44160801` (randint nosigreg) resubmitted with the fix,
 resuming from ~epoch 5. Two separate checks:
 
-- **OOM safety** is covered by the **startup sanity-check eval** — `train()` runs
-  `eval_one_epoch(sanity_check=True)` before the epoch loop (`deltatok_trainer.py:1558`), and it
-  is not gated, so it executes the exact V=10 nuScenes single-call decode (5 ts x 2 cam through
-  the giant's blocks 13-40). An OOM therefore crashes the job **seconds after resume**, not 20
-  min into training. If it OOMs, add view chunking to the geo decode.
+- **OOM safety — CONFIRMED.** `44160801` passed the startup sanity-check eval
+  (`eval_one_epoch(sanity_check=True)`, `deltatok_trainer.py:1558`), which runs the exact V=10
+  nuScenes single-call decode (5 ts x 2 cam through the giant's blocks 13-40) before the epoch
+  loop. No OOM at 4 H100 / eval bsize — so no view chunking needed.
 - **Metric value** is NOT verified by the sanity pass — scalar logging is gated on
   `not sanity_check` (`:1471`). Confirm at the **first real epoch-end eval** that nuScenes
   `LossPointmap_OrigVsGT` drops from ~15.5 to a KITTI-like value, with `PredVsGT` tracking it.
