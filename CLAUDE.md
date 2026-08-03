@@ -110,7 +110,7 @@ ssh jean-zay "bash -lc 'cd \$TRG_WORK/code/deltatok && sbatch slurm/<name>_jz.sl
 ssh bsc "bash -lc 'cd /gpfs/projects/ehpc1001/code/deltatok && sbatch slurm/<name>_bsc.slurm'"
 ```
 
-Scripts are named `<name>_<cluster>.slurm` (e.g. `train_deltatok_multitoken_sigreg_nozn_jz.slurm`). DeltaTok training scripts live in `slurm/deltatok/` (tokenizer, `sh/train_deltatok.sh`) and `slurm/deltatok_flow/` (flow matching, `sh/train_deltatok_flow.sh`); each has an `archive/` for retired arms. Eval/diagnostic scripts stay at `slurm/` root. Paths are relative to the repo root, so always `sbatch slurm/deltatok[_flow]/<name>.slurm` from there.
+Scripts are named `<name>_<cluster>.slurm` — the cluster tag (`_jz`, `_bsc`) is **always the last suffix** (e.g. `train_deltatok_multitoken_sigreg_nozn_jz.slurm`). DeltaTok training scripts live in `slurm/deltatok/` (tokenizer, `sh/train_deltatok.sh`) and `slurm/deltatok_flow/` (flow matching, `sh/train_deltatok_flow.sh`); each has an `archive/` for retired arms. Eval/diagnostic scripts stay at `slurm/` root. Paths are relative to the repo root, so always `sbatch slurm/deltatok[_flow]/<name>.slurm` from there.
 
 Training **always** resumes from `<RESULTS_DIR>/<RUN_NAME>/ckpts/current.pth` when it exists — there is no `RESUME` env var and no `--resume` flag, so a plain relaunch continues the run and a chained job needs no extra `--export`. To start an arm over, change `RUN_NAME` or delete its `ckpts/`. Any remaining un-suffixed `slurm/*.slurm` is Karolina-era and still `conda activate`s.
 
@@ -181,7 +181,7 @@ Training entrypoints: `train_deltatok_flow.py` (flow matching), `train_occrae_im
 
 `configs/` mirrors `slurm/`: `configs/deltatok/` (tokenizer), `configs/deltatok_flow/` (flow), `configs/rae/` (image decoder). Each wrapper's `CONFIG_DIR` points at its own folder, so `CONFIG_NAME` stays a bare name.
 
-Configs are **per-cluster** — `configs/deltatok{,_flow}/train_deltatok{,_flow}_{jeanzay,bsc,karolina}.yaml`, picked by `CONFIG_NAME` in the slurm script. Edit the one matching the cluster you submit to. Hydra resolves a `defaults:` entry relative to the config's own folder, so a config and its parent must live in the same one.
+Configs are **per-cluster** — the cluster tag (`_bsc`, `_jeanzay`, `_karolina`) is **always the last suffix** in the filename (e.g. `train_deltatok_randint_bsc.yaml`), picked by `CONFIG_NAME` in the slurm script. Edit the one matching the cluster you submit to. Hydra resolves a `defaults:` entry relative to the config's own folder, so a config and its parent must live in the same one.
 
 DeltaTok is the active research direction. Read before proposing changes: `docs/deltatok.md`, `docs/deltatok_flow_*.md`, `docs/sigreg_*.md`, dated findings in `docs/journal/*.html`, and design docs in `docs/plans/*.md`.
 

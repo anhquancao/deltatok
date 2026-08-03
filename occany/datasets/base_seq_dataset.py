@@ -26,13 +26,18 @@ class BaseSeqDatasetMultiView(BaseStereoViewDataset, EasyDataset_MUSt3R):
                  min_views_per_timestep=None,
                  max_views_per_timestep=None,
                  anchor_cam=0,
+                 timestep_sampling="consecutive",
                  *args, ROOT, seq_pkl_name, num_timesteps,
                  distill_model_name=None,
                  select_scenes=None, exclude_scenes=None,
                  **kwargs):
-        # Timesteps in the consecutive window every item returns. Keyword-only and
+        # Timesteps in the window every item returns. Keyword-only and
         # undefaulted: item shape is fixed, so each arm must state it.
         self.num_timesteps = num_timesteps
+        # "consecutive": one contiguous run at a random offset. "random": num_timesteps
+        # distinct timesteps spread across the record (irregular gaps -> larger deltas).
+        assert timestep_sampling in ("consecutive", "random"), timestep_sampling
+        self.timestep_sampling = timestep_sampling
         # Physical cameras per timestep (sequence layout constant).
         self.num_views_per_timestep = num_views_per_timestep
         # Cameras are named, never sampled; None = the whole rig.
@@ -77,7 +82,7 @@ class BaseSeqDatasetMultiView(BaseStereoViewDataset, EasyDataset_MUSt3R):
         self.is_metric_scale = True
         cams_desc = (f"cams={self.cams}" if self.max_views_per_timestep is None else
                      f"cams~[{self.min_views_per_timestep},{self.max_views_per_timestep}] anchor={self.anchor_cam}")
-        print(f"{self.__class__.__name__}: num_timesteps={self.num_timesteps}, {cams_desc}")
+        print(f"{self.__class__.__name__}: num_timesteps={self.num_timesteps}, sampling={self.timestep_sampling}, {cams_desc}")
 
         # transform only selects whether a per-item color jitter runs; DA3 normalization
         # is unconditional afterwards.
@@ -174,16 +179,21 @@ class BaseSeqDatasetMultiView(BaseStereoViewDataset, EasyDataset_MUSt3R):
         else:
             cams = self._select_cameras(int(views_per_timestep), rng)
 
-        # One ordered, consecutive run of timesteps at a random offset in the record.
-        start = int(rng.integers(0, avail - self.num_timesteps + 1))
-        # Records are timestep-major, camera-minor: index = t * max_vpt + cam.
-        memory_view_indices = [t * max_vpt + c
-                               for t in range(start, start + self.num_timesteps)
-                               for c in cams]
-
-        frames = [seq[i] for i in memory_view_indices]
-        # Dense labels: the window offset is a sampling detail, not a timestamp.
-        times = [t for t in range(self.num_timesteps) for _ in cams]
+        # Either a contiguous run at a random offset, or an irregular spread across
+        # the whole record (larger, varied deltas for the tokenizer).
+        if self.timestep_sampling == "consecutive":
+            start = int(rng.integers(0, avail - self.num_timesteps + 1))
+            chosen_t = range(start, start + self.num_timesteps)
+        else:
+            chosen_t = sorted(int(t) for t in rng.choice(avail, size=self.num_timesteps, replace=False))
+        # Timestep-major, camera-minor: emit every camera before advancing a slot.
+        # Label = offset from the first slot, so random-mode gaps are preserved.
+        frames, times = [], []
+        t0 = chosen_t[0]
+        for actual_t in chosen_t:
+            for c in cams:
+                frames.append(seq[actual_t * max_vpt + c])
+                times.append(actual_t - t0)
 
         views = []
         for frame_index, t in zip(frames, times):
