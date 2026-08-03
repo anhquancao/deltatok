@@ -408,25 +408,12 @@ class DeltaTokSharedMixin:
         return loss_pm, loss_d, loss_ray
 
     def _decode_tokens(self, tokens, height, width, num_cameras=1):
-        if num_cameras <= 1:
-            return self.occ_rae.decode({"tokens": tokens, "H": height, "W": width})
-
-        B, V, N_tok, C = tokens.shape
-        T = V // num_cameras
-        tokens_by_t = tokens.view(B, T, num_cameras, N_tok, C)
-        decoded_parts = []
-        for t in range(T):
-            decoded_parts.append(
-                self.occ_rae.decode({"tokens": tokens_by_t[:, t], "H": height, "W": width})
-            )
-        decoded = {}
-        for key in decoded_parts[0]:
-            vals = [d[key] for d in decoded_parts]
-            if isinstance(vals[0], torch.Tensor) and vals[0].dim() >= 2:
-                decoded[key] = torch.cat(vals, dim=1)
-            else:
-                decoded[key] = vals[0]
-        return decoded
+        # One decode over all V views so they share view-0's (t0, cam0) frame, which is
+        # the frame the GT pointmap uses (ref_view_strategy="first"). Decoding per-timestep
+        # put each timestep in its own frame -> a constant ego-motion offset on multi-camera
+        # pointmaps (docs/journal/deltatok_multicam_pointmap_eval_bug_2026-08-04.md).
+        # num_cameras is now unused (decoder infers V from tokens); kept for caller parity.
+        return self.occ_rae.decode({"tokens": tokens, "H": height, "W": width})
 
     def _reconstruct_full_tokens(self, tokens, x_hat, B, V, num_cameras=1):
         """Stitch DeltaTok-predicted spatial features back into full-token tensors.
