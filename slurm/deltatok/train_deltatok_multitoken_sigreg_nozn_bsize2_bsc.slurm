@@ -7,22 +7,22 @@
 #SBATCH --account=ehpc880
 #SBATCH --partition=acc
 #SBATCH --qos=acc_ehpc
-#SBATCH --time=40:00:00
+#SBATCH --time=24:00:00
 ##SBATCH --qos=acc_debug
 ##SBATCH --time=02:00:00
-#SBATCH --output=slurm/output/train_deltatok_multitoken_nosigreg_nozn_bsc_%j.out
-#SBATCH --error=slurm/output/train_deltatok_multitoken_nosigreg_nozn_bsc_%j.err
+#SBATCH --output=slurm/output/train_deltatok_multitoken_sigreg_nozn_bsize2_bsc_%j.out
+#SBATCH --error=slurm/output/train_deltatok_multitoken_sigreg_nozn_bsize2_bsc_%j.err
 
 # BSC acc: 4 H100/node, 80 cores -> 20 cpus/task. acc_ehpc caps 72h; acc_debug is 2h.
-# 40h not 72h: shorter backfills better (p90 4min@12h vs 8.6h@48h); ~53 ep/job, chained.
-#   ssh bsc "bash -lc 'cd /gpfs/projects/ehpc1001/code/deltatok && sbatch slurm/deltatok/train_deltatok_multitoken_nosigreg_nozn_bsc.slurm'"
+# 24h: diagnostic, reads out by iter 2250; shorter also backfills sooner (p90 4min@12h).
+#   ssh bsc "bash -lc 'cd /gpfs/projects/ehpc1001/code/deltatok && sbatch slurm/deltatok/train_deltatok_multitoken_sigreg_nozn_bsize2_bsc.slurm'"
 #
-# DIAGNOSTIC twin of train_deltatok_multitoken_sigreg_nozn_bsc.slurm with sigreg_weight=0:
-# that arm collapses z to rank 1 (ZRowMeanSquare 0.80 -> 2908) inside warmup and Eval flatlines
-# at 0.115. weight=0 builds no SIGReg at all, so this isolates whether the consec5 pipeline
-# trains. Reference: the pre-1ecb17c no-sigreg dtok64 tc1536 arm reached Eval 0.01138.
-# z_norm=false with no SIGReg leaves z unanchored by design -- a low ZPartRank here is expected
-# and says nothing about the blow-up. WATCH Eval/Loss by epoch 2 (iter 2250).
+# BATCH-LAYOUT control for the consec5 arm's rank-1 z blow-up (ZRowMeanSquare 0.80 -> 2908
+# inside warmup, Eval flat at 0.115). Only change vs train_deltatok_multitoken_sigreg_nozn_bsc:
+# bsize 4 -> 2, so grad_cum derives 1 -> 2 and the layout matches the healthy pre-1ecb17c JZ twin.
+# effective_bsize stays 16, so the update and the SIGReg gradient are unchanged by construction --
+# this only tests the residuals (one batch draw per step instead of two).
+# WATCH Eval/Loss + ZRowMeanSquare at iter 2250: still ~0.115 / >>1 means the layout is exonerated.
 
 mkdir -p slurm/output
 
@@ -40,8 +40,8 @@ export CONFIG_NAME=train_deltatok_bsc
 export LOG_AND_CKPT_DIR="$SCRATCH/deltatok_log"
 export RESULTS_DIR="$LOG_AND_CKPT_DIR"
 
-# Architecture + window; no SIGReg knobs to name here.
-export RUN_NAME=deltatok_l12_dtok64_tc1536_nozn_consec5_vpt1to2_nosigreg
+# Architecture + window + the three SIGReg knobs; everything else is fixed by this script.
+export RUN_NAME=deltatok_l12_dtok64_tc1536_nozn_consec5_vpt1to2_sigreg0.05_ns3072_pool8192_bsize2
 
 EXTRA_CFG_ARGS=(
     model.deltatok.num_delta_tokens=64         # K delta tokens/camera (~12:1 compression at full res)
@@ -50,10 +50,14 @@ EXTRA_CFG_ARGS=(
     model.deltatok.use_camera_rope=false       # layer-12 no-rope run
     model.deltatok.norm_affine=false           # inert at z_norm=false; kept for name parity
     model.deltatok.bottleneck_mlp=false        # inert at tc1536 (no bottleneck to make nonlinear)
+    training.bsize=2                            # gc derives 1 -> 2; effective_bsize stays 16
     training.lr=1e-3                           # peak lr, cosine-decayed to 1e-5
     training.grad_clip=0.1                     # tighter than base 1.0; tames early grads
     training.grad_skip_thresh=0.0               # >0 also skips finite grad_norm spikes
-    training.sigreg_weight=0.0                  # 0 -> no SIGReg built; pool/slices/warmup are inert
+    training.sigreg_weight=0.05                 # the pre-32768 setting; pairs with pool=8192
+    training.sigreg_num_slices=3072              # 2*Cz; measured sufficient (signal is K-invariant)
+    training.sigreg_pool_samples=8192            # GLOBAL rows, S/C ~5.3; rescaled by pool/live
+    training.sigreg_warmup=2000                 # linear weight ramp (iters)
     training.exit_before_time_limit=true        # stop after a ckpt near the wall (chain-resume safe)
 )
 export EXTRA_CFG="${EXTRA_CFG_ARGS[*]}"
