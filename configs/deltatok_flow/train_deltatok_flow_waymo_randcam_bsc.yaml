@@ -1,0 +1,13 @@
+defaults:
+  - train_deltatok_flow_waymo_bsc
+  - _self_
+
+# Random-camera variant: each train sample draws 1 of 5 Waymo cameras
+# uniformly (anchor_cam=None). Val stays on cam 0 for stable metrics.
+dataset:
+  train_dataset: "32000 @ WaymoSeqMultiView(ROOT='/gpfs/scratch/ehpc1001/occany_data/waymo_processed', \
+      seq_pkl_name='seq_surround_temporal_sub5_stride9_fs1_all.pkl', \
+      num_timesteps=5, num_views_per_timestep=5, \
+      max_views_per_timestep=1, min_views_per_timestep=1, anchor_cam=None, \
+      z_far=50, split=None, exclude_scenes=${dataset._waymo_val_scenes}, \
+      resolution=[(518, 266)])"

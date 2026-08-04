@@ -27,7 +27,6 @@ class BaseSeqDatasetMultiView(BaseStereoViewDataset, EasyDataset_MUSt3R):
                  max_views_per_timestep=None,
                  anchor_cam=0,
                  timestep_sampling="consecutive",
-                 reverse_seq=False,
                  *args, ROOT, seq_pkl_name, num_timesteps,
                  distill_model_name=None,
                  select_scenes=None, exclude_scenes=None,
@@ -39,7 +38,6 @@ class BaseSeqDatasetMultiView(BaseStereoViewDataset, EasyDataset_MUSt3R):
         # distinct timesteps spread across the record (irregular gaps -> larger deltas).
         assert timestep_sampling in ("consecutive", "random"), timestep_sampling
         self.timestep_sampling = timestep_sampling
-        self.reverse_seq = reverse_seq
         # Physical cameras per timestep (sequence layout constant).
         self.num_views_per_timestep = num_views_per_timestep
         # Cameras are named, never sampled; None = the whole rig.
@@ -51,7 +49,7 @@ class BaseSeqDatasetMultiView(BaseStereoViewDataset, EasyDataset_MUSt3R):
         # Variable-camera mode: max_views_per_timestep turns cams into a per-item draw.
         # The batch sampler pins the COUNT per batch (items must collate to one shape);
         # which cameras are drawn still varies per item.
-        self.anchor_cam = int(anchor_cam)
+        self.anchor_cam = None if anchor_cam is None else int(anchor_cam)
         self.min_views_per_timestep = 1 if min_views_per_timestep is None else int(min_views_per_timestep)
         self.max_views_per_timestep = None if max_views_per_timestep is None else int(max_views_per_timestep)
         if self.max_views_per_timestep is not None:
@@ -60,7 +58,8 @@ class BaseSeqDatasetMultiView(BaseStereoViewDataset, EasyDataset_MUSt3R):
                 f"need 1 <= min_views_per_timestep ({self.min_views_per_timestep}) <= max_views_per_timestep "
                 f"({self.max_views_per_timestep}) <= num_views_per_timestep ({num_views_per_timestep})"
             )
-            assert 0 <= self.anchor_cam < num_views_per_timestep, f"bad anchor_cam={self.anchor_cam}"
+            if self.anchor_cam is not None:
+                assert 0 <= self.anchor_cam < num_views_per_timestep, f"bad anchor_cam={self.anchor_cam}"
 
         super().__init__(*args, **kwargs)
         self.ROOT = ROOT
@@ -82,9 +81,10 @@ class BaseSeqDatasetMultiView(BaseStereoViewDataset, EasyDataset_MUSt3R):
         if exclude_scenes is not None:
             self.select_scene(exclude_scenes, opposite=True)
         self.is_metric_scale = True
+        anchor_tag = f" anchor={self.anchor_cam}" if self.anchor_cam is not None else ""
         cams_desc = (f"cams={self.cams}" if self.max_views_per_timestep is None else
-                     f"cams~[{self.min_views_per_timestep},{self.max_views_per_timestep}] anchor={self.anchor_cam}")
-        print(f"{self.__class__.__name__}: num_timesteps={self.num_timesteps}, sampling={self.timestep_sampling}, reverse_seq={self.reverse_seq}, {cams_desc}")
+                     f"cams~[{self.min_views_per_timestep},{self.max_views_per_timestep}]{anchor_tag}")
+        print(f"{self.__class__.__name__}: num_timesteps={self.num_timesteps}, sampling={self.timestep_sampling}, {cams_desc}")
 
         # transform only selects whether a per-item color jitter runs; DA3 normalization
         # is unconditional afterwards.
@@ -155,13 +155,15 @@ class BaseSeqDatasetMultiView(BaseStereoViewDataset, EasyDataset_MUSt3R):
 
 
     def _select_cameras(self, actual_vpt, rng):
-        """anchor_cam is always in; the rest are drawn without replacement and sorted,
-        so a given camera set always appears in one canonical order. The constructor
-        pins actual_vpt to [1, num_views_per_timestep], so no clamping is needed here."""
-        others = np.arange(self.num_views_per_timestep)
-        others = others[others != self.anchor_cam]           # (max_vpt-1,) drawable cameras
-        rest = rng.choice(others, size=actual_vpt - 1, replace=False)  # (actual_vpt-1,)
-        return [self.anchor_cam, *sorted(int(c) for c in rest)]
+        """Draw actual_vpt cameras. With an anchor, it is always included and the
+        rest are drawn; with anchor_cam=None, all cameras are equally likely."""
+        if self.anchor_cam is not None:
+            others = np.arange(self.num_views_per_timestep)
+            others = others[others != self.anchor_cam]
+            rest = rng.choice(others, size=actual_vpt - 1, replace=False)
+            return [self.anchor_cam, *sorted(int(c) for c in rest)]
+        chosen = rng.choice(self.num_views_per_timestep, size=actual_vpt, replace=False)
+        return sorted(int(c) for c in chosen)
 
     def _get_views(self, seq_idx, resolution, rng, views_per_timestep=None):
         scene_idx, seq, _ = self.seqs[seq_idx]  # pkl stride offsets unused: labels are dense
@@ -188,9 +190,6 @@ class BaseSeqDatasetMultiView(BaseStereoViewDataset, EasyDataset_MUSt3R):
             chosen_t = range(start, start + self.num_timesteps)
         else:
             chosen_t = sorted(int(t) for t in rng.choice(avail, size=self.num_timesteps, replace=False))
-        # 50% chance of descending order: the model sees backward-motion pairs.
-        if self.reverse_seq and rng.random() < 0.5:
-            chosen_t = list(reversed(chosen_t))
         # Timestep-major, camera-minor: emit every camera before advancing a slot.
         # Label = offset from the first slot, so random-mode gaps are preserved.
         frames, times = [], []
