@@ -1042,19 +1042,14 @@ class DeltaTokFlowMatchingTrainer(DeltaTokSharedMixin, Trainer):
         # expression strings), mirroring DeltaTokTrainer.fit.
         train_dataset_str = str(self.cfg.dataset.train_dataset)
         test_dataset_str = self.cfg.dataset.get("test_dataset", None)
-        # Per-shard batches; required by any arm sampling cameras (max_views_per_timestep).
-        per_dataset_sampling = bool(self.cfg.dataset.get("per_dataset_sampling", False))
-
         if self.is_master:
             print(f"Building train dataset: {train_dataset_str}")
-            print(f"Per-dataset sampling: {per_dataset_sampling}")
         self.train_loader = get_data_loader(
             train_dataset_str,
             batch_size=self.cfg.training.bsize,
             num_workers=self.cfg.training.num_workers,
             shuffle=True,
             drop_last=True,
-            per_dataset_sampling=per_dataset_sampling,
         )
 
         # One DataLoader per `+`-separated sub-dataset so each test set runs in

@@ -3,9 +3,6 @@
 exp_name: "occrae_img_decoder"
 
 dataset:
-  # Batches drawn per sub-dataset instead of across the whole mix. Required by any arm
-  # that sets max_views_per_timestep (a batch must pin one camera count).
-  per_dataset_sampling: false
   train_dataset: "10000 @ WaymoSeqMultiView(ROOT='/gpfs/scratch/ehpc558/quan/occrae_data/waymo_processed', \
       seq_pkl_name='seq_surround_temporal_sub5_stride9_all.pkl', \
       num_timesteps=5, num_views_per_timestep=5, fixed_cams=[0], \

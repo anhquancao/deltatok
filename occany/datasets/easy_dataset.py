@@ -7,7 +7,7 @@
 import numpy as np
 # Bases from dust3r: a duplicate EasyDataset would shadow EasyDataset_MUSt3R.make_sampler via MRO.
 from dust3r.datasets.base.easy_dataset import EasyDataset, CatDataset, MulDataset, ResizedDataset
-from occany.datasets.batched_sampler import BatchedRandomSampleOccAny, DatasetAwareBatchSamplerOccAny
+from occany.datasets.batched_sampler import DatasetAwareBatchSamplerOccAny
 
 
 class _ForwardsCameraSampling:
@@ -48,24 +48,12 @@ class EasyDataset_MUSt3R(EasyDataset):
         return [self._sampler_config()], [len(self)]
 
     def make_sampler(self, batch_size, shuffle=True, world_size=1, rank=0, drop_last=True,
-                     per_dataset_sampling=False):
+                     **_kw):
         if not (shuffle):
             raise NotImplementedError()  # cannot deal yet
 
         configs, cum_sizes = self.dataset_configs
-        if per_dataset_sampling:
-            # Batches never span shards, and each pins one cameras-per-timestep count.
-            return DatasetAwareBatchSamplerOccAny(self, batch_size, (configs, cum_sizes),
-                world_size=world_size, rank=rank, drop_last=drop_last)
-
-        # Without it the dataset never receives a count and silently returns the whole rig.
-        assert all(c['max_views_per_timestep'] is None for c in configs), (
-            "max_views_per_timestep requires dataset.per_dataset_sampling=true"
-        )
-        # Item shape is fixed (num_timesteps x named cams), so the aspect ratio is
-        # the only thing a batch must agree on.
-        return BatchedRandomSampleOccAny(self, batch_size,
-            num_of_aspect_ratios=len(self._resolutions),
+        return DatasetAwareBatchSamplerOccAny(self, batch_size, (configs, cum_sizes),
             world_size=world_size, rank=rank, drop_last=drop_last)
 
 

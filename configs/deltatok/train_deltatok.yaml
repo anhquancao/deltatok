@@ -1,9 +1,6 @@
 exp_name: "deltatok"
 
 dataset:
-  # Batches drawn per sub-dataset instead of across the whole mix. Required by any arm
-  # that sets max_views_per_timestep (a batch must pin one camera count).
-  per_dataset_sampling: false
   # Same dataset path as `train_occrae_img_decoder.yaml`: dust3r-style dataset
   # expression strings evaluated by `occany.datasets.get_data_loader`.
   train_dataset: "10000 @ WaymoSeqMultiView(ROOT='/gpfs/scratch/ehpc558/quan/occrae_data/waymo_processed', \
