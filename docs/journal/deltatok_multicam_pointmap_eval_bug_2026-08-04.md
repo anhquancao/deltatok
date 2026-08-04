@@ -6,6 +6,30 @@ timestep-0 frame. The result is a constant pointmap error floor for any 2-camera
 (nuScenes `fixed_cams=[0,1]`). **Eval-only bug — does NOT affect training.** Present
 byte-for-byte in both the old (4d5d690) and current code.
 
+## RESOLVED — the consec-vs-random training regression: varied timesteps is the fix
+
+The question that started this investigation — why the current-code `..._consec5_...` run
+underperforms the old-code `..._pairslice` run — is answered, and it is **separate from the
+eval bug below**. **Training DeltaTok on varied-interval timesteps recovers old-code
+performance.** `deltatok_l12_dtok64_tc1536_nozn_randint5_vpt1to2_nosigreg` (BSC, random-interval
+sampling, no SIGReg) trains well and does not show the consec5 plateau (~0.093 Eval).
+
+- **Root cause:** consecutive 5-frame windows give adjacent-frame deltas that are too small —
+  frame_{t+1} ≈ frame_t, so the tokenizer learns near-identity and the K=64 delta code is
+  starved of signal. Random-interval sampling spreads timesteps across the record (irregular,
+  larger gaps → larger, varied deltas), which is what the old code did (`min_memory_num_views`
+  + spread timesteps). What the tokenizer must encode — the delta — is the lever; SIGReg,
+  num_timesteps, reverse_seq, and eval set were all ruled out earlier.
+- **Not** the multi-camera pointmap eval bug below: that is eval-only, orthogonal, and shows up
+  in `LossPointmap_*`. This regression is a real training-signal effect, visible in the correct
+  metrics (`LossRecon`, depth, `PredVsOrig`).
+- **Actionable:** default DeltaTok training to `timestep_sampling='random'`.
+  `configs/deltatok/train_deltatok_randint_bsc.yaml` +
+  `slurm/deltatok/train_deltatok_multitoken_nosigreg_nozn_randint_bsc.slurm` are the reference.
+- **Open:** SIGReg on top of the recovered sampling —
+  `..._sigreg_nozn_randint_bsc.slurm` (BSC 44167693, RUN_NAME `...randint5_..._sigreg0.05_...`)
+  submitted to confirm SIGReg still shapes z without giving back the sampling win.
+
 ## Symptom
 
 `Eval/206 @ Occ3dNuscenesSeqMultiView/LossPointmap_PredVsGT(_AR)` looks **stuck** while depth
