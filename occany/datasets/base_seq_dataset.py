@@ -27,6 +27,7 @@ class BaseSeqDatasetMultiView(BaseStereoViewDataset, EasyDataset_MUSt3R):
                  max_views_per_timestep=None,
                  anchor_cam=0,
                  timestep_sampling="consecutive",
+                 reverse_seq=False,
                  *args, ROOT, seq_pkl_name, num_timesteps,
                  distill_model_name=None,
                  select_scenes=None, exclude_scenes=None,
@@ -38,6 +39,7 @@ class BaseSeqDatasetMultiView(BaseStereoViewDataset, EasyDataset_MUSt3R):
         # distinct timesteps spread across the record (irregular gaps -> larger deltas).
         assert timestep_sampling in ("consecutive", "random"), timestep_sampling
         self.timestep_sampling = timestep_sampling
+        self.reverse_seq = reverse_seq
         # Physical cameras per timestep (sequence layout constant).
         self.num_views_per_timestep = num_views_per_timestep
         # Cameras are named, never sampled; None = the whole rig.
@@ -82,7 +84,7 @@ class BaseSeqDatasetMultiView(BaseStereoViewDataset, EasyDataset_MUSt3R):
         self.is_metric_scale = True
         cams_desc = (f"cams={self.cams}" if self.max_views_per_timestep is None else
                      f"cams~[{self.min_views_per_timestep},{self.max_views_per_timestep}] anchor={self.anchor_cam}")
-        print(f"{self.__class__.__name__}: num_timesteps={self.num_timesteps}, sampling={self.timestep_sampling}, {cams_desc}")
+        print(f"{self.__class__.__name__}: num_timesteps={self.num_timesteps}, sampling={self.timestep_sampling}, reverse_seq={self.reverse_seq}, {cams_desc}")
 
         # transform only selects whether a per-item color jitter runs; DA3 normalization
         # is unconditional afterwards.
@@ -186,6 +188,9 @@ class BaseSeqDatasetMultiView(BaseStereoViewDataset, EasyDataset_MUSt3R):
             chosen_t = range(start, start + self.num_timesteps)
         else:
             chosen_t = sorted(int(t) for t in rng.choice(avail, size=self.num_timesteps, replace=False))
+        # 50% chance of descending order: the model sees backward-motion pairs.
+        if self.reverse_seq and rng.random() < 0.5:
+            chosen_t = list(reversed(chosen_t))
         # Timestep-major, camera-minor: emit every camera before advancing a slot.
         # Label = offset from the first slot, so random-mode gaps are preserved.
         frames, times = [], []

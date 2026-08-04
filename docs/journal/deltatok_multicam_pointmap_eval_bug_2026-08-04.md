@@ -29,6 +29,12 @@ sampling, no SIGReg) trains well and does not show the consec5 plateau (~0.093 E
 - **Open:** SIGReg on top of the recovered sampling —
   `..._sigreg_nozn_randint_bsc.slurm` (BSC 44167693, RUN_NAME `...randint5_..._sigreg0.05_...`)
   submitted to confirm SIGReg still shapes z without giving back the sampling win.
+- **Open:** reverse_seq augmentation on top of randint + SIGReg —
+  `..._sigreg_nozn_randint_revseq_bsc.slurm` (BSC 44177809, RUN_NAME
+  `...randint5_revseq_..._sigreg0.05_...`). Re-added `reverse_seq=False` to
+  `BaseSeqDatasetMultiView` (removed in 1ecb17c); 50% coin-flip reverses the chosen timesteps
+  so the model sees backward-motion pairs. Pairs with the randint (no revseq) arm to isolate
+  the reversal effect.
 
 ## Symptom
 

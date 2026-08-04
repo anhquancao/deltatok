@@ -1,0 +1,37 @@
+defaults:
+  - train_deltatok_bsc
+  - _self_
+
+dataset:
+  # Random-interval + 50% reverse: timesteps spread across the record (irregular gaps)
+  # with a coin-flip descending order (backward-motion pairs). test_dataset stays
+  # consecutive forward (inherited) so Eval matches the other arms.
+  train_dataset: "4000 @ WaymoSeqMultiView(ROOT='/gpfs/scratch/ehpc1001/occany_data/waymo_processed', \
+      seq_pkl_name='seq_surround_temporal_sub5_stride9_fs1_all.pkl', \
+      num_timesteps=5, num_views_per_timestep=5, \
+      min_views_per_timestep=1, max_views_per_timestep=2, timestep_sampling='random', reverse_seq=True, \
+      z_far=50, split='train', \
+      resolution=[(518, 294), (518, 280), (518, 266), (518, 210), (518, 168)]) + \
+      2000 @ VKittiSeqMultiView(VKITTI_PROCESSED_ROOT='/gpfs/scratch/ehpc1001/occany_data/vkitti_processed', \
+      seq_pkl_name='seq_exact_len_sub5_stride9.pkl', \
+      num_timesteps=5, fixed_cams=[0], timestep_sampling='random', reverse_seq=True, \
+      z_far=50, split='train', \
+      resolution=[(518, 294), (518, 280), (518, 266), (518, 210), (518, 168)]) + \
+      4000 @ DDADSeqMultiView(DDAD_PREPROCESSED_ROOT='/gpfs/scratch/ehpc1001/occany_data/ddad_processed', \
+      seq_pkl_name='seq_surround_temporal_sub5_stride9_fs1_all.pkl', \
+      num_timesteps=5, num_views_per_timestep=6, \
+      min_views_per_timestep=1, max_views_per_timestep=2, timestep_sampling='random', reverse_seq=True, \
+      z_far=50, split='train', \
+      resolution=[(518, 294), (518, 280), (518, 266), (518, 210), (518, 168)]) + \
+      4000 @ PandasetSeqMultiView(PANDASET_PREPROCESSED_ROOT='/gpfs/scratch/ehpc1001/occany_data/pandaset_processed', \
+      seq_pkl_name='seq_surround_temporal_sub5_stride9_fs1_all.pkl', \
+      num_timesteps=5, num_views_per_timestep=6, \
+      min_views_per_timestep=1, max_views_per_timestep=2, timestep_sampling='random', reverse_seq=True, \
+      z_far=50, split='train', \
+      resolution=[(518, 294), (518, 280), (518, 266), (518, 210), (518, 168)]) + \
+      4000 @ OnceSeqMultiView(ONCE_PREPROCESSED_ROOT='/gpfs/scratch/ehpc1001/occany_data/once_processed', \
+      seq_pkl_name='seq_surround_temporal_sub5_stride9_fs1_once_5cam_all.pkl', \
+      num_timesteps=5, num_views_per_timestep=5, \
+      min_views_per_timestep=1, max_views_per_timestep=2, timestep_sampling='random', reverse_seq=True, \
+      z_far=50, split='train', \
+      resolution=[(518, 294), (518, 280), (518, 266), (518, 210), (518, 168)])"
