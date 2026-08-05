@@ -153,7 +153,7 @@ class DeltaTokSharedMixin:
             })
         return out
 
-    def _extract_pair_feats(self, imgs, num_cameras=1, return_pairs=True, pair_t=None):
+    def _extract_pair_feats(self, imgs, num_cameras=1, return_pairs=True, pair_t=None, gap=1):
         """Run OccRAE.encode and split into (x_prev, x) pair tensors plus shape metadata.
 
         With ``return_pairs=False`` the (x_prev, x) slots are returned as None —
@@ -186,9 +186,9 @@ class DeltaTokSharedMixin:
         T = V_total // num_cameras
 
         if pair_t is not None:
-            # Transition t spans timesteps t, t+1; view v = t*num_cameras + cam.
+            # Transition t spans timesteps t, t+gap; view v = t*num_cameras + cam.
             n_pairs = pair_t.shape[1]                                    # transitions kept per sequence
-            steps = torch.stack([pair_t, pair_t + 1], dim=-1)            # (B, n_pairs, 2) timesteps per pair
+            steps = torch.stack([pair_t, pair_t + gap], dim=-1)          # (B, n_pairs, 2) timesteps per pair
             cams = torch.arange(num_cameras, device=imgs.device)         # (num_cameras,)
             views = (steps[..., None] * num_cameras + cams).reshape(B, -1)  # (B, n_pairs*2*num_cameras) views to keep
             seqs = torch.arange(B, device=imgs.device)[:, None]          # (B, 1) broadcast against `views`

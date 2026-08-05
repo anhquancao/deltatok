@@ -91,16 +91,9 @@ training:
   bsize: 1
   num_workers: 4
   val_num_workers: 2
-  # grad_cum is derived in DeltaTokTrainer:
-  #   effective_bsize / (world_size * bsize * pairs_per_seq).
-  # Cluster overlays only set bsize (8 GPU x bsize 1 x pairs_per_seq 1 -> grad_cum 2;
-  # 4 GPU x bsize 4 x pairs_per_seq 1 -> grad_cum 1).
+  # grad_cum = effective_bsize / (world_size * bsize).
   effective_bsize: 16
-  # Cap on (frame_t, frame_{t+1}) pairs forwarded through the tokenizer per
-  # training step. With B*(T-1) pairs per item, this bounds the M dim of the
-  # tokenizer forward without changing the dataset / batch shape. Must be > 0
-  # (it is a factor of the grad_cum denominator).
-  pairs_per_seq: 1
+  max_gap: 1  # sample pair gap ~ U[1, max_gap]; 1 = adjacent frames only
   # Downstream DA3 feature loss: re-insert predicted frames into the GT token sequence,
   # run one frozen forward (blocks 13->39) over all views, and log-cosh-match the
   # out_layer [19,27,33,39] features vs the GT decode. 0 = off (no-op).

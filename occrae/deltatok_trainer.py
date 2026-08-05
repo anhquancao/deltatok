@@ -553,22 +553,19 @@ class DeltaTokTrainer(DeltaTokSharedMixin, Trainer):
         if self.is_master:
             print(f"Init DeltaTok tokenizer on [GPU{rank}]")
 
-        # Gradient accumulation is derived, not configured:
-        # effective_bsize = world_size * bsize * pairs_per_seq * grad_cum.
+        # Gradient accumulation: effective_bsize = world_size * bsize * grad_cum.
         bsize = int(self.cfg.training.bsize)
-        pairs_per_seq = int(self.cfg.training.get("pairs_per_seq", 0))
-        assert pairs_per_seq > 0, "training.pairs_per_seq must be > 0 to derive grad_cum"
         effective_bsize = int(self.cfg.training.effective_bsize)
-        denom = self.world_size * bsize * pairs_per_seq
+        denom = self.world_size * bsize
         assert effective_bsize % denom == 0, (
             f"training.effective_bsize={effective_bsize} must be divisible by "
-            f"world_size * bsize * pairs_per_seq = "
-            f"{self.world_size} * {bsize} * {pairs_per_seq} = {denom}"
+            f"world_size * bsize = {self.world_size} * {bsize} = {denom}"
         )
         self.grad_cum = effective_bsize // denom
+        self._max_gap = int(self.cfg.training.get("max_gap", 1))
         if self.is_master:
             print(f"effective_bsize={effective_bsize} = {self.world_size} rank(s) "
-                  f"x bsize {bsize} x pairs_per_seq {pairs_per_seq} x grad_cum {self.grad_cum}")
+                  f"x bsize {bsize} x grad_cum {self.grad_cum}, max_gap={self._max_gap}")
 
         # DeltaTok needs the OccRAE backbone's hidden_size / num_heads / patch_size
         # at construction time, so build the shared frozen encoder first.
@@ -641,47 +638,22 @@ class DeltaTokTrainer(DeltaTokSharedMixin, Trainer):
                 print(f"[warn] {prefix}/Z*: {s['rows']} pooled rows < Cz={s['cz']}; "
                       f"skipping (raise training.eval_num_items)", flush=True)
             return
-        # The first four are scale-invariant -> comparable across runs; the last three
-        # describe where z sits, which _nozn leaves free (only SIGReg pins it).
         it = self.cfg.training.iter
-        # Effective dims used, top-heavy weighting. Rises = code spreading. 1 = collapsed.
         self.log_add_scalar(f'{prefix}/ZPartRank', s["part_rank"], it)
-        # Same, weighting the weak tail more; PR moving alone means only the top flattened.
-        self.log_add_scalar(f'{prefix}/ZEntRank', s["ent_rank"], it)
-        # Axes needed for 90% of the variance -- the most literal "dims actually used".
-        self.log_add_scalar(f'{prefix}/ZN90', s["n90"], it)
-        # Variance share of the single strongest axis. Falls = no dominant direction.
-        self.log_add_scalar(f'{prefix}/ZTop1Share', s["top1_share"], it)
-        # trace(cov). Scale, not spread: free to drift under _nozn, so read it only
-        # against itself (a blow-up shows here first).
         self.log_add_scalar(f'{prefix}/ZTotalVar', s["total_var"], it)
-        # Mean per-row mean(z^2): 1.0 == unit-RMS rows, the N(0,I) scale SIGReg targets.
         self.log_add_scalar(f'{prefix}/ZRowMeanSquare', s["row_mean_square"], it)
-        # Largest per-channel mean: 0 == centered. Drift here is off-origin collapse.
         self.log_add_scalar(f'{prefix}/ZMeanAbsMax', s["mean_abs_max"], it)
-        # Row-scale spread. ZRowMeanSquare is a mean and hides a tail; these do not.
-        # Tail = p99/p50 of mean(z^2): 1.0 under z_norm=true, free (and MSE-dominating
-        # when large) under _nozn. Row-norm ratio is sqrt of it.
-        self.log_add_scalar(f'{prefix}/ZRowMsP50', s["row_ms_p50"], it)
-        self.log_add_scalar(f'{prefix}/ZRowMsP99', s["row_ms_p99"], it)
-        self.log_add_scalar(f'{prefix}/ZRowMsMax', s["row_ms_max"], it)
-        self.log_add_scalar(f'{prefix}/ZRowMsTail', s["row_ms_tail"], it)
-        # Share of the summed row mean-square in the top 1% of rows (0.01 == no tail).
-        self.log_add_scalar(f'{prefix}/ZRowMsTop1Pct', s["row_ms_top1pct"], it)
-        # No TensorBoard (e.g. --eval-only): echo instead of silently dropping the run's
-        # whole float64 accumulation. Mirrors the per-loader metrics below.
         if self.writer is None and self.is_master:
             print(f"[{prefix}] rows={s['rows']} Cz={s['cz']} "
-                  f"ZPartRank={s['part_rank']:.1f} ZEntRank={s['ent_rank']:.1f} "
-                  f"ZN90={s['n90']} ZTop1Share={s['top1_share']:.4f} "
-                  f"ZTotalVar={s['total_var']:.4f} ZRowMeanSquare={s['row_mean_square']:.4f} "
+                  f"ZPartRank={s['part_rank']:.1f} ZTotalVar={s['total_var']:.4f} "
+                  f"ZRowMeanSquare={s['row_mean_square']:.4f} "
                   f"ZMeanAbsMax={s['mean_abs_max']:.4f}", flush=True)
 
     def _sigreg_pooled(self, z: torch.Tensor):
         """(live, pool, scale): SIGReg's live + queued rows, and its gradient rescale.
 
         One micro-batch on one rank is only L = M*N*K = 128..256 rows of dim Cz
-        (M = bsize * pairs_per_seq = 2, N = 1..2 cameras, K = 64) -- far too few for a
+        (M = bsize, N = 1..2 cameras, K = 64) -- far too few for a
         Cz-dim isotropy test, whose finite-sample floor at L=128 buries the collapse
         signal. Hence a FIFO queue of detached rows, fired EVERY micro-batch alongside
         the live ones: the term then sits in every backward like the recon loss, so the
@@ -1015,37 +987,15 @@ class DeltaTokTrainer(DeltaTokSharedMixin, Trainer):
             imgs = batch["imgs"].to(self.device, non_blocking=True)
             num_cameras = batch.get("num_cameras", 1)
 
-            # Keep `pairs_per_seq` transitions PER sequence (not per micro-batch total), so
-            # the pairs used == bsize * pairs_per_seq and match the grad_cum accounting
-            # (effective_bsize = world_size * bsize * pairs_per_seq * grad_cum).
-            # B=bsize, T=timesteps, N=cameras, P=patches/view.
-            pairs_per_seq = int(self.cfg.training.get("pairs_per_seq", 0))
-            w_feat = float(self.cfg.training.get("feature_loss_weight", 0.0))
-            B = imgs.shape[0]                                   # sequences in this micro-batch
-            T_minus_1 = imgs.shape[1] // num_cameras - 1        # transitions per seq (T-1), uniform across the batch
-            keep = None                                         # None == every transition kept
-            if 0 < pairs_per_seq < T_minus_1:
-                # Sample without replacement, independently per sequence: argsort of random
-                # keys is a random permutation, and its prefix is the sample.
-                rand_keys = torch.rand(B, T_minus_1, device=imgs.device)     # (B, T-1)
-                keep = rand_keys.argsort(dim=1)[:, :pairs_per_seq]           # (B, pairs_per_seq) transition idx
-
-            # The feature loss reads every view's tokens (it runs blocks 13->39 over all V),
-            # so it needs the full encode. Without it only the kept pairs matter, and the
-            # frozen backbone can skip the other timesteps (2 of T instead of T).
-            encode_all_views = w_feat > 0
-            tokens, _feats, x_prev, x, H, W = self._extract_pair_feats(
-                imgs, num_cameras=num_cameras, pair_t=None if encode_all_views else keep,
+            # One pair per sequence: sample gap ~ U[1, max_gap], then a random start.
+            B = imgs.shape[0]
+            T = imgs.shape[1] // num_cameras
+            assert self._max_gap < T, f"max_gap={self._max_gap} >= num_timesteps={T}"
+            gap = int(torch.randint(1, self._max_gap + 1, ()).item()) if self._max_gap > 1 else 1
+            pair_t = torch.randint(0, T - gap, (B, 1), device=imgs.device)  # pair_t + gap < T
+            _, _, x_prev, x, H, W = self._extract_pair_feats(
+                imgs, num_cameras=num_cameras, pair_t=pair_t, gap=gap,
             )
-
-            # A full encode returns all B*(T-1) pairs, so drop the unkept rows here instead.
-            # x_prev is (B*(T-1), N, P, C) batch-major: row b*(T-1)+t is seq b, transition t.
-            idx = None                                          # row index into the full pair set
-            if encode_all_views and keep is not None:
-                seq_offset = torch.arange(B, device=x_prev.device) * T_minus_1  # (B,)
-                idx = (seq_offset[:, None] + keep).reshape(-1)  # (B*pairs_per_seq,) rows to keep
-                x_prev = x_prev[idx]
-                x = x[idx]
 
             w_bneck = float(self.cfg.training.get("bottleneck_recon_weight", 0.0))
             need_bneck = w_bneck > 0 and self._unwrapped_tokenizer().z_proj_down is not None
@@ -1061,15 +1011,7 @@ class DeltaTokTrainer(DeltaTokSharedMixin, Trainer):
             with torch.autocast(device_type="cuda", enabled=False):
                 loss = _log_cosh(x_hat.float(), x.detach().float()).mean()
 
-            # Optional downstream DA3 feature loss: insert the predicted frames back among the
-            # GT OccAny tokens, run one forward over all V views (blocks 13->39), and match the
-            # predicted frames' out_layer features vs the pure-GT decode. 0 weight == no-op.
-            if w_feat > 0:
-                loss_feat = self._feature_loss(tokens, x_hat, B, T_minus_1, idx, num_cameras, H, W)
-                loss_total = loss + w_feat * loss_feat
-            else:
-                loss_feat = None
-                loss_total = loss
+            loss_total = loss
 
             # Optional bottleneck round-trip loss: make z_proj_up(z_proj_down(z)) reconstruct the
             # full 1536-d code. The decoder recon only supervises the pair through 12 more blocks,
@@ -1146,7 +1088,6 @@ class DeltaTokTrainer(DeltaTokSharedMixin, Trainer):
 
                     self.log_add_scalar('Train/LearningRate', self.optim.param_groups[0]['lr'], self.cfg.training.iter)
                     self.log_add_scalar('Train/LossRecon', loss, self.cfg.training.iter)
-                    self.log_add_scalar('Train/LossFeature', loss_feat if loss_feat is not None else 0.0, self.cfg.training.iter)
                     self.log_add_scalar('Train/LossSIGReg', loss_sigreg if loss_sigreg is not None else 0.0, self.cfg.training.iter)
                     self.log_add_scalar('Train/LossBneck', loss_bneck if loss_bneck is not None else 0.0, self.cfg.training.iter)
                     self.log_add_scalar('Train/LossTot', mini_batch_loss, self.cfg.training.iter)

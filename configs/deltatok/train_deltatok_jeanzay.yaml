@@ -60,10 +60,8 @@ training:
   epoch: 100
   max_iter: 112500
   save_ckpt_every_n_epochs: 10   # permanent epoch_<N>.pth snapshot every 10 epochs (-> 10,20,...,100)
-  # bsize 2 + pairs_per_seq 1: forward 2 sequences (one frame-pair each) per rank.
-  # 4 GPU x bsize 2 x pairs_per_seq 1 = 8; effective_bsize 16 / 8 -> grad_cum 2.
+  # 4 GPU x bsize 2 = 8; effective_bsize 16 / 8 -> grad_cum 2.
   bsize: 2
-  pairs_per_seq: 1
   # gpu_p6 gives 24 cpus/task; the base 4 workers starve the GPU on JZ
   # (see train_deltatok_flow_jeanzay.yaml). 12 keeps prefetch RAM in budget.
   num_workers: 12

@@ -60,10 +60,8 @@ training:
   epoch: 100
   max_iter: 112500
   save_ckpt_every_n_epochs: 10   # permanent epoch_<N>.pth snapshot every 10 epochs (-> 10,20,...,100)
-  # bsize 4 + pairs_per_seq 1: forward 4 sequences (one frame-pair each) per rank.
-  # 4 GPU x bsize 4 x pairs_per_seq 1 = 16; effective_bsize 16 / 16 -> grad_cum 1.
+  # 4 GPU x bsize 4 = 16; effective_bsize 16 / 16 -> grad_cum 1.
   bsize: 4
-  pairs_per_seq: 1
   # acc gives 20 cpus/task; the base 4 workers starve the GPU. 10 keeps prefetch
   # RAM in budget while leaving cores for the main proc.
   num_workers: 10

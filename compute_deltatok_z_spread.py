@@ -242,21 +242,17 @@ def summarize(label, s):
     pct = torch.quantile(std, torch.tensor([0.0, 0.01, 0.5, 0.99, 1.0], dtype=torch.float64))
 
     evals, p = s["evals"], s["shares"]                                 # (C,) descending, and their shares
-    tot, pr, ent, n90 = s["total_var"], s["part_rank"], s["ent_rank"], s["n90"]
+    tot, pr = s["total_var"], s["part_rank"]
     n, row_ms = s["rows"], s["row_mean_square"]
-    n99 = int((p.cumsum(0) < 0.99).sum()) + 1                          # 99% companion to n90
+    ent = float(torch.exp(-(p.clamp_min(1e-30) * p.clamp_min(1e-30).log()).sum())) if tot > 0 else 0.0
+    n90 = int((p.cumsum(0) < 0.90).sum()) + 1 if tot > 0 else 0
+    n99 = int((p.cumsum(0) < 0.99).sum()) + 1 if tot > 0 else 0
     lo = float(evals[-1])
 
     print(f"\n===== {label} =====")
     print(f"[SPREAD] rows={n}  Cz={C}  mean row mean-square={row_ms:.4f}  "
           f"|mean| max={s['mean_abs_max']:.4f}  total var={tot:.4f}")
     print(f"[SPREAD] per-channel std: min={smin:.4f} max={smax:.4f} ratio={smax / max(smin, 1e-12):.2f}x")
-    # Row-scale tail. z_norm=true pins every row to unit RMS -> tail 1.00x; these _nozn arms
-    # leave it free, and a large tail means an MSE over these rows is carried by few tokens.
-    print(f"[SPREAD] row mean-square: p50={s['row_ms_p50']:.4f} p90={s['row_ms_p90']:.4f} "
-          f"p99={s['row_ms_p99']:.4f} max={s['row_ms_max']:.4f}  "
-          f"p99/p50={s['row_ms_tail']:.2f}x (norm ratio {s['row_ms_tail'] ** 0.5:.2f}x)  "
-          f"top1%share={s['row_ms_top1pct']:.3f}")
     print(f"[SPREAD] std percentiles: p0={pct[0]:.4f} p1={pct[1]:.4f} p50={pct[2]:.4f} "
           f"p99={pct[3]:.4f} p100={pct[4]:.4f}")
     print(f"[SPREAD] eigenvalues: l1={float(evals[0]):.4f} l_med={float(evals[C // 2]):.6f} "
@@ -277,7 +273,7 @@ def summarize(label, s):
     return {
         "label": label, "C": C, "total_var": tot, "std_ratio": smax / max(smin, 1e-12),
         "pr": pr, "entropy_rank": ent, "n90": n90, "n99": n99,
-        "top1": float(p[0]), "top10": float(p[:10].sum()), "row_ms_tail": s["row_ms_tail"],
+        "top1": float(p[0]), "top10": float(p[:10].sum()),
     }
 
 
@@ -374,16 +370,13 @@ def main() -> None:
 
     print(f"\n===== comparison ({split_label}, {done} batches, {accs[0].n} rows/arm) =====")
     print(f"{'arm':<14} {'totvar':>9} {'stdratio':>9} {'PR':>7} {'entrank':>8} "
-          f"{'n90':>5} {'n99':>5} {'top1':>6} {'top10':>6} {'rowtail':>8}")
+          f"{'n90':>5} {'n99':>5} {'top1':>6} {'top10':>6}")
     for r in reports:
         print(f"{r['label']:<14} {r['total_var']:>9.3f} {r['std_ratio']:>9.2f} {r['pr']:>7.1f} "
               f"{r['entropy_rank']:>8.1f} {r['n90']:>5d} {r['n99']:>5d} {r['top1']:>6.3f} "
-              f"{r['top10']:>6.3f} {r['row_ms_tail']:>7.2f}x")
+              f"{r['top10']:>6.3f}")
     print("[NOTE] higher PR / entrank / n90 / n99 and lower top1, top10, std ratio = "
           "variance spread more evenly across the 768-d budget.")
-    print("[NOTE] rowtail is a different axis: spread ACROSS rows, not across channels. "
-          "1.00x = every row the same scale (what z_norm=true forces); large = an MSE over "
-          "these rows is dominated by a few outlier tokens.")
 
 
 if __name__ == "__main__":

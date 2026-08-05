@@ -1,0 +1,414 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>DeltaTok — random-interval sampling converges ~3× faster than consecutive frames</title>
+<style>
+/* ---------- tokens (shared with the channel-compression / stage-2 decks) ---------- */
+:root{
+  color-scheme: light;
+  --page:#f9f9f7; --surface:#fcfcfb; --ink:#0b0b0b; --ink2:#52514e; --muted:#898781;
+  --grid:#e1e0d9; --axis:#c3c2b7; --border:rgba(11,11,11,.10);
+  --s1:#2a78d6; --s2:#eb6834; --s3:#1baf7a; --s4:#eda100;
+  --s5:#e87ba4; --s6:#008300; --s7:#4a3aa7; --s8:#e34948;
+  --good:#0ca30c; --crit:#d03b3b; --serious:#ec835a;
+  --accent:var(--s1);
+  --serif:"Iowan Old Style","Palatino Linotype",Palatino,Georgia,serif;
+  --sans:system-ui,-apple-system,"Segoe UI",sans-serif;
+  --mono:ui-monospace,"Cascadia Code",Menlo,Consolas,monospace;
+}
+@media (prefers-color-scheme: dark){
+  :root:where(:not([data-theme="light"])){
+    color-scheme: dark;
+    --page:#0d0d0d; --surface:#1a1a19; --ink:#ffffff; --ink2:#c3c2b7; --muted:#898781;
+    --grid:#2c2c2a; --axis:#383835; --border:rgba(255,255,255,.10);
+    --s1:#3987e5; --s2:#d95926; --s3:#199e70; --s4:#c98500;
+    --s5:#d55181; --s6:#008300; --s7:#9085e9; --s8:#e66767;
+  }
+}
+:root[data-theme="dark"]{
+  color-scheme: dark;
+  --page:#0d0d0d; --surface:#1a1a19; --ink:#ffffff; --ink2:#c3c2b7; --muted:#898781;
+  --grid:#2c2c2a; --axis:#383835; --border:rgba(255,255,255,.10);
+  --s1:#3987e5; --s2:#d95926; --s3:#199e70; --s4:#c98500;
+  --s5:#d55181; --s6:#008300; --s7:#9085e9; --s8:#e66767;
+}
+/* ---------- deck chrome ---------- */
+*{box-sizing:border-box;margin:0}
+html,body{height:100%}
+body{background:var(--page);color:var(--ink);font:15px/1.45 var(--sans);overflow:hidden}
+.stage{position:absolute;left:50%;top:50%;width:1280px;height:720px;transform-origin:center center}
+.slide{position:absolute;inset:0;background:var(--surface);border:1px solid var(--border);
+  padding:52px 64px 44px;display:none;flex-direction:column}
+.slide.on{display:flex}
+.eyebrow{font:600 12px/1 var(--mono);letter-spacing:.14em;text-transform:uppercase;color:var(--accent);margin-bottom:14px}
+.eyebrow .dim{color:var(--muted)}
+h1{font:400 46px/1.15 var(--serif);letter-spacing:-.01em;text-wrap:balance}
+h2{font:400 32px/1.2 var(--serif);letter-spacing:-.005em;text-wrap:balance;margin-bottom:6px}
+.sub{color:var(--ink2);font-size:15.5px;max-width:74ch;margin-top:10px}
+.body{flex:1;min-height:0;margin-top:22px}
+.foot{display:flex;justify-content:space-between;align-items:baseline;color:var(--muted);
+  font:11px/1 var(--mono);letter-spacing:.06em;margin-top:16px;border-top:1px solid var(--grid);padding-top:12px}
+.pageno{font-variant-numeric:tabular-nums}
+/* nav */
+.nav{position:fixed;left:50%;bottom:14px;transform:translateX(-50%);display:flex;gap:8px;align-items:center;z-index:5}
+.nav button{width:9px;height:9px;border-radius:50%;border:1px solid var(--muted);background:transparent;cursor:pointer;padding:0}
+.nav button.cur{background:var(--accent);border-color:var(--accent)}
+.nav button:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+.arr{position:fixed;top:50%;transform:translateY(-50%);z-index:5;border:1px solid var(--border);
+  background:var(--surface);color:var(--ink2);width:34px;height:56px;cursor:pointer;font-size:18px;border-radius:4px}
+.arr:hover{color:var(--ink)}
+#prev{left:10px}#next{right:10px}
+/* ---------- shared bits ---------- */
+.mono{font-family:var(--mono)}
+.num{font-variant-numeric:tabular-nums}
+.chip{display:inline-block;font:600 10.5px/1 var(--mono);letter-spacing:.05em;padding:4px 7px;border-radius:3px;
+  border:1px solid var(--border);white-space:nowrap}
+.chip.good{color:var(--good);border-color:currentColor}
+.chip.wall{color:var(--serious);border-color:currentColor}
+.chip.dead{color:var(--crit);border-color:currentColor}
+.chip.hero{color:var(--accent);border-color:currentColor}
+.sw{display:inline-block;width:10px;height:10px;border-radius:2px;vertical-align:-1px}
+.cols{display:grid;gap:30px;min-height:0}
+.c2{grid-template-columns:1fr 1fr}
+.c58{grid-template-columns:1.25fr 1fr}
+.c52{grid-template-columns:1fr 1.1fr}
+.card{border:1px solid var(--grid);border-radius:6px;padding:15px 17px;background:var(--page)}
+.card h3{font:600 14px/1.3 var(--sans);margin:6px 0}
+.card .tag{font:600 10px/1 var(--mono);letter-spacing:.1em;text-transform:uppercase;color:var(--muted)}
+ul.tight{padding-left:18px;display:flex;flex-direction:column;gap:8px;font-size:14px;color:var(--ink2)}
+ul.tight li{padding-left:2px}
+ul.tight strong{color:var(--ink);font-weight:600}
+table{border-collapse:collapse;width:100%;font-size:12.5px}
+th{font:600 10.5px/1.3 var(--mono);letter-spacing:.08em;text-transform:uppercase;color:var(--muted);
+  text-align:left;padding:6px 10px;border-bottom:1px solid var(--axis)}
+td{padding:6px 10px;border-bottom:1px solid var(--grid);color:var(--ink2);vertical-align:top}
+td.n,th.n{text-align:right;font-variant-numeric:tabular-nums}
+td b{color:var(--ink);font-weight:600}
+tr.hl td{background:color-mix(in srgb,var(--s1) 9%,transparent)}
+/* lineage ladder */
+.ladder{display:flex;flex-direction:column;margin-top:4px}
+.lrow{display:grid;grid-template-columns:22px 232px 1fr 150px;gap:14px;align-items:center;
+  padding:9px 10px;border-bottom:1px solid var(--grid);font-size:13.5px}
+.lrow:first-child{border-top:1px solid var(--grid)}
+.lrow .rn{font:600 13px/1.3 var(--mono);color:var(--ink)}
+.lrow .dx{color:var(--ink2)}
+.lrow .st{text-align:right}
+/* stat tiles */
+.tiles{display:grid;gap:13px}
+.tile{border:1px solid var(--grid);border-radius:6px;padding:13px 15px;background:var(--page)}
+.tile .v{font:600 26px/1.1 var(--sans);letter-spacing:-.01em;font-variant-numeric:tabular-nums}
+.tile .k{font:600 10px/1.4 var(--mono);letter-spacing:.1em;text-transform:uppercase;color:var(--muted);margin-bottom:6px}
+.tile .d{font-size:12.5px;color:var(--ink2);margin-top:6px}
+.rulebar{border:1px dashed var(--axis);border-radius:6px;padding:11px 15px;font-size:13.5px;color:var(--ink2);margin-top:12px}
+.rulebar b{color:var(--ink)}
+.formula{font:italic 20px/1.5 var(--serif);color:var(--ink);text-align:center;padding:10px 0 8px}
+.codeline{font:12.5px/1.6 var(--mono);color:var(--ink2);background:var(--page);border:1px solid var(--grid);
+  border-radius:6px;padding:11px 14px;white-space:pre;overflow-x:auto}
+.codeline .old{color:var(--crit);text-decoration:line-through}
+.codeline .new{color:var(--good)}
+.codeline .cm{color:var(--muted)}
+/* sampler diagram */
+.samp{display:flex;flex-direction:column;gap:7px}
+.samprow{display:grid;grid-template-columns:108px 1fr;gap:12px;align-items:center}
+.samprow .lab{font:600 12px/1.3 var(--sans)}
+.samprow .lab .s{font:10.5px/1.3 var(--mono);color:var(--muted);display:block}
+.track{display:flex;gap:4px;align-items:center}
+.cell{flex:1;height:26px;border:1px solid var(--grid);border-radius:3px;background:var(--page)}
+.cell.pick{background:color-mix(in srgb,var(--s1) 22%,var(--page));border-color:var(--s1)}
+.cell.pick2{background:color-mix(in srgb,var(--s2) 22%,var(--page));border-color:var(--s2)}
+/* charts */
+.chartwrap{position:relative}
+.legend{display:flex;flex-wrap:wrap;gap:6px 16px;font:12px/1 var(--sans);color:var(--ink2);margin-bottom:6px}
+.legend span{display:inline-flex;gap:6px;align-items:center}
+svg text{font:10.5px var(--sans);fill:var(--muted)}
+svg .barlbl{font:600 12px var(--sans);fill:var(--ink)}
+svg .barval{font:11px var(--mono);fill:var(--ink2)}
+svg .hll{font:10px var(--mono)}
+svg .axl{font:10px var(--mono);fill:var(--muted)}
+svg .mk{font:600 10px var(--sans)}
+.slide kbd{font:11px var(--mono);border:1px solid var(--axis);border-radius:3px;padding:1px 5px;color:var(--ink2)}
+.takeaway{border:1px solid var(--grid);border-radius:6px;padding:14px 16px;background:var(--page);display:flex;gap:12px;align-items:flex-start}
+.takeaway .n{font:600 22px/1 var(--serif);color:var(--accent);flex:0 0 auto;width:26px}
+.takeaway .tx{font-size:13.5px;color:var(--ink2)}
+.takeaway .tx b{color:var(--ink)}
+@media (prefers-reduced-motion: no-preference){
+  .slide.on{animation:fadein .18s ease}
+  @keyframes fadein{from{opacity:.4}to{opacity:1}}
+}
+@media print{
+  body{overflow:visible;background:#fff}
+  .stage{position:static;transform:none!important;width:auto;height:auto}
+  .slide{display:flex;position:static;width:1280px;height:720px;page-break-after:always;margin:0 auto}
+  .nav,.arr{display:none}
+}
+</style>
+</head>
+<body>
+<div class="stage" id="stage">
+
+<!-- ============ SLIDE 1 — title + headline ============ -->
+<section class="slide on">
+  <div class="eyebrow">DeltaTok tokenizer <span class="dim">— layer-12 surround · BSC · branch <span class="mono">revert</span></span></div>
+  <h1>How you sample time is a 3× convergence knob</h1>
+  <p class="sub">Two DeltaTok runs, <strong>identical in every hyperparameter</strong> — <span class="mono">dtok64 · tc1536 · nozn · vpt1to2 · nosigreg</span> —
+    differ in one word: how the 5 timesteps in each training item are chosen. Feeding the tokenizer
+    <strong>consecutive</strong> frames instead of a <strong>random-interval</strong> spread costs ~<b>3×</b> in convergence speed.</p>
+  <div class="body">
+    <div class="ladder">
+      <div class="lrow"><span class="sw" style="background:var(--s1)"></span><span class="rn">…nozn_randint5_…_nosigreg</span><span class="dx">5 timesteps spread across the record — <b>large, varied deltas</b></span><span class="st"><span class="chip hero">Eval 0.0292 @ ep8.5</span></span></div>
+      <div class="lrow"><span class="sw" style="background:var(--s2)"></span><span class="rn">…nozn_consec5_…_nosigreg</span><span class="dx">5 <b>adjacent</b> frames at a random offset — tiny deltas</span><span class="st"><span class="chip" style="color:var(--s2);border-color:currentColor">Eval 0.0862 @ ep8.5</span></span></div>
+    </div>
+    <div class="cols" style="grid-template-columns:1fr 1fr 1fr;margin-top:18px">
+      <div class="tile"><div class="k">Matched epoch 8.5</div><div class="v" style="color:var(--good)">2.96×</div><div class="d">Eval/Loss <b>0.0292</b> (random) vs <b>0.0862</b> (consecutive) — same iters, same eval.</div></div>
+      <div class="tile"><div class="k">Time to consec's best</div><div class="v">4.0 <span style="font-size:15px;color:var(--muted)">vs 8.5 ep</span></div><div class="d">Random reaches consecutive's 8.5-epoch loss in <b>~4 epochs</b>, then keeps going.</div></div>
+      <div class="tile"><div class="k">Random's floor · ep50</div><div class="v" style="color:var(--good)">0.0158</div><div class="d"><b>5.5×</b> below where consecutive was still stalling when it was stopped.</div></div>
+    </div>
+    <p class="sub" style="margin-top:14px;font-size:13.5px"><kbd>←</kbd> <kbd>→</kbd> to navigate · BSC arms on branch <span class="mono">revert</span>; only <span class="mono">timestep_sampling</span> differs · eval held identical.</p>
+  </div>
+  <div class="foot"><span>DeltaTok · sampling &amp; convergence</span><span>one word, 3× slower</span><span class="pageno">1</span></div>
+</section>
+
+<!-- ============ SLIDE 2 — the mechanism ============ -->
+<section class="slide">
+  <div class="eyebrow">Why <span class="dim">— DeltaTok is a <em>delta</em> tokenizer; consecutive frames starve it</span></div>
+  <h2>Adjacent frames barely change — so there's almost nothing to tokenize</h2>
+  <p class="sub">The only change is <span class="mono">timestep_sampling</span> in <span class="mono">base_seq_dataset.py</span>. <b>Consecutive</b> draws one contiguous run
+    <span class="mono">t … t+4</span>; frames are near-duplicates, so the inter-frame delta the tokenizer must encode is tiny and low-rank.
+    <b>Random</b> draws 5 timesteps spread across the whole record — large, varied deltas, the regime the old pair-slice arm trained on.</p>
+  <div class="body cols c52">
+    <div>
+      <div class="samp">
+        <div class="samprow"><div class="lab" style="color:var(--s2)">consecutive<span class="s">consec5 · tiny Δ</span></div>
+          <div class="track"><div class="cell"></div><div class="cell"></div><div class="cell pick2"></div><div class="cell pick2"></div><div class="cell pick2"></div><div class="cell pick2"></div><div class="cell pick2"></div><div class="cell"></div><div class="cell"></div><div class="cell"></div></div></div>
+        <div class="samprow"><div class="lab" style="color:var(--s1)">random<span class="s">randint5 · large Δ</span></div>
+          <div class="track"><div class="cell pick"></div><div class="cell"></div><div class="cell"></div><div class="cell pick"></div><div class="cell"></div><div class="cell pick"></div><div class="cell"></div><div class="cell"></div><div class="cell pick"></div><div class="cell pick"></div></div></div>
+        <div class="samprow"><div class="lab" style="color:var(--muted);font-weight:400">record<span class="s">timesteps →</span></div>
+          <div class="track" style="color:var(--muted);font:10px var(--mono)">a contiguous run vs an irregular spread over the same clip</div></div>
+      </div>
+      <div class="codeline" style="margin-top:16px"><span class="cm"># base_seq_dataset.py — the whole diff is the branch</span>
+<span class="old">start = rng.integers(0, avail - n + 1)</span>          <span class="cm"># consecutive ✗</span>
+<span class="old">chosen_t = range(start, start + n)</span>
+<span class="new">chosen_t = sorted(rng.choice(avail, n, replace=False))</span>  <span class="cm"># random ✓</span>
+<span class="cm"># times = actual_t - t0  → real gaps are preserved as labels</span></div>
+    </div>
+    <div>
+      <div class="card" style="border-left:3px solid var(--s2)">
+        <div class="tag">The trap · degenerate signal</div>
+        <h3>Small deltas = little to learn per step</h3>
+        <p style="font-size:13px;color:var(--ink2)">Consecutive frames in these 10-Hz clips move a few cm. The delta code has to represent almost-nothing, so gradients are weak and the tokenizer inches forward — the loss drifts down roughly linearly instead of dropping.</p>
+      </div>
+      <div class="card" style="border-left:3px solid var(--s1);margin-top:13px">
+        <div class="tag">The fix · restore the large-delta regime</div>
+        <h3>Varied gaps give a rich target</h3>
+        <p style="font-size:13px;color:var(--ink2)">Spreading the 5 timesteps yields big, diverse motion between frames — exactly what a delta tokenizer needs to see to learn structure. Same data, same rig, same cameras; only <em>which</em> timesteps get drawn changes.</p>
+      </div>
+      <div class="rulebar" style="margin-top:13px"><b>Fair by construction:</b> the change is train-only — <span class="mono">test_dataset</span> stays <em>consecutive</em> for both arms, so Eval is identical. Random even <em>trains</em> on the harder distribution yet wins on consecutive's home turf.</div>
+    </div>
+  </div>
+  <div class="foot"><span>timestep_sampling: consecutive → random</span><span>a delta tokenizer needs deltas</span><span class="pageno">2</span></div>
+</section>
+
+<!-- ============ SLIDE 3 — the convergence gap (hero chart) ============ -->
+<section class="slide">
+  <div class="eyebrow">The evidence <span class="dim">— matched-epoch Eval/Loss, identical eval set</span></div>
+  <h2>Same iterations, ~3× apart — and consecutive never breaks away</h2>
+  <p class="sub">Held-out <span class="mono">Eval/Loss</span> (KITTI + Occ3D-nuScenes), every half epoch. Both curves start together near 0.12. Random
+    <b>breaks away at ~epoch 3</b> and drops steeply; consecutive keeps drifting down almost linearly. At the point consecutive was stopped
+    (ep 8.5, 0.0862), random had already been there <b>since epoch 4</b>.</p>
+  <div class="body cols c58">
+    <div>
+      <div class="legend" id="lgConv"></div>
+      <div class="chartwrap"><div id="chConv"></div></div>
+    </div>
+    <div>
+      <div class="tiles">
+        <div class="tile"><div class="k">Eval/Loss @ ep 8.5</div><div class="v"><span style="color:var(--s1)">0.0292</span> <span style="font-size:16px;color:var(--muted)">vs</span> <span style="color:var(--s2)">0.0862</span></div><div class="d"><b>2.96×</b> lower on the exact same 19,125 iterations and the same held-out eval.</div></div>
+        <div class="tile"><div class="k">Crossover</div><div class="v">ep 4.0</div><div class="d">Random hits <b>0.0855</b> — matching consecutive's <em>final</em> value — at less than half the epochs, and keeps falling.</div></div>
+        <div class="tile"><div class="k">Shape of the curve</div><div class="v">linear <span style="font-size:15px;color:var(--muted)">vs</span> knee</div><div class="d">Consecutive drifts ~linearly (still −0.013/2 ep at the end); random shows a clear convergence knee.</div></div>
+      </div>
+      <div class="rulebar" style="margin-top:13px"><b>Not an eval artifact:</b> training loss splits the same way — mean <span class="mono">LossTot</span> at ep 8 is <b>0.067</b> (consec) vs <b>0.025</b> (random). Consecutive isn't over-fitting; it's under-fed.</div>
+    </div>
+  </div>
+  <div class="foot"><span>Eval/Loss · KITTI+nuScenes · held out</span><span>random reaches consec's best in &lt;½ the epochs</span><span class="pageno">3</span></div>
+</section>
+
+<!-- ============ SLIDE 4 — it's the code, every sub-metric ============ -->
+<section class="slide">
+  <div class="eyebrow">It's not one number <span class="dim">— every sub-metric, and the code itself</span></div>
+  <h2>At matched epoch 8.5, consecutive lags on everything</h2>
+  <p class="sub">The gap isn't a quirk of the aggregate loss — it holds across reconstruction, pointmap and depth on <em>both</em> datasets.
+    Most telling: the latent code. Consecutive's participation ratio has barely left <b>rank ~2–3</b>, while random already spans <b>~35 directions</b> —
+    the consecutive tokenizer has learned almost nothing structured to encode.</p>
+  <div class="body cols c58">
+    <div>
+      <table>
+        <thead><tr><th>Metric @ ep 8.5</th><th class="n" style="color:var(--s2)">consec5</th><th class="n" style="color:var(--s1)">randint5</th><th class="n">gap</th></tr></thead>
+        <tbody>
+          <tr class="hl"><td><b>Eval/Loss</b> · combined</td><td class="n">0.0862</td><td class="n"><b>0.0292</b></td><td class="n">2.96×</td></tr>
+          <tr><td>LossRecon · KITTI</td><td class="n">0.1039</td><td class="n"><b>0.0340</b></td><td class="n">3.05×</td></tr>
+          <tr><td>LossRecon · nuScenes</td><td class="n">0.0686</td><td class="n"><b>0.0244</b></td><td class="n">2.81×</td></tr>
+          <tr><td>Pointmap · KITTI <span class="mono" style="color:var(--muted)">Pred·GT</span></td><td class="n">3.495</td><td class="n"><b>2.404</b></td><td class="n">1.45×</td></tr>
+          <tr><td>Depth · KITTI <span class="mono" style="color:var(--muted)">Pred·GT</span></td><td class="n">2.212</td><td class="n"><b>1.628</b></td><td class="n">1.36×</td></tr>
+          <tr class="hl"><td><b>ZPartRank</b> · KITTI <span class="mono" style="color:var(--muted)">/768</span></td><td class="n">2.68</td><td class="n"><b>35.2</b></td><td class="n">13×</td></tr>
+        </tbody>
+      </table>
+      <p class="sub" style="margin-top:8px;font-size:12px">All at iter 19,125 (ep 8.5), the last checkpoint consecutive reached. Lower is better except ZPartRank (higher = more of the code used).</p>
+    </div>
+    <div>
+      <div class="card" style="border-left:3px solid var(--s2)">
+        <div class="tag">The tell · latent rank</div>
+        <h3>Consecutive's code is near-collapsed</h3>
+        <p style="font-size:13px;color:var(--ink2)">With tiny deltas there's little to spread over dimensions: PR sits at <b>1.3 (ep4) → 2.7 (ep8.5)</b>. Random's rises to <b>~35</b> as it encodes real motion. A rank-2 code is a symptom of a tokenizer with nothing to say.</p>
+      </div>
+      <div class="rulebar" style="margin-top:13px"><b>Honest note:</b> random's ZPartRank at ep 8.5 is a transient peak — it consolidates to ~12 by ep 50 as training settles. The <em>matched-epoch</em> contrast (2.7 vs 35) is the fair read; the point is that consecutive never leaves the floor.</div>
+      <div class="rulebar" style="margin-top:11px"><b>SIGReg is off in both</b> (<span class="mono">nosigreg</span>), so this spread gap is pure signal from the data, not a regularizer — isolating the sampling effect cleanly.</div>
+    </div>
+  </div>
+  <div class="foot"><span>matched ep 8.5 · KITTI+nuScenes · nosigreg</span><span>recon, geometry, and code rank all lag</span><span class="pageno">4</span></div>
+</section>
+
+<!-- ============ SLIDE 5 — where random lands + takeaways ============ -->
+<section class="slide">
+  <div class="eyebrow">The full picture <span class="dim">— random keeps converging; consecutive was stopped</span></div>
+  <h2>Random settles at 0.0158; consecutive stalled 5.5× higher</h2>
+  <p class="sub">Extended to 50 epochs, random-interval sampling converges smoothly to <b>Eval 0.0158</b>. Consecutive was halted at ep 8.5,
+    still drifting at 0.0862 with no knee in sight — a fair extrapolation of its slope needs dozens more epochs just to reach random's ep-8 value.</p>
+  <div class="body cols c58">
+    <div>
+      <div class="legend" id="lgFull"></div>
+      <div class="chartwrap"><div id="chFull"></div></div>
+    </div>
+    <div class="body" style="display:flex;flex-direction:column;gap:11px;margin-top:0">
+      <div class="takeaway"><div class="n">1</div><div class="tx"><b>Sampling is a first-order knob.</b> Same net, same data, same eval — swapping consecutive frames for a random-interval spread buys ~<b>3×</b> convergence and a <b>5.5×</b> lower floor. It's the difference between a delta tokenizer seeing deltas or near-duplicates.</div></div>
+      <div class="takeaway"><div class="n">2</div><div class="tx"><b>The mechanism is the delta.</b> Consecutive frames move a few cm, so the code stays near rank-2 and the loss drifts linearly. Large, varied gaps restore the pair-slice regime the tokenizer was designed for.</div></div>
+      <div class="takeaway"><div class="n">→</div><div class="tx"><b>Default it on.</b> <span class="mono">timestep_sampling='random'</span> is now the training default for these arms; <span class="mono">test_dataset</span> stays consecutive so eval stays comparable across the whole sweep.</div></div>
+    </div>
+  </div>
+  <div class="foot"><span>Eval/Loss to ep50 · random 0.0158 vs consec 0.0862 (ep8.5)</span><span>keep the deltas large</span><span class="pageno">5</span></div>
+</section>
+
+</div><!-- /stage -->
+
+<button class="arr" id="prev" aria-label="Previous">‹</button>
+<button class="arr" id="next" aria-label="Next">›</button>
+<div class="nav" id="nav" role="tablist" aria-label="Slides"></div>
+
+<script>
+/* ---------- deck nav ---------- */
+const stage=document.getElementById("stage");
+const slides=[...document.querySelectorAll(".slide")];
+const nav=document.getElementById("nav");
+let cur=0;
+slides.forEach((_,i)=>{
+  const b=document.createElement("button");
+  b.setAttribute("role","tab");b.setAttribute("aria-label","Slide "+(i+1));
+  b.addEventListener("click",()=>go(i));
+  nav.appendChild(b);
+});
+function go(i){
+  cur=Math.max(0,Math.min(slides.length-1,i));
+  slides.forEach((s,j)=>s.classList.toggle("on",j===cur));
+  [...nav.children].forEach((b,j)=>b.classList.toggle("cur",j===cur));
+}
+document.getElementById("prev").addEventListener("click",()=>go(cur-1));
+document.getElementById("next").addEventListener("click",()=>go(cur+1));
+addEventListener("keydown",e=>{
+  if(["ArrowRight","PageDown"," "].includes(e.key)){go(cur+1);e.preventDefault();}
+  else if(["ArrowLeft","PageUp"].includes(e.key)){go(cur-1);e.preventDefault();}
+  else if(e.key==="Home")go(0);
+  else if(e.key==="End")go(slides.length-1);
+});
+go(0);
+/* ---------- auto-scale ---------- */
+function fit(){
+  const s=Math.min(innerWidth/1300,(innerHeight-40)/730);
+  stage.style.transform=`translate(-50%,-50%) scale(${Math.min(s,1.4)})`;
+}
+addEventListener("resize",fit);fit();
+
+/* ---------- CSS var resolver (for SVG fills) ---------- */
+const CV=n=>getComputedStyle(document.documentElement).getPropertyValue(n).trim();
+
+/* ---------- multi-series line chart (epoch-indexed, with x0/dx + marks) ---------- */
+function lineChart(el,cfg){
+  const W=600,H=312,L=54,R=132,T=12,B=32, iw=W-L-R, ih=H-T-B;
+  const {ymin,ymax,yticks,xmax,xticks}=cfg;
+  const x0=cfg.x0??0, dx=cfg.dx??1;
+  const X=e=>L+iw*(e/xmax);                 // e in epoch units
+  const Xi=i=>X(x0+i*dx);
+  const Y=v=>T+ih*(1-(Math.min(Math.max(v,ymin),ymax)-ymin)/(ymax-ymin));
+  let s=`<svg viewBox="0 0 ${W} ${H}" width="100%" preserveAspectRatio="xMinYMin meet">`;
+  // y grid + ticks
+  yticks.forEach(t=>{const y=Y(t);
+    s+=`<line x1="${L}" y1="${y}" x2="${L+iw}" y2="${y}" stroke="${CV('--grid')}"/>`;
+    s+=`<text x="${L-7}" y="${y+3}" text-anchor="end" class="axl">${t.toFixed(3)}</text>`;});
+  // x ticks
+  xticks.forEach(t=>{const x=X(t);
+    s+=`<text x="${x}" y="${H-9}" text-anchor="middle" class="axl">${t}</text>`;});
+  // reference horizontal lines
+  (cfg.hlines||[]).forEach(h=>{const y=Y(h.y),c=CV(h.color);
+    s+=`<line x1="${L}" y1="${y}" x2="${L+iw}" y2="${y}" stroke="${c}" stroke-dasharray="5 3" stroke-width="1.2"/>`;
+    s+=`<text x="${L+iw+6}" y="${y-3}" class="hll" fill="${c}">${h.label}</text>`;
+    s+=`<text x="${L+iw+6}" y="${y+9}" class="hll" fill="${c}">${h.y.toFixed(4)}</text>`;});
+  // series
+  cfg.series.forEach(se=>{const c=CV(se.color);
+    const d=se.data.map((v,i)=>`${i?'L':'M'}${Xi(i).toFixed(1)} ${Y(v).toFixed(1)}`).join(' ');
+    s+=`<path d="${d}" fill="none" stroke="${c}" stroke-width="${se.width||2}" ${se.dash?`stroke-dasharray="${se.dash}"`:''}/>`;
+    const lx=Xi(se.data.length-1),ly=Y(se.data[se.data.length-1]);
+    s+=`<circle cx="${lx.toFixed(1)}" cy="${ly.toFixed(1)}" r="2.6" fill="${c}"/>`;});
+  // annotation marks (dot at epoch x, value y, with label)
+  (cfg.marks||[]).forEach(m=>{const x=X(m.x),y=Y(m.y),c=CV(m.color||'--ink');
+    if(m.vline) s+=`<line x1="${x}" y1="${y}" x2="${x}" y2="${T+ih}" stroke="${c}" stroke-dasharray="3 3" stroke-width="1"/>`;
+    s+=`<circle cx="${x}" cy="${y}" r="4" fill="none" stroke="${c}" stroke-width="1.6"/>`;
+    s+=`<circle cx="${x}" cy="${y}" r="1.6" fill="${c}"/>`;
+    const ta=m.anchor||'start', ox=ta==='end'?-8:8;
+    s+=`<text x="${x+ox}" y="${y-8}" text-anchor="${ta}" class="mk" fill="${c}">${m.label}</text>`;});
+  // x axis label
+  s+=`<text x="${L+iw/2}" y="${H-1}" text-anchor="middle" class="axl">epoch</text>`;
+  s+=`</svg>`;
+  el.innerHTML=s;
+}
+
+/* ================= DATA ================= */
+/* Eval/Loss (KITTI+nuScenes, held out), BSC arms, branch revert. Only timestep_sampling differs. */
+// half-epoch cadence, epochs 0.5 .. 8.5 (matched window)
+const CONSEC_H=[0.1205,0.1163,0.1145,0.1152,0.1147,0.1149,0.1142,0.1131,0.1100,0.1091,0.1043,0.1051,0.0995,0.0980,0.0931,0.0902,0.0862];
+const RAND_H  =[0.1201,0.1157,0.1167,0.1139,0.1088,0.1046,0.0960,0.0855,0.0725,0.0577,0.0468,0.0407,0.0367,0.0339,0.0319,0.0304,0.0292];
+// integer epochs 1..8 (consec, stopped) and 1..50 (random, full)
+const CONSEC_F=[0.1163,0.1152,0.1149,0.1131,0.1091,0.1051,0.0980,0.0902];
+const RAND_F  =[0.1157,0.1139,0.1046,0.0855,0.0577,0.0407,0.0339,0.0304,0.0282,0.0262,0.0247,0.0237,0.0227,0.0224,0.0217,0.0211,0.0209,0.0206,0.0199,0.0197,0.0195,0.0195,0.0190,0.0187,0.0185,0.0181,0.0179,0.0178,0.0176,0.0174,0.0173,0.0172,0.0170,0.0168,0.0167,0.0165,0.0164,0.0163,0.0162,0.0162,0.0161,0.0160,0.0160,0.0159,0.0159,0.0159,0.0159,0.0158,0.0158,0.0158];
+
+/* slide 3 — matched-window convergence, epochs 0.5..8.5 */
+lineChart(document.getElementById('chConv'),{
+  ymin:0.025, ymax:0.125, yticks:[0.025,0.050,0.075,0.100,0.125],
+  xmax:8.5, xticks:[0,2,4,6,8], x0:0.5, dx:0.5,
+  hlines:[{y:0.0862,label:'consec stop',color:'--s2'}],
+  series:[
+    {key:'consec',color:'--s2',data:CONSEC_H,width:2.4},
+    {key:'rand', color:'--s1',data:RAND_H, width:2.6},
+  ],
+  marks:[{x:4.0,y:0.0855,label:'random matches it @ ep4',color:'--s1',anchor:'start',vline:true}],
+});
+document.getElementById('lgConv').innerHTML=
+  `<span><span class="sw" style="background:var(--s1)"></span>randint5 (random-interval)</span>`+
+  `<span><span class="sw" style="background:var(--s2)"></span>consec5 (consecutive)</span>`;
+
+/* slide 5 — full trajectory to ep50 */
+lineChart(document.getElementById('chFull'),{
+  ymin:0.010, ymax:0.120, yticks:[0.020,0.040,0.060,0.080,0.100,0.120],
+  xmax:50, xticks:[0,10,20,30,40,50], x0:1, dx:1,
+  hlines:[{y:0.0158,label:'random floor',color:'--s1'}],
+  series:[
+    {key:'consec',color:'--s2',data:CONSEC_F,width:2.4,dash:'6 4'},
+    {key:'rand', color:'--s1',data:RAND_F, width:2.6},
+  ],
+  marks:[{x:8,y:0.0902,label:'consec stopped',color:'--s2',anchor:'start'}],
+});
+document.getElementById('lgFull').innerHTML=
+  `<span><span class="sw" style="background:var(--s1)"></span>randint5 · to ep50 (0.0158)</span>`+
+  `<span><span class="sw" style="background:var(--s2)"></span>consec5 · stopped ep8.5 (0.0862)</span>`;
+</script>
+</body>
+</html>

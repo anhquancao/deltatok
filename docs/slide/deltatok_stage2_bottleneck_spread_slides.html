@@ -1,0 +1,552 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>DeltaTok — SIGReg at 1536, then a stage-2 bottleneck to 768</title>
+<style>
+/* ---------- tokens (shared with the channel-compression deck) ---------- */
+:root{
+  color-scheme: light;
+  --page:#f9f9f7; --surface:#fcfcfb; --ink:#0b0b0b; --ink2:#52514e; --muted:#898781;
+  --grid:#e1e0d9; --axis:#c3c2b7; --border:rgba(11,11,11,.10);
+  --s1:#2a78d6; --s2:#eb6834; --s3:#1baf7a; --s4:#eda100;
+  --s5:#e87ba4; --s6:#008300; --s7:#4a3aa7; --s8:#e34948;
+  --good:#0ca30c; --crit:#d03b3b; --serious:#ec835a;
+  --accent:var(--s1);
+  --serif:"Iowan Old Style","Palatino Linotype",Palatino,Georgia,serif;
+  --sans:system-ui,-apple-system,"Segoe UI",sans-serif;
+  --mono:ui-monospace,"Cascadia Code",Menlo,Consolas,monospace;
+}
+@media (prefers-color-scheme: dark){
+  :root:where(:not([data-theme="light"])){
+    color-scheme: dark;
+    --page:#0d0d0d; --surface:#1a1a19; --ink:#ffffff; --ink2:#c3c2b7; --muted:#898781;
+    --grid:#2c2c2a; --axis:#383835; --border:rgba(255,255,255,.10);
+    --s1:#3987e5; --s2:#d95926; --s3:#199e70; --s4:#c98500;
+    --s5:#d55181; --s6:#008300; --s7:#9085e9; --s8:#e66767;
+  }
+}
+:root[data-theme="dark"]{
+  color-scheme: dark;
+  --page:#0d0d0d; --surface:#1a1a19; --ink:#ffffff; --ink2:#c3c2b7; --muted:#898781;
+  --grid:#2c2c2a; --axis:#383835; --border:rgba(255,255,255,.10);
+  --s1:#3987e5; --s2:#d95926; --s3:#199e70; --s4:#c98500;
+  --s5:#d55181; --s6:#008300; --s7:#9085e9; --s8:#e66767;
+}
+/* ---------- deck chrome ---------- */
+*{box-sizing:border-box;margin:0}
+html,body{height:100%}
+body{background:var(--page);color:var(--ink);font:15px/1.45 var(--sans);overflow:hidden}
+.stage{position:absolute;left:50%;top:50%;width:1280px;height:720px;transform-origin:center center}
+.slide{position:absolute;inset:0;background:var(--surface);border:1px solid var(--border);
+  padding:52px 64px 44px;display:none;flex-direction:column}
+.slide.on{display:flex}
+.eyebrow{font:600 12px/1 var(--mono);letter-spacing:.14em;text-transform:uppercase;color:var(--accent);margin-bottom:14px}
+.eyebrow .dim{color:var(--muted)}
+h1{font:400 46px/1.15 var(--serif);letter-spacing:-.01em;text-wrap:balance}
+h2{font:400 32px/1.2 var(--serif);letter-spacing:-.005em;text-wrap:balance;margin-bottom:6px}
+.sub{color:var(--ink2);font-size:15.5px;max-width:74ch;margin-top:10px}
+.body{flex:1;min-height:0;margin-top:22px}
+.foot{display:flex;justify-content:space-between;align-items:baseline;color:var(--muted);
+  font:11px/1 var(--mono);letter-spacing:.06em;margin-top:16px;border-top:1px solid var(--grid);padding-top:12px}
+.pageno{font-variant-numeric:tabular-nums}
+/* nav */
+.nav{position:fixed;left:50%;bottom:14px;transform:translateX(-50%);display:flex;gap:8px;align-items:center;z-index:5}
+.nav button{width:9px;height:9px;border-radius:50%;border:1px solid var(--muted);background:transparent;cursor:pointer;padding:0}
+.nav button.cur{background:var(--accent);border-color:var(--accent)}
+.nav button:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+.arr{position:fixed;top:50%;transform:translateY(-50%);z-index:5;border:1px solid var(--border);
+  background:var(--surface);color:var(--ink2);width:34px;height:56px;cursor:pointer;font-size:18px;border-radius:4px}
+.arr:hover{color:var(--ink)}
+#prev{left:10px}#next{right:10px}
+/* ---------- shared bits ---------- */
+.mono{font-family:var(--mono)}
+.num{font-variant-numeric:tabular-nums}
+.chip{display:inline-block;font:600 10.5px/1 var(--mono);letter-spacing:.05em;padding:4px 7px;border-radius:3px;
+  border:1px solid var(--border);white-space:nowrap}
+.chip.good{color:var(--good);border-color:currentColor}
+.chip.wall{color:var(--serious);border-color:currentColor}
+.chip.dead{color:var(--crit);border-color:currentColor}
+.chip.hero{color:var(--accent);border-color:currentColor}
+.sw{display:inline-block;width:10px;height:10px;border-radius:2px;vertical-align:-1px}
+.cols{display:grid;gap:30px;min-height:0}
+.c2{grid-template-columns:1fr 1fr}
+.c58{grid-template-columns:1.25fr 1fr}
+.c52{grid-template-columns:1fr 1.1fr}
+.card{border:1px solid var(--grid);border-radius:6px;padding:15px 17px;background:var(--page)}
+.card h3{font:600 14px/1.3 var(--sans);margin:6px 0}
+.card .tag{font:600 10px/1 var(--mono);letter-spacing:.1em;text-transform:uppercase;color:var(--muted)}
+ul.tight{padding-left:18px;display:flex;flex-direction:column;gap:8px;font-size:14px;color:var(--ink2)}
+ul.tight li{padding-left:2px}
+ul.tight strong{color:var(--ink);font-weight:600}
+table{border-collapse:collapse;width:100%;font-size:12.5px}
+th{font:600 10.5px/1.3 var(--mono);letter-spacing:.08em;text-transform:uppercase;color:var(--muted);
+  text-align:left;padding:6px 10px;border-bottom:1px solid var(--axis)}
+td{padding:6px 10px;border-bottom:1px solid var(--grid);color:var(--ink2);vertical-align:top}
+td.n,th.n{text-align:right;font-variant-numeric:tabular-nums}
+td b{color:var(--ink);font-weight:600}
+tr.hl td{background:color-mix(in srgb,var(--s1) 9%,transparent)}
+/* lineage ladder */
+.ladder{display:flex;flex-direction:column;margin-top:4px}
+.lrow{display:grid;grid-template-columns:22px 210px 1fr 168px;gap:14px;align-items:center;
+  padding:9px 10px;border-bottom:1px solid var(--grid);font-size:13.5px}
+.lrow:first-child{border-top:1px solid var(--grid)}
+.lrow .rn{font:600 13px/1.3 var(--mono);color:var(--ink)}
+.lrow .dx{color:var(--ink2)}
+.lrow .st{text-align:right}
+/* stat tiles */
+.tiles{display:grid;gap:13px}
+.tile{border:1px solid var(--grid);border-radius:6px;padding:13px 15px;background:var(--page)}
+.tile .v{font:600 26px/1.1 var(--sans);letter-spacing:-.01em;font-variant-numeric:tabular-nums}
+.tile .k{font:600 10px/1.4 var(--mono);letter-spacing:.1em;text-transform:uppercase;color:var(--muted);margin-bottom:6px}
+.tile .d{font-size:12.5px;color:var(--ink2);margin-top:6px}
+.rulebar{border:1px dashed var(--axis);border-radius:6px;padding:11px 15px;font-size:13.5px;color:var(--ink2);margin-top:12px}
+.rulebar b{color:var(--ink)}
+.formula{font:italic 20px/1.5 var(--serif);color:var(--ink);text-align:center;padding:10px 0 8px}
+.codeline{font:12.5px/1.6 var(--mono);color:var(--ink2);background:var(--page);border:1px solid var(--grid);
+  border-radius:6px;padding:11px 14px;white-space:pre;overflow-x:auto}
+.codeline .old{color:var(--crit);text-decoration:line-through}
+.codeline .new{color:var(--good)}
+.codeline .cm{color:var(--muted)}
+/* pipeline diagram */
+.pipe{display:flex;align-items:center;gap:0;flex-wrap:wrap;margin-top:6px}
+.node{border:1px solid var(--axis);border-radius:6px;padding:9px 11px;text-align:center;background:var(--page);min-width:74px}
+.node .nm{font:600 12px/1.25 var(--sans);color:var(--ink)}
+.node .nd{font:10.5px/1.2 var(--mono);color:var(--muted);margin-top:3px}
+.node.frozen{border-style:dashed;color:var(--ink2);background:color-mix(in srgb,var(--muted) 9%,var(--page))}
+.node.train{border-color:var(--s1);background:color-mix(in srgb,var(--s1) 10%,var(--page))}
+.node.train .nm{color:var(--s1)}
+.zdot{width:15px;height:15px;border-radius:50%;background:var(--s3);border:2px solid var(--surface);
+  box-shadow:0 0 0 1.5px var(--s3);margin:0 2px}
+.conn{color:var(--muted);font-size:17px;padding:0 6px;flex:0 0 auto}
+.badge{display:inline-block;font:600 9px/1 var(--mono);letter-spacing:.06em;text-transform:uppercase;
+  padding:3px 5px;border-radius:3px;margin-top:6px}
+.badge.f{color:var(--muted);border:1px solid var(--muted)}
+.badge.t{color:var(--s1);border:1px solid var(--s1)}
+.lossann{display:flex;gap:12px;margin-top:16px}
+.lossann .lb{flex:1;border:1px solid var(--grid);border-left:3px solid var(--s2);border-radius:5px;padding:9px 12px;background:var(--page)}
+.lossann .lb.b2{border-left-color:var(--s7)}
+.lossann .lb .t{font:600 11px/1.3 var(--sans);color:var(--ink)}
+.lossann .lb .e{font:11.5px/1.5 var(--mono);color:var(--ink2);margin-top:4px}
+/* charts */
+.chartwrap{position:relative}
+.legend{display:flex;flex-wrap:wrap;gap:6px 16px;font:12px/1 var(--sans);color:var(--ink2);margin-bottom:6px}
+.legend span{display:inline-flex;gap:6px;align-items:center}
+svg text{font:10.5px var(--sans);fill:var(--muted)}
+svg .barlbl{font:600 12px var(--sans);fill:var(--ink)}
+svg .barval{font:11px var(--mono);fill:var(--ink2)}
+svg .hll{font:10px var(--mono)}
+svg .axl{font:10px var(--mono);fill:var(--muted)}
+.slide kbd{font:11px var(--mono);border:1px solid var(--axis);border-radius:3px;padding:1px 5px;color:var(--ink2)}
+.takeaway{border:1px solid var(--grid);border-radius:6px;padding:14px 16px;background:var(--page);display:flex;gap:12px;align-items:flex-start}
+.takeaway .n{font:600 22px/1 var(--serif);color:var(--accent);flex:0 0 auto;width:26px}
+.takeaway .tx{font-size:13.5px;color:var(--ink2)}
+.takeaway .tx b{color:var(--ink)}
+@media (prefers-reduced-motion: no-preference){
+  .slide.on{animation:fadein .18s ease}
+  @keyframes fadein{from{opacity:.4}to{opacity:1}}
+}
+@media print{
+  body{overflow:visible;background:#fff}
+  .stage{position:static;transform:none!important;width:auto;height:auto}
+  .slide{display:flex;position:static;width:1280px;height:720px;page-break-after:always;margin:0 auto}
+  .nav,.arr{display:none}
+}
+</style>
+</head>
+<body>
+<div class="stage" id="stage">
+
+<!-- ============ SLIDE 1 — title + two-stage plan ============ -->
+<section class="slide on">
+  <div class="eyebrow">DeltaTok tokenizer <span class="dim">— layer-12 surround · Jean&nbsp;Zay H100 · branch <span class="mono">revert</span></span></div>
+  <h1>Carry the delta code's spread down to 768</h1>
+  <p class="sub">Joint 768-channel training fails <em>twice</em> at once — it can't find a good linear subspace,
+    and the code it does find collapses. Split the problem: <strong>Stage&nbsp;1</strong> — spread the code with SIGReg at full
+    <span class="mono">Cz=1536</span>; <strong>Stage&nbsp;2</strong> — freeze that tokenizer and fine-tune a thin 1536→768 bottleneck on top.</p>
+  <div class="body">
+    <div class="ladder">
+      <div class="lrow"><span class="sw" style="background:var(--s4)"></span><span class="rn">Stage 1 · tc1536+sigreg</span><span class="dx">no channel squeeze · isotropy loss spreads &amp; scale-pins the code</span><span class="st"><span class="chip good">PR 808/1536</span></span></div>
+      <div class="lrow"><span class="sw" style="background:var(--s1)"></span><span class="rn">Stage 2 · +bottleneck</span><span class="dx">freeze enc+dec · train only <span class="mono">norm · down · up</span> (~0.5% of weights)</span><span class="st"><span class="chip hero">Eval 0.0283</span></span></div>
+      <div class="lrow"><span class="sw" style="background:var(--s2)"></span><span class="rn">baseline · joint tc768 · +sigreg</span><span class="dx">one-stage channel squeeze — the arm we're beating</span><span class="st"><span class="chip" style="color:var(--s2);border-color:currentColor">Eval 0.0335</span></span></div>
+    </div>
+    <div class="cols c2" style="margin-top:18px">
+      <div class="tile"><div class="k">Fidelity ✓</div><div class="v" style="color:var(--good)">0.0283</div><div class="d">Better than the best joint squeeze (0.0335) and far past its linear form (0.0796). It found the 768-subspace joint training couldn't.</div></div>
+      <div class="tile"><div class="k">Spread ✓ · preserved</div><div class="v" style="color:var(--good)">47–61%</div><div class="d">The 768-code keeps <b>364 / 471</b> effective dims — a higher fraction of budget than the 1536 source. Isotropy rode down with fidelity.</div></div>
+    </div>
+    <p class="sub" style="margin-top:14px;font-size:13.5px"><kbd>←</kbd> <kbd>→</kbd> to navigate · JZ chain 481509→481541→481542, from <span class="mono">…tc1536…sigreg0.05…</span> epoch 40.</p>
+  </div>
+  <div class="foot"><span>DeltaTok · stage-2 bottleneck</span><span>fidelity + spread, both delivered</span><span class="pageno">1</span></div>
+</section>
+
+<!-- ============ SLIDE 2 — why two stages ============ -->
+<section class="slide">
+  <div class="eyebrow">The motivation <span class="dim">— one squeeze, two failures</span></div>
+  <h2>Joint tc768 fails twice at once</h2>
+  <p class="sub">Halving the per-token channels <span class="mono">1536→768</span> in one training run tangles two independent problems.
+    A single linear 1536→768 layer shouldn't cost much — yet the trained joint squeeze plateaus <b>7×</b> above the uncompressed code.</p>
+  <div class="body cols c52">
+    <div>
+      <div class="chartwrap"><div id="chScore"></div></div>
+      <p class="sub" style="margin-top:8px;font-size:12.5px">Best <span class="mono">Eval/Loss</span> ever reached (KITTI + Occ3D-nuScenes, held out; all pre-<span class="mono">1ecb17c</span>). <span style="color:var(--s4)">Stage 1</span> is the uncompressed 1536 source — and its SIGReg even <b>edges out the plain dtok64</b>, so isotropy costs no recon.</p>
+    </div>
+    <div>
+      <div class="card" style="border-left:3px solid var(--s8)">
+        <div class="tag">Failure 1 · optimization</div>
+        <h3>Can't find the linear subspace</h3>
+        <p style="font-size:13px;color:var(--ink2)">Trained joint tc768 plateaus <b>7×</b> above the uncompressed code (linear 0.0796 → 0.0335 with SIGReg). A single linear layer shouldn't cost that — the optimizer never locates the good 768-d subspace decoder gradients alone should reveal.</p>
+      </div>
+      <div class="card" style="border-left:3px solid var(--s2);margin-top:14px">
+        <div class="tag">Failure 2 · geometry</div>
+        <h3>The code that survives collapses</h3>
+        <p style="font-size:13px;color:var(--ink2)">Participation ratio falls to <b>17.6/768</b> with no regularizer; SIGReg lifts it to <b>173</b>, still ~22% of budget. A rank-collapsed latent is a poor target for the downstream flow.</p>
+      </div>
+      <div class="rulebar" style="margin-top:14px"><b>The idea:</b> untangle them. Fix the geometry first at full width (Stage 1), then give a dedicated bottleneck a stationary target so it can hunt the subspace on its own (Stage 2).</div>
+    </div>
+  </div>
+  <div class="foot"><span>joint tc768 linear = 0.0796 · 7×</span><span>separate the two problems</span><span class="pageno">2</span></div>
+</section>
+
+<!-- ============ SLIDE 3 — Stage 1 ============ -->
+<section class="slide">
+  <div class="eyebrow">Stage 1 <span class="dim">— SIGReg at the full 1536</span></div>
+  <h2>First, spread the code where it's cheap</h2>
+  <p class="sub">Train the tokenizer with <b>no</b> channel bottleneck (Cz=1536) and a SIGReg isotropy loss. With nothing squeezing it,
+    SIGReg is free to do its two jobs — <b>pin the scale</b> to N(0,&nbsp;I) and <b>spread the variance</b> across directions.</p>
+  <div class="body cols c52">
+    <div>
+      <div class="chartwrap"><div id="chSpread1"></div></div>
+      <p class="sub" style="margin-top:8px;font-size:12.5px">Participation ratio of the Stage-1 code (Cz=1536), before vs after SIGReg warmup — the effective number of directions it actually uses.</p>
+    </div>
+    <div>
+      <div class="tiles">
+        <div class="tile"><div class="k">Spread · warmup → ep40</div><div class="v">54 → 808 <span style="font-size:15px;color:var(--muted)">/ 1536</span></div><div class="d">PR bottoms at <b>54</b> when warmup ends (iter 2000), then climbs to <b>808</b> by ep40 (~15×, nuScenes). The matched tc768 pair moved <b>17.6 → 173</b> the same way.</div></div>
+        <div class="tile"><div class="k">Scale · pinned for free</div><div class="v">N(0, I) <span style="font-size:14px;color:var(--muted)">to 3 dp</span></div><div class="d">TotalVar / Cz = <b>1.006</b> — nothing else was anchoring the scale (<span class="mono">z_norm=false</span>).</div></div>
+        <div class="tile"><div class="k">Recon · spread came free</div><div class="v" style="color:var(--good)">0.0105 &lt; 0.0114</div><div class="d">Stage 1 (tc1536 + SIGReg) <b>beats</b> the no-sigreg uncompressed dtok64 — the isotropy loss cost no reconstruction.</div></div>
+      </div>
+      <div class="rulebar" style="margin-top:13px"><b>Honest ceiling:</b> 808/1536 is ~53% of budget — SIGReg is a strong <em>scale</em> anchor but a weak <em>isotropy</em> driver (a half-collapsed spectrum shifts each 1-D marginal's std ~1.9%), so it asymptotes near half. Still a far better source to compress than any tc768 arm.</div>
+    </div>
+  </div>
+  <div class="foot"><span>…dtok64_tc1536…sigreg0.05_ns3072_pool8192_nozn</span><span>spread &amp; scale, no squeeze</span><span class="pageno">3</span></div>
+</section>
+
+<!-- ============ SLIDE 4 — Stage 2 architecture ============ -->
+<section class="slide">
+  <div class="eyebrow">Stage 2 <span class="dim">— a thin bottleneck on a frozen tokenizer</span></div>
+  <h2>Freeze everything but three small modules</h2>
+  <p class="sub">Load the Stage-1 weights, freeze the encoder <em>and</em> decoder, and insert a linear <span class="mono">1536→768→1536</span> bottleneck.
+    Only <b>~2.4M of 460M</b> parameters (0.5%) train. Two losses supervise them.</p>
+  <div class="body">
+    <div class="pipe">
+      <div class="node frozen"><div class="nm">encoder</div><div class="nd">blocks 0–12</div><span class="badge f">frozen ❄</span></div>
+      <span class="conn">→</span>
+      <div class="node train"><div class="nm">pre-norm</div><div class="nd">LayerNorm</div><span class="badge t">train</span></div>
+      <span class="conn">→</span>
+      <div class="node train"><div class="nm">z_proj_down</div><div class="nd">Linear 1536→768</div><span class="badge t">train</span></div>
+      <span class="conn">→</span>
+      <span class="zdot" title="z · 768-d code"></span>
+      <span class="conn">→</span>
+      <div class="node train"><div class="nm">z_proj_up</div><div class="nd">Linear 768→1536</div><span class="badge t">train</span></div>
+      <span class="conn">→</span>
+      <div class="node frozen"><div class="nm">decoder</div><div class="nd">DA3 alternation</div><span class="badge f">frozen ❄</span></div>
+    </div>
+    <div class="lossann">
+      <div class="lb"><div class="t">① Decoder recon <span class="mono" style="color:var(--muted)">— the real objective</span></div>
+        <div class="e">log_cosh( decode(<span style="color:var(--s2)">up(down(z))</span>), x )</div></div>
+      <div class="lb b2"><div class="t">② Round-trip on the code <span class="mono" style="color:var(--muted)">— w = 1.0</span></div>
+        <div class="e">log_cosh( <span style="color:var(--s7)">up(down(z))</span>, z<sub>raw</sub>.detach() )</div></div>
+    </div>
+    <div class="cols c2" style="margin-top:16px;gap:20px">
+      <div class="rulebar" style="margin-top:0"><b>Why the extra loss ②?</b> Decoder gradients alone left joint tc768 stuck at 0.065. Handing the projection a <em>stationary</em> target — the raw encoder code it must round-trip — turns subspace-hunting into a well-posed regression the optimizer can actually solve.</div>
+      <div class="rulebar" style="margin-top:0"><b>SIGReg is OFF here</b> (<span class="mono">sigreg_weight=0</span>) — deliberately, to isolate the effect of freeze + round-trip before adding any geometry pressure. Remember this: it's exactly why the spread question stays open.</div>
+    </div>
+  </div>
+  <div class="foot"><span>freeze_except_bottleneck=true · bneck_recon_weight=1.0</span><span>20 epochs · 22.5k iters · lr 1e-3 cos</span><span class="pageno">4</span></div>
+</section>
+
+<!-- ============ SLIDE 5 — the bug and the one-line fix ============ -->
+<section class="slide">
+  <div class="eyebrow">The first run broke <span class="dim">— and the fix was one line</span></div>
+  <h2>Round-trip to the <em>raw</em> code, not the normed one</h2>
+  <p class="sub">Run&nbsp;1 (JZ 478759) matched loss ② against the <b>post-LayerNorm</b> tensor. Fidelity got monotonically <em>worse</em> every epoch —
+    a textbook scale-collapse, hidden inside a falling loss.</p>
+  <div class="body cols c2">
+    <div>
+      <div class="card" style="border-left:3px solid var(--crit)">
+        <div class="tag">The trap · scale collapse</div>
+        <ul class="tight" style="margin-top:10px">
+          <li><code>loss②</code> was homogeneous degree&nbsp;1 in the trainable pre-norm gain <span class="mono">γ</span> — so <strong>shrinking γ lowers it for free</strong>.</li>
+          <li><span class="mono">.detach()</span> on the target removed the one gradient that would have resisted the shrink.</li>
+          <li>Measured across one epoch: <strong>γ 1.0 → 0.46</strong>; ~<strong>70% of the loss② drop was fake scale</strong>, not fidelity.</li>
+          <li>The frozen decoder was trained on the <em>raw</em> code, so it got progressively mis-scaled input → eval recon <strong>rose</strong> 0.031 → 0.033 → 0.038.</li>
+        </ul>
+      </div>
+    </div>
+    <div>
+      <div class="tag" style="margin-bottom:8px">The fix · <span class="mono">deltatok_trainer.py:363</span></div>
+      <div class="codeline"><span class="cm"># round-trip target = the code the frozen decoder was trained on</span>
+<span class="old">z_pre = pre_bottleneck_norm(z)</span>  <span class="cm"># post-norm ✗</span>
+<span class="new">z_pre = z</span>                        <span class="cm"># raw, pre-norm ✓</span></div>
+      <div class="rulebar" style="margin-top:14px">Now the target is <b>constant under the frozen encoder</b>, so no trainable param can shrink it — <em>and</em> it matches what the decoder actually expects. Both failures die at once. The <span class="mono">rawtgt</span> tag in the run name marks the fixed arm.</div>
+      <div class="lossann" style="margin-top:14px">
+        <div class="lb b2" style="border-left-color:var(--good)"><div class="t">Result of the one-line change</div>
+          <div class="e" style="color:var(--ink)">monotone <span style="color:var(--crit)">worsening</span> → monotone <span style="color:var(--good)">convergence</span></div></div>
+      </div>
+    </div>
+  </div>
+  <div class="foot"><span>gauge-blind loss + trainable upstream norm = collapse generator</span><span>fix: retarget the raw code</span><span class="pageno">5</span></div>
+</section>
+
+<!-- ============ SLIDE 6 — result: fidelity ============ -->
+<section class="slide">
+  <div class="eyebrow">Result · fidelity <span class="dim">— the plan works for recon</span></div>
+  <h2>Down to 0.0283 — past the best joint squeeze</h2>
+  <p class="sub">The fixed arm descends cleanly from the first epoch and settles at <b>Eval 0.0283</b> (KITTI 0.0305 / nuScenes 0.0269).
+    Even <b>epoch 1</b> (0.0297) already beats the best one-stage tc768 arm.</p>
+  <div class="body cols c58">
+    <div>
+      <div class="legend" id="lgFid"></div>
+      <div class="chartwrap"><div id="chFid"></div></div>
+    </div>
+    <div>
+      <div class="tiles">
+        <div class="tile"><div class="k">Final Eval/Loss · epoch 20</div><div class="v" style="color:var(--good)">0.0283</div><div class="d"><b>−15%</b> vs the best joint tc768+sigreg (0.0335), and far below the joint linear squeeze (0.0796).</div></div>
+        <div class="tile"><div class="k">Trajectory</div><div class="v">0.0327 → 0.0283</div><div class="d">smooth monotone descent — the reversal of Run&nbsp;1's rising curve. Converged by ~epoch 12.</div></div>
+        <div class="tile"><div class="k">Cost</div><div class="v">0.5% <span style="font-size:14px;color:var(--muted)">of weights</span></div><div class="d">~2.4M params, 20 epochs on 4×H100. Stage-1 tokenizer untouched and reusable.</div></div>
+      </div>
+      <div class="rulebar" style="margin-top:13px"><b>Reading:</b> a two-stage split <em>solved Failure&nbsp;1</em> — the bottleneck found a 768-subspace joint training never could: the same linear squeeze, but well-optimized.</div>
+    </div>
+  </div>
+  <div class="foot"><span>…tc768…bneckrec1.0_rawtgt_stage2bneck_ep40</span><span>KITTI+nuScenes LossRecon_AR</span><span class="pageno">6</span></div>
+</section>
+
+<!-- ============ SLIDE 7 — spread preserved ============ -->
+<section class="slide">
+  <div class="eyebrow">Result · spread <span class="dim">— the goal, delivered</span></div>
+  <h2>The spread rode down to 768</h2>
+  <p class="sub">Stage 1's isotropy survived the compression. On <em>both</em> held-out sets the 768-code uses a higher fraction of its
+    budget than the 1536 source — keeping ~<b>59%</b> of the source's absolute effective directions at half the size.</p>
+  <div class="body">
+    <div class="cols c2" style="gap:30px">
+      <div><div class="tag" style="margin-bottom:6px">KITTI · eval ZPartRank</div><div class="chartwrap"><div id="chKitti"></div></div></div>
+      <div><div class="tag" style="margin-bottom:6px">nuScenes · eval ZPartRank</div><div class="chartwrap"><div id="chNusc"></div></div></div>
+    </div>
+    <div class="cols c2" style="margin-top:16px;gap:20px">
+      <div class="card" style="border-left:3px solid var(--s1)">
+        <div class="tag">Why it survived</div>
+        <p style="font-size:13px;color:var(--ink2);margin-top:6px">The round-trip loss reconstructs the <b>raw</b> 1536-code (PR&nbsp;~700) through 768 dims. Faithfully round-tripping a high-rank target <b>forces</b> <span class="mono">z_proj_down</span> to keep its dominant directions, so the code inherits the spread. The broken post-norm run (PR&nbsp;~150) is the control: corrupt the target, lose the spread too.</p>
+      </div>
+      <div class="rulebar" style="margin-top:0"><b>Honest caveat:</b> the loss doesn't <em>guarantee</em> this. With SIGReg off it's invariant under any <span class="mono">A∈GL(768)</span> (<span class="mono">down→A·down, up→up·A⁻¹</span>) — spread is a gauge it can't see. From a near-isometric init, gradient descent simply never drifts there. <span style="color:var(--muted)">ZPartRank: Stage 1 @ ep40 (frozen source), Stage 2 @ ep20.</span></div>
+    </div>
+  </div>
+  <div class="foot"><span>spread carried down · 47–61% of budget</span><span>preserved in practice, not enforced by the loss</span><span class="pageno">7</span></div>
+</section>
+
+<!-- ============ SLIDE 8 — why it survived + optional push ============ -->
+<section class="slide">
+  <div class="eyebrow">Reading it <span class="dim">— implicit preservation, and the ceiling</span></div>
+  <h2>Kept by the optimization, not the loss</h2>
+  <p class="sub">Both axes landed — so what's left is <em>why</em> the spread survived a gauge-free loss, and where it stops.</p>
+  <div class="body cols c2">
+    <div class="card" style="border-left:3px solid var(--s1)">
+      <div class="tag">The mechanism</div>
+      <h3>High-rank target ⇒ spread-preserving projection</h3>
+      <ul class="tight" style="margin-top:8px">
+        <li>Round-tripping a PR-~700 code through 768 dims is only solvable if <span class="mono">z_proj_down</span> keeps the top directions — so it does.</li>
+        <li>From a near-isometric init, GD finds that solution, not a gauge-collapsed twin at equal loss.</li>
+        <li>Confirmed by the control: the <em>broken</em> post-norm run corrupted the target and collapsed to <b>PR&nbsp;~150</b>.</li>
+      </ul>
+    </div>
+    <div class="card" style="border-left:3px solid var(--s3)">
+      <div class="tag">The ceiling · optional push</div>
+      <h3>~half the budget — SIGReg's universal floor</h3>
+      <ul class="tight" style="margin-top:8px">
+        <li>47–61% utilization is the same <b>~50% isotropy asymptote</b> SIGReg hits everywhere, not a bottleneck-specific cost.</li>
+        <li>To push past half: <strong>SIGReg on the frozen-encoder bottleneck</strong> (a pure conditioner on <span class="mono">W<sub>down</sub></span>) — one un-zeroed weight.</li>
+        <li>Or fold <strong>analytic whitening</strong> <span class="mono">A=Σ<sup>−1/2</sup></span> post-hoc, output-preserving. Both are polish now, not a fix.</li>
+      </ul>
+    </div>
+  </div>
+  <div class="foot"><span>gauge-free loss, spread-preserving optimum</span><span>~50% floor is SIGReg's, not the bottleneck's</span><span class="pageno">8</span></div>
+</section>
+
+<!-- ============ SLIDE 9 — takeaways ============ -->
+<section class="slide">
+  <div class="eyebrow">Takeaways <span class="dim">— what the two-stage experiment settled</span></div>
+  <h2>Both fidelity and spread, from one fine-tune</h2>
+  <div class="body" style="display:flex;flex-direction:column;gap:13px;margin-top:14px">
+    <div class="takeaway"><div class="n">1</div><div class="tx"><b>Fidelity.</b> Freeze the SIGReg-1536 tokenizer, fine-tune a thin 1536→768 bottleneck with a raw-code round-trip loss → <b>Eval 0.0283</b>, past the best joint squeeze (0.0335) and far past its linear form (0.0796). It found the 768-subspace joint training couldn't.</div></div>
+    <div class="takeaway"><div class="n">2</div><div class="tx"><b>Spread — it rode down.</b> The 768-code keeps <b>364 (KITTI) / 471 (nuScenes)</b> effective directions — 47–61% of budget, a <em>higher</em> fraction than the 1536 source (40–53%), ~59% of its absolute dims at half the size. Not guaranteed by the gauge-free loss, but preserved because round-tripping the high-rank raw code forces it.</div></div>
+    <div class="takeaway"><div class="n">3</div><div class="tx"><b>The fix carried both.</b> Retargeting the round-trip to the <em>raw</em> code killed a scale-collapse that had wrecked recon <em>and</em> spread at once — the broken run's PR&nbsp;~150 vs the fixed 364&nbsp;/&nbsp;471 is the whole difference.</div></div>
+    <div class="takeaway"><div class="n">→</div><div class="tx"><b>Downstream.</b> The Stage-2 code already feeds a flow-matching arm (<span class="mono">stage2bneckrawep20…dit</span>). A well-spread, well-reconstructed 768-code is exactly the target flow wants — the two-stage split delivered it.</div></div>
+  </div>
+  <div class="foot"><span>DeltaTok · stage-2 bottleneck</span><span>fidelity + spread, both delivered</span><span class="pageno">9</span></div>
+</section>
+
+</div><!-- /stage -->
+
+<button class="arr" id="prev" aria-label="Previous">‹</button>
+<button class="arr" id="next" aria-label="Next">›</button>
+<div class="nav" id="nav" role="tablist" aria-label="Slides"></div>
+
+<script>
+/* ---------- deck nav ---------- */
+const stage=document.getElementById("stage");
+const slides=[...document.querySelectorAll(".slide")];
+const nav=document.getElementById("nav");
+let cur=0;
+slides.forEach((_,i)=>{
+  const b=document.createElement("button");
+  b.setAttribute("role","tab");b.setAttribute("aria-label","Slide "+(i+1));
+  b.addEventListener("click",()=>go(i));
+  nav.appendChild(b);
+});
+function go(i){
+  cur=Math.max(0,Math.min(slides.length-1,i));
+  slides.forEach((s,j)=>s.classList.toggle("on",j===cur));
+  [...nav.children].forEach((b,j)=>b.classList.toggle("cur",j===cur));
+}
+document.getElementById("prev").addEventListener("click",()=>go(cur-1));
+document.getElementById("next").addEventListener("click",()=>go(cur+1));
+addEventListener("keydown",e=>{
+  if(["ArrowRight","PageDown"," "].includes(e.key)){go(cur+1);e.preventDefault();}
+  else if(["ArrowLeft","PageUp"].includes(e.key)){go(cur-1);e.preventDefault();}
+  else if(e.key==="Home")go(0);
+  else if(e.key==="End")go(slides.length-1);
+});
+go(0);
+/* ---------- auto-scale ---------- */
+function fit(){
+  const s=Math.min(innerWidth/1300,(innerHeight-40)/730);
+  stage.style.transform=`translate(-50%,-50%) scale(${Math.min(s,1.4)})`;
+}
+addEventListener("resize",fit);fit();
+
+/* ---------- CSS var resolver (for SVG fills) ---------- */
+const CV=n=>getComputedStyle(document.documentElement).getPropertyValue(n).trim();
+
+/* ---------- horizontal bar chart ---------- */
+function barH(el,cfg){
+  const W=600,L=cfg.L||168,R=cfg.R||60,T=4,rh=cfg.rh||36;
+  const H=T+cfg.bars.length*rh+4, iw=W-L-R, xmax=cfg.xmax;
+  const X=v=>L+iw*Math.min(v/xmax,1);
+  let s=`<svg viewBox="0 0 ${W} ${H}" width="100%" preserveAspectRatio="xMinYMin meet">`;
+  // baseline
+  s+=`<line x1="${L}" y1="${T}" x2="${L}" y2="${T+cfg.bars.length*rh}" stroke="${CV('--axis')}"/>`;
+  // reference guide lines
+  (cfg.guides||[]).forEach(g=>{const x=X(g.v);
+    s+=`<line x1="${x}" y1="${T}" x2="${x}" y2="${T+cfg.bars.length*rh}" stroke="${g.color||CV('--axis')}" stroke-dasharray="4 3"/>`;
+    s+=`<text x="${x}" y="${T+cfg.bars.length*rh+13}" text-anchor="middle" class="hll" fill="${g.color||CV('--muted')}">${g.label}</text>`;});
+  cfg.bars.forEach((b,i)=>{
+    const y=T+i*rh, bw=X(b.value)-L, col=CV(b.color);
+    s+=`<text x="${L-10}" y="${y+rh/2+1}" text-anchor="end" class="barlbl" dominant-baseline="middle">${b.label}</text>`;
+    s+=`<rect x="${L}" y="${y+7}" width="${Math.max(bw,1)}" height="${rh-15}" rx="3" fill="${col}" opacity="${b.hi?1:.82}"/>`;
+    if(b.hi) s+=`<rect x="${L}" y="${y+7}" width="${Math.max(bw,1)}" height="${rh-15}" rx="3" fill="none" stroke="${CV('--ink')}" stroke-width="1.3"/>`;
+    s+=`<text x="${L+bw+7}" y="${y+rh/2+1}" class="barval" dominant-baseline="middle">${b.disp}</text>`;
+  });
+  s+=`</svg>`;
+  el.innerHTML=s;
+}
+
+/* ---------- multi-series line chart (epoch-indexed) ---------- */
+function lineChart(el,cfg){
+  const W=600,H=310,L=48,R=128,T=12,B=30, iw=W-L-R, ih=H-T-B;
+  const {ymin,ymax,yticks,xmax,xticks}=cfg;
+  const X=i=>L+iw*(i/xmax);
+  const Y=v=>T+ih*(1-(Math.min(Math.max(v,ymin),ymax)-ymin)/(ymax-ymin));
+  let s=`<svg viewBox="0 0 ${W} ${H}" width="100%" preserveAspectRatio="xMinYMin meet">`;
+  // y grid + ticks
+  yticks.forEach(t=>{const y=Y(t);
+    s+=`<line x1="${L}" y1="${y}" x2="${L+iw}" y2="${y}" stroke="${CV('--grid')}"/>`;
+    s+=`<text x="${L-7}" y="${y+3}" text-anchor="end" class="axl">${t.toFixed(3)}</text>`;});
+  // x ticks
+  xticks.forEach(t=>{const x=X(t);
+    s+=`<text x="${x}" y="${H-9}" text-anchor="middle" class="axl">${t}</text>`;});
+  s+=`<text x="${L+iw/2}" y="${H-9}" text-anchor="middle" class="axl" opacity="0"></text>`;
+  // reference horizontal lines
+  (cfg.hlines||[]).forEach(h=>{const y=Y(h.y),c=CV(h.color);
+    s+=`<line x1="${L}" y1="${y}" x2="${L+iw}" y2="${y}" stroke="${c}" stroke-dasharray="5 3" stroke-width="1.3"/>`;
+    s+=`<text x="${L+iw+6}" y="${y-3}" class="hll" fill="${c}">${h.label}</text>`;
+    s+=`<text x="${L+iw+6}" y="${y+9}" class="hll" fill="${c}">${h.y.toFixed(4)}</text>`;});
+  // series
+  cfg.series.forEach(se=>{const c=CV(se.color);
+    const d=se.data.map((v,i)=>`${i?'L':'M'}${X(i).toFixed(1)} ${Y(v).toFixed(1)}`).join(' ');
+    s+=`<path d="${d}" fill="none" stroke="${c}" stroke-width="${se.width||2}" ${se.dash?`stroke-dasharray="${se.dash}"`:''}/>`;
+    // endpoint dot
+    const lx=X(se.data.length-1),ly=Y(se.data[se.data.length-1]);
+    s+=`<circle cx="${lx.toFixed(1)}" cy="${ly.toFixed(1)}" r="2.6" fill="${c}"/>`;});
+  // x axis label
+  s+=`<text x="${L+iw/2}" y="${H-1}" text-anchor="middle" class="axl">epoch</text>`;
+  s+=`</svg>`;
+  el.innerHTML=s;
+}
+
+/* ================= DATA ================= */
+// Stage-2 fixed run (JZ 481509→481541→481542), combined Eval + per-dataset LossRecon_AR, ep0..19
+const NUSC=[0.0309,0.0283,0.0276,0.0281,0.0273,0.0271,0.0271,0.0271,0.0271,0.0271,0.0270,0.0270,0.0269,0.0270,0.0269,0.0269,0.0269,0.0269,0.0269,0.0269];
+const KITTI=[0.0351,0.0319,0.0312,0.0312,0.0309,0.0310,0.0309,0.0309,0.0305,0.0306,0.0307,0.0306,0.0306,0.0306,0.0306,0.0306,0.0305,0.0305,0.0305,0.0305];
+const COMB=[0.0327,0.0297,0.0290,0.0293,0.0287,0.0287,0.0286,0.0286,0.0285,0.0285,0.0285,0.0284,0.0284,0.0284,0.0284,0.0284,0.0283,0.0283,0.0283,0.0283];
+
+/* slide 2 — Eval/Loss scoreboard (comparable axis; all arms pre-1ecb17c) */
+barH(document.getElementById('chScore'),{
+  xmax:0.085, L:190, rh:33,
+  guides:[],
+  bars:[
+    {label:'Stage 1 · tc1536+sigreg', value:0.0105, disp:'0.0105 · +SIGReg beats dtok64', color:'--s4', hi:true},
+    {label:'dtok64 · uncompressed', value:0.0114, disp:'0.0114 · no sigreg', color:'--s3'},
+    {label:'dtok32 · K-halved', value:0.0149, disp:'0.0149 · same budget', color:'--s3'},
+    {label:'Stage 2 · bottleneck', value:0.0283, disp:'0.0283', color:'--s1', hi:true},
+    {label:'joint tc768 · +sigreg', value:0.0335, disp:'0.0335 · best joint', color:'--s2'},
+    {label:'joint tc768 · +prenorm', value:0.0497, disp:'0.0497', color:'--serious'},
+    {label:'joint tc768 · linear', value:0.0796, disp:'0.0796 · 7×', color:'--s8'},
+  ]
+});
+
+/* slide 3 — Stage-1 code spread, warmup floor vs ep40 (the frozen source), same arm, Cz=1536, nuScenes */
+barH(document.getElementById('chSpread1'),{
+  xmax:60, L:176,
+  bars:[
+    {label:'ep40 · Stage-2 init', value:52.6, disp:'808 / 1536  ·  53%', color:'--s4', hi:true},
+    {label:'warmup floor · iter 2000', value:3.5, disp:'54 / 1536', color:'--s8'},
+  ]
+});
+
+/* slide 6 — fidelity trajectory */
+lineChart(document.getElementById('chFid'),{
+  ymin:0.020, ymax:0.036, yticks:[0.020,0.024,0.028,0.032,0.036],
+  xmax:19, xticks:[0,5,10,15,19],
+  hlines:[
+    {y:0.0335,label:'joint tc768 best',color:'--s2'},
+  ],
+  series:[
+    {key:'kitti',color:'--s8',data:KITTI,width:1.7},
+    {key:'nusc', color:'--s3',data:NUSC, width:1.7},
+    {key:'comb', color:'--s1',data:COMB, width:2.6},
+  ]
+});
+document.getElementById('lgFid').innerHTML=
+  `<span><span class="sw" style="background:var(--s1)"></span>combined</span>`+
+  `<span><span class="sw" style="background:var(--s8)"></span>KITTI</span>`+
+  `<span><span class="sw" style="background:var(--s3)"></span>nuScenes</span>`+
+  `<span><span class="sw" style="background:var(--s2);opacity:.7"></span>joint tc768 best (0.0335)</span>`;
+
+/* slide 7 — spread preserved: per-dataset eval ZPartRank, Stage 1 (Cz=1536) vs Stage 2 (Cz=768),
+   plotted as % of budget so utilization is comparable across the two code sizes. */
+barH(document.getElementById('chKitti'),{
+  xmax:72, L:80, rh:42, guides:[{v:50,label:'½ budget',color:'--muted'}],
+  bars:[
+    {label:'Stage 1', value:39.8, disp:'611 / 1536 · 40%', color:'--s4'},
+    {label:'Stage 2', value:47.4, disp:'364 / 768 · 47%', color:'--s1', hi:true},
+  ]
+});
+barH(document.getElementById('chNusc'),{
+  xmax:72, L:80, rh:42, guides:[{v:50,label:'½ budget',color:'--muted'}],
+  bars:[
+    {label:'Stage 1', value:52.6, disp:'808 / 1536 · 53%', color:'--s4'},
+    {label:'Stage 2', value:61.4, disp:'471 / 768 · 61%', color:'--s1', hi:true},
+  ]
+});
+</script>
+</body>
+</html>

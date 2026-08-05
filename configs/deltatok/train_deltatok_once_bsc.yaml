@@ -47,5 +47,5 @@ dataset:
       resolution=[(518, 266)])"
       
 training:
-  # 4 GPU x bsize 4 x pairs_per_seq 1 = 16; effective_bsize 16 / 16 -> grad_cum 1.
+  # 4 GPU x bsize 4 = 16; effective_bsize 16 / 16 -> grad_cum 1.
   bsize: 4
