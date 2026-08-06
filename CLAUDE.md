@@ -36,6 +36,7 @@ Many checked-in scripts carry **stale accounts** (`zuw@h100`, `cya@h100`, `lwy@h
 
 - `data/monitor_jobs.json`, `data/archived_jobs.json` — job records keyed `"<Cluster>:<JobID>"` (state, script, log, account, qos, tags, `depends_on`). Search both for full history.
 - `data/logs/<Cluster>/<name>_<jobid>.{out,err}` — cached SLURM stdout/stderr; grep here for "why did job N fail".
+- **Always prefer grepping metric values (loss, eval, etc.) from the `*.out`/`*.err` logs over reading TensorBoard** — trainers print scalars to stdout via `metric_logger`, live in `slurm/output/…` and cached here.
 - `data/research.json` — curated HTML journal entries (observation/finding/resolution) per research direction.
 - `data/results.json` — curated benchmark/experiment tables.
 - `data/projects.json` — the `Deltatok` entry owns the per-cluster deploy paths plus the rsync `excludes` that `syncer.py` actually uses (`sync/push_code_*` is the legacy equivalent). New local output dirs must be excluded here **and** in `.gitignore`.
@@ -101,6 +102,8 @@ bash sh/train_deltatok.sh                 # DeltaTok tokenizer
 bash sh/train_deltatok_flow.sh            # OccRAE flow matching
 bash sh/train_occrae_img_decoder.sh       # OccRAE image decoder (MAE-style)
 ```
+
+The bare `sh/train_deltatok.sh` / `train_occrae_img_decoder.sh` wrappers default `CONFIG_NAME` to a `_karolina` (deprecated) config; real runs go through the slurm scripts, which override it per cluster.
 
 The `sh/train_occany_plus_*.sh` wrappers and `slurm/train_occany_plus.slurm` were deleted — they drove the removed gen/raymap path and a dataset API that no longer exists.
 

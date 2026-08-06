@@ -643,7 +643,7 @@ class DeltaTokTrainer(DeltaTokSharedMixin, Trainer):
         self.log_add_scalar(f'{prefix}/ZTotalVar', s["total_var"], it)
         self.log_add_scalar(f'{prefix}/ZRowMeanSquare', s["row_mean_square"], it)
         self.log_add_scalar(f'{prefix}/ZMeanAbsMax', s["mean_abs_max"], it)
-        if self.writer is None and self.is_master:
+        if self.is_master:  # always echo to stdout so z-spread is greppable from logs
             print(f"[{prefix}] rows={s['rows']} Cz={s['cz']} "
                   f"ZPartRank={s['part_rank']:.1f} ZTotalVar={s['total_var']:.4f} "
                   f"ZRowMeanSquare={s['row_mean_square']:.4f} "
