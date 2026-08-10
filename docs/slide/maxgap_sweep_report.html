@@ -1,8 +1,8 @@
 <title>DeltaTok max_gap Sweep — Loss & Z-Spread</title>
 <style>
   :root {
-    --page-bg: #f9f9f7;
-    --surface: #fcfcfb;
+    --page-bg: #ffffff;
+    --surface: #ffffff;
     --ink-1: #0b0b0b;
     --ink-2: #52514e;
     --ink-muted: #898781;
@@ -74,7 +74,15 @@
   }
   @media (max-width: 600px) { .zs-grid { grid-template-columns: 1fr; } }
   .zs-grid .chart-wrap { padding: 12px 8px 6px; }
-  .zs-grid h3 { font-size: 0.8rem; padding: 0 4px; color: var(--ink-2); }
+  .zs-grid h3 { font-size: 0.88rem; padding: 0 4px; color: var(--ink-1); margin-bottom: 2px; }
+  .metric-note {
+    font-size: 0.82rem;
+    color: var(--ink-muted);
+    line-height: 1.45;
+    padding: 0 4px;
+    margin: 0 0 6px;
+  }
+  .metric-note code { font-size: 0.9em; }
 
   /* legend */
   .legend {
@@ -82,7 +90,7 @@
     gap: 16px;
     justify-content: center;
     padding: 10px 0 2px;
-    font-size: 0.8rem;
+    font-size: 0.88rem;
     color: var(--ink-2);
   }
   .legend-item { display: flex; align-items: center; gap: 5px; }
@@ -243,22 +251,26 @@
 
   <section class="chart-section">
     <h2>Spread vs max_gap</h2>
-    <p>Latent spread at the same final step as the loss above. <strong>ZPartRank</strong> is the participation rank of the latent covariance &mdash; low means the code collapsed onto a few directions. The three magnitude metrics are on a log axis: max_gap 1 and 3 sit three decades above everything else.</p>
+    <p>Measured on the bottleneck latent <code>z</code> at each run's final step. Only ZPartRank measures spread; the other three measure scale and use a log axis.</p>
     <div class="zs-grid">
       <div>
-        <h3>ZPartRank</h3>
+        <h3>ZPartRank &mdash; directions in use</h3>
+        <p class="metric-note">Participation ratio (&Sigma;&lambda;)&sup2;&#8202;/&#8202;&Sigma;&lambda;&sup2; of the latent covariance. Higher is healthier; 1 = collapsed to one axis.</p>
         <div class="chart-wrap"><canvas id="cZPartRank"></canvas></div>
       </div>
       <div>
-        <h3>ZTotalVar</h3>
+        <h3>ZTotalVar &mdash; overall size</h3>
+        <p class="metric-note">trace(cov). Scale, not spread &mdash; a latent can be huge and still collapsed.</p>
         <div class="chart-wrap"><canvas id="cZTotalVar"></canvas></div>
       </div>
       <div>
-        <h3>ZRowMeanSquare</h3>
+        <h3>ZRowMeanSquare &mdash; per-row scale</h3>
+        <p class="metric-note">Mean of <code>mean(z&sup2;)</code> per row. 1.0 = unit-RMS rows.</p>
         <div class="chart-wrap"><canvas id="cZRowMeanSquare"></canvas></div>
       </div>
       <div>
-        <h3>ZMeanAbsMax</h3>
+        <h3>ZMeanAbsMax &mdash; worst channel offset</h3>
+        <p class="metric-note">Largest absolute per-channel mean. 0 = perfectly centred.</p>
         <div class="chart-wrap"><canvas id="cZMeanAbsMax"></canvas></div>
       </div>
     </div>
@@ -403,7 +415,7 @@
   function drawLines(canvasId, cfg) {
     /*
       cfg: {
-        height, xMin, xMax, xLabel, yFmt, ticks,
+        height, xMin, xMax, xLabel, yLabel, yFmt, ticks, log,
         xTicks: [{v, label}]               // v is a plot coord, label the max_gap
         regions: [{from,to,text}]          // shaded x-ranges (batch bands)
         series: [{ color, dash, alpha, labelAbove, labelFmt,
@@ -417,7 +429,12 @@
     const W = cv._w, H = h;
     const small = W < 420;
 
-    const pad = { l: small ? 54 : 68, r: 16, t: cfg.regions ? 26 : 16, b: 40 };
+    const pad = {
+      l: (small ? 62 : 78) + (cfg.yLabel ? 22 : 0),
+      r: 18,
+      t: cfg.regions ? 34 : 20,
+      b: cfg.xLabel ? 58 : 38,
+    };
     const pW = W - pad.l - pad.r;
     const pH = H - pad.t - pad.b;
 
@@ -446,9 +463,9 @@
         ctx.fillStyle = c.tint;
         ctx.fillRect(x0, pad.t, x1 - x0, pH);
         ctx.fillStyle = c.muted;
-        ctx.font = (small ? '9' : '10') + 'px system-ui';
+        ctx.font = (small ? '11.5' : '12.5') + 'px system-ui';
         ctx.textAlign = 'center';
-        ctx.fillText(r.text, (x0 + x1) / 2, pad.t - 7);
+        ctx.fillText(r.text, (x0 + x1) / 2, pad.t - 10);
       }
     }
 
@@ -473,15 +490,28 @@
 
     // y tick labels
     ctx.fillStyle = c.muted;
-    ctx.font = (small ? '9' : '10') + 'px system-ui';
+    ctx.font = (small ? '12' : '13') + 'px system-ui';
     ctx.textAlign = 'right';
-    for (const v of sc.vals) ctx.fillText(cfg.yFmt(v), pad.l - 7, yOf(v) + 3.5);
+    for (const v of sc.vals) ctx.fillText(cfg.yFmt(v), pad.l - 9, yOf(v) + 4.5);
 
     // x tick labels
     ctx.fillStyle = c.ink2;
-    ctx.font = (small ? '10' : '11') + 'px system-ui';
+    ctx.font = (small ? '13' : '14.5') + 'px system-ui';
     ctx.textAlign = 'center';
-    for (const t of cfg.xTicks) ctx.fillText(t.label, xOf(t.v), axY + 16);
+    for (const t of cfg.xTicks) ctx.fillText(t.label, xOf(t.v), axY + 21);
+
+    // y-axis title, rotated up the left edge
+    if (cfg.yLabel) {
+      ctx.save();
+      ctx.translate(15, pad.t + pH / 2);
+      ctx.rotate(-Math.PI / 2);
+      ctx.fillStyle = c.ink2;
+      ctx.font = '600 ' + (small ? '13' : '14') + 'px system-ui';
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillText(cfg.yLabel, 0, 0);
+      ctx.restore();
+    }
 
     // polylines
     cv._zones = [];
@@ -521,19 +551,19 @@
       const fmt = s.labelFmt || cfg.labelFmt;
       if (fmt) {
         ctx.fillStyle = c.ink2;
-        ctx.font = (small ? '8.5' : '9.5') + 'px system-ui';
+        ctx.font = (small ? '11' : '12') + 'px system-ui';
         ctx.textAlign = 'center';
-        const dy = s.labelAbove === false ? 15 : -9;
+        const dy = s.labelAbove === false ? 19 : -11;
         for (const p of s.points) ctx.fillText(fmt(p.y), xOf(p.x), yOf(p.y) + dy);
       }
     }
 
     // x-axis title
     if (cfg.xLabel) {
-      ctx.fillStyle = c.muted;
-      ctx.font = '10px system-ui';
+      ctx.fillStyle = c.ink2;
+      ctx.font = '600 ' + (small ? '13' : '14') + 'px system-ui';
       ctx.textAlign = 'center';
-      ctx.fillText(cfg.xLabel, pad.l + pW / 2, H - 3);
+      ctx.fillText(cfg.xLabel, pad.l + pW / 2, H - 6);
     }
   }
 
@@ -633,9 +663,9 @@
 
     // 1. LossRecon vs max_gap — eval solid, train dashed
     drawLines('cEvalLoss', {
-      height: 310,
+      height: 370,
       xMin: ax.xMin, xMax: ax.xMax, xTicks: ax.xTicks, regions: ax.regions,
-      xLabel: 'max_gap', yFmt: fmtLoss,
+      xLabel: 'max_gap', yLabel: 'LossRecon', yFmt: fmtLoss,
       series: [
         {
           color: c.muted, dash: [4, 3], alpha: 0.85,
@@ -664,9 +694,9 @@
 
     // 2. Per-dataset LossRecon vs max_gap
     drawLines('cDatasetLoss', {
-      height: 310,
+      height: 370,
       xMin: ax.xMin, xMax: ax.xMax, xTicks: ax.xTicks, regions: ax.regions,
-      xLabel: 'max_gap', yFmt: fmtLoss,
+      xLabel: 'max_gap', yLabel: 'LossRecon', yFmt: fmtLoss,
       series: [
         {
           color: c.ki, labelFmt: fmtLoss,
@@ -699,9 +729,10 @@
       { id: 'cZMeanAbsMax', key: 'ma', lbl: 'ZMeanAbsMax', log: true },
     ];
     for (const zc of zsCharts) {
+      // no inline point labels: 14 of them collide at half width; table + tooltip carry the values
       const lblFmt = zc.log ? fmtSI : fmtDec1;
-      const mk = (dsKey, color, above) => ({
-        color, labelFmt: lblFmt, labelAbove: above,
+      const mk = (dsKey, color) => ({
+        color,
         points: zGaps.map(g => ({
           x: zax.xi(g), y: ZS[g][dsKey][zc.key],
           tipLabel: zc.lbl + ' — ' + (dsKey === 'ki' ? 'KITTI' : 'nuScenes'),
@@ -709,10 +740,10 @@
         })),
       });
       drawLines(zc.id, {
-        height: 215, ticks: 4, log: zc.log,
+        height: 290, ticks: 4, log: zc.log,
         xMin: zax.xMin, xMax: zax.xMax, xTicks: zax.xTicks, regions: zax.regions,
-        xLabel: 'max_gap', yFmt: zc.log ? fmtPow : fmtDec1,
-        series: [mk('ki', c.ki, true), mk('nu', c.nu, false)],
+        xLabel: 'max_gap', yLabel: zc.lbl, yFmt: zc.log ? fmtPow : fmtDec1,
+        series: [mk('ki', c.ki), mk('nu', c.nu)],
       });
       bindTip(zc.id);
     }
