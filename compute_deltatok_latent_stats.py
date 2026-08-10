@@ -134,8 +134,7 @@ def _build_split_loaders(cfg, split):
             num_workers=int(cfg.training.num_workers),
             shuffle=True,   # the first --num_batches batches should span scenes, not just the first ones
             drop_last=True,
-            per_dataset_sampling=bool(cfg.dataset.get("per_dataset_sampling", False)),
-        )
+        )  # get_data_loader always enables per_dataset_sampling internally
         return [("train", loader)]
 
     expr = cfg.dataset.get("test_dataset", None)

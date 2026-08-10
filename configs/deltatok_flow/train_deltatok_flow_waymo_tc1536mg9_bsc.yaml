@@ -1,0 +1,50 @@
+defaults:
+  - train_deltatok_flow_bsc
+  - _self_
+
+# Tokenizer swap of train_deltatok_flow_waymo_bsc: tc1536 maxgap9 nosigreg (eval
+# 0.0128) instead of tc768 stage-2 bottleneck (0.0283). Same Waymo-only data/val.
+dataset:
+  _waymo_val_scenes:
+    - segment-18331713844982117868_2920_900_2940_900_with_camera_labels.tfrecord
+    - segment-9465500459680839281_1100_000_1120_000_with_camera_labels.tfrecord
+    - segment-10017090168044687777_6380_000_6400_000_with_camera_labels.tfrecord
+    - segment-10023947602400723454_1120_000_1140_000_with_camera_labels.tfrecord
+    - segment-1005081002024129653_5313_150_5333_150_with_camera_labels.tfrecord
+    - segment-10061305430875486848_1080_000_1100_000_with_camera_labels.tfrecord
+    - segment-10072140764565668044_4060_000_4080_000_with_camera_labels.tfrecord
+    - segment-10072231702153043603_5725_000_5745_000_with_camera_labels.tfrecord
+    - segment-10075870402459732738_1060_000_1080_000_with_camera_labels.tfrecord
+    - segment-10082223140073588526_6140_000_6160_000_with_camera_labels.tfrecord
+    - segment-10094743350625019937_3420_000_3440_000_with_camera_labels.tfrecord
+    - segment-10096619443888687526_2820_000_2840_000_with_camera_labels.tfrecord
+    - segment-10107710434105775874_760_000_780_000_with_camera_labels.tfrecord
+    - segment-10153695247769592104_787_000_807_000_with_camera_labels.tfrecord
+    - segment-10206293520369375008_2796_800_2816_800_with_camera_labels.tfrecord
+    - segment-10212406498497081993_5300_000_5320_000_with_camera_labels.tfrecord
+    - segment-1022527355599519580_4866_960_4886_960_with_camera_labels.tfrecord
+    - segment-10226164909075980558_180_000_200_000_with_camera_labels.tfrecord
+    - segment-10231929575853664160_1160_000_1180_000_with_camera_labels.tfrecord
+    - segment-10235335145367115211_5420_000_5440_000_with_camera_labels.tfrecord
+    - segment-10241508783381919015_2889_360_2909_360_with_camera_labels.tfrecord
+    - segment-10275144660749673822_5755_561_5775_561_with_camera_labels.tfrecord
+    - segment-10327752107000040525_1120_000_1140_000_with_camera_labels.tfrecord
+    - segment-10391312872392849784_4099_400_4119_400_with_camera_labels.tfrecord
+    - segment-10444454289801298640_4360_000_4380_000_with_camera_labels.tfrecord
+    - segment-10455472356147194054_1560_000_1580_000_with_camera_labels.tfrecord
+    - segment-10485926982439064520_4980_000_5000_000_with_camera_labels.tfrecord
+    - segment-10498013744573185290_1240_000_1260_000_with_camera_labels.tfrecord
+    - segment-10500357041547037089_1474_800_1494_800_with_camera_labels.tfrecord
+    - segment-10517728057304349900_3360_000_3380_000_with_camera_labels.tfrecord
+    - segment-1051897962568538022_238_170_258_170_with_camera_labels.tfrecord
+    - segment-10526338824408452410_5714_660_5734_660_with_camera_labels.tfrecord
+  train_dataset: "32000 @ WaymoSeqMultiView(ROOT='/gpfs/scratch/ehpc1001/occany_data/waymo_processed', \
+      seq_pkl_name='seq_surround_temporal_sub5_stride9_fs1_all.pkl', \
+      num_timesteps=5, num_views_per_timestep=5, fixed_cams=[0], \
+      z_far=50, split=None, exclude_scenes=${dataset._waymo_val_scenes}, \
+      resolution=[(518, 266)])"
+  test_dataset: "128 @ WaymoSeqMultiView(ROOT='/gpfs/scratch/ehpc1001/occany_data/waymo_processed', \
+      seq_pkl_name='seq_surround_temporal_sub5_stride9_all.pkl', \
+      num_timesteps=5, num_views_per_timestep=5, fixed_cams=[0], \
+      z_far=50, split=None, select_scenes=${dataset._waymo_val_scenes}, seed=42, \
+      resolution=[(518, 266)])"

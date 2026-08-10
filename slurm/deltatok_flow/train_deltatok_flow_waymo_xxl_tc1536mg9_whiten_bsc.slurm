@@ -1,0 +1,76 @@
+#!/bin/bash
+#SBATCH --job-name=deltatok_flow_waymo_xxl_tc1536mg9_whiten
+#SBATCH --nodes=1
+#SBATCH --ntasks-per-node=2
+#SBATCH --gres=gpu:2
+#SBATCH --cpus-per-task=20
+#SBATCH --account=ehpc1001
+#SBATCH --partition=acc
+#SBATCH --qos=acc_ehpc
+#SBATCH --time=40:00:00
+##SBATCH --qos=acc_debug
+##SBATCH --time=02:00:00
+#SBATCH --output=slurm/output/train_deltatok_flow_waymo_xxl_tc1536mg9_whiten_bsc_%j.out
+#SBATCH --error=slurm/output/train_deltatok_flow_waymo_xxl_tc1536mg9_whiten_bsc_%j.err
+
+# WHITENED twin of train_deltatok_flow_waymo_xxl_tc1536mg9_bsc.slurm: same tc1536 maxgap9
+# tokenizer, but model.whiten_stats normalizes each channel to std 1 (raw z RMS ~14 makes
+# the flow's isotropic noise negligible for most t). Stats from compute_deltatok_latent_stats_bsc.
+#   ssh bsc "bash -lc 'cd /gpfs/projects/ehpc1001/code/deltatok && sbatch slurm/deltatok_flow/train_deltatok_flow_waymo_xxl_tc1536mg9_whiten_bsc.slurm'"
+
+mkdir -p slurm/output
+
+cd /gpfs/projects/ehpc1001/code/deltatok
+
+source env_bsc.sh
+
+export OMP_NUM_THREADS="${OMP_NUM_THREADS:-4}"
+export TORCH_NCCL_HEARTBEAT_TIMEOUT_SEC="${TORCH_NCCL_HEARTBEAT_TIMEOUT_SEC:-1000}"
+
+# file_descriptor shm strategy holds an fd per shared tensor per worker
+ulimit -n "$(ulimit -Hn)"
+
+export CONFIG_NAME=train_deltatok_flow_waymo_tc1536mg9_bsc
+export RESULTS_DIR="$SCRATCH/deltatok_flow_log"
+export RUN_NAME=deltatok_flow_waymo_consec5cam0_ctx3fwd2_tc1536mg9nosigreg_whiten_xxl_dit
+EXTRA_CFG_ARGS=(
+    model.deltatok.num_delta_tokens=64         # K=64 delta tokens/camera; must match the frozen ckpt
+    # epoch_49 (last, pinned from current.pth ep49): immutable if the tokenizer arm resumes.
+    model.deltatok_ckpt="$SCRATCH/deltatok_log/deltatok_l12_dtok64_tc1536_nozn_maxgap9_vpt1to2_nosigreg/ckpts/epoch_49.pth"
+    # Tokenizer arch must match the ckpt — parameterless flags silently yield wrong z.
+    model.deltatok.target_channels=1536        # no bottleneck (== hidden_size -> no proj built)
+    model.deltatok.z_norm=false                # no final z LayerNorm
+    model.deltatok.norm_affine=false           # flow cfg declares true
+    model.deltatok.use_camera_rope=false       # layer-12 no-camera-rope arm
+    # bottleneck_mlp omitted: not in the flow config struct, and inert at tc1536 anyway.
+    # channel-mode whitening: per-channel mean/std -> std 1. Must be from THIS ckpt's stats.
+    model.whiten_stats="$SCRATCH/deltatok_log/deltatok_l12_dtok64_tc1536_nozn_maxgap9_vpt1to2_nosigreg/ckpts/latent_stats_mg9waymo.pth"
+    model.cond_mode=delta_ctx_cross            # clean in-seq context + frame-0 tokens as cross-attn condition
+    model.num_ctx_deltas=2                     # 2 clean deltas = frames 0-2 given, 3-4 forecast
+    model.attn_mode=global                     # one attention over all delta tokens
+    model.vit_use_camera_embed=true            # per-camera identity in the flow ViT
+    model.loss_mode=v                          # v-MSE: 1/(1-t)^2-weighted x-MSE, upweights t->1
+    model.vit_size=xxlarge_d20                 # width 1536, 1x the latent Cz=1536
+    model.vit_dit_adaln=true                   # per-block AdaLN-Zero + Fourier t-embed; ~1.2B total
+    training.exit_before_time_limit=true       # clean exit near the SLURM wall (chain-resume safe)
+    training.epoch=100                         # 100k updates, chained across SLURM walls
+    training.max_iter=200000                   # lifted so epoch=100 is the sole stop
+    training.lr_schedule=constant              # constant 1e-4 after warmup
+    model.t_dist=uniform                       # t ~ U(0,1)
+    model.t_shared=true                        # one t per sample, all slots — matches sampler_alpha=0
+    model.sampler_scheduler_mode=linear        # uniform-in-t grid, matching the train prior
+    model.sampler_alpha=0                      # no per-frame stagger
+    training.eval_num_steps=20                 # clamp(1-t,0.05) never binds: no residual noise
+    training.val_bsize=4                       # BSC eval OOM at bsize 16
+)
+export EXTRA_CFG="${EXTRA_CFG_ARGS[*]}"
+# Resume is automatic; job 1 starts fresh, chained jobs continue it:
+#   sbatch --dependency=afterany:<prev_jobid> <this script>
+
+echo "PWD=$(pwd)"
+echo "CONFIG_NAME=$CONFIG_NAME"
+echo "RESULTS_DIR=$RESULTS_DIR"
+echo "RUN_NAME=$RUN_NAME"
+echo "EXTRA_CFG=$EXTRA_CFG"
+
+srun --cpu-bind=none bash sh/train_deltatok_flow.sh

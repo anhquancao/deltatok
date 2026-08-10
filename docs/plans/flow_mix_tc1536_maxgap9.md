@@ -1,11 +1,16 @@
-# Plan: Mixed-Dataset Flow with tc1536 maxgap9 Tokenizer
+# Plan: Waymo Flow with tc1536 maxgap9 Tokenizer
 
-Swap the frozen tokenizer in the mix-5 flow arm from tc768 stage-2 bottleneck to the
+Swap the frozen tokenizer in the Waymo flow arm from tc768 stage-2 bottleneck to the
 maxgap9 tc1536 nosigreg arm, keeping front-cam-only and the rest of the recipe fixed.
+Runs on **BSC**, **Waymo-only**, **raw z (no whitening)** — a deliberate test: if the
+mis-scaled latent breaks flow training, we want to see it break.
 
-**Baseline script:** `slurm/deltatok_flow/train_deltatok_flow_mix_xxl_sigreg_jz.slurm`
-**Baseline config:** `configs/deltatok_flow/train_deltatok_flow_mix_jeanzay.yaml`
+**Baseline script:** `slurm/deltatok_flow/train_deltatok_flow_waymo_xxl_sigreg_bsc.slurm`
+**Baseline config:** `configs/deltatok_flow/train_deltatok_flow_waymo_bsc.yaml`
+**New script:** `slurm/deltatok_flow/train_deltatok_flow_waymo_xxl_tc1536mg9_bsc.slurm`
+**New config:** `configs/deltatok_flow/train_deltatok_flow_waymo_tc1536mg9_bsc.yaml`
 **Tokenizer source:** `deltatok_l12_dtok64_tc1536_nozn_maxgap9_vpt1to2_nosigreg` (BSC `$SCRATCH`)
+**Pinned ckpt:** `ckpts/epoch_49.pth` (copied from `current.pth`, global_epoch 49 = last)
 
 ## 1. Tokenizer state
 
