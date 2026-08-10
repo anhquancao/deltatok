@@ -1,0 +1,728 @@
+<title>DeltaTok max_gap Sweep — Loss & Z-Spread</title>
+<style>
+  :root {
+    --page-bg: #f9f9f7;
+    --surface: #fcfcfb;
+    --ink-1: #0b0b0b;
+    --ink-2: #52514e;
+    --ink-muted: #898781;
+    --grid: #e1e0d9;
+    --baseline: #c3c2b7;
+    --border: rgba(11,11,11,0.08);
+    --s-kitti: #2a78d6;
+    --s-nusc: #eb6834;
+    --batch-tint: rgba(0,0,0,0.025);
+    --tag-bg: #eeeee8;
+    --tag-ink: #52514e;
+    --caveat-bg: #fdf6ed;
+    --caveat-border: #e8d5b8;
+    --caveat-ink: #6b5430;
+  }
+  /* light-only — dark theme removed */
+
+  body {
+    background: var(--page-bg);
+    color: var(--ink-1);
+    font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
+    line-height: 1.55;
+    margin: 0;
+    padding: 24px 16px 64px;
+  }
+  .report {
+    max-width: 880px;
+    margin: 0 auto;
+  }
+
+  /* typography */
+  h1 { font-size: 1.5rem; font-weight: 650; letter-spacing: -0.02em; margin: 0 0 4px; }
+  .subtitle { color: var(--ink-2); font-size: 0.95rem; margin: 0 0 20px; }
+  h2 { font-size: 1.05rem; font-weight: 600; margin: 32px 0 6px; letter-spacing: -0.01em; }
+  h3 { font-size: 0.85rem; font-weight: 600; margin: 0 0 4px; }
+  p { margin: 0 0 12px; font-size: 0.9rem; color: var(--ink-2); }
+  code, .mono { font-family: ui-monospace, SFMono-Regular, "Cascadia Code", Menlo, monospace; font-size: 0.82em; }
+
+  /* config block */
+  .config-block {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 14px 18px;
+    margin-bottom: 8px;
+    font-size: 0.82rem;
+    color: var(--ink-2);
+    line-height: 1.65;
+  }
+  .config-block .label { color: var(--ink-muted); }
+  .config-block strong { color: var(--ink-1); font-weight: 550; }
+
+  /* chart containers */
+  .chart-section { margin-bottom: 8px; }
+  .chart-wrap {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 16px 12px 8px;
+    position: relative;
+  }
+  .chart-wrap canvas { display: block; width: 100%; }
+
+  /* z-spread grid */
+  .zs-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 12px;
+  }
+  @media (max-width: 600px) { .zs-grid { grid-template-columns: 1fr; } }
+  .zs-grid .chart-wrap { padding: 12px 8px 6px; }
+  .zs-grid h3 { font-size: 0.8rem; padding: 0 4px; color: var(--ink-2); }
+
+  /* legend */
+  .legend {
+    display: flex;
+    gap: 16px;
+    justify-content: center;
+    padding: 10px 0 2px;
+    font-size: 0.8rem;
+    color: var(--ink-2);
+  }
+  .legend-item { display: flex; align-items: center; gap: 5px; }
+  .legend-swatch {
+    width: 12px; height: 12px; border-radius: 2px;
+    flex-shrink: 0;
+  }
+  /* line-series key: a rule with the series' marker centred on it */
+  .legend-line {
+    width: 20px; height: 0; flex-shrink: 0;
+    border-top: 2px solid currentColor;
+    position: relative;
+  }
+  .legend-line.dashed { border-top-style: dashed; }
+  .legend-line::after {
+    content: '';
+    position: absolute; left: 50%; top: 50%;
+    width: 6px; height: 6px; margin: -3px 0 0 -3px;
+    border-radius: 50%; background: currentColor;
+  }
+
+  /* tables */
+  .table-wrap {
+    overflow-x: auto;
+    margin-bottom: 16px;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    background: var(--surface);
+  }
+  table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 0.82rem;
+    font-variant-numeric: tabular-nums;
+    white-space: nowrap;
+  }
+  th {
+    text-align: left;
+    font-weight: 600;
+    padding: 8px 12px;
+    border-bottom: 1px solid var(--baseline);
+    color: var(--ink-2);
+    font-size: 0.78rem;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+  }
+  td {
+    padding: 7px 12px;
+    border-bottom: 1px solid var(--grid);
+    color: var(--ink-1);
+  }
+  tr:last-child td { border-bottom: none; }
+  .num { text-align: right; }
+  .muted-cell { color: var(--ink-muted); }
+
+  /* status tags */
+  .tag {
+    display: inline-block;
+    font-size: 0.72rem;
+    padding: 1px 6px;
+    border-radius: 3px;
+    background: var(--tag-bg);
+    color: var(--tag-ink);
+    font-weight: 500;
+  }
+  .tag-stuck { background: color-mix(in srgb, var(--tag-bg) 70%, #d03b3b); }
+  .tag-improving { background: color-mix(in srgb, var(--tag-bg) 70%, #eda100); }
+
+  /* caveat box */
+  .caveat-box {
+    background: var(--caveat-bg);
+    border: 1px solid var(--caveat-border);
+    border-radius: 6px;
+    padding: 14px 18px;
+    font-size: 0.85rem;
+    color: var(--caveat-ink);
+    line-height: 1.6;
+    margin-bottom: 16px;
+  }
+  .caveat-box strong { font-weight: 600; }
+
+  /* findings */
+  .findings { list-style: none; padding: 0; margin: 0 0 8px; }
+  .findings li {
+    position: relative;
+    padding: 5px 0 5px 16px;
+    font-size: 0.87rem;
+    color: var(--ink-2);
+    line-height: 1.5;
+  }
+  .findings li::before {
+    content: '';
+    position: absolute;
+    left: 0; top: 13px;
+    width: 6px; height: 6px;
+    border-radius: 50%;
+    background: var(--ink-muted);
+  }
+
+  /* tooltip */
+  #tooltip {
+    position: fixed;
+    display: none;
+    pointer-events: none;
+    background: var(--surface);
+    border: 1px solid var(--baseline);
+    border-radius: 5px;
+    padding: 8px 11px;
+    font-size: 0.78rem;
+    line-height: 1.55;
+    color: var(--ink-1);
+    box-shadow: 0 3px 12px rgba(0,0,0,0.12);
+    z-index: 100;
+    max-width: 220px;
+  }
+  #tooltip .tt-label { font-weight: 600; margin-bottom: 3px; }
+  #tooltip .tt-row { color: var(--ink-2); }
+  #tooltip .tt-val { font-weight: 550; color: var(--ink-1); font-variant-numeric: tabular-nums; }
+</style>
+
+<div class="report">
+  <header>
+    <h1>DeltaTok max_gap Sweep</h1>
+    <p class="subtitle">How reconstruction loss and z-spread evolve across max_gap settings</p>
+    <div class="config-block">
+      <span class="label">Experiment:</span> <code>deltatok_l12_dtok64_tc1536_nozn_maxgap{N}_vpt1to2_nosigreg</code><br>
+      <span class="label">Cluster:</span> BSC &mdash; <code>train_deltatok_maxgap_nosigreg_nozn_bsc.slurm</code><br>
+      <span class="label">Common:</span> num_delta_tokens=<strong>64</strong>, target_channels=<strong>1536</strong>, z_norm=false, sigreg_weight=<strong>0.0</strong>, lr=<strong>1e-3</strong>, grad_clip=<strong>0.1</strong><br>
+      <span class="label">Batch 1</span> (max_gap 1&ndash;4): num_timesteps=<strong>5</strong>, config <code>train_deltatok_bsc.yaml</code><br>
+      <span class="label">Batch 2</span> (max_gap 6,8,9): num_timesteps=<strong>10</strong>, config <code>train_deltatok_nt10_bsc.yaml</code><br>
+      <span class="label">Sources:</span> loss from the SLURM logs; spread from each run's TensorBoard events (max_gap 1&ndash;4 predate the stdout echo)
+    </div>
+  </header>
+
+  <section class="chart-section">
+    <h2>LossRecon vs max_gap</h2>
+    <p>Reconstruction loss at each run's final epoch, on a continuous max_gap axis &mdash; 5 and 7 were never trained, so those spans are wider. The shaded bands mark the two arms, which differ in <code>num_timesteps</code>.</p>
+    <div class="chart-wrap">
+      <canvas id="cEvalLoss"></canvas>
+    </div>
+    <div class="legend">
+      <span class="legend-item" style="color:var(--s-kitti)"><span class="legend-line"></span> <span style="color:var(--ink-2)">Eval</span></span>
+      <span class="legend-item" style="color:var(--ink-muted)"><span class="legend-line dashed"></span> <span style="color:var(--ink-2)">Train</span></span>
+    </div>
+  </section>
+
+  <section class="chart-section">
+    <h2>Per-Dataset LossRecon vs max_gap</h2>
+    <p>KITTI and nuScenes eval reconstruction loss, same axis.</p>
+    <div class="chart-wrap">
+      <canvas id="cDatasetLoss"></canvas>
+    </div>
+    <div class="legend">
+      <span class="legend-item"><span class="legend-swatch" style="background:var(--s-kitti)"></span> KITTI</span>
+      <span class="legend-item"><span class="legend-swatch" style="background:var(--s-nusc)"></span> nuScenes</span>
+    </div>
+  </section>
+
+  <section class="chart-section">
+    <h2>Spread vs max_gap</h2>
+    <p>Latent spread at the same final step as the loss above. <strong>ZPartRank</strong> is the participation rank of the latent covariance &mdash; low means the code collapsed onto a few directions. The three magnitude metrics are on a log axis: max_gap 1 and 3 sit three decades above everything else.</p>
+    <div class="zs-grid">
+      <div>
+        <h3>ZPartRank</h3>
+        <div class="chart-wrap"><canvas id="cZPartRank"></canvas></div>
+      </div>
+      <div>
+        <h3>ZTotalVar</h3>
+        <div class="chart-wrap"><canvas id="cZTotalVar"></canvas></div>
+      </div>
+      <div>
+        <h3>ZRowMeanSquare</h3>
+        <div class="chart-wrap"><canvas id="cZRowMeanSquare"></canvas></div>
+      </div>
+      <div>
+        <h3>ZMeanAbsMax</h3>
+        <div class="chart-wrap"><canvas id="cZMeanAbsMax"></canvas></div>
+      </div>
+    </div>
+    <div class="legend">
+      <span class="legend-item"><span class="legend-swatch" style="background:var(--s-kitti)"></span> KITTI</span>
+      <span class="legend-item"><span class="legend-swatch" style="background:var(--s-nusc)"></span> nuScenes</span>
+    </div>
+  </section>
+
+  <section>
+    <h2>Loss Data</h2>
+    <div class="table-wrap">
+      <table>
+        <thead>
+          <tr>
+            <th>max_gap</th><th>nt</th><th class="num">Epoch</th>
+            <th class="num">Train</th><th class="num">Eval</th>
+            <th class="num">KITTI</th><th class="num">nuScenes</th>
+            <th>Status</th>
+          </tr>
+        </thead>
+        <tbody id="tLoss"></tbody>
+      </table>
+    </div>
+  </section>
+
+  <section>
+    <h2>Spread Data (final step of each run)</h2>
+    <div class="table-wrap">
+      <table>
+        <thead>
+          <tr>
+            <th>max_gap</th><th>Dataset</th>
+            <th class="num">ZPartRank</th><th class="num">ZTotalVar</th>
+            <th class="num">ZRowMeanSquare</th><th class="num">ZMeanAbsMax</th>
+          </tr>
+        </thead>
+        <tbody id="tZSpread"></tbody>
+      </table>
+    </div>
+  </section>
+
+  <section>
+    <h2>Key Findings</h2>
+    <div class="caveat-box">
+      <strong>Read the two arms separately.</strong> max_gap 1&ndash;4 ran at num_timesteps=5, max_gap 6/8/9 at num_timesteps=10 on a different base config, so loss is not comparable across the boundary. Runs also stopped at different epochs (20 to 80), and 1/2/3 were cancelled rather than converged. max_gap 5 and 7 were never trained.
+    </div>
+    <ul class="findings">
+      <li><strong>max_gap 1 and 3 collapsed.</strong> ZPartRank falls to <strong>~1.7&ndash;2.0</strong> &mdash; the latent uses barely two directions &mdash; while magnitudes blow up three decades (ZRowMeanSquare ~5&ndash;10&times;10<sup>5</sup> vs ~10<sup>2</sup> elsewhere). This is the mechanism behind their stuck eval loss (~0.115), not slow convergence.</li>
+      <li><strong>The collapse is not monotone in max_gap.</strong> 1 and 3 collapsed; 2 and 4, on either side of them, did not (rank 62&ndash;71 and 30&ndash;33). At num_timesteps=5 the outcome looks bimodal &mdash; an instability that max_gap influences but does not cleanly order.</li>
+      <li><strong>Every healthy run keeps ZMeanAbsMax near 400&ndash;730</strong>, versus 26k&ndash;38k for the collapsed pair. The metric separates the two regimes far more sharply than it varies within either.</li>
+      <li>Within the num_timesteps=10 arm the spread ordering is <strong>6 &gt; 9 &gt; 8</strong> for both rank and total variance &mdash; and again not monotone in max_gap.</li>
+      <li><strong>max_gap=9 reaches the best eval loss</strong> (0.0128) on the same 49-epoch budget as 6 (0.0176) and 8 (0.0156), while sitting mid-pack on spread &mdash; so within this arm lower loss does not track higher rank.</li>
+      <li><strong>max_gap=2</strong> was still improving when cancelled at epoch 29 (eval 0.0363) and holds the highest rank of the nt=5 arm; <strong>max_gap=4</strong> is the only nt=5 run trained to convergence (eval 0.0148 at epoch 80).</li>
+    </ul>
+  </section>
+</div>
+
+<div id="tooltip"></div>
+
+<script>
+(function () {
+  'use strict';
+
+  /* ---- data ---- */
+  const LOSS = [
+    { gap:1, ep:20, tr:0.0780, ev:0.1158, ki:0.1374, nu:0.0990, nt:5, st:'CANCELLED (stuck)' },
+    { gap:2, ep:29, tr:0.0312, ev:0.0363, ki:0.0424, nu:0.0317, nt:5, st:'CANCELLED (improving)' },
+    { gap:3, ep:29, tr:0.0908, ev:0.1147, ki:0.1291, nu:0.1032, nt:5, st:'CANCELLED (stuck)' },
+    { gap:4, ep:80, tr:0.0130, ev:0.0148, ki:0.0169, nu:0.0130, nt:5, st:'COMPLETED (wall exit)' },
+    { gap:6, ep:48, tr:0.0156, ev:0.0176, ki:0.0200, nu:0.0157, nt:10, st:'COMPLETED (wall exit)' },
+    { gap:8, ep:48, tr:0.0136, ev:0.0156, ki:0.0181, nu:0.0134, nt:10, st:'COMPLETED (wall exit)' },
+    { gap:9, ep:48, tr:0.0113, ev:0.0128, ki:0.0144, nu:0.0114, nt:10, st:'COMPLETED (wall exit)' },
+  ];
+  // Recovered from each run's TB event file at the same final step as the loss row.
+  // 6/8/9 match the stdout echo exactly; 1-4 predate that echo and exist only in TB.
+  const ZS = {
+    1: { ki:{r:1.95,tv:34977044,rm:997290.6,ma:37789.86}, nu:{r:1.98,tv:41065128,rm:890064.5,ma:35674.87} },
+    2: { ki:{r:70.83,tv:342939.97,rm:574.42,ma:725.42},   nu:{r:62.35,tv:341115.28,rm:567.07,ma:722.03} },
+    3: { ki:{r:1.91,tv:55659520,rm:512764.6,ma:26498.83}, nu:{r:1.69,tv:70463544,rm:541891.8,ma:27081.42} },
+    4: { ki:{r:30.19,tv:201124.25,rm:346.59,ma:464.28},   nu:{r:33.00,tv:211731.31,rm:358.68,ma:465.74} },
+    6: { ki:{r:92.65,tv:85982.38,rm:215.06,ma:441.75},    nu:{r:82.60,tv:93180.18,rm:222.65,ma:442.99} },
+    8: { ki:{r:50.91,tv:31092.16,rm:125.69,ma:398.55},    nu:{r:60.12,tv:34592.30,rm:130.06,ma:404.17} },
+    9: { ki:{r:66.52,tv:66578.77,rm:189.35,ma:407.80},    nu:{r:68.54,tv:71309.04,rm:195.10,ma:409.54} },
+  };
+
+  /* ---- theme ---- */
+  function C() {
+    const s = getComputedStyle(document.documentElement);
+    const g = n => s.getPropertyValue(n).trim();
+    return {
+      sf: g('--surface'), ink: g('--ink-1'), ink2: g('--ink-2'),
+      muted: g('--ink-muted'), grid: g('--grid'), bl: g('--baseline'),
+      ki: g('--s-kitti'), nu: g('--s-nusc'), tint: g('--batch-tint'),
+    };
+  }
+
+  /* ---- canvas setup ---- */
+  function initCanvas(id, h) {
+    const cv = document.getElementById(id);
+    const w = cv.parentElement.clientWidth - 24;
+    const dpr = devicePixelRatio || 1;
+    cv.width = w * dpr; cv.height = h * dpr;
+    cv.style.width = w + 'px'; cv.style.height = h + 'px';
+    const ctx = cv.getContext('2d');
+    ctx.scale(dpr, dpr);
+    cv._w = w; cv._h = h; cv._zones = [];
+    return ctx;
+  }
+
+  /* ---- nice scale; non-zero base when data sits well above zero ---- */
+  function niceScaleRange(dMin, dMax, ticks) {
+    if (!(dMax > dMin)) dMax = dMin + Math.abs(dMin || 1) * 0.1;
+    const span = dMax - dMin;
+    const lo = (dMin > 0 && dMin > span * 0.6) ? dMin - span * 0.35 : 0;
+    const raw = (dMax - lo) / ticks;
+    const mag = Math.pow(10, Math.floor(Math.log10(raw)));
+    const res = raw / mag;
+    let step;
+    if (res <= 1.5) step = mag;
+    else if (res <= 3.5) step = 2 * mag;
+    else if (res <= 7.5) step = 5 * mag;
+    else step = 10 * mag;
+    const min = Math.floor(lo / step) * step;
+    const max = Math.ceil((dMax + span * 0.10) / step) * step;
+    const vals = [];
+    for (let v = min; v <= max + step * 0.01; v += step) vals.push(Math.round(v * 1e8) / 1e8);
+    return { min, max, step, vals };
+  }
+
+  /* ---- formatters ---- */
+  const fmtLoss = v => v.toFixed(4);
+  const fmtInt = v => Math.round(v).toLocaleString('en-US');
+  const fmtDec1 = v => v.toFixed(1);
+  const fmtDec2 = v => v.toFixed(2);
+  const fmtPow = v => '1e' + Math.round(Math.log10(v));            // decade axis ticks
+  const fmtSI = v => Math.abs(v) >= 1e6 ? (v / 1e6).toFixed(1) + 'M'
+                   : Math.abs(v) >= 1e3 ? (v / 1e3).toFixed(1) + 'k'
+                   : v.toFixed(1);
+
+  /* ---- line chart renderer; x is max_gap on a true numeric axis ---- */
+  function drawLines(canvasId, cfg) {
+    /*
+      cfg: {
+        height, xMin, xMax, xLabel, yFmt, ticks,
+        xTicks: [{v, label}]               // v is a plot coord, label the max_gap
+        regions: [{from,to,text}]          // shaded x-ranges (batch bands)
+        series: [{ color, dash, alpha, labelAbove, labelFmt,
+                   points: [{x, y, tipLabel, tipLines}] }]
+      }
+    */
+    const c = C();
+    const h = cfg.height || 300;
+    const ctx = initCanvas(canvasId, h);
+    const cv = document.getElementById(canvasId);
+    const W = cv._w, H = h;
+    const small = W < 420;
+
+    const pad = { l: small ? 54 : 68, r: 16, t: cfg.regions ? 26 : 16, b: 40 };
+    const pW = W - pad.l - pad.r;
+    const pH = H - pad.t - pad.b;
+
+    // y-scale across every series; log axes tick per decade
+    let dMin = Infinity, dMax = -Infinity;
+    for (const s of cfg.series) for (const p of s.points) {
+      if (p.y < dMin) dMin = p.y;
+      if (p.y > dMax) dMax = p.y;
+    }
+    let sc;
+    if (cfg.log) {
+      const lo = Math.floor(Math.log10(dMin)), hi = Math.ceil(Math.log10(dMax));
+      sc = { min: lo, max: hi, vals: [] };
+      for (let e = lo; e <= hi; e++) sc.vals.push(Math.pow(10, e));
+    } else {
+      sc = niceScaleRange(dMin, dMax, cfg.ticks || 5);
+    }
+    const tf = cfg.log ? (v => Math.log10(v)) : (v => v);   // data unit -> axis unit
+    const yOf = v => pad.t + pH * (1 - (tf(v) - sc.min) / (sc.max - sc.min));
+    const xOf = v => pad.l + pW * (v - cfg.xMin) / (cfg.xMax - cfg.xMin);
+
+    // shaded batch bands + their captions
+    if (cfg.regions) {
+      for (const r of cfg.regions) {
+        const x0 = xOf(r.from), x1 = xOf(r.to);
+        ctx.fillStyle = c.tint;
+        ctx.fillRect(x0, pad.t, x1 - x0, pH);
+        ctx.fillStyle = c.muted;
+        ctx.font = (small ? '9' : '10') + 'px system-ui';
+        ctx.textAlign = 'center';
+        ctx.fillText(r.text, (x0 + x1) / 2, pad.t - 7);
+      }
+    }
+
+    // horizontal gridlines
+    ctx.strokeStyle = c.grid;
+    ctx.lineWidth = 1;
+    for (const v of sc.vals) {
+      const y = Math.round(yOf(v)) + 0.5;
+      ctx.beginPath(); ctx.moveTo(pad.l, y); ctx.lineTo(pad.l + pW, y); ctx.stroke();
+    }
+    // vertical gridline per max_gap tick
+    for (const t of cfg.xTicks) {
+      const x = Math.round(xOf(t.v)) + 0.5;
+      ctx.beginPath(); ctx.moveTo(x, pad.t); ctx.lineTo(x, pad.t + pH); ctx.stroke();
+    }
+
+    // axes
+    ctx.strokeStyle = c.bl;
+    ctx.lineWidth = 1;
+    const axY = Math.round(pad.t + pH) + 0.5;
+    ctx.beginPath(); ctx.moveTo(pad.l, axY); ctx.lineTo(pad.l + pW, axY); ctx.stroke();
+
+    // y tick labels
+    ctx.fillStyle = c.muted;
+    ctx.font = (small ? '9' : '10') + 'px system-ui';
+    ctx.textAlign = 'right';
+    for (const v of sc.vals) ctx.fillText(cfg.yFmt(v), pad.l - 7, yOf(v) + 3.5);
+
+    // x tick labels
+    ctx.fillStyle = c.ink2;
+    ctx.font = (small ? '10' : '11') + 'px system-ui';
+    ctx.textAlign = 'center';
+    for (const t of cfg.xTicks) ctx.fillText(t.label, xOf(t.v), axY + 16);
+
+    // polylines
+    cv._zones = [];
+    for (const s of cfg.series) {
+      ctx.save();
+      ctx.strokeStyle = s.color;
+      ctx.lineWidth = 2;
+      ctx.lineJoin = 'round';
+      ctx.globalAlpha = s.alpha != null ? s.alpha : 1;
+      if (s.dash) ctx.setLineDash(s.dash);
+      ctx.beginPath();
+      s.points.forEach((p, i) => {
+        const x = xOf(p.x), y = yOf(p.y);
+        if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
+      });
+      ctx.stroke();
+      ctx.restore();
+
+      // markers, ringed in the surface colour so crossings stay legible
+      for (const p of s.points) {
+        const x = xOf(p.x), y = yOf(p.y);
+        ctx.beginPath(); ctx.arc(x, y, 4.5, 0, Math.PI * 2);
+        ctx.fillStyle = c.sf; ctx.fill();
+        ctx.beginPath(); ctx.arc(x, y, 3.2, 0, Math.PI * 2);
+        ctx.fillStyle = s.color;
+        ctx.globalAlpha = s.alpha != null ? s.alpha : 1;
+        ctx.fill();
+        ctx.globalAlpha = 1;
+
+        cv._zones.push({
+          x: x - 11, y: y - 11, w: 22, h: 22, cx: x, cy: y,
+          label: p.tipLabel, lines: p.tipLines || [],
+        });
+      }
+
+      // point value labels, offset off the line
+      const fmt = s.labelFmt || cfg.labelFmt;
+      if (fmt) {
+        ctx.fillStyle = c.ink2;
+        ctx.font = (small ? '8.5' : '9.5') + 'px system-ui';
+        ctx.textAlign = 'center';
+        const dy = s.labelAbove === false ? 15 : -9;
+        for (const p of s.points) ctx.fillText(fmt(p.y), xOf(p.x), yOf(p.y) + dy);
+      }
+    }
+
+    // x-axis title
+    if (cfg.xLabel) {
+      ctx.fillStyle = c.muted;
+      ctx.font = '10px system-ui';
+      ctx.textAlign = 'center';
+      ctx.fillText(cfg.xLabel, pad.l + pW / 2, H - 3);
+    }
+  }
+
+  /* ---- tooltip ---- */
+  const tip = document.getElementById('tooltip');
+  function showTip(e, zone) {
+    let html = '<div class="tt-label">' + zone.label + '</div>';
+    for (const l of zone.lines) html += '<div class="tt-row">' + l + '</div>';
+    tip.innerHTML = html;
+    tip.style.display = 'block';
+    const tw = tip.offsetWidth, th = tip.offsetHeight;
+    let tx = e.clientX + 12, ty = e.clientY - th - 8;
+    if (tx + tw > innerWidth - 8) tx = e.clientX - tw - 12;
+    if (ty < 4) ty = e.clientY + 16;
+    tip.style.left = tx + 'px'; tip.style.top = ty + 'px';
+  }
+  function hideTip() { tip.style.display = 'none'; }
+
+  function bindTip(canvasId) {
+    const cv = document.getElementById(canvasId);
+    cv.addEventListener('mousemove', e => {
+      const r = cv.getBoundingClientRect();
+      const mx = e.clientX - r.left, my = e.clientY - r.top;
+      // nearest marker among those under the cursor — points can overlap
+      let hit = null, best = Infinity;
+      for (const z of cv._zones || []) {
+        if (mx >= z.x && mx <= z.x + z.w && my >= z.y && my <= z.y + z.h) {
+          const d = (mx - z.cx) ** 2 + (my - z.cy) ** 2;
+          if (d < best) { best = d; hit = z; }
+        }
+      }
+      if (hit) { showTip(e, hit); cv.style.cursor = 'default'; }
+      else { hideTip(); cv.style.cursor = 'default'; }
+    });
+    cv.addEventListener('mouseleave', hideTip);
+  }
+
+  /* ---- populate tables ---- */
+  function buildTables() {
+    const tb = document.getElementById('tLoss');
+    tb.innerHTML = '';
+    for (const d of LOSS) {
+      const stuck = d.st.includes('stuck');
+      const impr = d.st.includes('improving');
+      let tagCls = 'tag';
+      if (stuck) tagCls += ' tag-stuck';
+      else if (impr) tagCls += ' tag-improving';
+      tb.innerHTML += '<tr>'
+        + '<td><strong>' + d.gap + '</strong></td>'
+        + '<td class="muted-cell">' + d.nt + '</td>'
+        + '<td class="num">' + d.ep + '</td>'
+        + '<td class="num">' + d.tr.toFixed(4) + '</td>'
+        + '<td class="num"><strong>' + d.ev.toFixed(4) + '</strong></td>'
+        + '<td class="num">' + d.ki.toFixed(4) + '</td>'
+        + '<td class="num">' + d.nu.toFixed(4) + '</td>'
+        + '<td><span class="' + tagCls + '">' + d.st + '</span></td>'
+        + '</tr>';
+    }
+    const tz = document.getElementById('tZSpread');
+    tz.innerHTML = '';
+    for (const gap of Object.keys(ZS).map(Number).sort((a, b) => a - b)) {
+      for (const [ds, key] of [['KITTI','ki'], ['nuScenes','nu']]) {
+        const z = ZS[gap][key];
+        tz.innerHTML += '<tr>'
+          + '<td>' + (ds === 'KITTI' ? '<strong>' + gap + '</strong>' : '') + '</td>'
+          + '<td>' + ds + '</td>'
+          + '<td class="num">' + z.r.toFixed(1) + '</td>'
+          + '<td class="num">' + fmtInt(z.tv) + '</td>'
+          + '<td class="num">' + z.rm.toFixed(2) + '</td>'
+          + '<td class="num">' + z.ma.toFixed(2) + '</td>'
+          + '</tr>';
+      }
+    }
+  }
+
+  /* ---- continuous x-axis in max_gap units; ticks only where a run exists ---- */
+  function axisFor(gaps) {
+    const lo = gaps[0], hi = gaps[gaps.length - 1];
+    const padX = (hi - lo) * 0.07 || 0.5;
+    const nt5 = gaps.filter(g => g <= 4).length;   // runs in the nt=5 arm
+    const regions = (nt5 > 0 && nt5 < gaps.length) ? [
+      { from: lo - padX, to: 5, text: 'num_timesteps = 5' },
+      { from: 5, to: hi + padX, text: 'num_timesteps = 10' },
+    ] : null;
+    return {
+      xMin: lo - padX, xMax: hi + padX,
+      xTicks: gaps.map(g => ({ v: g, label: '' + g })),
+      regions,
+      xi: g => g,
+    };
+  }
+
+  /* ---- draw all charts ---- */
+  function drawAll() {
+    const c = C();
+    const ax = axisFor(LOSS.map(d => d.gap));
+
+    // 1. LossRecon vs max_gap — eval solid, train dashed
+    drawLines('cEvalLoss', {
+      height: 310,
+      xMin: ax.xMin, xMax: ax.xMax, xTicks: ax.xTicks, regions: ax.regions,
+      xLabel: 'max_gap', yFmt: fmtLoss,
+      series: [
+        {
+          color: c.muted, dash: [4, 3], alpha: 0.85,
+          points: LOSS.map(d => ({
+            x: ax.xi(d.gap), y: d.tr,
+            tipLabel: 'max_gap = ' + d.gap + ' — train',
+            tipLines: ['Train loss: <span class="tt-val">' + d.tr.toFixed(4) + '</span>', 'Epoch ' + d.ep + ' &middot; nt=' + d.nt],
+          })),
+        },
+        {
+          color: c.ki, labelFmt: fmtLoss,
+          points: LOSS.map(d => ({
+            x: ax.xi(d.gap), y: d.ev,
+            tipLabel: 'max_gap = ' + d.gap,
+            tipLines: [
+              'Eval loss: <span class="tt-val">' + d.ev.toFixed(4) + '</span>',
+              'Train loss: <span class="tt-val">' + d.tr.toFixed(4) + '</span>',
+              'Epoch ' + d.ep + ' &middot; nt=' + d.nt,
+              d.st,
+            ],
+          })),
+        },
+      ],
+    });
+    bindTip('cEvalLoss');
+
+    // 2. Per-dataset LossRecon vs max_gap
+    drawLines('cDatasetLoss', {
+      height: 310,
+      xMin: ax.xMin, xMax: ax.xMax, xTicks: ax.xTicks, regions: ax.regions,
+      xLabel: 'max_gap', yFmt: fmtLoss,
+      series: [
+        {
+          color: c.ki, labelFmt: fmtLoss,
+          points: LOSS.map(d => ({
+            x: ax.xi(d.gap), y: d.ki,
+            tipLabel: 'max_gap = ' + d.gap + ' — KITTI',
+            tipLines: ['KITTI eval: <span class="tt-val">' + d.ki.toFixed(4) + '</span>', 'Epoch ' + d.ep + ' &middot; nt=' + d.nt],
+          })),
+        },
+        {
+          color: c.nu, labelFmt: fmtLoss, labelAbove: false,
+          points: LOSS.map(d => ({
+            x: ax.xi(d.gap), y: d.nu,
+            tipLabel: 'max_gap = ' + d.gap + ' — nuScenes',
+            tipLines: ['nuScenes eval: <span class="tt-val">' + d.nu.toFixed(4) + '</span>', 'Epoch ' + d.ep + ' &middot; nt=' + d.nt],
+          })),
+        },
+      ],
+    });
+    bindTip('cDatasetLoss');
+
+    // 3. Spread vs max_gap — axis spans only the gaps that have z-spread data
+    const zGaps = Object.keys(ZS).map(Number).sort((a, b) => a - b);
+    const zax = axisFor(zGaps);
+    // magnitude metrics span 3+ decades once the collapsed runs are included -> log axis
+    const zsCharts = [
+      { id: 'cZPartRank', key: 'r', lbl: 'ZPartRank' },
+      { id: 'cZTotalVar', key: 'tv', lbl: 'ZTotalVar', log: true },
+      { id: 'cZRowMeanSquare', key: 'rm', lbl: 'ZRowMeanSquare', log: true },
+      { id: 'cZMeanAbsMax', key: 'ma', lbl: 'ZMeanAbsMax', log: true },
+    ];
+    for (const zc of zsCharts) {
+      const lblFmt = zc.log ? fmtSI : fmtDec1;
+      const mk = (dsKey, color, above) => ({
+        color, labelFmt: lblFmt, labelAbove: above,
+        points: zGaps.map(g => ({
+          x: zax.xi(g), y: ZS[g][dsKey][zc.key],
+          tipLabel: zc.lbl + ' — ' + (dsKey === 'ki' ? 'KITTI' : 'nuScenes'),
+          tipLines: ['max_gap=' + g + ': <span class="tt-val">' + lblFmt(ZS[g][dsKey][zc.key]) + '</span>'],
+        })),
+      });
+      drawLines(zc.id, {
+        height: 215, ticks: 4, log: zc.log,
+        xMin: zax.xMin, xMax: zax.xMax, xTicks: zax.xTicks, regions: zax.regions,
+        xLabel: 'max_gap', yFmt: zc.log ? fmtPow : fmtDec1,
+        series: [mk('ki', c.ki, true), mk('nu', c.nu, false)],
+      });
+      bindTip(zc.id);
+    }
+  }
+
+  /* ---- init ---- */
+  buildTables();
+  drawAll();
+
+  let resizeTimer;
+  window.addEventListener('resize', () => { clearTimeout(resizeTimer); resizeTimer = setTimeout(drawAll, 120); });
+})();
+</script>
