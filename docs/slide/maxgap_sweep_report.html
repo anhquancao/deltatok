@@ -1,4 +1,4 @@
-<title>DeltaTok max_gap Sweep — Loss & Z-Spread</title>
+<title>DeltaTok max_gap Sweep — Loss, Pointmap & Z-Spread</title>
 <style>
   :root {
     --page-bg: #ffffff;
@@ -11,6 +11,9 @@
     --border: rgba(11,11,11,0.08);
     --s-kitti: #2a78d6;
     --s-nusc: #eb6834;
+    /* same hues darkened for point labels — the line colours are 3-4:1 on white */
+    --s-kitti-ink: #1d5aa6;
+    --s-nusc-ink: #b8451a;
     --batch-tint: rgba(0,0,0,0.025);
     --tag-bg: #eeeee8;
     --tag-ink: #52514e;
@@ -75,6 +78,9 @@
   @media (max-width: 600px) { .zs-grid { grid-template-columns: 1fr; } }
   .zs-grid .chart-wrap { padding: 12px 8px 6px; }
   .zs-grid h3 { font-size: 0.88rem; padding: 0 4px; color: var(--ink-1); margin-bottom: 2px; }
+  /* full-width pointmap panels — inline point labels need the horizontal room */
+  .pm-panel { margin-bottom: 14px; }
+  .pm-panel h3 { font-size: 0.88rem; color: var(--ink-1); padding: 0 4px; margin-bottom: 2px; }
   .metric-note {
     font-size: 0.82rem;
     color: var(--ink-muted);
@@ -105,6 +111,7 @@
     position: relative;
   }
   .legend-line.dashed { border-top-style: dashed; }
+  .legend-line.no-dot::after { display: none; }   /* series drawn without markers */
   .legend-line::after {
     content: '';
     position: absolute; left: 50%; top: 50%;
@@ -214,14 +221,14 @@
 <div class="report">
   <header>
     <h1>DeltaTok max_gap Sweep</h1>
-    <p class="subtitle">How reconstruction loss and z-spread evolve across max_gap settings</p>
+    <p class="subtitle">How reconstruction loss, pointmap AR error and z-spread evolve across max_gap settings</p>
     <div class="config-block">
       <span class="label">Experiment:</span> <code>deltatok_l12_dtok64_tc1536_nozn_maxgap{N}_vpt1to2_nosigreg</code><br>
       <span class="label">Cluster:</span> BSC &mdash; <code>train_deltatok_maxgap_nosigreg_nozn_bsc.slurm</code><br>
       <span class="label">Common:</span> num_delta_tokens=<strong>64</strong>, target_channels=<strong>1536</strong>, z_norm=false, sigreg_weight=<strong>0.0</strong>, lr=<strong>1e-3</strong>, grad_clip=<strong>0.1</strong><br>
       <span class="label">Batch 1</span> (max_gap 1&ndash;4): num_timesteps=<strong>5</strong>, config <code>train_deltatok_bsc.yaml</code><br>
       <span class="label">Batch 2</span> (max_gap 6,8,9): num_timesteps=<strong>10</strong>, config <code>train_deltatok_nt10_bsc.yaml</code><br>
-      <span class="label">Sources:</span> loss from the SLURM logs; spread from each run's TensorBoard events (max_gap 1&ndash;4 predate the stdout echo)
+      <span class="label">Sources:</span> LossRecon from the SLURM logs; spread and pointmap from each run's TensorBoard events at the same final step (pointmap is never echoed to stdout)
     </div>
   </header>
 
@@ -246,6 +253,26 @@
     <div class="legend">
       <span class="legend-item"><span class="legend-swatch" style="background:var(--s-kitti)"></span> KITTI</span>
       <span class="legend-item"><span class="legend-swatch" style="background:var(--s-nusc)"></span> nuScenes</span>
+    </div>
+  </section>
+
+  <section class="chart-section">
+    <h2>LossPointmap AR vs max_gap</h2>
+    <p>Pointmap L2 after the autoregressive rollout: the encoder still sees GT pairs, but the decoder is fed its own <code>x&#770;</code> as the previous frame, so error compounds across timesteps. Scored at GT scale, so the value is a mean per-point distance in metres. Both panels use a log axis.</p>
+    <div class="pm-panel">
+      <h3>PredVsGT_AR &mdash; against ground truth</h3>
+      <p class="metric-note">Dashed lines are <code>OrigVsGT</code>, the same decode run on untouched DA3 tokens. It is identical for every run, so it is the floor this metric can reach.</p>
+      <div class="chart-wrap"><canvas id="cPmGtAr"></canvas></div>
+    </div>
+    <div class="pm-panel">
+      <h3>PredVsOrig_AR &mdash; against the token decode</h3>
+      <p class="metric-note">Same rollout scored against <code>OrigVsGT</code>'s decode instead of GT, which cancels the decoder's own error. 0 m = the rollout reproduces it exactly.</p>
+      <div class="chart-wrap"><canvas id="cPmOrigAr"></canvas></div>
+    </div>
+    <div class="legend">
+      <span class="legend-item"><span class="legend-swatch" style="background:var(--s-kitti)"></span> KITTI</span>
+      <span class="legend-item"><span class="legend-swatch" style="background:var(--s-nusc)"></span> nuScenes</span>
+      <span class="legend-item" style="color:var(--ink-muted)"><span class="legend-line dashed no-dot"></span> <span style="color:var(--ink-2)">Decoder floor (OrigVsGT)</span></span>
     </div>
   </section>
 
@@ -298,6 +325,24 @@
   </section>
 
   <section>
+    <h2>Pointmap Data (final step of each run)</h2>
+    <p>Metres. AR columns in bold. OrigVsGT is run-independent, so it repeats down the column.</p>
+    <div class="table-wrap">
+      <table>
+        <thead>
+          <tr>
+            <th>max_gap</th><th>Dataset</th>
+            <th class="num">PredVsGT (m)</th><th class="num">PredVsGT AR (m)</th>
+            <th class="num">OrigVsGT (m)</th>
+            <th class="num">PredVsOrig (m)</th><th class="num">PredVsOrig AR (m)</th>
+          </tr>
+        </thead>
+        <tbody id="tPointmap"></tbody>
+      </table>
+    </div>
+  </section>
+
+  <section>
     <h2>Spread Data (final step of each run)</h2>
     <div class="table-wrap">
       <table>
@@ -316,7 +361,8 @@
   <section>
     <h2>Key Findings</h2>
     <div class="caveat-box">
-      <strong>Read the two arms separately.</strong> max_gap 1&ndash;4 ran at num_timesteps=5, max_gap 6/8/9 at num_timesteps=10 on a different base config, so loss is not comparable across the boundary. Runs also stopped at different epochs (20 to 80), and 1/2/3 were cancelled rather than converged. max_gap 5 and 7 were never trained.
+      <strong>Read the two arms separately.</strong> max_gap 1&ndash;4 ran at num_timesteps=5, max_gap 6/8/9 at num_timesteps=10 on a different base config, so loss is not comparable across the boundary. Runs also stopped at different epochs (20 to 80), and 1/2/3 were cancelled rather than converged. max_gap 5 and 7 were never trained.<br><br>
+      <strong>The two tables average differently.</strong> The loss table is the master rank's running mean printed to the log; the pointmap and spread tables are the batch-weighted all-rank mean from TB. Same quantity, up to ~1% apart &mdash; max_gap 1 KITTI LossRecon reads 0.1374 in one and 0.1361 in the other.
     </div>
     <ul class="findings">
       <li><strong>max_gap 1 and 3 collapsed.</strong> ZPartRank falls to <strong>~1.7&ndash;2.0</strong> &mdash; the latent uses barely two directions &mdash; while magnitudes blow up three decades (ZRowMeanSquare ~5&ndash;10&times;10<sup>5</sup> vs ~10<sup>2</sup> elsewhere). This is the mechanism behind their stuck eval loss (~0.115), not slow convergence.</li>
@@ -325,6 +371,10 @@
       <li>Within the num_timesteps=10 arm the spread ordering is <strong>6 &gt; 9 &gt; 8</strong> for both rank and total variance &mdash; and again not monotone in max_gap.</li>
       <li><strong>max_gap=9 reaches the best eval loss</strong> (0.0128) on the same 49-epoch budget as 6 (0.0176) and 8 (0.0156), while sitting mid-pack on spread &mdash; so within this arm lower loss does not track higher rank.</li>
       <li><strong>max_gap=2</strong> was still improving when cancelled at epoch 29 (eval 0.0363) and holds the highest rank of the nt=5 arm; <strong>max_gap=4</strong> is the only nt=5 run trained to convergence (eval 0.0148 at epoch 80).</li>
+      <li><strong>Pointmap AR against GT is pinned to the decoder floor.</strong> OrigVsGT is 2.402 m (KITTI) and 3.322 m (nuScenes) for every run, since it decodes untouched DA3 tokens. Every non-collapsed run's PredVsGT_AR lands within 1.3% of it (2.372&ndash;2.412 m on KITTI). Tokenizer error does not show up in this metric.</li>
+      <li><strong>PredVsOrig_AR is the pointmap number that separates them.</strong> Across max_gap 4/6/8/9 on KITTI it spans 0.264 m (gap 9) to 0.358 m (gap 8), a 1.36&times; range, where PredVsGT_AR moves 1.7%. Cancelling the decoder's own error is what makes the metric readable.</li>
+      <li><strong>The two datasets disagree on the pointmap ordering.</strong> By PredVsOrig_AR, KITTI ranks 9 &lt; 4 &lt; 6 &lt; 8 while nuScenes ranks 8 &lt; 9 &lt; 4 &lt; 6, and there 9 and 4 are tied to within 0.001 m. Only KITTI puts max_gap=9 first, so pointmap does not confirm the eval-loss ranking.</li>
+      <li><strong>AR compounding only bites the collapsed runs.</strong> For max_gap 4/6/8/9 the AR PredVsOrig is 1.00&ndash;1.07&times; its teacher-forced twin. For max_gap 1 it is 1.95&times; (8.15 m vs 4.17 m) and for max_gap 3, 1.56&times; (10.16 m vs 6.52 m) &mdash; the same pair that collapsed on z-spread.</li>
     </ul>
   </section>
 </div>
@@ -357,6 +407,22 @@
     9: { ki:{r:66.52,tv:66578.77,rm:189.35,ma:407.80},    nu:{r:68.54,tv:71309.04,rm:195.10,ma:409.54} },
   };
 
+  // Eval pointmap L2 at the same final step as the loss rows, read from TB — these
+  // never reach stdout. gt/gtAr score against dataset GT, uo/uoAr against the decode
+  // of the untouched DA3 tokens; *Ar is the autoregressive rollout.
+  // OrigVsGT decodes those untouched tokens, so it does not depend on the tokenizer
+  // and is one constant per dataset.
+  const PM_FLOOR = { ki: 2.401762, nu: 3.321701 };
+  const PM = {
+    1: { ki:{gt:4.658317, gtAr:8.092054,  uo:4.172570,  uoAr:8.151084},  nu:{gt:7.026361,  gtAr:11.880007, uo:5.919654,  uoAr:11.256043} },
+    2: { ki:{gt:2.418073, gtAr:2.401787,  uo:0.501287,  uoAr:0.561805},  nu:{gt:3.458516,  gtAr:3.496555,  uo:0.485092,  uoAr:0.563714} },
+    3: { ki:{gt:7.247756, gtAr:11.109059, uo:6.523752,  uoAr:10.157797}, nu:{gt:12.340118, gtAr:18.804871, uo:11.715778, uoAr:18.543304} },
+    4: { ki:{gt:2.386119, gtAr:2.379787,  uo:0.297549,  uoAr:0.315297},  nu:{gt:3.406381,  gtAr:3.412731,  uo:0.276275,  uoAr:0.290307} },
+    6: { ki:{gt:2.374908, gtAr:2.371748,  uo:0.338721,  uoAr:0.337700},  nu:{gt:3.405227,  gtAr:3.413613,  uo:0.296146,  uoAr:0.313746} },
+    8: { ki:{gt:2.415779, gtAr:2.393385,  uo:0.333730,  uoAr:0.358034},  nu:{gt:3.360022,  gtAr:3.369013,  uo:0.257100,  uoAr:0.271461} },
+    9: { ki:{gt:2.410962, gtAr:2.412475,  uo:0.260216,  uoAr:0.264162},  nu:{gt:3.405593,  gtAr:3.406613,  uo:0.285279,  uoAr:0.289570} },
+  };
+
   /* ---- theme ---- */
   function C() {
     const s = getComputedStyle(document.documentElement);
@@ -365,6 +431,7 @@
       sf: g('--surface'), ink: g('--ink-1'), ink2: g('--ink-2'),
       muted: g('--ink-muted'), grid: g('--grid'), bl: g('--baseline'),
       ki: g('--s-kitti'), nu: g('--s-nusc'), tint: g('--batch-tint'),
+      kiInk: g('--s-kitti-ink'), nuInk: g('--s-nusc-ink'),
     };
   }
 
@@ -407,6 +474,7 @@
   const fmtDec1 = v => v.toFixed(1);
   const fmtDec2 = v => v.toFixed(2);
   const fmtPow = v => '1e' + Math.round(Math.log10(v));            // decade axis ticks
+  const fmtMeters = v => +v.toFixed(2) + ' m';                     // pointmap is a distance
   const fmtSI = v => Math.abs(v) >= 1e6 ? (v / 1e6).toFixed(1) + 'M'
                    : Math.abs(v) >= 1e3 ? (v / 1e3).toFixed(1) + 'k'
                    : v.toFixed(1);
@@ -446,9 +514,25 @@
     }
     let sc;
     if (cfg.log) {
-      const lo = Math.floor(Math.log10(dMin)), hi = Math.ceil(Math.log10(dMax));
-      sc = { min: lo, max: hi, vals: [] };
-      for (let e = lo; e <= hi; e++) sc.vals.push(Math.pow(10, e));
+      // Decade ticks by default. logNice adds the 2 and 5 mantissas, for axes that
+      // span only a decade or two and would otherwise get 3 gridlines, and keeps a
+      // tick of headroom at either end so inline point labels are not clipped.
+      const mant = cfg.logNice ? [1, 2, 5] : [1];
+      const lo = Math.floor(Math.log10(dMin)), hi = Math.floor(Math.log10(dMax));
+      const cand = [];
+      for (let e = lo - 2; e <= hi + 2; e++)
+        for (const m of mant) cand.push(+(m * Math.pow(10, e)).toPrecision(12));
+      // tighten to the ticks that bracket the data, so it fills the panel
+      let i0 = 0, i1 = cand.length - 1;
+      while (i0 + 1 < cand.length && cand[i0 + 1] <= dMin) i0++;
+      while (i1 > 0 && cand[i1 - 1] >= dMax) i1--;
+      if (cfg.logNice) {
+        // one tick of headroom at each end, so a point label never rides the frame
+        if (i0 > 0) i0--;
+        if (i1 + 1 < cand.length) i1++;
+      }
+      const vals = cand.slice(i0, i1 + 1);
+      sc = { min: Math.log10(vals[0]), max: Math.log10(vals[vals.length - 1]), vals };
     } else {
       sc = niceScaleRange(dMin, dMax, cfg.ticks || 5);
     }
@@ -506,7 +590,13 @@
       ctx.translate(15, pad.t + pH / 2);
       ctx.rotate(-Math.PI / 2);
       ctx.fillStyle = c.ink2;
-      ctx.font = '600 ' + (small ? '13' : '14') + 'px system-ui';
+      let fs = small ? 13 : 14;
+      ctx.font = '600 ' + fs + 'px system-ui';
+      // a long axis title would run past the plot band — shrink it to fit instead
+      while (fs > 10 && ctx.measureText(cfg.yLabel).width > pH) {
+        fs -= 1;
+        ctx.font = '600 ' + fs + 'px system-ui';
+      }
       ctx.textAlign = 'center';
       ctx.textBaseline = 'middle';
       ctx.fillText(cfg.yLabel, 0, 0);
@@ -530,8 +620,10 @@
       ctx.stroke();
       ctx.restore();
 
-      // markers, ringed in the surface colour so crossings stay legible
-      for (const p of s.points) {
+      // markers, ringed in the surface colour so crossings stay legible.
+      // markers:false is for reference lines — no dots, and no tooltip zones to
+      // steal hits from the data series they sit behind.
+      if (s.markers !== false) for (const p of s.points) {
         const x = xOf(p.x), y = yOf(p.y);
         ctx.beginPath(); ctx.arc(x, y, 4.5, 0, Math.PI * 2);
         ctx.fillStyle = c.sf; ctx.fill();
@@ -550,7 +642,7 @@
       // point value labels, offset off the line
       const fmt = s.labelFmt || cfg.labelFmt;
       if (fmt) {
-        ctx.fillStyle = c.ink2;
+        ctx.fillStyle = s.labelColor || c.ink2;
         ctx.font = (small ? '11' : '12') + 'px system-ui';
         ctx.textAlign = 'center';
         const dy = s.labelAbove === false ? 19 : -11;
@@ -621,6 +713,22 @@
         + '<td class="num">' + d.nu.toFixed(4) + '</td>'
         + '<td><span class="' + tagCls + '">' + d.st + '</span></td>'
         + '</tr>';
+    }
+    const tp = document.getElementById('tPointmap');
+    tp.innerHTML = '';
+    for (const gap of Object.keys(PM).map(Number).sort((a, b) => a - b)) {
+      for (const [ds, key] of [['KITTI','ki'], ['nuScenes','nu']]) {
+        const p = PM[gap][key];
+        tp.innerHTML += '<tr>'
+          + '<td>' + (ds === 'KITTI' ? '<strong>' + gap + '</strong>' : '') + '</td>'
+          + '<td>' + ds + '</td>'
+          + '<td class="num">' + p.gt.toFixed(3) + '</td>'
+          + '<td class="num"><strong>' + p.gtAr.toFixed(3) + '</strong></td>'
+          + '<td class="num muted-cell">' + PM_FLOOR[key].toFixed(3) + '</td>'
+          + '<td class="num">' + p.uo.toFixed(3) + '</td>'
+          + '<td class="num"><strong>' + p.uoAr.toFixed(3) + '</strong></td>'
+          + '</tr>';
+      }
     }
     const tz = document.getElementById('tZSpread');
     tz.innerHTML = '';
@@ -699,7 +807,7 @@
       xLabel: 'max_gap', yLabel: 'LossRecon', yFmt: fmtLoss,
       series: [
         {
-          color: c.ki, labelFmt: fmtLoss,
+          color: c.ki, labelFmt: fmtLoss, labelColor: c.kiInk,
           points: LOSS.map(d => ({
             x: ax.xi(d.gap), y: d.ki,
             tipLabel: 'max_gap = ' + d.gap + ' — KITTI',
@@ -707,7 +815,7 @@
           })),
         },
         {
-          color: c.nu, labelFmt: fmtLoss, labelAbove: false,
+          color: c.nu, labelFmt: fmtLoss, labelAbove: false, labelColor: c.nuInk,
           points: LOSS.map(d => ({
             x: ax.xi(d.gap), y: d.nu,
             tipLabel: 'max_gap = ' + d.gap + ' — nuScenes',
@@ -718,7 +826,58 @@
     });
     bindTip('cDatasetLoss');
 
-    // 3. Spread vs max_gap — axis spans only the gaps that have z-spread data
+    // 3. LossPointmap AR — log axis; the collapsed runs sit a decade above the rest
+    const pGaps = Object.keys(PM).map(Number).sort((a, b) => a - b);
+    const pax = axisFor(pGaps);
+    const fmtPm = v => v.toFixed(3) + ' m';
+    // inline point labels: 3 significant figures, no unit — the axis carries the m
+    const fmtPmPt = v => v < 1 ? v.toFixed(3) : v < 10 ? v.toFixed(2) : v.toFixed(1);
+    // tfKey is the teacher-forced twin of the AR field, shown in the tooltip so the
+    // AR penalty is readable per point. `above` splits the two datasets' labels to
+    // either side of their marker, since the series run within a few px of each other.
+    const pmSeries = (fld, tfKey, dsKey, color, lbl, above) => ({
+      color, labelFmt: fmtPmPt, labelAbove: above,
+      labelColor: dsKey === 'ki' ? c.kiInk : c.nuInk,
+      points: pGaps.map(g => ({
+        x: pax.xi(g), y: PM[g][dsKey][fld],
+        tipLabel: lbl + ' — ' + (dsKey === 'ki' ? 'KITTI' : 'nuScenes'),
+        tipLines: [
+          'max_gap=' + g + ': <span class="tt-val">' + fmtPm(PM[g][dsKey][fld]) + '</span>',
+          'Teacher-forced: <span class="tt-val">' + fmtPm(PM[g][dsKey][tfKey]) + '</span>',
+        ],
+      })),
+    });
+    const pmFloor = (dsKey, color) => ({
+      color, dash: [5, 4], alpha: 0.55, markers: false,
+      points: pGaps.map(g => ({ x: pax.xi(g), y: PM_FLOOR[dsKey] })),
+    });
+
+    // nuScenes labels above its markers, KITTI below — nuScenes is the upper line
+    // in most of both panels, so this keeps each label on its own side of the pair.
+    drawLines('cPmGtAr', {
+      height: 370, log: true, logNice: true,
+      xMin: pax.xMin, xMax: pax.xMax, xTicks: pax.xTicks, regions: pax.regions,
+      xLabel: 'max_gap', yLabel: 'LossPointmap AR against ground truth', yFmt: fmtMeters,
+      series: [
+        pmFloor('ki', c.ki), pmFloor('nu', c.nu),
+        pmSeries('gtAr', 'gt', 'ki', c.ki, 'PredVsGT_AR', false),
+        pmSeries('gtAr', 'gt', 'nu', c.nu, 'PredVsGT_AR', true),
+      ],
+    });
+    bindTip('cPmGtAr');
+
+    drawLines('cPmOrigAr', {
+      height: 370, log: true, logNice: true,
+      xMin: pax.xMin, xMax: pax.xMax, xTicks: pax.xTicks, regions: pax.regions,
+      xLabel: 'max_gap', yLabel: 'LossPointmap AR against token decode', yFmt: fmtMeters,
+      series: [
+        pmSeries('uoAr', 'uo', 'ki', c.ki, 'PredVsOrig_AR', false),
+        pmSeries('uoAr', 'uo', 'nu', c.nu, 'PredVsOrig_AR', true),
+      ],
+    });
+    bindTip('cPmOrigAr');
+
+    // 4. Spread vs max_gap — axis spans only the gaps that have z-spread data
     const zGaps = Object.keys(ZS).map(Number).sort((a, b) => a - b);
     const zax = axisFor(zGaps);
     // magnitude metrics span 3+ decades once the collapsed runs are included -> log axis
