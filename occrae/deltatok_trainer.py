@@ -1412,11 +1412,9 @@ class DeltaTokTrainer(DeltaTokSharedMixin, Trainer):
             if self.is_master and not sanity_check:
                 for key, val in results.items():
                     self.log_add_scalar(f"Eval/{test_name}/{key}", val.item(), self.cfg.training.iter)
-                # When TensorBoard is disabled (e.g. --eval-only), echo the
-                # numbers to stdout so they aren't silently dropped.
-                if self.writer is None:
-                    metrics_str = ", ".join(f"{k}={v.item():.4f}" for k, v in results.items())
-                    print(f"[Eval/{test_name}] {metrics_str}")
+                # Always echo every component (incl. the _AR rollout) to .out: TB-only hid them.
+                metrics_str = ", ".join(f"{k}={v.item():.4f}" for k, v in results.items())
+                print(f"[Eval/{test_name}] {metrics_str}", flush=True)
 
         final_loss_recon = overall_loss_recon / overall_n if overall_n > 0 else 0.0
 
