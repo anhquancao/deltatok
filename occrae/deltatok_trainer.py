@@ -1006,6 +1006,9 @@ class DeltaTokTrainer(DeltaTokSharedMixin, Trainer):
     def train_one_epoch(self):
         self.tokenizer.train()
         cum_loss = 0.
+        cum_recon = 0.                           # per-component sums for the epoch breakdown
+        cum_sigreg = cum_bneck = cum_compose = 0.
+        n_sigreg = n_bneck = n_compose = 0       # count only batches where the component fired
         num_batches = 0
         last_update_time = time.time()
         window_loss = deque(maxlen=self.grad_cum)
@@ -1132,6 +1135,14 @@ class DeltaTokTrainer(DeltaTokSharedMixin, Trainer):
             cum_loss += loss_val
             window_loss.append(loss_val)
 
+            cum_recon += loss.detach().item()       # recon fires every batch
+            if loss_sigreg is not None:
+                cum_sigreg += loss_sigreg.detach().item(); n_sigreg += 1
+            if loss_bneck is not None:
+                cum_bneck += loss_bneck.detach().item(); n_bneck += 1
+            if loss_compose is not None:
+                cum_compose += loss_compose.detach().item(); n_compose += 1
+
             # Update the console meters every batch (matches OccAny) so the first
             # log_every line at step 0 has populated `loss`/`lr` meters.
             if self.is_master:
@@ -1159,7 +1170,15 @@ class DeltaTokTrainer(DeltaTokSharedMixin, Trainer):
 
                 self.cfg.training.iter += 1
 
-        return cum_loss / max(1, num_batches)
+        stats = {"total": cum_loss / max(1, num_batches),
+                 "recon": cum_recon / max(1, num_batches)}
+        if n_sigreg:
+            stats["sigreg"] = cum_sigreg / n_sigreg
+        if n_bneck:
+            stats["bneck"] = cum_bneck / n_bneck
+        if n_compose:
+            stats["compose"] = cum_compose / n_compose
+        return stats
 
     # _compute_frame_losses / _decode_tokens / _reconstruct_full_tokens moved
     # verbatim to occrae/deltatok_shared.py (DeltaTokSharedMixin).
@@ -1624,21 +1643,30 @@ class DeltaTokTrainer(DeltaTokSharedMixin, Trainer):
                     print("End of training: reached max iterations")
                 break
 
-            train_loss = self.train_one_epoch()
+            train_stats = self.train_one_epoch()
             test_loss = self.eval_one_epoch()
 
             if self.distributed:
-                train_loss = self.all_gather(train_loss)
+                train_stats = {k: self.all_gather(v) for k, v in train_stats.items()}
                 test_loss = self.all_gather(test_loss)
+
+            train_loss = train_stats["total"]
 
             if self.is_master:
                 clock_time = (time.time() - start)
                 self.log_add_scalar('Train/Loss', train_loss, self.cfg.training.global_epoch)
                 self.log_add_scalar('Eval/Loss', test_loss, self.cfg.training.global_epoch)
+                # Break the total into its active components (recon/sigreg/bneck/compose).
+                comp_str = ", ".join(
+                    f"{name}: {float(train_stats[key]):.4f}"
+                    for key, name in (("recon", "Recon"), ("sigreg", "SIGReg"),
+                                      ("bneck", "Bneck"), ("compose", "Compose"))
+                    if key in train_stats
+                )
                 now = os.popen('date').read().strip()
                 print(f"\r\033[KEpoch {self.cfg.training.global_epoch},"
                       f" Iter {self.cfg.training.iter},"
-                      f" Train: {train_loss:.4f}, Eval: {test_loss:.4f},"
+                      f" Train: {train_loss:.4f} ({comp_str}), Eval: {test_loss:.4f},"
                       f" Time: {int(clock_time // 3600):.0f}:{int((clock_time % 3600) // 60):02d}:{int(clock_time % 60):02d},"
                       f" Date: {now}")
 
