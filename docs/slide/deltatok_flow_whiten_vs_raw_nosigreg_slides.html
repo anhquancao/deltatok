@@ -1,0 +1,350 @@
+<title>DeltaTok-flow — Whiten vs Raw Latents (no SIGReg)</title>
+<style>
+  :root {
+    --page-bg: #ffffff;
+    --surface: #ffffff;
+    --ink-1: #0b0b0b;
+    --ink-2: #52514e;
+    --ink-muted: #898781;
+    --grid: #e1e0d9;
+    --baseline: #c3c2b7;
+    --border: rgba(11,11,11,0.08);
+    --c-whiten: #2a78d6;        /* winner — whitened */
+    --c-raw: #e0592b;           /* loser — raw z */
+    --c-whiten-ink: #1d5aa6;
+    --c-raw-ink: #b8451a;
+    --tint: rgba(0,0,0,0.025);
+    --caveat-bg: #fdf6ed;
+    --caveat-border: #e8d5b8;
+    --caveat-ink: #6b5430;
+    --good-bg: #eef6ee;
+    --good-border: #c8e0c8;
+    --good-ink: #35603a;
+  }
+  /* light-only */
+  body {
+    background: var(--page-bg);
+    color: var(--ink-1);
+    font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
+    line-height: 1.55;
+    margin: 0;
+    padding: 24px 16px 64px;
+  }
+  .report { max-width: 880px; margin: 0 auto; }
+
+  h1 { font-size: 1.5rem; font-weight: 650; letter-spacing: -0.02em; margin: 0 0 4px; }
+  .subtitle { color: var(--ink-2); font-size: 0.95rem; margin: 0 0 20px; }
+  h2 { font-size: 1.05rem; font-weight: 600; margin: 30px 0 6px; letter-spacing: -0.01em; }
+  h3 { font-size: 0.85rem; font-weight: 600; margin: 0 0 4px; }
+  p { margin: 0 0 12px; font-size: 0.9rem; color: var(--ink-2); }
+  code, .mono { font-family: ui-monospace, SFMono-Regular, "Cascadia Code", Menlo, monospace; font-size: 0.82em; }
+
+  .config-block {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 14px 18px;
+    margin-bottom: 8px;
+    font-size: 0.82rem;
+    color: var(--ink-2);
+    line-height: 1.65;
+  }
+  .config-block .label { color: var(--ink-muted); }
+  .config-block strong { color: var(--ink-1); font-weight: 550; }
+
+  .chart-section { margin-bottom: 8px; }
+  .chart-wrap {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 16px 12px 8px;
+    position: relative;
+  }
+  .chart-wrap canvas { display: block; width: 100%; }
+
+  .two-col { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+  @media (max-width: 620px) { .two-col { grid-template-columns: 1fr; } }
+  .two-col h3 { font-size: 0.88rem; padding: 0 4px; color: var(--ink-1); margin-bottom: 2px; }
+  .metric-note { font-size: 0.82rem; color: var(--ink-muted); line-height: 1.45; padding: 0 4px; margin: 0 0 6px; }
+
+  /* legend */
+  .legend { display: flex; gap: 18px; justify-content: center; padding: 10px 0 2px; font-size: 0.88rem; color: var(--ink-2); }
+  .legend-item { display: flex; align-items: center; gap: 6px; }
+  .legend-line { width: 22px; height: 0; flex-shrink: 0; border-top: 2.5px solid currentColor; }
+  .legend-line.dashed { border-top-style: dashed; }
+
+  /* tables */
+  .table-wrap { overflow-x: auto; margin-bottom: 16px; border: 1px solid var(--border); border-radius: 6px; background: var(--surface); }
+  table { width: 100%; border-collapse: collapse; font-size: 0.84rem; font-variant-numeric: tabular-nums; white-space: nowrap; }
+  th { text-align: left; font-weight: 600; padding: 8px 12px; border-bottom: 1px solid var(--baseline); color: var(--ink-2); font-size: 0.76rem; text-transform: uppercase; letter-spacing: 0.04em; }
+  td { padding: 7px 12px; border-bottom: 1px solid var(--grid); color: var(--ink-1); }
+  tr:last-child td { border-bottom: none; }
+  .num { text-align: right; }
+  .win { color: var(--c-whiten-ink); font-weight: 600; }
+  .lose { color: var(--c-raw-ink); }
+  .delta { color: var(--good-ink); font-weight: 600; }
+  .flat { color: var(--ink-muted); }
+
+  /* boxes */
+  .box { border-radius: 6px; padding: 14px 18px; font-size: 0.88rem; line-height: 1.6; margin-bottom: 16px; }
+  .box strong { font-weight: 600; }
+  .box.good { background: var(--good-bg); border: 1px solid var(--good-border); color: var(--good-ink); }
+  .box.caveat { background: var(--caveat-bg); border: 1px solid var(--caveat-border); color: var(--caveat-ink); }
+
+  /* findings */
+  .findings { list-style: none; padding: 0; margin: 0 0 8px; }
+  .findings li { position: relative; padding: 6px 0 6px 18px; font-size: 0.9rem; color: var(--ink-2); line-height: 1.5; }
+  .findings li::before { content: ''; position: absolute; left: 0; top: 13px; width: 6px; height: 6px; border-radius: 50%; background: var(--ink-muted); }
+  .findings b { color: var(--ink-1); font-weight: 600; }
+
+  /* tooltip */
+  #tooltip { position: fixed; display: none; pointer-events: none; background: var(--surface); border: 1px solid var(--baseline); border-radius: 5px; padding: 8px 11px; font-size: 0.78rem; line-height: 1.55; color: var(--ink-1); box-shadow: 0 3px 12px rgba(0,0,0,0.12); z-index: 100; }
+  #tooltip .tt-label { font-weight: 600; margin-bottom: 3px; }
+  #tooltip .tt-row { display: flex; justify-content: space-between; gap: 12px; }
+  #tooltip .tt-val { font-weight: 550; font-variant-numeric: tabular-nums; }
+</style>
+
+<div class="report">
+  <header>
+    <h1>Without SIGReg, whiten the latents</h1>
+    <p class="subtitle">DeltaTok-flow over a tc1536 max_gap9 <em>no-SIGReg</em> tokenizer, XXL DiT, Waymo. One knob changes: raw z vs per-channel whitening.</p>
+    <div class="config-block">
+      <span class="label">Tokenizer (frozen, shared):</span> <code>deltatok_l12_dtok64_tc1536_nozn_maxgap9_vpt1to2_nosigreg</code> — K=<strong>64</strong> delta tokens, target_channels=<strong>1536</strong> (no bottleneck), z_norm=<strong>false</strong>, sigreg_weight=<strong>0.0</strong><br>
+      <span class="label">Flow model:</span> XXL DiT (<code>vit_dit_adaln</code>, ~1.2B), <code>cond_mode=delta_ctx_cross</code>, Waymo consec5 cam0 ctx3 fwd2<br>
+      <span class="label">The one difference:</span> <span class="lose">raw z</span> — <code>whiten_stats</code> omitted, z RMS ≈14 &nbsp;·&nbsp; <span class="win">whitened</span> — per-channel mean/std → std 1<br>
+      <span class="label">Runs:</span> BSC <code>44474612</code> (raw) / <code>44475204</code> (whiten), both trained to <strong>epoch 100</strong> (101 evals)
+    </div>
+  </header>
+
+  <div class="box good">
+    <strong>Conclusion.</strong> Whitening cuts the flow-matching loss <strong>8×</strong> (0.85 vs 6.83, last-10-epoch mean) and lets generated geometry keep improving — raymap <strong>−35%</strong>, pointmap <strong>−25%</strong>. Raw latents (RMS ≈14) swamp the flow's unit-variance noise, so the model never fits the target and its decoded geometry plateaus from epoch ~10. With SIGReg off, whitening is not optional.
+  </div>
+
+  <section class="chart-section">
+    <h2>LossFlow — the flow-matching objective (log scale)</h2>
+    <p>The direct MSE target the DiT trains on. Raw z sits near <strong>7</strong> the whole run and starts at 313; whitened drops under <strong>1</strong> within 5 epochs and holds ~0.85. Raw z RMS ≈14 makes the flow's isotropic noise negligible for most <code>t</code>, so the schedule collapses near <code>t=0</code> and the loss stays scale-dominated.</p>
+    <div class="chart-wrap"><canvas id="cFlow"></canvas></div>
+  </section>
+
+  <div class="legend">
+    <span class="legend-item" style="color:var(--c-whiten)"><span class="legend-line"></span> <span style="color:var(--ink-2)">whitened (std 1)</span></span>
+    <span class="legend-item" style="color:var(--c-raw)"><span class="legend-line dashed"></span> <span style="color:var(--ink-2)">raw z (RMS ≈14)</span></span>
+  </div>
+
+  <section class="chart-section">
+    <h2>Decoded geometry error from the generated tokens</h2>
+    <p>Each generated latent is decoded and scored against Waymo GT. Whitened <em>starts worse</em> (higher variance to fit) but crosses over and keeps falling; raw z is flat and noisy from epoch ~10. Same axis note applies: lower is better.</p>
+    <div class="two-col">
+      <div>
+        <h3>LossRaymap</h3>
+        <p class="metric-note">Camera-ray direction error. Biggest whiten win.</p>
+        <div class="chart-wrap"><canvas id="cRaymap"></canvas></div>
+      </div>
+      <div>
+        <h3>LossPointmap</h3>
+        <p class="metric-note">3D pointmap L2. Whiten keeps improving to the end.</p>
+        <div class="chart-wrap"><canvas id="cPointmap"></canvas></div>
+      </div>
+    </div>
+  </section>
+
+  <section class="chart-section">
+    <h2>LossDepth — nearly tied</h2>
+    <p>Depth is the least scale-sensitive channel: both settle around <strong>4.1</strong>, whitened marginally lower. Whitening buys the flow and the ray/point geometry, not depth.</p>
+    <div class="chart-wrap"><canvas id="cDepth"></canvas></div>
+  </section>
+
+  <section>
+    <h2>End-of-training summary</h2>
+    <p>Mean over epochs 91–100 (robust to the epoch-to-epoch noise). Δ is whiten relative to raw.</p>
+    <div class="table-wrap">
+      <table>
+        <thead>
+          <tr><th>Metric</th><th class="num">Raw z</th><th class="num">Whitened</th><th class="num">Δ</th></tr>
+        </thead>
+        <tbody>
+          <tr><td>LossFlow</td><td class="num lose">6.83</td><td class="num win">0.85</td><td class="num delta">−88% (8.0×)</td></tr>
+          <tr><td>LossRaymap</td><td class="num lose">17.71</td><td class="num win">11.60</td><td class="num delta">−35%</td></tr>
+          <tr><td>LossPointmap</td><td class="num lose">18.01</td><td class="num win">13.52</td><td class="num delta">−25%</td></tr>
+          <tr><td>LossDepth</td><td class="num">4.19</td><td class="num">4.06</td><td class="num flat">−3%</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <section>
+    <h2>Takeaways</h2>
+    <ul class="findings">
+      <li><b>Whitening fixes the objective.</b> Flow loss falls 8× (6.83 → 0.85). Same tokenizer, same DiT — the only change is normalizing each latent channel to std 1.</li>
+      <li><b>Raw latents starve the noise.</b> At RMS ≈14 the flow's unit-variance noise is a rounding error for most <code>t</code>; the target is dominated by scale and the schedule collapses near <code>t=0</code>.</li>
+      <li><b>Geometry follows the objective.</b> Whitened raymap −35% and pointmap −25%; both keep dropping while raw z plateaus flat and noisy from epoch ~10.</li>
+      <li><b>Depth is the exception.</b> Both ≈4.1 — the least scale-sensitive channel, so whitening barely moves it.</li>
+      <li><b>Bottom line.</b> Without SIGReg to shape the latent geometry, whitening is the cheap substitute that makes the flow trainable.</li>
+    </ul>
+    <div class="box caveat">
+      <strong>Scope.</strong> One tokenizer (tc1536, max_gap9, no SIGReg), one flow arm (XXL DiT, Waymo cam0). This isolates whitening only against <em>no</em> SIGReg — it does not compare whitening against a SIGReg-trained latent, where the geometry is already better conditioned.
+    </div>
+  </section>
+</div>
+
+<div id="tooltip"></div>
+
+<script>
+(function () {
+  'use strict';
+
+  /* ---- data: [epoch, LossFlow, LossPointmap, LossDepth, LossRaymap] ---- */
+  const NOWHITEN = [[0,312.8533,21.8500,16.1738,15.0811],[1,63.7051,18.4549,13.0215,13.6403],[2,41.9667,19.8587,6.8141,15.3776],[3,25.4826,19.3391,12.9048,13.8637],[4,21.9676,18.3210,12.1269,12.7745],[5,20.5457,19.1901,7.8517,15.1384],[6,12.6547,18.6597,9.5978,14.8153],[7,14.5046,19.9486,8.4109,16.6911],[8,14.4944,21.0178,8.3557,18.3420],[9,12.6986,20.5899,7.1901,17.3574],[10,13.2091,18.5667,8.0495,16.3591],[11,12.3972,18.6949,7.0707,16.9904],[12,12.9267,18.6371,6.4527,18.1989],[13,12.1405,16.9626,6.9196,17.5231],[14,10.9671,17.1246,5.9005,17.1789],[15,10.2558,19.8025,5.8357,20.3038],[16,10.0590,17.5988,5.8690,17.3145],[17,11.7364,18.2021,5.6866,17.6127],[18,10.1713,14.9140,4.8821,13.9814],[19,10.7233,14.6612,5.0085,14.5925],[20,11.0114,16.4286,5.6042,16.9133],[21,10.4477,16.8041,4.7947,16.0048],[22,8.8132,13.7080,5.0582,13.2811],[23,9.3361,15.6207,5.0106,15.8050],[24,9.3329,16.0996,4.9873,16.4459],[25,9.0318,17.4111,5.2487,17.4486],[26,9.2453,13.4378,4.5146,12.6509],[27,8.8606,17.7214,4.8969,17.4405],[28,9.6587,15.8009,5.0914,15.7047],[29,9.4896,16.9795,5.0162,17.3644],[30,8.2528,18.7835,5.0516,18.9502],[31,7.6336,13.8514,4.7813,13.9001],[32,9.1918,16.0317,4.8395,16.3280],[33,8.9174,14.0556,4.5592,14.0991],[34,8.0651,15.8149,4.8506,15.9436],[35,7.6744,18.4059,5.0512,19.1543],[36,9.8288,16.1941,4.6225,16.4047],[37,8.7780,14.8522,4.3134,14.2746],[38,8.1215,12.8281,4.4008,12.1048],[39,8.2557,16.9044,4.8239,16.6946],[40,7.4608,18.5354,5.0145,18.8589],[41,8.8406,17.5068,4.8251,17.9585],[42,8.4926,21.2471,5.3921,20.7005],[43,8.1922,16.3203,4.5447,16.3999],[44,7.8959,16.6948,4.7689,16.7748],[45,8.2697,19.5471,5.2879,20.3920],[46,8.0034,17.5955,4.5885,18.0208],[47,7.9222,17.8214,4.5100,17.6246],[48,7.8240,16.4064,4.6115,16.3926],[49,8.3493,16.8040,4.4631,16.5919],[50,6.5738,16.5767,4.3941,16.7205],[51,7.7706,17.2204,4.8566,17.9695],[52,6.6807,17.6473,4.6266,17.8635],[53,7.0547,19.3643,4.5815,19.9521],[54,6.5864,18.2100,4.4999,18.1610],[55,7.3439,17.5062,4.3973,17.7861],[56,8.4634,16.8172,4.4574,16.8935],[57,7.0671,17.3875,4.4593,17.1045],[58,5.3975,17.6205,4.4310,18.0626],[59,8.2496,18.3344,4.5359,18.2700],[60,6.9709,19.2681,4.6465,19.9492],[61,6.9960,17.6451,4.4765,17.5443],[62,8.0427,19.9287,4.4537,20.4043],[63,6.8913,16.8317,4.2581,16.9734],[64,7.9677,19.7632,4.8929,20.0598],[65,6.9030,15.8995,4.2478,15.0627],[66,7.8805,14.8516,4.1881,14.0477],[67,7.8495,18.7694,4.4530,18.4766],[68,7.1500,19.1203,4.3370,18.4428],[69,7.1231,19.7169,4.6097,20.1214],[70,7.1073,20.5079,4.7329,20.8286],[71,6.8516,19.8920,4.4567,20.2710],[72,7.0258,18.2538,4.3643,18.0396],[73,6.7182,18.6089,4.4373,18.3659],[74,6.8713,19.2496,4.3607,19.3508],[75,6.8854,19.3207,4.5216,19.7869],[76,6.9136,16.2668,4.3356,15.8133],[77,6.7163,19.5812,4.3016,19.5116],[78,7.4885,18.0825,4.4424,17.7883],[79,7.3816,17.6314,4.2441,16.9302],[80,7.3784,19.6299,4.3976,19.5415],[81,6.8815,19.4216,4.4528,20.1908],[82,7.1749,19.0038,4.2034,18.7842],[83,6.9558,15.4791,4.1527,14.1733],[84,6.7727,15.9791,4.0368,15.8816],[85,6.9035,18.9206,4.3735,19.0144],[86,6.7372,19.3034,4.1218,19.3064],[87,6.0105,19.0700,4.2949,18.5810],[88,6.9687,18.9004,4.2739,18.5366],[89,7.7626,16.2804,3.9390,15.6654],[90,7.7163,17.8789,4.0667,17.2562],[91,6.6610,15.4556,4.0246,14.8050],[92,6.4714,17.4159,4.0185,16.9006],[93,7.8123,20.9065,4.2995,21.3449],[94,6.8220,21.0182,4.5361,21.3436],[95,6.9744,17.6080,4.1913,17.1235],[96,6.4142,20.0610,4.3596,20.1435],[97,6.9007,17.5842,4.2168,17.4291],[98,7.3550,15.6301,3.9485,14.5709],[99,6.0834,16.7070,4.0377,15.9356],[100,6.7857,17.6709,4.3156,17.5292]];
+  const WHITEN = [[0,1.6294,17.3605,13.4737,12.0200],[1,1.2263,19.7796,7.6652,16.0453],[2,1.1479,23.3029,7.0563,18.8481],[3,1.0691,20.0349,5.4233,18.6629],[4,1.0496,21.6623,5.7506,20.4766],[5,0.9752,20.1243,5.2338,20.5307],[6,0.9801,17.3644,4.7642,17.3168],[7,0.9524,20.7432,5.0053,20.6971],[8,0.9496,18.0292,4.7757,18.7792],[9,0.9346,21.0766,4.7112,21.5843],[10,0.9461,19.5198,4.7926,19.8753],[11,0.9259,20.2403,4.6449,20.9554],[12,0.9121,23.2423,4.5733,23.1185],[13,0.9260,21.4841,4.7105,22.2992],[14,0.8969,20.5893,4.2876,20.4420],[15,0.9151,22.8884,4.3895,23.6068],[16,0.8780,21.9832,4.2561,22.5685],[17,0.9097,21.7010,4.2704,21.8212],[18,0.9206,21.5199,4.2491,21.5710],[19,0.8963,21.4972,4.2183,21.8988],[20,0.9165,20.8585,4.1018,20.8945],[21,0.8979,22.5763,4.1268,22.4477],[22,0.8999,23.0695,4.1953,22.7722],[23,0.8823,21.9636,4.2730,21.5382],[24,0.9024,21.7252,4.0301,21.8815],[25,0.9041,23.4014,4.2179,23.3853],[26,0.8800,22.3530,4.1271,22.5855],[27,0.8855,21.7442,3.9315,21.4367],[28,0.8705,21.8341,4.0256,21.2583],[29,0.8792,22.2563,3.8456,21.8839],[30,0.8936,20.8719,3.9936,20.5803],[31,0.8760,22.2151,3.8942,21.8544],[32,0.8855,18.7664,3.9839,17.9990],[33,0.8969,19.3302,4.0350,18.6180],[34,0.8643,19.5399,4.0569,18.6938],[35,0.8540,22.3165,4.0676,21.7724],[36,0.8663,21.2540,4.0806,20.6610],[37,0.8570,20.4142,3.9688,19.7431],[38,0.8878,21.7790,4.0674,21.4435],[39,0.8695,17.5403,3.9512,17.1481],[40,0.8718,19.6731,4.1320,19.0187],[41,0.8918,18.0141,4.1103,16.9934],[42,0.8858,21.1135,4.0546,20.5709],[43,0.8437,18.4467,3.9856,17.6500],[44,0.8678,20.2329,4.1521,19.2789],[45,0.8595,15.3908,3.9995,14.0601],[46,0.8667,19.6577,4.0731,18.6495],[47,0.8869,18.5451,4.0134,17.4959],[48,0.8574,19.5508,4.0176,18.8062],[49,0.8596,20.7441,4.1110,19.7786],[50,0.8640,18.4753,4.0457,17.4699],[51,0.8883,17.2674,4.1867,16.0046],[52,0.8631,14.2385,3.9834,12.2801],[53,0.8642,17.0338,3.9753,15.8491],[54,0.8652,16.0752,4.0696,14.6464],[55,0.8786,17.8216,3.9749,16.5376],[56,0.8424,17.1583,4.0197,15.8506],[57,0.8598,15.7788,4.1328,14.1384],[58,0.8287,17.3707,4.0743,15.9516],[59,0.8362,17.3146,4.0170,16.0231],[60,0.8523,14.1768,4.0584,12.4370],[61,0.8368,15.9575,4.0376,14.5862],[62,0.8610,15.3383,4.1643,14.1179],[63,0.8312,12.9124,4.0493,11.0740],[64,0.8545,16.1025,3.9544,14.9321],[65,0.8809,16.8536,3.9981,15.7912],[66,0.8565,15.3682,4.0168,13.7751],[67,0.8468,14.2331,3.9778,12.7616],[68,0.8670,16.1782,3.9594,15.0031],[69,0.8545,16.0538,3.9567,14.6667],[70,0.8708,14.0233,3.9879,12.2244],[71,0.8372,13.5361,4.0875,11.9194],[72,0.8284,15.2914,4.1199,14.0459],[73,0.8642,15.6727,4.1373,14.2911],[74,0.8506,13.8627,4.1051,12.1151],[75,0.8598,15.6363,4.0911,14.2590],[76,0.8578,17.5280,4.2002,15.6939],[77,0.8417,14.8210,4.0411,13.1624],[78,0.8809,13.4989,4.0102,11.7495],[79,0.8183,14.9762,4.0825,13.1922],[80,0.8445,13.9783,4.0352,11.7992],[81,0.8480,13.7752,4.0145,11.8678],[82,0.8616,13.6449,4.0652,11.8009],[83,0.8279,14.2132,3.9443,12.4917],[84,0.8587,14.8833,4.0792,13.1504],[85,0.8743,16.8914,4.1169,15.3453],[86,0.8494,15.5282,4.1185,14.1020],[87,0.8521,14.7914,3.9968,13.0445],[88,0.8343,14.7631,4.1137,13.0296],[89,0.8569,14.2256,4.0483,12.4129],[90,0.8552,14.0466,4.1358,12.1479],[91,0.8343,14.2105,4.0915,12.5208],[92,0.8288,13.5841,4.1100,11.6634],[93,0.8259,15.6100,4.2306,13.6917],[94,0.8629,13.8540,4.0970,11.8496],[95,0.8573,14.4040,3.9603,12.6985],[96,0.8464,13.2055,3.9153,11.1279],[97,0.8536,12.2439,4.0342,9.8315],[98,0.8796,13.6416,3.9883,11.9107],[99,0.8626,11.4921,3.9692,9.4198],[100,0.8561,12.9619,4.1835,11.3036]];
+
+  const COL = { whiten: '#2a78d6', raw: '#e0592b', whitenInk: '#1d5aa6', rawInk: '#b8451a',
+                ink2: '#52514e', muted: '#898781', grid: '#e1e0d9', baseline: '#c3c2b7', sf: '#ffffff' };
+
+  /* build a series {label,color,dash,ink, pts:[[epoch,val]]} from a metric column */
+  const XMIN = 0, XMAX = 100;
+  function series(rows, col, color, ink, dash, label) {
+    return { label, color, ink, dash, pts: rows.map(r => [r[0], r[col]]) };
+  }
+
+  function initCanvas(id, h) {
+    const cv = document.getElementById(id);
+    const w = cv.parentElement.clientWidth - 24;
+    const dpr = devicePixelRatio || 1;
+    cv.width = w * dpr; cv.height = h * dpr;
+    cv.style.width = w + 'px'; cv.style.height = h + 'px';
+    const ctx = cv.getContext('2d');
+    ctx.scale(dpr, dpr);
+    cv._w = w; cv._h = h;
+    return { ctx, cv, W: w, H: h };
+  }
+
+  /* linear nice scale, base 0 unless the data floats well above it */
+  function niceScale(dMin, dMax, ticks) {
+    if (!(dMax > dMin)) dMax = dMin + Math.abs(dMin || 1) * 0.1;
+    const span = dMax - dMin;
+    const lo = (dMin > 0 && dMin > span * 0.6) ? dMin - span * 0.35 : 0;
+    const raw = (dMax - lo) / ticks;
+    const mag = Math.pow(10, Math.floor(Math.log10(raw)));
+    const res = raw / mag;
+    const step = res <= 1.5 ? mag : res <= 3.5 ? 2 * mag : res <= 7.5 ? 5 * mag : 10 * mag;
+    const min = Math.floor(lo / step) * step;
+    const vals = [];
+    for (let v = min; v <= dMax + span * 0.10 + step * 0.01; v += step) vals.push(Math.round(v * 1e8) / 1e8);
+    return { min: vals[0], max: vals[vals.length - 1], vals };
+  }
+
+  /* log scale: decade ticks with 1,3 mantissas, one tick of headroom each side */
+  function logScale(dMin, dMax) {
+    const mant = [1, 3];
+    const lo = Math.floor(Math.log10(dMin)), hi = Math.floor(Math.log10(dMax));
+    const cand = [];
+    for (let e = lo - 1; e <= hi + 2; e++) for (const m of mant) cand.push(+(m * Math.pow(10, e)).toPrecision(12));
+    cand.sort((a, b) => a - b);
+    let i0 = 0, i1 = cand.length - 1;
+    while (i0 + 1 < cand.length && cand[i0 + 1] <= dMin) i0++;
+    while (i1 > 0 && cand[i1 - 1] >= dMax) i1--;
+    if (i0 > 0) i0--;
+    if (i1 + 1 < cand.length) i1++;
+    const vals = cand.slice(i0, i1 + 1);
+    return { min: Math.log10(vals[0]), max: Math.log10(vals[vals.length - 1]), vals };
+  }
+
+  const fmtLog = v => v >= 1 ? String(v) : String(v);
+  const fmt1 = v => v.toFixed(1);
+
+  function draw(id, cfg) {
+    const { ctx, cv, W, H } = initCanvas(id, cfg.height || 260);
+    const small = W < 380;
+    const pad = { l: 52, r: 44, t: 14, b: 40 };
+    const pW = W - pad.l - pad.r, pH = H - pad.t - pad.b;
+
+    let dMin = Infinity, dMax = -Infinity;
+    for (const s of cfg.series) for (const p of s.pts) { if (p[1] < dMin) dMin = p[1]; if (p[1] > dMax) dMax = p[1]; }
+    const sc = cfg.log ? logScale(dMin, dMax) : niceScale(dMin, dMax, 5);
+    const tf = cfg.log ? (v => Math.log10(v)) : (v => v);
+    const yOf = v => pad.t + pH * (1 - (tf(v) - sc.min) / (sc.max - sc.min));
+    const xOf = v => pad.l + pW * (v - XMIN) / (XMAX - XMIN);
+
+    // gridlines
+    ctx.strokeStyle = COL.grid; ctx.lineWidth = 1;
+    for (const v of sc.vals) { const y = Math.round(yOf(v)) + 0.5; ctx.beginPath(); ctx.moveTo(pad.l, y); ctx.lineTo(pad.l + pW, y); ctx.stroke(); }
+    const xticks = [0, 20, 40, 60, 80, 100];
+    for (const t of xticks) { const x = Math.round(xOf(t)) + 0.5; ctx.beginPath(); ctx.moveTo(x, pad.t); ctx.lineTo(x, pad.t + pH); ctx.stroke(); }
+
+    // axis line
+    ctx.strokeStyle = COL.baseline; const axY = Math.round(pad.t + pH) + 0.5;
+    ctx.beginPath(); ctx.moveTo(pad.l, axY); ctx.lineTo(pad.l + pW, axY); ctx.stroke();
+
+    // y labels
+    ctx.fillStyle = COL.muted; ctx.font = (small ? '11' : '12') + 'px system-ui'; ctx.textAlign = 'right';
+    for (const v of sc.vals) ctx.fillText(cfg.log ? fmtLog(v) : fmt1(v), pad.l - 8, yOf(v) + 4);
+    // x labels
+    ctx.textAlign = 'center'; ctx.fillStyle = COL.ink2;
+    for (const t of xticks) ctx.fillText(t, xOf(t), axY + 18);
+    ctx.fillText('epoch', pad.l + pW / 2, H - 4);
+
+    // polylines
+    cfg.series.forEach((s, si) => {
+      ctx.save();
+      ctx.strokeStyle = s.color; ctx.lineWidth = 2; ctx.lineJoin = 'round';
+      if (s.dash) ctx.setLineDash(s.dash);
+      ctx.beginPath();
+      s.pts.forEach((p, i) => { const x = xOf(p[0]), y = yOf(p[1]); i ? ctx.lineTo(x, y) : ctx.moveTo(x, y); });
+      ctx.stroke();
+      ctx.restore();
+      // final-value label at the right end; split whiten above / raw below so ties don't collide
+      const last = s.pts[s.pts.length - 1];
+      ctx.fillStyle = s.ink; ctx.font = '600 ' + (small ? '11' : '12') + 'px system-ui'; ctx.textAlign = 'left';
+      ctx.fillText(last[1].toFixed(cfg.log ? 2 : 1), xOf(last[0]) + 4, yOf(last[1]) + (si === 0 ? -6 : 14));
+    });
+
+    // store for tooltip
+    cv._plot = { xOf, yOf, pad, pW, series: cfg.series, log: cfg.log };
+  }
+
+  /* ---- tooltip: nearest epoch across all series ---- */
+  const tip = document.getElementById('tooltip');
+  function bindTip(id) {
+    const cv = document.getElementById(id);
+    cv.addEventListener('mousemove', e => {
+      const pl = cv._plot; if (!pl) return;
+      const r = cv.getBoundingClientRect();
+      const mx = e.clientX - r.left;
+      if (mx < pl.pad.l - 4 || mx > pl.pad.l + pl.pW + 4) { tip.style.display = 'none'; return; }
+      const ep = Math.round(XMIN + (mx - pl.pad.l) / pl.pW * (XMAX - XMIN));
+      const epc = Math.max(XMIN, Math.min(XMAX, ep));
+      let html = '<div class="tt-label">epoch ' + epc + '</div>';
+      for (const s of pl.series) {
+        const p = s.pts.find(q => q[0] === epc);
+        if (!p) continue;
+        html += '<div class="tt-row"><span style="color:' + s.color + '">' + s.label + '</span>'
+              + '<span class="tt-val">' + p[1].toFixed(pl.log ? 3 : 2) + '</span></div>';
+      }
+      tip.innerHTML = html; tip.style.display = 'block';
+      const tw = tip.offsetWidth, th = tip.offsetHeight;
+      let tx = e.clientX + 12, ty = e.clientY - th - 8;
+      if (tx + tw > innerWidth - 8) tx = e.clientX - tw - 12;
+      if (ty < 4) ty = e.clientY + 16;
+      tip.style.left = tx + 'px'; tip.style.top = ty + 'px';
+    });
+    cv.addEventListener('mouseleave', () => { tip.style.display = 'none'; });
+  }
+
+  function sPair(col) {
+    return [
+      series(WHITEN, col, COL.whiten, COL.whitenInk, null, 'whitened'),
+      series(NOWHITEN, col, COL.raw, COL.rawInk, [5, 4], 'raw z'),
+    ];
+  }
+
+  function drawAll() {
+    draw('cFlow', { series: sPair(1), log: true, height: 280 });
+    draw('cRaymap', { series: sPair(4), height: 240 });
+    draw('cPointmap', { series: sPair(2), height: 240 });
+    draw('cDepth', { series: sPair(3), height: 240 });
+    for (const id of ['cFlow', 'cRaymap', 'cPointmap', 'cDepth']) bindTip(id);
+  }
+  drawAll();
+  let rz; addEventListener('resize', () => { clearTimeout(rz); rz = setTimeout(drawAll, 150); });
+})();
+</script>

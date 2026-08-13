@@ -215,6 +215,37 @@ class DeltaTokSharedMixin:
         x = feats[:, 1:].reshape(B * (T - 1), num_cameras, P, C)
         return tokens, feats, x_prev, x, H_out, W_out
 
+    def _extract_triplet_feats(self, imgs, num_cameras, step_t):
+        """Encode only the 3 timesteps in ``step_t`` (B, 3) -> feats (B, 3, N, P, C), H, W.
+
+        Same gather as ``_extract_pair_feats``'s ``pair_t`` path, for a triplet instead of
+        a pair, and WITHOUT folding into the batch axis -- the compose path indexes frames
+        per sequence. Exact because blocks 0..encode_layer are per-view local.
+        """
+        prefix = self._num_prefix_tokens
+
+        B, V_total = imgs.shape[:2]
+        assert V_total % num_cameras == 0, (
+            f"V={V_total} views not divisible by num_cameras={num_cameras}; "
+            "a wrong/missing batch['num_cameras'] would silently mispair frames"
+        )
+        assert step_t.shape[1] == 3, f"expected a triplet, got step_t {tuple(step_t.shape)}"
+        cams = torch.arange(num_cameras, device=imgs.device)         # (num_cameras,)
+        views = (step_t[..., None] * num_cameras + cams).reshape(B, -1)  # (B, 3*num_cameras) views to keep
+        seqs = torch.arange(B, device=imgs.device)[:, None]          # (B, 1) broadcast against `views`
+        imgs = imgs[seqs, views]                                     # (B, 3*num_cameras, 3, H, W)
+
+        with torch.no_grad(), self.autocast:
+            latents = self.occ_rae.encode(imgs)
+        tokens = latents["tokens"]                                   # (B, 3*num_cameras, N_tok, C)
+        H_out, W_out = int(latents["H"]), int(latents["W"])
+
+        feats = tokens[:, :, prefix:].contiguous()                   # (B, 3*num_cameras, P, C) spatial-only
+        if self.cfg.training.dtype == "bfloat16":
+            feats = feats.to(torch.bfloat16)
+        P, C = feats.shape[-2:]
+        return feats.view(B, 3, num_cameras, P, C), H_out, W_out     # (B, 3, N, P, C)
+
     def _encode_pair_deltas(self, net, feats, height, width):
         """Encode all consecutive GT frame pairs into per-transition delta tokens.
 

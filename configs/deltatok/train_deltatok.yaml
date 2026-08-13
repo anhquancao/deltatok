@@ -106,6 +106,10 @@ training:
   bottleneck_recon_weight: 0.0
   grad_clip: 1.0
   grad_skip_thresh: 0.0  # >0 skips optim steps whose pre-clip grad_norm exceeds this (finite-spike guard)
+  # Additive composition: sample 3 timesteps/sequence, encode both hops, and make
+  # d(t0->t1) + d(t1->t2) decode f_t2 from f_t0. Needs z_norm=false (a sum leaves the
+  # LN sphere). 0 = off; the single-pair path is then bit-identical.
+  compose_weight: 0.0
   # SIGReg (LeJEPA) anti-collapse loss on the z bottleneck: pushes the compressed
   # latent toward isotropic N(0,I) so it uses its full budget (tc768 collapses to
   # rank ~290). 0 = off (only meaningful with target_channels > 0).

@@ -436,6 +436,7 @@ class DeltaTokModule(nn.Module):
         num_cameras: int = 1,
         return_z: bool = False,
         return_bneck: bool = False,
+        z_input: torch.Tensor | None = None,
     ) -> torch.Tensor:
         """Reconstruct ``x`` from the (x_prev, x) pair via N delta tokens (one per camera).
 
@@ -446,10 +447,14 @@ class DeltaTokModule(nn.Module):
         (z is the (M, N, K, Cz) bottleneck latent, for the SIGReg regularizer), or
         ``(x_hat, z, z_pre, z_rec)`` when ``return_bneck`` — the bottleneck's input and
         its up-projected round-trip, both (M, N, K, C), for the round-trip loss.
+
+        With ``z_input`` (M, N, K, Cz), the encoder is skipped and the given z is
+        decoded directly. Used by the compose path to decode z_a + z_b.
         """
         if x_prev.dim() == 3:
             x_prev = x_prev.unsqueeze(1)
-            x = x.unsqueeze(1)
+            if x is not None:
+                x = x.unsqueeze(1)
             squeeze = True
         else:
             squeeze = False
@@ -458,7 +463,9 @@ class DeltaTokModule(nn.Module):
         rope_global = self._compute_global_rope(
             height, width, int(num_cameras), x_prev.device, x_prev.dtype
         )
-        if return_bneck:
+        if z_input is not None:
+            z = z_input
+        elif return_bneck:
             # z_pre (M, N, K, C) is the raw encoder code; the round-trip loss matches
             # z_proj_up(z) against it -- the same thing decode() feeds the frozen decoder.
             z, z_pre = self.encode(x_prev, x, rope_local, rope_global, return_pre_bottleneck=True)
@@ -618,6 +625,16 @@ class DeltaTokTrainer(DeltaTokSharedMixin, Trainer):
         # across epochs and runs. Runs with or without SIGReg, which is what makes a
         # sigreg arm and its plain twin comparable.
         self._z_spread_eval = bool(self.cfg.training.get("eval_z_spread", True))
+
+        # Additive composition: sample 3 timesteps, encode both hops, add z_a + z_b,
+        # decode the sum. 0 = off (single-pair path is bit-identical).
+        self._compose_weight = float(self.cfg.training.get("compose_weight", 0.0))
+        if self._compose_weight > 0:
+            assert not bool(self.cfg.model.get("deltatok", {}).get("z_norm", True)), \
+                "compose needs z_norm=false"
+            assert self._max_gap >= 2, f"compose needs max_gap >= 2, got {self._max_gap}"
+            assert float(self.cfg.training.get("bottleneck_recon_weight", 0.0)) == 0.0, \
+                "compose is incompatible with bottleneck_recon_weight"
 
     @torch.no_grad()
     def _log_z_spread(self, stats: "ZSpreadStats", prefix: str) -> None:
@@ -905,6 +922,42 @@ class DeltaTokTrainer(DeltaTokSharedMixin, Trainer):
         z = self._encode_pair_deltas(net, feats, height, width)  # (B, T-1, N, K, C)
         return self._rollout_from_z(net, feats[:, 0], z, height, width, num_cameras)  # (B*(T-1), N, P, C)
 
+    def _compose_forward(self, imgs, num_cameras):
+        """Triplet compose step: sample 3 timesteps, encode both hops, add, decode, loss."""
+        B = imgs.shape[0]
+        T = imgs.shape[1] // num_cameras
+
+        # Sample 3 distinct timesteps per sequence
+        step_t = torch.rand(B, T, device=imgs.device).argsort(dim=1)[:, :3]
+        step_t = step_t.sort(dim=1).values                                    # (B, 3) t0 < t1 < t2
+
+        # Extract features
+        feats, H, W = self._extract_triplet_feats(imgs, num_cameras, step_t)  # (B, 3, N, P, C)
+        N, P, C = feats.shape[2:]
+
+        # Encode both hops
+        x_prev = feats[:, :2].reshape(B * 2, N, P, C)                        # (B*2, N, P, C)
+        x      = feats[:, 1:].reshape(B * 2, N, P, C)                        # (B*2, N, P, C)
+        with self.autocast:
+            x_hat, z = self.tokenizer(                                        # (B*2, N, P, C), (B*2, N, K, Cz)
+                x_prev, x, H, W, num_cameras=num_cameras, return_z=True)
+
+        # z_a + z_b
+        z = z.reshape(B, 2, *z.shape[1:])                                     # (B, 2, N, K, Cz)
+        z_comp = z[:, 0] + z[:, 1]                                            # (B, N, K, Cz)
+
+        # Decode composed delta from frame t0
+        with self.autocast:
+            x_hat_comp = self.tokenizer(                                      # (B, N, P, C)
+                feats[:, 0], None, H, W, num_cameras=num_cameras, z_input=z_comp)
+
+        # Losses
+        with torch.autocast(device_type="cuda", enabled=False):
+            loss_recon   = _log_cosh(x_hat.float(), x.detach().float()).mean()
+            loss_compose = _log_cosh(x_hat_comp.float(), feats[:, 2].detach().float()).mean()
+
+        return loss_recon, loss_compose, z
+
     def _feature_loss(self, tokens, x_hat, B, T_minus_1, idx, num_cameras, height, width):
         """Downstream DA3 feature loss. Insert the predicted frames' patch features back
         among the GT OccAny tokens (every other frame stays GT), run ONE frozen forward
@@ -987,41 +1040,51 @@ class DeltaTokTrainer(DeltaTokSharedMixin, Trainer):
             imgs = batch["imgs"].to(self.device, non_blocking=True)
             num_cameras = batch.get("num_cameras", 1)
 
-            # One pair per sequence: sample gap ~ U[1, max_gap], then a random start.
-            B = imgs.shape[0]
-            T = imgs.shape[1] // num_cameras
-            assert self._max_gap < T, f"max_gap={self._max_gap} >= num_timesteps={T}"
-            gap = int(torch.randint(1, self._max_gap + 1, ()).item()) if self._max_gap > 1 else 1
-            pair_t = torch.randint(0, T - gap, (B, 1), device=imgs.device)  # pair_t + gap < T
-            _, _, x_prev, x, H, W = self._extract_pair_feats(
-                imgs, num_cameras=num_cameras, pair_t=pair_t, gap=gap,
-            )
+            loss_compose = None
+            if self._compose_weight > 0:
+                # Triplet: 3 timesteps, 2 hops encoded, z_a+z_b decoded, both losses
+                loss, loss_compose, z_compose = self._compose_forward(imgs, num_cameras)
+                loss_total = loss + self._compose_weight * loss_compose
+                loss_bneck = None
+                # SIGReg z: one random hop (keeps row count = single-pair arms)
+                if self.sigreg is not None:
+                    z_bneck = z_compose[:, torch.randint(0, 2, ()).item()]        # (B, N, K, Cz)
+            else:
+                # One pair per sequence: sample gap ~ U[1, max_gap], then a random start.
+                B = imgs.shape[0]
+                T = imgs.shape[1] // num_cameras
+                assert self._max_gap < T, f"max_gap={self._max_gap} >= num_timesteps={T}"
+                gap = int(torch.randint(1, self._max_gap + 1, ()).item()) if self._max_gap > 1 else 1
+                pair_t = torch.randint(0, T - gap, (B, 1), device=imgs.device)  # pair_t + gap < T
+                _, _, x_prev, x, H, W = self._extract_pair_feats(
+                    imgs, num_cameras=num_cameras, pair_t=pair_t, gap=gap,
+                )
 
-            w_bneck = float(self.cfg.training.get("bottleneck_recon_weight", 0.0))
-            need_bneck = w_bneck > 0 and self._unwrapped_tokenizer().z_proj_down is not None
-            with self.autocast:
-                if need_bneck:
-                    x_hat, z_bneck, z_pre, z_rec = self.tokenizer(
-                        x_prev, x, H, W, num_cameras=num_cameras, return_z=True, return_bneck=True)
-                elif self.sigreg is not None:
-                    x_hat, z_bneck = self.tokenizer(x_prev, x, H, W, num_cameras=num_cameras, return_z=True)
-                else:
-                    x_hat = self.tokenizer(x_prev, x, H, W, num_cameras=num_cameras)
+                w_bneck = float(self.cfg.training.get("bottleneck_recon_weight", 0.0))
+                need_bneck = w_bneck > 0 and self._unwrapped_tokenizer().z_proj_down is not None
+                with self.autocast:
+                    if need_bneck:
+                        x_hat, z_bneck, z_pre, z_rec = self.tokenizer(
+                            x_prev, x, H, W, num_cameras=num_cameras, return_z=True, return_bneck=True)
+                    elif self.sigreg is not None:
+                        x_hat, z_bneck = self.tokenizer(x_prev, x, H, W, num_cameras=num_cameras, return_z=True)
+                    else:
+                        x_hat = self.tokenizer(x_prev, x, H, W, num_cameras=num_cameras)
 
-            with torch.autocast(device_type="cuda", enabled=False):
-                loss = _log_cosh(x_hat.float(), x.detach().float()).mean()
-
-            loss_total = loss
-
-            # Optional bottleneck round-trip loss: make z_proj_up(z_proj_down(z)) reconstruct the
-            # full 1536-d code. The decoder recon only supervises the pair through 12 more blocks,
-            # so the projections get a weak, indirect signal; this is the direct one. Target is the
-            # PRE-norm code: constant under a frozen encoder, so it can't be shrunk to cheat.
-            loss_bneck = None
-            if need_bneck:
                 with torch.autocast(device_type="cuda", enabled=False):
-                    loss_bneck = _log_cosh(z_rec.float(), z_pre.detach().float()).mean()
-                loss_total = loss_total + w_bneck * loss_bneck
+                    loss = _log_cosh(x_hat.float(), x.detach().float()).mean()
+
+                loss_total = loss
+
+                # Optional bottleneck round-trip loss: make z_proj_up(z_proj_down(z)) reconstruct the
+                # full 1536-d code. The decoder recon only supervises the pair through 12 more blocks,
+                # so the projections get a weak, indirect signal; this is the direct one. Target is the
+                # PRE-norm code: constant under a frozen encoder, so it can't be shrunk to cheat.
+                loss_bneck = None
+                if need_bneck:
+                    with torch.autocast(device_type="cuda", enabled=False):
+                        loss_bneck = _log_cosh(z_rec.float(), z_pre.detach().float()).mean()
+                    loss_total = loss_total + w_bneck * loss_bneck
 
             # Optional SIGReg anti-collapse loss on the z bottleneck (computed in fp32).
             # Runs EVERY micro-batch on the live rows + the FIFO queue, so it rides the same
@@ -1090,6 +1153,7 @@ class DeltaTokTrainer(DeltaTokSharedMixin, Trainer):
                     self.log_add_scalar('Train/LossRecon', loss, self.cfg.training.iter)
                     self.log_add_scalar('Train/LossSIGReg', loss_sigreg if loss_sigreg is not None else 0.0, self.cfg.training.iter)
                     self.log_add_scalar('Train/LossBneck', loss_bneck if loss_bneck is not None else 0.0, self.cfg.training.iter)
+                    self.log_add_scalar('Train/LossCompose', loss_compose if loss_compose is not None else 0.0, self.cfg.training.iter)
                     self.log_add_scalar('Train/LossTot', mini_batch_loss, self.cfg.training.iter)
                     self.log_add_scalar('Train/SpeedSamplesPerSec', speed_samples_per_sec, self.cfg.training.iter)
 
@@ -1133,293 +1197,353 @@ class DeltaTokTrainer(DeltaTokSharedMixin, Trainer):
         # under `Eval/<test_name>/...`, and `_log_viz_sample` is namespaced under
         # `eval_depth/<test_name>` so visualisations don't collide across roots.
         for test_name, loader in self.test_loaders.items():
-            metric = self.eval_metrics[test_name]
-            items_seen = 0
-            num_vis = 0
-            # Own accumulator per loader -- one latent-space measurement per test set.
-            # Sanity checks are too few rows to mean anything, so they skip it.
-            z_spread = ZSpreadStats(self.device) if (
-                self._z_spread_eval and not sanity_check) else None
-
-            # Pin the eval loader to epoch 0 so each eval pass sees the same
-            # samples in the same order — same rationale as training_da3.py.
-            sampler = getattr(loader, "sampler", None)
-            if sampler is not None and hasattr(sampler, "set_epoch"):
-                sampler.set_epoch(0)
-            ds = getattr(loader, "dataset", None)
-            if ds is not None and hasattr(ds, "set_epoch"):
-                ds.set_epoch(0)
-
-            # SLURM-friendly progress: MetricLogger prints one flushed line per
-            # print_freq batches (master only, matching tqdm's disable).
-            if self.is_master:
-                metric_logger = MetricLogger(delimiter="  ")
-                batch_iter = metric_logger.log_every(
-                    loader,
-                    int(self.cfg.training.get("print_freq", 20)),
-                    header=f"Evaluating {test_name} (Epoch {self.cfg.training.global_epoch})",
-                )
-            else:
-                batch_iter = loader
-
-            for batch in batch_iter:
-                if items_seen >= eval_num_items:
-                    break
-                batch = self._normalize_batch(batch)
-
-                imgs = batch["imgs"].to(self.device, non_blocking=True)
-                B, V, _, _, _ = imgs.shape
-                num_cameras = batch.get("num_cameras", 1)
-                tokens, feats, x_prev, x, H, W = self._extract_pair_feats(imgs, num_cameras=num_cameras)
-                with self.autocast:
-                    if z_spread is not None:
-                        x_hat, z_bneck = self.tokenizer(x_prev, x, H, W, num_cameras=num_cameras, return_z=True)
-                        z_spread.update(z_bneck)
-                    else:
-                        x_hat = self.tokenizer(x_prev, x, H, W, num_cameras=num_cameras)
-
-                with torch.autocast(device_type="cuda", enabled=False):
-                    loss_recon = _log_cosh(x_hat.float(), x.float()).mean()
-
-                # Autoregressive rollout: shares the same z_t as the teacher-forced
-                # path (encoder sees GT pairs), but feeds predicted x_hat back as the
-                # decoder's "previous frame" so error compounds across timesteps.
-                with self.autocast:
-                    x_hat_ar = self._autoregressive_rollout(feats, H, W, num_cameras)
-
-                with torch.autocast(device_type="cuda", enabled=False):
-                    loss_recon_ar = _log_cosh(x_hat_ar.float(), x.float()).mean()
-
-                batch_losses = {
-                    "LossRecon": loss_recon.detach().float().item(),
-                    "LossRecon_AR": loss_recon_ar.detach().float().item(),
-                }
-
-                if "gt_mask" in batch:
-                    full_tokens = self._reconstruct_full_tokens(tokens, x_hat, B, V, num_cameras=num_cameras)
-                    full_tokens_ar = self._reconstruct_full_tokens(tokens, x_hat_ar, B, V, num_cameras=num_cameras)
-                    height, width = batch["output_resolution_hw"]
-                    with torch.no_grad(), self.autocast:
-                        decoded = self._decode_tokens(full_tokens, height, width, num_cameras=num_cameras)
-                        decoded_ar = self._decode_tokens(full_tokens_ar, height, width, num_cameras=num_cameras)
-
-                    ray_conf = decoded.get("ray_conf")
-                    ray_conf_ar = decoded_ar.get("ray_conf")
-
-                    # For surround: timestep 0 (num_cameras views) is context; rest are predicted.
-                    context_views = num_cameras if num_cameras > 1 else 1
-                    pred_slice = slice(context_views, V)
-                    loss_pm, loss_d, loss_ray = self._compute_frame_losses(
-                        decoded, batch, pred_slice, ray_conf, B, height, width
-                    )
-                    loss_pm_ar, loss_d_ar, loss_ray_ar = self._compute_frame_losses(
-                        decoded_ar, batch, pred_slice, ray_conf_ar, B, height, width
-                    )
-                    batch_losses.update({
-                        "LossPointmap_PredVsGT": loss_pm.item(),
-                        "LossDepth_PredVsGT": loss_d.item(),
-                        "LossRaymap_PredVsGT": loss_ray.item(),
-                        "LossPointmap_PredVsGT_AR": loss_pm_ar.item(),
-                        "LossDepth_PredVsGT_AR": loss_d_ar.item(),
-                        "LossRaymap_PredVsGT_AR": loss_ray_ar.item(),
-                    })
-
-                    need_viz = self.is_master and num_vis < eval_num_visualizations
-
-                    with torch.no_grad(), self.autocast:
-                        decoded_gt = self._decode_tokens(tokens, height, width, num_cameras=num_cameras)
-
-                    ray_conf_gt = decoded_gt.get("ray_conf")
-                    loss_pm_gt, loss_d_gt, loss_ray_gt = self._compute_frame_losses(
-                        decoded_gt, batch, pred_slice, ray_conf_gt, B, height, width
-                    )
-                    batch_losses.update({
-                        "LossPointmap_OrigVsGT": loss_pm_gt.item(),
-                        "LossDepth_OrigVsGT": loss_d_gt.item(),
-                        "LossRaymap_OrigVsGT": loss_ray_gt.item(),
-                    })
-
-                    mask_u = batch["gt_mask"][:, pred_slice].to(self.device)
-                    nv = mask_u.shape[1]
-
-                    def _pred_vs_orig(decoded_pred):
-                        loss_pm_u, _ = self.pointmap_criterion(
-                            decoded_pred["pointmap"][:, pred_slice].float(),
-                            decoded_gt["pointmap"][:, pred_slice].float(),
-                            mask=mask_u,
-                        )
-                        pred_du = decoded_pred["depth"][:, pred_slice].float().reshape(B * nv, 1, height, width)
-                        tgt_du = decoded_gt["depth"][:, pred_slice].float().reshape(B * nv, 1, height, width)
-                        d_mask_u = mask_u.reshape(B * nv, 1, height, width).float()
-                        loss_d_u, _ = self.depth_criterion(pred_du, tgt_du, confidence=None, mask=d_mask_u)
-
-                        pred_ray_u = decoded_pred["ray"][:, pred_slice].float()
-                        tgt_ray_u = decoded_gt["ray"][:, pred_slice].float()
-                        dir_l2 = torch.norm(pred_ray_u[..., :3] - tgt_ray_u[..., :3], dim=-1).mean()
-                        org_l2 = torch.norm(pred_ray_u[..., 3:] - tgt_ray_u[..., 3:], dim=-1).mean()
-                        loss_ray_u = 10.0 * dir_l2 + org_l2
-                        return loss_pm_u, loss_d_u, loss_ray_u
-
-                    loss_pm_u, loss_d_u, loss_ray_u = _pred_vs_orig(decoded)
-                    loss_pm_u_ar, loss_d_u_ar, loss_ray_u_ar = _pred_vs_orig(decoded_ar)
-
-                    batch_losses.update({
-                        "LossPointmap_PredVsOrig": loss_pm_u.item(),
-                        "LossDepth_PredVsOrig": loss_d_u.item(),
-                        "LossRaymap_PredVsOrig": loss_ray_u.item(),
-                        "LossPointmap_PredVsOrig_AR": loss_pm_u_ar.item(),
-                        "LossDepth_PredVsOrig_AR": loss_d_u_ar.item(),
-                        "LossRaymap_PredVsOrig_AR": loss_ray_u_ar.item(),
-                    })
-
-                    if need_viz:
-                        # Optional RGB decode via the pretrained MAE-style image decoder.
-                        # decode_to_image returns (B, V, 3, H, W) in [0, 1]; we permute to
-                        # HWC and scale to 0-255 to match the depth panels in _log_viz_sample.
-                        have_img_dec = getattr(self.occ_rae, "img_decoder", None) is not None
-                        if have_img_dec:
-                            vcs = getattr(self, "_img_decoder_view_chunk", 0)
-                            with torch.no_grad(), self.autocast:
-                                rgb_tf_full = self.occ_rae.decode_to_image(
-                                    {"tokens": full_tokens, "H": height, "W": width},
-                                    view_chunk_size=vcs,
-                                )
-                                rgb_ar_full = self.occ_rae.decode_to_image(
-                                    {"tokens": full_tokens_ar, "H": height, "W": width},
-                                    view_chunk_size=vcs,
-                                )
-                                rgb_gt_full = self.occ_rae.decode_to_image(
-                                    {"tokens": tokens, "H": height, "W": width},
-                                    view_chunk_size=vcs,
-                                )
-
-                        for batch_idx in range(B):
-                            if num_vis >= eval_num_visualizations:
-                                break
-
-                            view_order = sorted(
-                                range(V),
-                                key=lambda idx: batch["timesteps"][batch_idx][idx],
-                            )
-                            # Context views (timestep 0) carry GT tokens — blank their pred cells.
-                            pred_blank_views = [v < context_views for v in view_order]
-                            view_index = torch.as_tensor(view_order, dtype=torch.long)
-                            gt_token_depth = decoded_gt["depth"][batch_idx].detach().float().cpu()[view_index]
-                            gt_token_depth_color = torch.stack([
-                                torch.from_numpy(
-                                    depth2rgb(
-                                        gt_token_depth[t].clamp(0, 50).numpy(),
-                                        valid_mask=gt_token_depth[t].numpy() > 0,
-                                        min_depth=0.0,
-                                        max_depth=50.0,
-                                    ).astype(np.float32)
-                                )
-                                for t in range(V)
-                            ])
-                            ar_pred_depth = decoded_ar["depth"][batch_idx].detach().float().cpu()[view_index]
-                            ar_pred_depth_color = torch.stack([
-                                torch.from_numpy(
-                                    depth2rgb(
-                                        ar_pred_depth[t].clamp(0, 50).numpy(),
-                                        valid_mask=ar_pred_depth[t].numpy() > 0,
-                                        min_depth=0.0,
-                                        max_depth=50.0,
-                                    ).astype(np.float32)
-                                )
-                                for t in range(V)
-                            ])
-                            for t, blank in enumerate(pred_blank_views):
-                                if blank:
-                                    ar_pred_depth_color[t] = 30.0
-
-                            extra_panels = [
-                                ar_pred_depth_color,
-                                gt_token_depth_color,
-                            ]
-                            col_titles = [
-                                "RGB",
-                                "Pred Depth (TF)",
-                                "Pred Depth (AR)",
-                                "GT Token Depth",
-                            ]
-                            if have_img_dec:
-                                # (V, 3, H, W) -> (V, H, W, 3) in [0, 255] float32.
-                                rgb_tf_b = (
-                                    rgb_tf_full[batch_idx].detach().float().cpu()[view_index]
-                                    .permute(0, 2, 3, 1).contiguous() * 255.0
-                                )
-                                rgb_ar_b = (
-                                    rgb_ar_full[batch_idx].detach().float().cpu()[view_index]
-                                    .permute(0, 2, 3, 1).contiguous() * 255.0
-                                )
-                                rgb_gt_b = (
-                                    rgb_gt_full[batch_idx].detach().float().cpu()[view_index]
-                                    .permute(0, 2, 3, 1).contiguous() * 255.0
-                                )
-                                # Blank context-view AR cells, matching ar_pred_depth_color.
-                                for t, blank in enumerate(pred_blank_views):
-                                    if blank:
-                                        rgb_ar_b[t] = 255.0
-                                # Append RGB panels after depth so col_titles align with the
-                                # fixed base layout in _log_viz_sample (gt_img, pred_depth_TF).
-                                extra_panels = extra_panels + [
-                                    rgb_tf_b,
-                                    rgb_ar_b,
-                                    rgb_gt_b,
-                                ]
-                                col_titles = col_titles + [
-                                    "Pred RGB (TF)",
-                                    "Pred RGB (AR)",
-                                    "GT Token RGB",
-                                ]
-
-                            saved_path = _log_viz_sample(
-                                batch=batch,
-                                decoded=decoded,
-                                batch_idx=batch_idx,
-                                epoch=self.cfg.training.global_epoch,
-                                epoch_step=self.cfg.training.iter,
-                                output_dir=eval_viz_dir,
-                                log_writer=self.writer,
-                                tb_prefix=f"eval_depth/{test_name}",
-                                extra_panels=extra_panels,
-                                view_order=view_order,
-                                max_depth=50.0,
-                                pred_blank_views=pred_blank_views,
-                                col_titles=col_titles,
-                            )
-                            if saved_path is not None:
-                                print(f"Saved viz: {saved_path}")
-                            num_vis += 1
-
-                metric.update(batch_size=B, **batch_losses)
-                items_seen += B
-                if self.is_master:
-                    metric_logger.update(loss=loss_recon.item())
-
-            # Before the `continue` below: _log_z_spread runs collectives, so every rank
-            # must reach it once per loader whatever its shard held.
-            if z_spread is not None:
-                self._log_z_spread(z_spread, f"Eval/{test_name}")
-
-            if metric.count == 0:
-                continue
-
-            results = metric.compute()
-            overall_loss_recon += results["LossRecon"].item() * metric.count.item()
-            overall_n += metric.count.item()
-
-            if self.is_master and not sanity_check:
-                for key, val in results.items():
-                    self.log_add_scalar(f"Eval/{test_name}/{key}", val.item(), self.cfg.training.iter)
-                # Always echo every component (incl. the _AR rollout) to .out: TB-only hid them.
-                metrics_str = ", ".join(f"{k}={v.item():.4f}" for k, v in results.items())
-                print(f"[Eval/{test_name}] {metrics_str}", flush=True)
+            loss_sum, n = self._eval_one_loader(
+                test_name, loader, eval_num_items,
+                eval_num_visualizations, eval_viz_dir, sanity_check,
+            )
+            overall_loss_recon += loss_sum
+            overall_n += n
 
         final_loss_recon = overall_loss_recon / overall_n if overall_n > 0 else 0.0
 
         self.tokenizer.train()
         return final_loss_recon
+
+    def _eval_one_loader(self, test_name, loader, eval_num_items,
+                         eval_num_visualizations, eval_viz_dir, sanity_check):
+        """One test loader: batch loop, z-spread collective, metric compute+log.
+
+        Returns (LossRecon-weighted sum, row count) for the caller's running mean;
+        (0.0, 0) when this rank's shard held no rows.
+        """
+        metric = self.eval_metrics[test_name]
+        items_seen = 0
+        num_vis = 0
+        # Own accumulator per loader -- one latent-space measurement per test set.
+        # Sanity checks are too few rows to mean anything, so they skip it.
+        z_spread = ZSpreadStats(self.device) if (
+            self._z_spread_eval and not sanity_check) else None
+
+        # Pin the eval loader to epoch 0 so each eval pass sees the same
+        # samples in the same order — same rationale as training_da3.py.
+        sampler = getattr(loader, "sampler", None)
+        if sampler is not None and hasattr(sampler, "set_epoch"):
+            sampler.set_epoch(0)
+        ds = getattr(loader, "dataset", None)
+        if ds is not None and hasattr(ds, "set_epoch"):
+            ds.set_epoch(0)
+
+        # SLURM-friendly progress: MetricLogger prints one flushed line per
+        # print_freq batches (master only, matching tqdm's disable).
+        if self.is_master:
+            metric_logger = MetricLogger(delimiter="  ")
+            batch_iter = metric_logger.log_every(
+                loader,
+                int(self.cfg.training.get("print_freq", 20)),
+                header=f"Evaluating {test_name} (Epoch {self.cfg.training.global_epoch})",
+            )
+        else:
+            batch_iter = loader
+
+        for batch in batch_iter:
+            if items_seen >= eval_num_items:
+                break
+            batch = self._normalize_batch(batch)
+
+            imgs = batch["imgs"].to(self.device, non_blocking=True)
+            B, V, _, _, _ = imgs.shape
+            num_cameras = batch.get("num_cameras", 1)
+            tokens, feats, x_prev, x, H, W = self._extract_pair_feats(imgs, num_cameras=num_cameras)
+            with self.autocast:
+                if z_spread is not None:
+                    x_hat, z_bneck = self.tokenizer(x_prev, x, H, W, num_cameras=num_cameras, return_z=True)
+                    z_spread.update(z_bneck)
+                else:
+                    x_hat = self.tokenizer(x_prev, x, H, W, num_cameras=num_cameras)
+
+            with torch.autocast(device_type="cuda", enabled=False):
+                loss_recon = _log_cosh(x_hat.float(), x.float()).mean()
+
+            # Autoregressive rollout: shares the same z_t as the teacher-forced
+            # path (encoder sees GT pairs), but feeds predicted x_hat back as the
+            # decoder's "previous frame" so error compounds across timesteps.
+            with self.autocast:
+                x_hat_ar = self._autoregressive_rollout(feats, H, W, num_cameras)
+
+            with torch.autocast(device_type="cuda", enabled=False):
+                loss_recon_ar = _log_cosh(x_hat_ar.float(), x.float()).mean()
+
+            # Additivity diagnostic (always on, any checkpoint). Sample a triplet
+            # t0<t1<t2 per sequence from the already-encoded feats, decode
+            # z(t0->t1)+z(t1->t2) from f_t0, and match f_t2 -- no decoder chaining.
+            T = feats.shape[1]
+            step_t = torch.rand(B, T, device=imgs.device).argsort(dim=1)[:, :3].sort(dim=1).values  # (B, 3)
+            seqs = torch.arange(B, device=imgs.device)[:, None]        # (B, 1) broadcast against step_t
+            tri = feats[seqs, step_t]                                  # (B, 3, N, P, C) f_t0, f_t1, f_t2
+            Nc, Pc, Cc = tri.shape[2:]
+            with self.autocast:
+                _, z_hops = self.tokenizer(                            # (B*2, N, K, Cz) two hops
+                    tri[:, :2].reshape(B * 2, Nc, Pc, Cc),
+                    tri[:, 1:].reshape(B * 2, Nc, Pc, Cc),
+                    H, W, num_cameras=num_cameras, return_z=True)
+                z_hops = z_hops.reshape(B, 2, *z_hops.shape[1:])       # (B, 2, N, K, Cz)
+                z_a = z_hops[:, 0]                                     # (B, N, K, Cz) d(t0->t1)
+                z_b = z_hops[:, 1]                                     # (B, N, K, Cz) d(t1->t2)
+                z_comp = z_a + z_b                                     # (B, N, K, Cz) d(t0->t2)
+                x_hat_comp = self.tokenizer(                           # decode z_comp from f_t0
+                    tri[:, 0], None, H, W, num_cameras=num_cameras, z_input=z_comp)
+
+            with torch.autocast(device_type="cuda", enabled=False):
+                loss_recon_comp = _log_cosh(x_hat_comp.float(), tri[:, 2].float()).mean()
+
+            batch_losses = {
+                "LossRecon": loss_recon.detach().float().item(),
+                "LossRecon_AR": loss_recon_ar.detach().float().item(),
+                "LossRecon_Comp": loss_recon_comp.detach().float().item(),
+            }
+
+            if "gt_mask" in batch:
+                geom_losses, num_vis = self._eval_batch_geometry(
+                    batch, tokens, x_hat, x_hat_ar, B, V, num_cameras,
+                    num_vis, eval_num_visualizations, eval_viz_dir, test_name,
+                )
+                batch_losses.update(geom_losses)
+
+            metric.update(batch_size=B, **batch_losses)
+            items_seen += B
+            if self.is_master:
+                metric_logger.update(loss=loss_recon.item())
+
+        # Before the return below: _log_z_spread runs collectives, so every rank
+        # must reach it once per loader whatever its shard held.
+        if z_spread is not None:
+            self._log_z_spread(z_spread, f"Eval/{test_name}")
+
+        if metric.count == 0:
+            return 0.0, 0
+
+        results = metric.compute()
+        if self.is_master and not sanity_check:
+            for key, val in results.items():
+                self.log_add_scalar(f"Eval/{test_name}/{key}", val.item(), self.cfg.training.iter)
+            # Always echo every component (incl. the _AR rollout) to .out: TB-only hid them.
+            metrics_str = ", ".join(f"{k}={v.item():.4f}" for k, v in results.items())
+            print(f"[Eval/{test_name}] {metrics_str}", flush=True)
+
+        return results["LossRecon"].item() * metric.count.item(), metric.count.item()
+
+    def _eval_batch_geometry(self, batch, tokens, x_hat, x_hat_ar, B, V, num_cameras,
+                             num_vis, eval_num_visualizations, eval_viz_dir, test_name):
+        """gt_mask geometry losses (pred / AR / orig-vs-GT / pred-vs-orig); fires viz.
+
+        Returns (geometry-loss dict to merge into batch_losses, updated num_vis).
+        """
+        full_tokens = self._reconstruct_full_tokens(tokens, x_hat, B, V, num_cameras=num_cameras)
+        full_tokens_ar = self._reconstruct_full_tokens(tokens, x_hat_ar, B, V, num_cameras=num_cameras)
+        height, width = batch["output_resolution_hw"]
+        with torch.no_grad(), self.autocast:
+            decoded = self._decode_tokens(full_tokens, height, width, num_cameras=num_cameras)
+            decoded_ar = self._decode_tokens(full_tokens_ar, height, width, num_cameras=num_cameras)
+
+        ray_conf = decoded.get("ray_conf")
+        ray_conf_ar = decoded_ar.get("ray_conf")
+
+        # For surround: timestep 0 (num_cameras views) is context; rest are predicted.
+        context_views = num_cameras if num_cameras > 1 else 1
+        pred_slice = slice(context_views, V)
+        loss_pm, loss_d, loss_ray = self._compute_frame_losses(
+            decoded, batch, pred_slice, ray_conf, B, height, width
+        )
+        loss_pm_ar, loss_d_ar, loss_ray_ar = self._compute_frame_losses(
+            decoded_ar, batch, pred_slice, ray_conf_ar, B, height, width
+        )
+        geom_losses = {
+            "LossPointmap_PredVsGT": loss_pm.item(),
+            "LossDepth_PredVsGT": loss_d.item(),
+            "LossRaymap_PredVsGT": loss_ray.item(),
+            "LossPointmap_PredVsGT_AR": loss_pm_ar.item(),
+            "LossDepth_PredVsGT_AR": loss_d_ar.item(),
+            "LossRaymap_PredVsGT_AR": loss_ray_ar.item(),
+        }
+
+        need_viz = self.is_master and num_vis < eval_num_visualizations
+
+        with torch.no_grad(), self.autocast:
+            decoded_gt = self._decode_tokens(tokens, height, width, num_cameras=num_cameras)
+
+        ray_conf_gt = decoded_gt.get("ray_conf")
+        loss_pm_gt, loss_d_gt, loss_ray_gt = self._compute_frame_losses(
+            decoded_gt, batch, pred_slice, ray_conf_gt, B, height, width
+        )
+        geom_losses.update({
+            "LossPointmap_OrigVsGT": loss_pm_gt.item(),
+            "LossDepth_OrigVsGT": loss_d_gt.item(),
+            "LossRaymap_OrigVsGT": loss_ray_gt.item(),
+        })
+
+        mask_u = batch["gt_mask"][:, pred_slice].to(self.device)
+        nv = mask_u.shape[1]
+
+        def _pred_vs_orig(decoded_pred):
+            loss_pm_u, _ = self.pointmap_criterion(
+                decoded_pred["pointmap"][:, pred_slice].float(),
+                decoded_gt["pointmap"][:, pred_slice].float(),
+                mask=mask_u,
+            )
+            pred_du = decoded_pred["depth"][:, pred_slice].float().reshape(B * nv, 1, height, width)
+            tgt_du = decoded_gt["depth"][:, pred_slice].float().reshape(B * nv, 1, height, width)
+            d_mask_u = mask_u.reshape(B * nv, 1, height, width).float()
+            loss_d_u, _ = self.depth_criterion(pred_du, tgt_du, confidence=None, mask=d_mask_u)
+
+            pred_ray_u = decoded_pred["ray"][:, pred_slice].float()
+            tgt_ray_u = decoded_gt["ray"][:, pred_slice].float()
+            dir_l2 = torch.norm(pred_ray_u[..., :3] - tgt_ray_u[..., :3], dim=-1).mean()
+            org_l2 = torch.norm(pred_ray_u[..., 3:] - tgt_ray_u[..., 3:], dim=-1).mean()
+            loss_ray_u = 10.0 * dir_l2 + org_l2
+            return loss_pm_u, loss_d_u, loss_ray_u
+
+        loss_pm_u, loss_d_u, loss_ray_u = _pred_vs_orig(decoded)
+        loss_pm_u_ar, loss_d_u_ar, loss_ray_u_ar = _pred_vs_orig(decoded_ar)
+
+        geom_losses.update({
+            "LossPointmap_PredVsOrig": loss_pm_u.item(),
+            "LossDepth_PredVsOrig": loss_d_u.item(),
+            "LossRaymap_PredVsOrig": loss_ray_u.item(),
+            "LossPointmap_PredVsOrig_AR": loss_pm_u_ar.item(),
+            "LossDepth_PredVsOrig_AR": loss_d_u_ar.item(),
+            "LossRaymap_PredVsOrig_AR": loss_ray_u_ar.item(),
+        })
+
+        if need_viz:
+            num_vis = self._eval_batch_viz(
+                batch, decoded, decoded_ar, decoded_gt,
+                full_tokens, full_tokens_ar, tokens,
+                B, V, height, width, context_views,
+                num_vis, eval_num_visualizations, eval_viz_dir, test_name,
+            )
+
+        return geom_losses, num_vis
+
+    def _eval_batch_viz(self, batch, decoded, decoded_ar, decoded_gt,
+                        full_tokens, full_tokens_ar, tokens,
+                        B, V, height, width, context_views,
+                        num_vis, eval_num_visualizations, eval_viz_dir, test_name):
+        """Depth (+ optional RGB) panels for up to the viz cap; returns num_vis."""
+        # Optional RGB decode via the pretrained MAE-style image decoder.
+        # decode_to_image returns (B, V, 3, H, W) in [0, 1]; we permute to
+        # HWC and scale to 0-255 to match the depth panels in _log_viz_sample.
+        have_img_dec = getattr(self.occ_rae, "img_decoder", None) is not None
+        if have_img_dec:
+            vcs = getattr(self, "_img_decoder_view_chunk", 0)
+            with torch.no_grad(), self.autocast:
+                rgb_tf_full = self.occ_rae.decode_to_image(
+                    {"tokens": full_tokens, "H": height, "W": width},
+                    view_chunk_size=vcs,
+                )
+                rgb_ar_full = self.occ_rae.decode_to_image(
+                    {"tokens": full_tokens_ar, "H": height, "W": width},
+                    view_chunk_size=vcs,
+                )
+                rgb_gt_full = self.occ_rae.decode_to_image(
+                    {"tokens": tokens, "H": height, "W": width},
+                    view_chunk_size=vcs,
+                )
+
+        for batch_idx in range(B):
+            if num_vis >= eval_num_visualizations:
+                break
+
+            view_order = sorted(
+                range(V),
+                key=lambda idx: batch["timesteps"][batch_idx][idx],
+            )
+            # Context views (timestep 0) carry GT tokens — blank their pred cells.
+            pred_blank_views = [v < context_views for v in view_order]
+            view_index = torch.as_tensor(view_order, dtype=torch.long)
+            gt_token_depth = decoded_gt["depth"][batch_idx].detach().float().cpu()[view_index]
+            gt_token_depth_color = self._depths_to_rgb_panel(gt_token_depth)
+            ar_pred_depth = decoded_ar["depth"][batch_idx].detach().float().cpu()[view_index]
+            ar_pred_depth_color = self._depths_to_rgb_panel(ar_pred_depth)
+            for t, blank in enumerate(pred_blank_views):
+                if blank:
+                    ar_pred_depth_color[t] = 30.0
+
+            extra_panels = [
+                ar_pred_depth_color,
+                gt_token_depth_color,
+            ]
+            col_titles = [
+                "RGB",
+                "Pred Depth (TF)",
+                "Pred Depth (AR)",
+                "GT Token Depth",
+            ]
+            if have_img_dec:
+                # (V, 3, H, W) -> (V, H, W, 3) in [0, 255] float32.
+                rgb_tf_b = (
+                    rgb_tf_full[batch_idx].detach().float().cpu()[view_index]
+                    .permute(0, 2, 3, 1).contiguous() * 255.0
+                )
+                rgb_ar_b = (
+                    rgb_ar_full[batch_idx].detach().float().cpu()[view_index]
+                    .permute(0, 2, 3, 1).contiguous() * 255.0
+                )
+                rgb_gt_b = (
+                    rgb_gt_full[batch_idx].detach().float().cpu()[view_index]
+                    .permute(0, 2, 3, 1).contiguous() * 255.0
+                )
+                # Blank context-view AR cells, matching ar_pred_depth_color.
+                for t, blank in enumerate(pred_blank_views):
+                    if blank:
+                        rgb_ar_b[t] = 255.0
+                # Append RGB panels after depth so col_titles align with the
+                # fixed base layout in _log_viz_sample (gt_img, pred_depth_TF).
+                extra_panels = extra_panels + [
+                    rgb_tf_b,
+                    rgb_ar_b,
+                    rgb_gt_b,
+                ]
+                col_titles = col_titles + [
+                    "Pred RGB (TF)",
+                    "Pred RGB (AR)",
+                    "GT Token RGB",
+                ]
+
+            saved_path = _log_viz_sample(
+                batch=batch,
+                decoded=decoded,
+                batch_idx=batch_idx,
+                epoch=self.cfg.training.global_epoch,
+                epoch_step=self.cfg.training.iter,
+                output_dir=eval_viz_dir,
+                log_writer=self.writer,
+                tb_prefix=f"eval_depth/{test_name}",
+                extra_panels=extra_panels,
+                view_order=view_order,
+                max_depth=50.0,
+                pred_blank_views=pred_blank_views,
+                col_titles=col_titles,
+            )
+            if saved_path is not None:
+                print(f"Saved viz: {saved_path}")
+            num_vis += 1
+
+        return num_vis
+
+    @staticmethod
+    def _depths_to_rgb_panel(depth_vhw):
+        """(V, H, W) depth -> (V, H, W, 3) colour panel via depth2rgb, clamp [0, 50]."""
+        return torch.stack([
+            torch.from_numpy(
+                depth2rgb(
+                    depth_vhw[t].clamp(0, 50).numpy(),
+                    valid_mask=depth_vhw[t].numpy() > 0,
+                    min_depth=0.0,
+                    max_depth=50.0,
+                ).astype(np.float32)
+            )
+            for t in range(depth_vhw.shape[0])
+        ])
 
     # _build_occ_rae moved verbatim to occrae/deltatok_shared.py
     # (DeltaTokSharedMixin).

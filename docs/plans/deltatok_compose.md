@@ -2,181 +2,172 @@
 
 ## Context
 
-DeltaTok today learns one thing: `decode(encode(f_i, f_j), f_i) ≈ f_j` for a single sampled pair per
-sequence (`occrae/deltatok_trainer.py:990-1012`). Long-range transitions are reached only by chaining
-the *decoder* — `_rollout_from_z` (`occrae/deltatok_shared.py:343`) decodes `d12` onto `f1`, feeds the
-prediction back, decodes `d23`. Error compounds, and there is no algebra on the latent itself.
-
-The goal is to make the delta token additive, so a transition can be built in latent space:
+DeltaTok learns `decode(encode(f_i, f_j), f_i) ≈ f_j` for one pair per sequence
+(`occrae/deltatok_trainer.py:990-1012`). Longer transitions exist only by chaining the decoder
+(`_rollout_from_z`, `occrae/deltatok_shared.py:343`), and error compounds. Goal: an additive delta
+token, so a span is composed in latent space. From a sampled triplet (1, 3, 5):
 
 ```
-f1,f2 -> d12    f2,f3 -> d23    f3,f4 -> d34     (encode adjacent hops)
-d13 = d12 + d23         d14 = d12 + d23 + d34    (compose: plain addition)
-f1 + d13 -> f3          f2 + d24 -> f4           (apply: one decode, no chaining)
+f1,f3 -> d13    f3,f5 -> d35    (encode the two hops)
+d15 = d13 + d35                 (compose: plain addition)
+f1 + d15 -> f5                  (apply: one decode, no chaining)
 ```
 
-Half of this already exists. `f_i + d_ij -> f_j` is literally `net.decode(z, x_prev, ...)`, and
-`max_gap=9` already trains `encode(f1, f3)` in-distribution, so a long-range delta is not a new object.
-The new capability is producing `d13` from `(d12, d23)` **without touching frames**, and supervising it.
+Apply is already `net.decode(z, x_prev, ...)`, and `max_gap=9` trains long-gap `encode()`
+in-distribution. The new part is producing `d15` without frames. That does not hold at init; the
+compose loss trains it in. Two prerequisites:
 
-Nothing in `docs/`, `docs/plans/`, or the code mentions composition, additivity, or latent algebra —
-grep for `compos*`/`additiv*`/`abelian`/`d12` returns zero real hits. This is new ground, and there is
-no reason for `d12 + d23 ≈ d13` to hold at initialisation. It has to be trained in explicitly.
-
-Two facts from the existing research make it feasible:
-- **`z_norm=false` on every production arm.** The z LayerNorm pins each token to `|z|=sqrt(Cz)` on a
-  zero-mean hyperplane (`occrae/deltatok_trainer.py:174-181`); a sum of two such tokens is off that
-  sphere. Additivity is only representable with the norm off, which the arms already do.
-- **SIGReg supplies the scale anchor.** At `sigreg_weight>0` the code is zero-mean with
-  `TotalVar/Cz ≈ 1.006`. The nosigreg mg9 arm has per-element RMS ~14 and worst-channel mean offset
-  408 — a raw sum doubles that offset. Build on a SIGReg arm.
+- **`z_norm=false`.** The z LayerNorm pins each token to `|z|=sqrt(Cz)` on a zero-mean hyperplane
+  (`occrae/deltatok_trainer.py:174-181`); a sum of two such tokens leaves that sphere. Production
+  arms already run the norm off.
+- **A SIGReg base.** SIGReg keeps the code zero-mean with `TotalVar/Cz ≈ 1.006`, so sums stay
+  in-range. Build on a SIGReg arm, not nosigreg.
 
 ## Design
 
-**Composition is plain addition.** No new parameters, no compose head, no cumsum. A composed delta is
-the sum of the adjacent deltas it spans, selected by a mask:
+**Composition is plain addition** — no new parameters, no compose head:
 
 ```python
-# z_adj: (B, L, N, K, Cz) — L adjacent hops per sequence
-hop  = torch.arange(L, device=z_adj.device)                            # (L,)
-mask = ((hop >= i[..., None]) & (hop < j[..., None])).to(z_adj.dtype)  # (B, n_comp, L)
-z_comp = torch.einsum('bcl,blnkd->bcnkd', mask, z_adj)                 # (B, n_comp, N, K, Cz)
+z = z.reshape(B, 2, N, K, Cz)  # (B, 2, N, K, Cz) the 2 hops of triplet (τ0, τ1, τ2)
+z_a = z[:, 0]                  # (B, N, K, Cz) d(τ0 -> τ1), e.g. d13
+z_b = z[:, 1]                  # (B, N, K, Cz) d(τ1 -> τ2), e.g. d35
+z_comp = z_a + z_b             # (B, N, K, Cz) d(τ0 -> τ2), e.g. d15
 ```
 
-Because there are no new params, **existing checkpoints load unchanged** and a compose arm can be
-warm-started from the mg9/SIGReg checkpoint via `INIT_CKPT` (`sh/train_deltatok.sh:35-37`).
+One triplet, two hops, one `+`. No mask, no sub-span selection, no chain-length config. All the
+variety comes from step 1 resampling `(τ0, τ1, τ2)` every micro-batch, so a fixed pair of hops
+still covers every gap combination. Longer chains are a separate arm (see *Not doing*).
+
+Zero new params: existing checkpoints load unchanged, so the arm warm-starts from the mg9/SIGReg
+checkpoint via `INIT_CKPT` (`sh/train_deltatok.sh:35-37`).
 
 **Per micro-batch:**
 
-1. Sample a window of `L+1` timesteps per sequence. Draw a total span `s ~ U[L, max_gap]` once per
-   micro-batch (mirroring how `gap` is drawn today), then per-sequence `t0 ~ U[0, T-s)` and `L-1`
-   interior cut points, giving sorted `t0 = τ0 < τ1 < … < τL = t0+s`. Per-hop gaps vary; the composed
-   span still reaches `max_gap`, so composed deltas stay in the range `encode()` was trained on.
-2. Run the frozen backbone on those `L+1` timesteps only (new `_extract_window_feats`) →
-   `feats (B, L+1, N, P, C)`.
-3. Build `rope_local` / `rope_global` **once** and reuse for every encode and decode in the step.
-   `_compute_global_rope` randomly permutes camera↔position while `self.training`
-   (`occrae/deltatok_trainer.py:273-274`); rebuilding it per call would make `d12` and `d23`
-   incomparable within the same step.
-4. `z_adj = net.encode(feats[:, :-1], feats[:, 1:], ...)` → `(B*L, N, K, Cz)`, reshape to `(B, L, …)`.
-5. **Base pair recon** (existing loss, now averaged over all `L` hops instead of one pair):
-   `log_cosh(net.decode(z_adj, feats[:, :-1]), feats[:, 1:].detach())`.
-6. **Composed recon**: sample `n_comp` spans `(i, j)` with `j-i >= 2` per sequence — draw
-   `span ~ U[2, L]` then `i ~ U[0, L-span]`, which weights 2-hop and L-hop equally. Mask-sum to
-   `z_comp`, gather anchor `feats[b, i]` and target `feats[b, j]`, and
-   `log_cosh(net.decode(z_comp, anchor), target.detach())`.
-7. `loss_total = loss_recon + compose_weight * loss_compose` (+ existing SIGReg term).
+1. **Sample timesteps.** 3 distinct per sequence, uniform (`rand(B, T).argsort()[:, :3]`, sorted)
+   → `τ0 < τ1 < τ2`. Per-sequence, never shared across the batch. `T=10` caps the composed span at
+   9 = `max_gap`, so composed deltas stay in the trained gap range; per-hop gaps land in [1, 8].
+2. **Backbone.** Frozen backbone on those 3 timesteps only (new `_extract_window_feats`) →
+   `feats (B, 3, N, P, C)`.
+3. **One DDP forward.** Everything trainable runs in a single `self.tokenizer(...)` call, via the
+   new `compose` flag. Correctness, not style: `net.encode`/`net.decode` on the unwrapped module
+   skip DDP's reducer hooks, gradients never all-reduce, and ranks silently diverge. The single
+   forward also builds `rope_local`/`rope_global` once; `_compute_global_rope` permutes
+   camera↔position while `self.training` (`occrae/deltatok_trainer.py:273-274`), and only a shared
+   build keeps the two hops comparable.
+4. **Encode, compose, decode.** `z = encode(feats[:, :-1], feats[:, 1:], ...)` → `(B*2, N, K, Cz)`;
+   `z_comp = z_a + z_b` as above; decode the 2 hops and the composed delta in one batched `decode`
+   (rows are independent, bit-identical to separate calls).
+5. **Base pair recon.** Existing loss, over both hops:
+   `log_cosh(x_hat_hops, feats[:, 1:].detach())`.
+6. **Composed recon.** Anchor `feats[:, 0]`, target `feats[:, 2]`, loss
+   `log_cosh(x_hat_comp, target.detach())`.
+7. **Total.** `loss_total = loss_recon + compose_weight * loss_compose` (+ existing SIGReg term).
 
 **No latent-consistency term.** `d12+d23` is never matched against `encode(f1,f3)`. Additivity is
-enforced functionally through the decoder only.
+enforced through the decoder only.
 
-**SIGReg row count.** `z_adj` has `L×` more rows than today's single pair. `sigreg_pool_samples` is
-documented as *not* weight-neutral (`docs/journal/deltatok_sigreg_pool_not_weight_neutral_2026-07-31.html`)
-— raising 8192→32768 at fixed weight stopped learning entirely, via `scale = pool/live` in
-`_sigreg_pooled` (`occrae/deltatok_trainer.py:685`). So by default feed SIGReg **one randomly chosen
-hop per sequence**, keeping the live row count identical to a non-compose arm and the sweep results
-transferable. Composed deltas are never fed to SIGReg.
+**SIGReg row count.** A triplet gives 2× the rows of one pair, and SIGReg weight is not
+row-count-neutral (`scale = pool/live`, `occrae/deltatok_trainer.py:685`;
+`docs/journal/deltatok_sigreg_pool_not_weight_neutral_2026-07-31.html`). `compose_sigreg_one_hop`
+feeds one random hop per sequence (true) or both (false). This arm runs **false**: 2 hops ×
+bsize 2 = the bsize-4 arms' live row count, so sweep results transfer. Composed deltas never reach
+SIGReg.
 
 ## Files to change
 
 ### 1. `occrae/deltatok_shared.py` — new `_extract_window_feats`
 
-Add next to `_extract_pair_feats` (line 156). Same gather, generalised from 2 timesteps to `S`, and
-**no folding into the batch axis**:
+Next to `_extract_pair_feats` (line 156): the same gather, generalised from 2 timesteps to `S`, no
+folding into the batch axis. Leave `_extract_pair_feats` untouched; every existing caller stays
+bit-identical.
 
 ```python
 def _extract_window_feats(self, imgs, num_cameras, step_t):
     """Encode only the timesteps in step_t (B, S) -> feats (B, S, N, P, C), H, W."""
 ```
 
-Leave `_extract_pair_feats` untouched — every existing caller (eval, flow trainer, AR rollout) stays
-bit-identical. The ~8 duplicated gather lines are deliberate: refactoring the shared helper would put
-the three running BSC arms at risk.
+### 2. `occrae/deltatok_trainer.py` — training path
 
-### 2. `occrae/deltatok_trainer.py` — the training path
-
-- `__init__` (~line 604, beside the SIGReg block): read `compose_weight`, `compose_chain_len`,
-  `compose_num_pairs`, `compose_sigreg_one_hop`. When `compose_weight > 0`, assert
-  `model.deltatok.z_norm == false` (additivity is unrepresentable on the LN sphere),
-  `compose_chain_len >= 2`, `compose_chain_len <= max_gap < T`, and
-  `bottleneck_recon_weight == 0` (the compose path calls `encode`/`decode` directly, so it does not
-  produce `z_pre`/`z_rec`; stage-2 bottleneck is a separate arm).
-- New `_compose_forward(imgs, num_cameras)` implementing steps 1-6 above and returning
-  `(loss_recon, loss_compose, z_for_sigreg)`.
-- `train_one_epoch` (line 990): branch on `compose_weight > 0`. The `else` branch is the current code,
-  unchanged. Add `loss_compose` to `loss_total` next to the `loss_bneck` term (line 1024), and log
-  `Train/LossCompose` beside the existing scalars (line 1090).
+- **`DeltaTokModule.forward` (line 430):** one new kwarg `compose=False` (bool). Rows arrive
+  hop-major, 2 per sequence, so everything is derived: `z.reshape(-1, 2, N, K, Cz)` then
+  `z_a + z_b`, and the anchor is `x_prev.reshape(-1, 2, N, P, C)[:, 0]` (row `2b` of `x_prev` is
+  already `feats[b, 0]`). Returns `(x_hat_hops, x_hat_comp, z_adj)`.
+- **`__init__` (~line 604, beside the SIGReg block):** read the two `compose_*` keys. When
+  `compose_weight > 0`, assert `model.deltatok.z_norm == false`, `max_gap >= 2`, and
+  `bottleneck_recon_weight == 0` (the compose branch produces no `z_pre`/`z_rec`).
+- **New `_compose_forward(imgs, num_cameras)`:** design steps 1-6, returns
+  `(loss_recon, loss_compose, z_adj)`.
+- **`train_one_epoch` (line 990):** branch on `compose_weight > 0`; the `else` branch is the
+  current code, unchanged. Add `loss_compose` to `loss_total` next to `loss_bneck` (line 1024);
+  log `Train/LossCompose` (line 1090).
 
 ### 3. Eval diagnostics — `occrae/deltatok_trainer.py` + `occrae/metric.py`
 
-Two new always-on keys on the T=5 eval windows, reusing the existing `_encode_pair_deltas` helper.
-They make composition measurable on *any* arm, including the checkpoints from the in-flight SIGReg
-sweep, so the baseline is quantified before a compose arm is launched.
+Two always-on keys on the T=5 eval windows, reusing `_encode_pair_deltas`. They measure composition
+on any checkpoint, so the baseline exists before a compose arm launches.
 
-- `LossRecon_Comp` — sum hops `0..t` (a `tril` mask-matmul over `z (B, T-1, N, K, Cz)`), decode once
-  from frame 0. Directly comparable to the existing `LossRecon_AR` on the same frames: latent
-  composition vs decoder chaining.
-- `LossRecon_Direct` — `decode(encode(f0, f_{t+1}), f0)`. The ceiling for `LossRecon_Comp`: the gap
-  between them is exactly what additivity costs.
+- **`LossRecon_Comp`** — `z.cumsum(dim=1)` over `z (B, T-1, N, K, Cz)` gives the sum of hops `0..t`
+  at every `t`; decode all of them from frame 0. Latent composition vs decoder chaining, on the
+  same frames as `LossRecon_AR`.
+- **`LossRecon_Direct`** — `decode(encode(f0, f_{t+1}), f0)`. The ceiling for `LossRecon_Comp`;
+  the gap is what additivity costs.
 
-Add both to `_EVAL_LOSS_KEYS` (`occrae/metric.py:13-25`) **first** — `DeltaTokEvalMetric.update`
-raises `AttributeError` on any unregistered key. Per-loader logging at `deltatok_trainer.py:1413`
-iterates `results.items()`, so it picks them up automatically.
+Register both in `_EVAL_LOSS_KEYS` (`occrae/metric.py:13-25`) **first** —
+`DeltaTokEvalMetric.update` raises `AttributeError` on unregistered keys. Per-loader logging
+(`deltatok_trainer.py:1413`) picks them up automatically.
 
 ### 4. `configs/deltatok/train_deltatok.yaml` — new keys under `training:`
 
 ```yaml
   compose_weight: 0.0          # 0 = off; existing single-pair sampling path is bit-identical
-  compose_chain_len: 4         # L adjacent hops -> L+1 frames per sequence
-  compose_num_pairs: 2         # composed spans (i,j), j-i>=2, supervised per sequence
-  compose_sigreg_one_hop: true # feed SIGReg one hop/sequence so pressure matches non-compose arms
+  compose_sigreg_one_hop: true # feed SIGReg one hop/sequence (false = both)
 ```
 
-All reads go through `cfg.training.get(...)`, so overlays and every existing SLURM arm keep working.
+All reads go through `cfg.training.get(...)`, so overlays and existing SLURM arms keep working.
 
 ### 5. `slurm/deltatok/train_deltatok_compose_bsc.slurm` — new arm
 
-`cp slurm/deltatok/train_deltatok_maxgap_sigreg_nozn_bsc.slurm` then edit surgically. Differences:
+`cp slurm/deltatok/train_deltatok_maxgap_sigreg_nozn_bsc.slurm`, then edit:
 
-- `--account=ehpc1001` (the source script carries `ehpc880`; per CLAUDE.md new files use `ehpc1001`,
-  which the newest tc768 arm BSC:44478797-99 already uses).
-- `CONFIG_NAME=train_deltatok_nt10_bsc` — `num_timesteps=10`, needed for `L=4` at `max_gap=9`.
-- Add `training.compose_weight`, `compose_chain_len=4`, `compose_num_pairs=2`.
-- `training.bsize=2 training.effective_bsize=16` (grad_cum 2). The step does ~4× the tokenizer work of
-  a baseline arm — 4 encodes + 6 decodes vs 1 + 1, over a 2.5× larger frozen-backbone forward. Halving
-  bsize keeps the memory profile close to the arms that are known to fit.
-- `INIT_CKPT` documented in the header comment for warm-starting from the mg9/SIGReg checkpoint.
+- **`--account=ehpc1001`** — the source carries stale `ehpc880`.
+- **`CONFIG_NAME=train_deltatok_nt10_bsc`** — `num_timesteps=10` caps the composed span at
+  `max_gap=9`.
+- **Compose keys:** `training.compose_weight` (`COMPOSE_WEIGHT` env, default 1.0 — both terms are
+  same-scale log-cosh), `compose_sigreg_one_hop=false`.
+- **`training.bsize=2 training.effective_bsize=16`** (grad_cum 2). A triplet step is 2 encodes +
+  3 decodes vs 1 + 1, so at half bsize it holds ~1.2× the activations of the bsize-4 arms known to
+  fit. OOM fallback: `bsize=1`, grad_cum 4.
+- **`INIT_CKPT`** in the header comment, pointing at the mg9/SIGReg checkpoint.
 
 ## Verification
 
-1. **Config no-op.** Confirm a baseline arm is unaffected: run 20 iters of
-   `train_deltatok_maxgap_sigreg_nozn_bsc.slurm` on `acc_debug` and check `Train/LossRecon` matches the
-   pre-change values for the same seed.
-2. **Smoke test the compose arm** on `qos=acc_debug` (2 h) before any production submit:
+1. **Config no-op.** 20 iters of `train_deltatok_maxgap_sigreg_nozn_bsc.slurm` on `acc_debug`;
+   `Train/LossRecon` must match pre-change values at the same seed.
+2. **Smoke test** on `qos=acc_debug` (2 h) before any production submit:
    ```bash
    ssh bsc "bash -lc 'cd /gpfs/projects/ehpc1001/code/deltatok && sbatch slurm/deltatok/train_deltatok_compose_bsc.slurm'"
    ```
-   Watch in the background until `RUNNING` *and* a first loss line lands. Grep the `.out` for
-   `LossCompose` — it must be finite and above `LossRecon` at iter 0 (an untrained sum should decode
-   badly; if they are equal at iter 0, the mask-sum is collapsing to a single hop).
-3. **Baseline additivity measurement.** Run `EVAL_ONLY=1` against an existing mg9/SIGReg checkpoint and
-   read `Eval/<test>/LossRecon_Comp` vs `LossRecon_Direct` vs `LossRecon_AR`. This quantifies how far
-   from additive the current tokenizer is, with no training — the number that says whether the compose
-   loss is doing anything.
-4. **Success criterion after training.** `LossRecon_Comp` falls toward `LossRecon_Direct`, and
-   `LossRecon_Comp < LossRecon_AR` (one-shot composition beats decoder chaining). Watch `ZPartRank`
-   and `ZTotalVar` — the max_gap sweep saw hard collapse on some arms (`ZPartRank` → ~1.7), so a
-   collapsing compose arm must be killed, not waited out.
-5. **Sync check before every submit.** The user syncs manually; grep the remote copy of the new slurm
-   script and `occrae/deltatok_trainer.py` before `sbatch`, and ask for a sync if stale.
+   Watch in the background until `RUNNING` and a first loss line. `LossCompose` must be finite and
+   above `LossRecon` at iter 0; equal values mean `z_comp` collapsed to a single hop.
+3. **Baseline additivity.** `EVAL_ONLY=1` on an existing mg9/SIGReg checkpoint; read
+   `Eval/<test>/LossRecon_Comp` vs `LossRecon_Direct` vs `LossRecon_AR`. Quantifies non-additivity
+   before any training.
+4. **Success criterion.** `LossRecon_Comp` falls toward `LossRecon_Direct` and beats
+   `LossRecon_AR`. Watch `ZPartRank` / `ZTotalVar`; the max_gap sweep saw hard collapse
+   (`ZPartRank` → ~1.7). Kill a collapsing arm, do not wait it out.
+5. **Sync check.** The user syncs manually. Grep the remote slurm script and
+   `occrae/deltatok_trainer.py` before every `sbatch`; ask for a sync if stale.
 
 ## Not doing
 
 - **No latent-consistency loss.** `d12+d23` is never matched to `encode(f1,f3)`.
 - **No compose head or gated sum.** Plain addition, zero new parameters.
-- **No flow-trainer changes.** `occrae/deltatok_flow_trainer.py` and its configs are untouched; the
-  additive latent is a property a later flow arm can exploit, not part of this change.
-- **K-slot alignment is not addressed.** Nothing binds slot `k` of `d12` to slot `k` of `d23` beyond
-  the shared `z_embed` init — the same weak-binding class as the camera-swap bug. Adding a loss is the
-  cheap first test; if it plateaus, slot binding is the next suspect.
+- **No flow-trainer changes.** `occrae/deltatok_flow_trainer.py` and its configs are untouched.
+- **Longer chains are extrapolation.** Only 2-hop sums are supervised, and 2-term additivity does
+  not guarantee 3- or 4-term. `LossRecon_Comp` on the T=5 eval windows (up to 4 hops) measures
+  exactly that. If it fails, a longer-chain arm generalises the same code: sample `L+1` timesteps
+  and sum `L` hops.
+- **K-slot alignment is not addressed.** Nothing binds slot `k` of `d12` to slot `k` of `d23`
+  beyond the shared `z_embed` init — the same weak-binding class as the camera-swap bug. If the
+  compose loss plateaus, slot binding is the next suspect.
 - **No local run.** Everything executes on BSC.

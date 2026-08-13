@@ -21,6 +21,9 @@ _EVAL_LOSS_KEYS = (
 	"LossRecon_AR",
 	"LossPointmap_PredVsGT_AR", "LossDepth_PredVsGT_AR", "LossRaymap_PredVsGT_AR",
 	"LossPointmap_PredVsOrig_AR", "LossDepth_PredVsOrig_AR", "LossRaymap_PredVsOrig_AR",
+	# Additivity of the delta token: z(t0->t1)+z(t1->t2) decoded from f_t0 in one
+	# shot (no chaining), matched against f_t2. Triplet sampled per eval window.
+	"LossRecon_Comp",
 )
 
 
