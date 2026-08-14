@@ -13,11 +13,11 @@
 #SBATCH --output=slurm/output/train_deltatok_compose_sigreg_bsc_%j.out
 #SBATCH --error=slurm/output/train_deltatok_compose_sigreg_bsc_%j.err
 
-# Additive-composition arm WITH SIGReg. Set SIGREG_WEIGHT; COMPOSE_WEIGHT defaults 1.0:
-#   ssh bsc "bash -lc 'cd /gpfs/projects/ehpc1001/code/deltatok && SIGREG_WEIGHT=0.05 sbatch --export=ALL slurm/deltatok/train_deltatok_compose_sigreg_bsc.slurm'"
+# Additive-composition arm WITH SIGReg. SIGREG_WEIGHT defaults 0.005, COMPOSE_WEIGHT 1.0; override either:
+#   ssh bsc "bash -lc 'cd /gpfs/projects/ehpc1001/code/deltatok && SIGREG_WEIGHT=0.005 sbatch --export=ALL slurm/deltatok/train_deltatok_compose_sigreg_bsc.slurm'"
 # w=0 -> use the nosigreg compose script. WATCH: LossSIGReg must descend past iter 2000.
 
-: "${SIGREG_WEIGHT:?SIGREG_WEIGHT must be set}"
+export SIGREG_WEIGHT=${SIGREG_WEIGHT:-0.005}
 case "${SIGREG_WEIGHT}" in 0|0.0|0.00) echo "w=0 -> use the nosigreg compose script" >&2; exit 1 ;; esac
 export COMPOSE_WEIGHT=${COMPOSE_WEIGHT:-1.0}
 
