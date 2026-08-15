@@ -37,7 +37,7 @@ The tunnel will drop if Computer 2 disconnects or the session times out. To keep
 autossh -M 0 -N \
   -o "ServerAliveInterval 30" -o "ServerAliveCountMax 3" \
   -o "ExitOnForwardFailure=yes" \
-  -R 2222:jean-zay2.idris.fr:22 \
+  -R 2222:jean-zay3.idris.fr:22 \
   -R 2223:localhost:22 \
   karolina
 ```
@@ -57,7 +57,7 @@ Description=Reverse SSH tunnel to JeanZay via Karolina
 After=network-online.target
 
 [Service]
-ExecStart=ssh -N -o "ServerAliveInterval 30" -o "ServerAliveCountMax 3" -R 2222:jean-zay3.idris.fr:22 -R 2223:localhost:22 karolina
+ExecStart=ssh -N -o "ServerAliveInterval 30" -o "ServerAliveCountMax 3" -o "ExitOnForwardFailure=yes" -R 2222:jean-zay3.idris.fr:22 -R 2223:localhost:22 karolina
 Restart=always
 RestartSec=10
 

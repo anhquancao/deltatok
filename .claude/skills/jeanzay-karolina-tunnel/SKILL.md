@@ -16,7 +16,7 @@ this machine ──ssh──▶ Karolina ──port 2222 (reverse forward held b
 this machine ──ssh──▶ Karolina ──port 2223 (reverse forward held by cougar)──▶ cougar (localhost:22)
 ```
 
-cougar runs one `ssh -N -R` session to Karolina that binds **two** ports on Karolina:
+Each cougar `ssh -N -R` session to a Karolina login node binds **two** ports on that node:
 - **`localhost:2222` on Karolina → Jean Zay login (jean-zay3:22)**
 - **`localhost:2223` on Karolina → cougar (cougar:22)**
 
@@ -65,40 +65,77 @@ rsync -av -e 'ssh -p 2222' <ckpt> \
 
 ## The tunnel is held by cougar — you cannot restart it from here
 
-The forwards only exist while cougar's `ssh -N -R` session is up. If it dies, this machine has **no way to restart it** (the only route to cougar, port 2223, dies with the same session). Restoring it requires access to cougar. On cougar it is meant to self-heal via `autossh` / a systemd user service (`tunnel-jeanzay`):
+The forwards only exist while cougar's `ssh -N -R` sessions are up. If they die, this machine has **no way to restart them** (the only route to cougar, port 2223, dies with the same session). Restoring them means getting onto cougar over the vai scheduler route instead — see the `cougar-connect` skill. **If the tunnel is down, tell the user it needs restarting on cougar; do not try to fix it from here.**
+
+## Runbook — bring the tunnel up on cougar
+
+Two independent autossh sessions, one per Karolina login node, held from a shell inside a long-lived **interactive CPU job** on cougar.
+
+### 1. Hold an interactive CPU job on cougar
+
+With the GPUCluster4U CLI (`~/miniforge3/bin/cluster`), from this machine:
 
 ```bash
-# on cougar — restart manually if not managed by systemd
-autossh -M 0 -N \
-  -o "ServerAliveInterval 30" -o "ServerAliveCountMax 3" \
-  -o "ExitOnForwardFailure=yes" \
-  -R 2222:jean-zay3.idris.fr:22 -R 2223:localhost:22 karolina
+cluster jobs add -i --gpus 0 --cpus 4 --cpu-memory 24 -d 365d -r cougar -n tunnel_jz
+cluster jobs show --only-me       # → <job_id>
+cluster jobs connect <job_id>     # tunnel + ssh into the job
 ```
 
-`ExitOnForwardFailure=yes` matters: without it, a forward that fails to bind (stale port held on Karolina after a blip) leaves ssh "healthy" but tunnel-less, and autossh never restarts it — a silent dead tunnel. **If the tunnel is down, tell the user it needs restarting on cougar; do not try to fix it from here.**
+- `--gpus 0` keeps it CPU-only — already the client default (`cluster/client/client.py`), despite `--help` claiming 1.
+- `-d` takes `NUMBER[m|h|d|w]` (`check_duration_syntax`); `365d` is accepted, with no client-side upper bound.
+- `-r cougar` pins the machine (`10.46.63.67`).
+- The scheduler still reaps **idle** interactive jobs (`scheduler_idle_duration_before_kill_hours`), regardless of the requested duration. Extend a live job with `cluster jobs interactive add-time <job_id> 4w`.
+- To do all of this without the CLI's prompts/auto-ssh, use the `cougar-connect` skill (scheduler REST API + plain `ssh -L`).
 
-## Redundancy: a second tunnel on login2
-
-The reverse forward binds `localhost:2222`/`:2223` **on the specific login node cougar connects to** (login1 via the `karolina` alias). Each Karolina login node is a separate host with its own `localhost`, so if login1 is down the whole tunnel is unreachable — even though login2–4 are up.
-
-For robustness, cougar can hold a **second, independent** autossh session to a different login node. Same ports (2222/2223) are fine — they bind on login2's `localhost`, a separate namespace from login1's, so there is no conflict:
+### 2. Install autossh inside the job
 
 ```bash
-# on cougar — redundant tunnel via login2 (pin to a specific node, NOT the round-robin karolina.it4i.cz)
+sudo apt-get update && sudo apt-get install -y autossh
+```
+
+`E: Unable to locate package autossh` means stale apt lists (fresh container) or `universe` not enabled — `apt-cache policy autossh` tells them apart; `sudo add-apt-repository universe` fixes the latter.
+
+### 3. Run both tunnels under tmux
+
+**Address each login node explicitly** — not the `karolina` alias (login1 only, and its `~/.ssh/config` entry may not exist inside the job container) and never the round-robin `karolina.it4i.cz`. `-N` means no shell, so a healthy tunnel is a silent pane.
+
+```bash
+tmux new -s tunnel_jz
+
+# pane 1 — login1
 autossh -M 0 -N \
   -o "ServerAliveInterval 30" -o "ServerAliveCountMax 3" \
   -o "ExitOnForwardFailure=yes" \
-  -R 2222:jean-zay3.idris.fr:22 -R 2223:localhost:22 \
+  -R 2222:jean-zay3.idris.fr:22 \
+  -R 2223:localhost:22 \
+  it4i-anhquan@login1.karolina.it4i.cz
+
+# pane 2 — login2
+autossh -M 0 -N \
+  -o "ServerAliveInterval 30" -o "ServerAliveCountMax 3" \
+  -o "ExitOnForwardFailure=yes" \
+  -R 2222:jean-zay3.idris.fr:22 \
+  -R 2223:localhost:22 \
   it4i-anhquan@login2.karolina.it4i.cz
 ```
 
-Run it under its own systemd user unit (e.g. `tunnel-jeanzay-login2.service`) alongside the login1 one. From this machine the redundant route is `ssh test-jeanzay-login2` (ProxyJump `karolina-login2`), which works **only while cougar's login2 session is up** — otherwise it fails with `Connection refused` on port 2222 exactly like a down login1 tunnel. `karolina-login2` itself (direct login2 access) works regardless, since it doesn't depend on the tunnel.
+Add `-i ~/.ssh/id_rsa` if the key authorized on Karolina isn't the default — going around the `karolina` alias also drops its `IdentityFile`/`User`.
+
+`ExitOnForwardFailure=yes` matters: without it, a forward that fails to bind (stale port held on Karolina after a blip) leaves ssh "healthy" but tunnel-less, and autossh never restarts it — a silent dead tunnel.
+
+A systemd user unit per login node (`~/.config/systemd/user/tunnel-jeanzay{,-login2}.service`, `Restart=always`, plus `loginctl enable-linger acao`) is the durable alternative to tmux — see `docs/ssh_tunnel_jz.md`.
+
+## Why both login nodes
+
+The reverse forward binds `localhost:2222`/`:2223` **on the specific login node cougar connects to**. Each Karolina login node is a separate host with its own `localhost`, so if login1 is down the whole tunnel is unreachable — even though login2–4 are up. That same separation is why reusing ports 2222/2223 on login2 is not a conflict.
+
+From this machine the redundant route is `ssh test-jeanzay-login2` (ProxyJump `karolina-login2`), which works **only while cougar's login2 session is up** — otherwise it fails with `Connection refused` on port 2222 exactly like a down login1 tunnel. `karolina-login2` itself (direct login2 access) works regardless, since it doesn't depend on the tunnel.
 
 ## Troubleshooting
 
 | Symptom (on `ssh test-jeanzay` / port 2222) | Cause | Action |
 |---|---|---|
-| `Connection refused` on port 2222 | cougar's tunnel session is down (that login node's forward is gone) | Try the redundant route `ssh test-jeanzay-login2`; if that also refuses, the tunnel needs restarting **on cougar** (autossh/systemd) — ask the user |
+| `Connection refused` on port 2222 | cougar's tunnel session is down (that login node's forward is gone) | Try the redundant route `ssh test-jeanzay-login2`; if that also refuses, the tunnel needs restarting **on cougar** — ask the user; runbook above |
 | `channel 0: open failed: connect failed` | Tunnel up but Jean Zay unreachable from cougar (Jean Zay down, or `jean-zay3.idris.fr` not resolving) | Wait / check Jean Zay status; nothing to fix on this side |
 | `Warning: remote port forwarding failed for listen port 2222` | Port 2222 still held on Karolina by a stale session | A stale forward must be reaped on Karolina before the new bind succeeds — restart on cougar with `ExitOnForwardFailure=yes` |
 | `jean-zay` fails but `test-jeanzay` works (or vice-versa) | One of the two routes (impala vs tunnel) is down | Use the other alias |
