@@ -225,6 +225,35 @@ svg .axl{font:10px var(--mono);fill:var(--muted)}
   <div class="foot"><span>BSC 44543763 (tc1536) / 44543837 (tc768) · 101 epochs each</span><span>2 arms + reference</span><span class="pageno">5</span></div>
 </section>
 
+<!-- ============ SLIDE 6 — denoising-step sweep ============ -->
+<section class="slide">
+  <div class="eyebrow">Denoising steps <span class="dim">— tc768 SIGReg arm, ckpt ep101</span></div>
+  <h2>Sampler steps 1 / 20 / 50 / 75 / 100</h2>
+  <p class="sub">One full <span class="mono">eval_one_epoch</span> per step count, <span class="mono">ode</span> sampler, same 128 val seqs and same seed as the
+    training-time eval. Single eval pass each — no epoch averaging, so these are point measurements, not the epoch 91–100 means used on slides 3 and 5.
+    x-axis is categorical: the step counts are not evenly spaced.</p>
+  <div class="body">
+    <div class="cols c3" style="gap:20px">
+      <div><div class="panelttl">LossRaymap <span style="font-weight:400;color:var(--muted)">floor 1.695</span></div><div class="chartwrap" id="chNSRay"></div></div>
+      <div><div class="panelttl">LossDepth <span style="font-weight:400;color:var(--muted)">floor 2.747</span></div><div class="chartwrap" id="chNSDep"></div></div>
+      <div><div class="panelttl">LossPointmap <span style="font-weight:400;color:var(--muted)">floor 4.020</span></div><div class="chartwrap" id="chNSPm"></div></div>
+    </div>
+    <table style="margin-top:16px">
+      <tr><th>Sampler steps</th><th class="n">1</th><th class="n">20</th><th class="n">50</th><th class="n">75</th><th class="n">100</th><th class="n">Δ 20 → 100</th></tr>
+      <tr class="hl"><td><b>LossRaymap</b></td><td class="n"><b>4.4385</b></td><td class="n">10.3559</td><td class="n">10.6862</td><td class="n">10.8624</td><td class="n">10.8527</td><td class="n" style="color:var(--serious)">+4.8%</td></tr>
+      <tr><td><b>LossDepth</b></td><td class="n">4.2007</td><td class="n"><b>4.1872</b></td><td class="n">4.1883</td><td class="n">4.1908</td><td class="n">4.1902</td><td class="n">+0.1%</td></tr>
+      <tr class="hl"><td><b>LossPointmap</b></td><td class="n"><b>7.3380</b></td><td class="n">12.5831</td><td class="n">12.8298</td><td class="n">12.9836</td><td class="n">12.9893</td><td class="n" style="color:var(--serious)">+3.2%</td></tr>
+      <tr class="dim"><td>LossFlow</td><td class="n">0.5898</td><td class="n">0.5901</td><td class="n">0.6248</td><td class="n">0.5965</td><td class="n">0.6034</td><td class="n">+2.3%</td></tr>
+      <tr class="dim"><td>MSEToken</td><td class="n">0.7263</td><td class="n">1.1959</td><td class="n">1.2175</td><td class="n">1.2234</td><td class="n">1.2269</td><td class="n">+2.6%</td></tr>
+    </table>
+    <div class="note"><b>steps=1 under <span class="mono">ode</span> is the pure regression baseline</b> — the sampler emits exactly
+      <span class="mono">x̂(noise, t=0)</span>, one network call, no integration. Raymap 4.44 and pointmap 7.34 against 10.36 / 12.58 at 20 steps.
+      From 20 steps upward the three geometry losses are flat to within 5%, and depth does not move at all.
+      Steps=20 reproduces the run's epoch-100 training log (raymap 10.47, depth 4.11, pointmap 12.61) — ckpt-load sanity.</div>
+  </div>
+  <div class="foot"><span>BSC 44663476 · 10 min · results/deltatok_flow_numsteps_tc768</span><span>5 step counts · 1 eval pass each</span><span class="pageno">6</span></div>
+</section>
+
 </div>
 <button class="arr" id="prev" aria-label="Previous slide">‹</button>
 <button class="arr" id="next" aria-label="Next slide">›</button>
@@ -296,6 +325,9 @@ function lineChart(el,cfg){
     s+=`<text x="${L-7}" y="${y+3}" text-anchor="end" class="axl">${fmt(t)}</text>`;});
   (cfg.xticks||[]).forEach(t=>{const x=X(t-x0);
     s+=`<text x="${x}" y="${H-11}" text-anchor="middle" class="axl">${t}</text>`;});
+  // categorical x: one label per data index, evenly spaced (uneven step counts)
+  (cfg.xlabels||[]).forEach((lb,i)=>{
+    s+=`<text x="${X(i)}" y="${H-11}" text-anchor="middle" class="axl">${lb}</text>`;});
   cfg.series.forEach(se=>{const c=CV(se.color);
     const d=se.data.map((v,i)=>`${i?'L':'M'}${X(i).toFixed(1)} ${Y(v).toFixed(1)}`).join(' ');
     s+=`<path d="${d}" fill="none" stroke="${c}" stroke-width="${se.width||2.1}" ${se.dash?`stroke-dasharray="${se.dash}"`:''}/>`;
@@ -413,6 +445,23 @@ barH(document.getElementById('chTCExc'),{
     {label:'Pointmap · tc768',  value:8.146,  disp:'8.146   −28.8%', color:'--s3'},
   ]
 });
+
+/* slide 6 — denoising-step sweep, tc768 arm (BSC 44663476). Categorical x:
+   step counts 1/20/50/75/100 are plotted evenly spaced, labelled by xlabels. */
+const NS={x0:0, x1:4, xlabels:['1','20','50','75','100']};
+const NS_Ray=[4.4385,10.3559,10.6862,10.8624,10.8527];
+const NS_Dep=[4.2007,4.1872,4.1883,4.1908,4.1902];
+const NS_Pm =[7.3380,12.5831,12.8298,12.9836,12.9893];
+
+lineChart(document.getElementById('chNSRay'),{...NS,
+  ymin:4, ymax:11.5, yticks:[4,6,8,10], fmt:t=>t.toFixed(0),
+  series:[{color:'--s3',data:NS_Ray,width:2.6}]});
+lineChart(document.getElementById('chNSDep'),{...NS,
+  ymin:4.15, ymax:4.25, yticks:[4.16,4.18,4.20,4.22,4.24], fmt:t=>t.toFixed(2),
+  series:[{color:'--s3',data:NS_Dep,width:2.6}]});
+lineChart(document.getElementById('chNSPm'),{...NS,
+  ymin:7, ymax:13.5, yticks:[7,9,11,13], fmt:t=>t.toFixed(0),
+  series:[{color:'--s3',data:NS_Pm,width:2.6}]});
 </script>
 </body>
 </html>
