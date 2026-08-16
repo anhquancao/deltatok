@@ -96,6 +96,11 @@ def get_args_parser() -> argparse.ArgumentParser:
              "eval_one_epoch pass. 'ode' first = ckpt-load sanity (reproduces the "
              "run's logged numbers).",
     )
+    parser.add_argument(
+        "--num_steps", type=str, default="",
+        help="Comma-separated sampler step counts to sweep; one full eval_one_epoch "
+             "pass per (num_steps, step_mode). Empty = use training.eval_num_steps once.",
+    )
     parser.add_argument("--seed", type=int, default=0)
     parser.add_argument("--output_dir", type=str, default="results/deltatok_flow_sampler_eval")
     return parser
@@ -120,7 +125,8 @@ def _build_test_loaders(cfg):
         test_name = sub.split("(")[0].strip()
         loaders[test_name] = get_data_loader(
             sub,
-            batch_size=int(cfg.training.bsize),
+            # val_bsize caps eval decode memory (0 = train bsize) — as the trainer does
+            batch_size=int(cfg.training.get("val_bsize", 0)) or int(cfg.training.bsize),
             num_workers=int(cfg.training.get("val_num_workers", 2)),
             shuffle=False,
             drop_last=False,
@@ -192,13 +198,19 @@ def main() -> None:
     trainer.test_loaders = _build_test_loaders(cfg)
 
     modes = [m.strip() for m in args.step_modes.split(",") if m.strip()]
-    for mode in modes:
-        cfg.model.sampler_step_mode = mode  # read by eval_one_epoch's flow_euler_sample call
-        print(f"\n[INFO] ===== sampler_step_mode={mode} "
-              f"(eval_num_steps={cfg.training.get('eval_num_steps', 50)}, "
-              f"eval_num_items={cfg.training.get('eval_num_items', 256)}) =====", flush=True)
-        loss = trainer.eval_one_epoch()  # prints the [Eval/...] metric line itself
-        print(f"[INFO] sampler_step_mode={mode}: Eval loss (flow) = {float(loss):.4f}")
+    # Empty --num_steps keeps the single-pass behaviour at the config's eval_num_steps.
+    steps = [int(s) for s in args.num_steps.split(",") if s.strip()] or \
+            [int(cfg.training.get("eval_num_steps", 50))]
+    for n_steps in steps:
+        cfg.training.eval_num_steps = n_steps  # re-read by eval_one_epoch each pass
+        for mode in modes:
+            cfg.model.sampler_step_mode = mode  # read by eval_one_epoch's flow_euler_sample call
+            print(f"\n[INFO] ===== sampler_step_mode={mode} "
+                  f"(eval_num_steps={n_steps}, "
+                  f"eval_num_items={cfg.training.get('eval_num_items', 256)}) =====", flush=True)
+            loss = trainer.eval_one_epoch()  # prints the [Eval/...] metric line itself
+            print(f"[INFO] steps={n_steps} sampler_step_mode={mode}: "
+                  f"Eval loss (flow) = {float(loss):.4f}")
 
     print(f"\n[INFO] Done. Viz (if any) under {output_dir}")
 

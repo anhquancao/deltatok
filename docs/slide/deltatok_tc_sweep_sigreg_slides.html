@@ -1,0 +1,585 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>DeltaTok — the channel sweep: what tc actually buys</title>
+<style>
+/* ---------- tokens · light only, white slides (no dark variant by request) ---------- */
+:root{
+  color-scheme: light only;
+  --backdrop:#e9e9e6; --page:#f7f7f6; --surface:#ffffff;
+  --ink:#0b0b0b; --ink2:#52514e; --muted:#83817c;
+  --grid:#e4e4de; --axis:#c3c2b7; --border:rgba(11,11,11,.12);
+  --s1:#2a78d6; --s2:#eb6834; --s3:#1baf7a; --s4:#eda100;
+  --s5:#e87ba4; --s6:#008300; --s7:#4a3aa7; --s8:#e34948;
+  --good:#0ca30c; --crit:#d03b3b; --serious:#ec835a;
+  --accent:var(--s1);
+  --serif:"Iowan Old Style","Palatino Linotype",Palatino,Georgia,serif;
+  --sans:system-ui,-apple-system,"Segoe UI",sans-serif;
+  --mono:ui-monospace,"Cascadia Code",Menlo,Consolas,monospace;
+}
+/* ---------- deck chrome ---------- */
+*{box-sizing:border-box;margin:0}
+html,body{height:100%}
+body{background:var(--backdrop);color:var(--ink);font:15px/1.45 var(--sans);overflow:hidden}
+.stage{position:absolute;left:50%;top:50%;width:1280px;height:720px;transform-origin:center center}
+.slide{position:absolute;inset:0;background:var(--surface);border:1px solid var(--border);
+  padding:52px 64px 44px;display:none;flex-direction:column}
+.slide.on{display:flex}
+.eyebrow{font:600 12px/1 var(--mono);letter-spacing:.14em;text-transform:uppercase;color:var(--accent);margin-bottom:14px}
+.eyebrow .dim{color:var(--muted)}
+h1{font:400 46px/1.15 var(--serif);letter-spacing:-.01em;text-wrap:balance}
+h2{font:400 32px/1.2 var(--serif);letter-spacing:-.005em;text-wrap:balance;margin-bottom:6px}
+.sub{color:var(--ink2);font-size:15.5px;max-width:74ch;margin-top:10px}
+.body{flex:1;min-height:0;margin-top:22px}
+.foot{display:flex;justify-content:space-between;align-items:baseline;color:var(--muted);
+  font:11px/1 var(--mono);letter-spacing:.06em;margin-top:16px;border-top:1px solid var(--grid);padding-top:12px}
+.pageno{font-variant-numeric:tabular-nums}
+/* nav */
+.nav{position:fixed;left:50%;bottom:14px;transform:translateX(-50%);display:flex;gap:8px;align-items:center;z-index:5}
+.nav button{width:9px;height:9px;border-radius:50%;border:1px solid var(--muted);background:transparent;cursor:pointer;padding:0}
+.nav button.cur{background:var(--accent);border-color:var(--accent)}
+.nav button:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+.arr{position:fixed;top:50%;transform:translateY(-50%);z-index:5;border:1px solid var(--border);
+  background:var(--surface);color:var(--ink2);width:34px;height:56px;cursor:pointer;font-size:18px;border-radius:4px}
+.arr:hover{color:var(--ink)}
+#prev{left:10px}#next{right:10px}
+/* ---------- shared bits ---------- */
+.mono{font-family:var(--mono)}
+.num{font-variant-numeric:tabular-nums}
+.chip{display:inline-block;font:600 10.5px/1 var(--mono);letter-spacing:.05em;padding:4px 7px;border-radius:3px;
+  border:1px solid var(--border);white-space:nowrap}
+.chip.good{color:var(--good);border-color:currentColor}
+.chip.wall{color:var(--serious);border-color:currentColor}
+.chip.dead{color:var(--crit);border-color:currentColor}
+.chip.hero{color:var(--accent);border-color:currentColor}
+.sw{display:inline-block;width:10px;height:10px;border-radius:2px;vertical-align:-1px}
+.cols{display:grid;gap:30px;min-height:0}
+.c2{grid-template-columns:1fr 1fr}
+.c58{grid-template-columns:1.25fr 1fr}
+.c52{grid-template-columns:1fr 1.1fr}
+.card{border:1px solid var(--grid);border-radius:6px;padding:15px 17px;background:var(--page)}
+.card h3{font:600 14px/1.3 var(--sans);margin:6px 0}
+.card .tag{font:600 10px/1 var(--mono);letter-spacing:.1em;text-transform:uppercase;color:var(--muted)}
+ul.tight{padding-left:18px;display:flex;flex-direction:column;gap:8px;font-size:14px;color:var(--ink2)}
+ul.tight li{padding-left:2px}
+ul.tight strong{color:var(--ink);font-weight:600}
+table{border-collapse:collapse;width:100%;font-size:12.5px}
+th{font:600 10.5px/1.3 var(--mono);letter-spacing:.08em;text-transform:uppercase;color:var(--muted);
+  text-align:left;padding:6px 10px;border-bottom:1px solid var(--axis)}
+td{padding:6px 10px;border-bottom:1px solid var(--grid);color:var(--ink2);vertical-align:top}
+td.n,th.n{text-align:right;font-variant-numeric:tabular-nums}
+td b{color:var(--ink);font-weight:600}
+tr.hl td{background:color-mix(in srgb,var(--s1) 9%,transparent)}
+tr.dim td{color:var(--muted)}
+/* stat tiles */
+.tiles{display:grid;gap:13px}
+.tile{border:1px solid var(--grid);border-radius:6px;padding:13px 15px;background:var(--page)}
+.tile .v{font:600 26px/1.1 var(--sans);letter-spacing:-.01em;font-variant-numeric:tabular-nums}
+.tile .k{font:600 10px/1.4 var(--mono);letter-spacing:.1em;text-transform:uppercase;color:var(--muted);margin-bottom:6px}
+.tile .d{font-size:12.5px;color:var(--ink2);margin-top:6px}
+.rulebar{border:1px dashed var(--axis);border-radius:6px;padding:11px 15px;font-size:13.5px;color:var(--ink2);margin-top:12px}
+.rulebar b{color:var(--ink)}
+.codeline{font:12.5px/1.6 var(--mono);color:var(--ink2);background:var(--page);border:1px solid var(--grid);
+  border-radius:6px;padding:11px 14px;white-space:pre;overflow-x:auto}
+.codeline .cm{color:var(--muted)}
+/* charts */
+.chartwrap{position:relative}
+.legend{display:flex;flex-wrap:wrap;gap:6px 16px;font:12px/1 var(--sans);color:var(--ink2);margin-bottom:6px}
+.legend span{display:inline-flex;gap:6px;align-items:center}
+svg text{font:10.5px var(--sans);fill:var(--muted)}
+svg .barlbl{font:600 12px var(--sans);fill:var(--ink)}
+svg .barval{font:11px var(--mono);fill:var(--ink2)}
+svg .hll{font:10px var(--mono)}
+svg .axl{font:10px var(--mono);fill:var(--muted)}
+.slide kbd{font:11px var(--mono);border:1px solid var(--axis);border-radius:3px;padding:1px 5px;color:var(--ink2)}
+.takeaway{border:1px solid var(--grid);border-radius:6px;padding:14px 16px;background:var(--page);display:flex;gap:12px;align-items:flex-start}
+.takeaway .n{font:600 22px/1 var(--serif);color:var(--accent);flex:0 0 auto;width:26px}
+.takeaway .tx{font-size:13.5px;color:var(--ink2)}
+.takeaway .tx b{color:var(--ink)}
+@media (prefers-reduced-motion: no-preference){
+  .slide.on{animation:fadein .18s ease}
+  @keyframes fadein{from{opacity:.4}to{opacity:1}}
+}
+@media print{
+  body{overflow:visible;background:#fff}
+  .stage{position:static;transform:none!important;width:auto;height:auto}
+  .slide{display:flex;position:static;width:1280px;height:720px;page-break-after:always;margin:0 auto}
+  .nav,.arr{display:none}
+}
+</style>
+</head>
+<body>
+<div class="stage" id="stage">
+
+<!-- ============ SLIDE 1 — title ============ -->
+<section class="slide on">
+  <div class="eyebrow">DeltaTok tokenizer <span class="dim">— layer-12 surround · dtok64 · maxgap9 · SIGReg 0.005 · BSC MareNostrum</span></div>
+  <h1>What does the channel budget actually buy?</h1>
+  <p class="sub">One recipe, one knob: <span class="mono">target_channels</span> at <b>128 / 256 / 512 / 768 / 1536</b>, everything else held fixed
+    (<span class="mono">dtok64 · nozn · maxgap9 · vpt1to2 · sigreg 0.005 · pool8192</span>, <span class="mono">ns = 2·tc</span>).
+    Reconstruction improves with every doubling — but the return collapses past <span class="mono">tc512</span>, and the code's
+    <em>effective</em> rank stops growing entirely.</p>
+  <div class="body">
+    <div class="cols" style="grid-template-columns:1fr 1fr 1fr 1fr;gap:15px">
+      <div class="tile"><div class="k">Recon · 128 → 512</div><div class="v" style="color:var(--good)">−18%</div><div class="d">Eval 0.0419 → 0.0343 at matched epoch 47. Two clean doublings, ~8–11% each.</div></div>
+      <div class="tile"><div class="k">Recon · 512 → 768</div><div class="v" style="color:var(--serious)">−1.5%</div><div class="d">0.0343 → 0.0338 for +50% latent floats. The curve has flattened.</div></div>
+      <div class="tile"><div class="k">Pointmap PvO · 128 → 512</div><div class="v" style="color:var(--s2)">−18.8%</div><div class="d"><span class="mono">PredVsOrig_AR</span> 0.660 → 0.536. Tracks recon. Against GT it is only −2.4%.</div></div>
+      <div class="tile"><div class="k">Spread · 512 → 768</div><div class="v" style="color:var(--crit)">±0</div><div class="d">ZPartRank <b>133.9 → 133.9</b> on nuScenes. Identical rank, 1.5× the budget.</div></div>
+    </div>
+    <div class="rulebar" style="margin-top:18px"><b>Read <span class="mono">tc1536</span> separately.</b> <span class="mono">target_channels = 1536</span> equals the DA3 backbone
+      <span class="mono">embed_dim</span>, so <span class="mono">z_proj_down</span> is square and there is <em>no</em> channel compression at all. Its 0.0141 is the
+      uncompressed ceiling, not a point on the capacity curve.</div>
+    <p class="sub" style="margin-top:14px;font-size:13.5px"><kbd>←</kbd> <kbd>→</kbd> to navigate ·
+      BSC jobs 44578823 / 44578822 / 44578821 / 44478797 / 44465439 · branch <span class="mono">revert</span>.</p>
+  </div>
+  <div class="foot"><span>DeltaTok · tc sweep @ sigreg 0.005</span><span>fidelity saturates, spread saturates sooner</span><span class="pageno">1</span></div>
+</section>
+
+<!-- ============ SLIDE 2 — the arms ============ -->
+<section class="slide">
+  <div class="eyebrow">The sweep <span class="dim">— five arms, one knob</span></div>
+  <h2>Same recipe, <span class="mono">tc</span> is the only thing that moves</h2>
+  <p class="sub">Every arm runs the identical Hydra config apart from <span class="mono">target_channels</span> and the SIGReg slice count that tracks it.
+    Same data mix, <span class="mono">lr 1e-3</span>, <span class="mono">effective_bsize 16</span>, <span class="mono">max_iter 112500</span>, <span class="mono">encode_layer 12</span>.</p>
+  <div class="body cols c58">
+    <div>
+      <table>
+        <thead><tr>
+          <th>arm</th><th class="n">Cz</th><th class="n">ns</th><th class="n">latent floats</th><th class="n">epoch</th><th>BSC job</th><th>AR / PredVsOrig</th>
+        </tr></thead>
+        <tbody>
+          <tr><td><b>tc128</b></td><td class="n">128</td><td class="n">256</td><td class="n">8 192</td><td class="n">49</td><td class="mono">44578823</td><td><span class="chip good">yes</span></td></tr>
+          <tr><td><b>tc256</b></td><td class="n">256</td><td class="n">512</td><td class="n">16 384</td><td class="n">49</td><td class="mono">44578822</td><td><span class="chip good">yes</span></td></tr>
+          <tr class="hl"><td><b>tc512</b></td><td class="n">512</td><td class="n">1024</td><td class="n">32 768</td><td class="n">49</td><td class="mono">44578821</td><td><span class="chip good">yes</span></td></tr>
+          <tr><td><b>tc768</b></td><td class="n">768</td><td class="n">1536</td><td class="n">49 152</td><td class="n">47</td><td class="mono">44478797</td><td><span class="chip wall">TB only</span></td></tr>
+          <tr class="dim"><td><b>tc1536</b></td><td class="n">1536</td><td class="n">3072</td><td class="n">98 304</td><td class="n">48</td><td class="mono">44465439</td><td><span class="chip wall">TB only</span></td></tr>
+        </tbody>
+      </table>
+      <div class="rulebar" style="margin-top:16px"><b>The gap.</b> <span class="mono">tc768</span> and <span class="mono">tc1536</span> ran 11–12&nbsp;Aug, before the pointmap /
+        autoregressive eval block landed. Their logs carry <span class="mono">LossRecon</span> and <span class="mono">ZPartRank</span> only. Everything comparing AR or
+        PredVsOrig below is a <b>three-arm</b> comparison.</div>
+    </div>
+    <div>
+      <div class="tiles">
+        <div class="tile"><div class="k">What z is</div><div class="v">64 × Cz</div><div class="d">64 delta tokens per camera-pair, each of <span class="mono">Cz</span> channels. <span class="mono">dtok</span> compresses the token axis, <span class="mono">tc</span> the channel axis.</div></div>
+        <div class="tile"><div class="k">SIGReg</div><div class="v">0.005 <span style="font-size:14px;color:var(--muted)">· pool 8192</span></div><div class="d">Slice count scales with width (<span class="mono">ns = 2·tc</span>) so the isotropy pressure per dimension stays matched.</div></div>
+        <div class="tile"><div class="k">Scale · pinned everywhere</div><div class="v" style="color:var(--good)">0.94 – 1.10</div><div class="d"><span class="mono">ZTotalVar / Cz</span> across all five arms and both eval sets. SIGReg does its scale job at every width.</div></div>
+      </div>
+    </div>
+  </div>
+  <div class="foot"><span>deltatok_l12_dtok64_tc*_nozn_maxgap9_vpt1to2_sigreg0.005_ns*_pool8192</span><span>one knob, five settings</span><span class="pageno">2</span></div>
+</section>
+
+<!-- ============ SLIDE 3 — convergence ============ -->
+<section class="slide">
+  <div class="eyebrow">Convergence <span class="dim">— held-out eval loss, log scale</span></div>
+  <h2>Four arms in one band, one arm somewhere else</h2>
+  <p class="sub"><span class="mono">tc128</span>–<span class="mono">tc768</span> share a trajectory and fan out by a few percent.
+    <span style="color:var(--s7)"><b>tc1536</b></span> separates by <b>epoch 4</b> and lands 2.4× lower — the signature of a bottleneck that isn't one.</p>
+  <div class="body cols c58">
+    <div>
+      <div class="legend" id="lgCurve"></div>
+      <div class="chartwrap"><div id="chCurve"></div></div>
+      <p class="sub" style="margin-top:6px;font-size:12.5px">Epoch-line <span class="mono">Eval:</span> scalar = mean <span class="mono">LossRecon</span> over KITTI (206) + Occ3D-nuScenes (206), both held out. Log y-axis.</p>
+    </div>
+    <div>
+      <div class="card" style="border-left:3px solid var(--s7)">
+        <div class="tag">Why tc1536 is off the curve</div>
+        <h3>Square projection = no channel squeeze</h3>
+        <p style="font-size:13px;color:var(--ink2)">The tokenizer's hidden width <em>is</em> 1536 (<span class="mono">hidden_size = backbone.embed_dim</span>,
+          <span class="mono">deltatok_shared.py:486</span>). At <span class="mono">tc1536</span> the linear <span class="mono">z_proj_down</span> is 1536→1536 and can
+          represent the identity, so the only compression left is the 64-token axis. Treat it as the <b>ceiling</b> the compressed arms are chasing.</p>
+      </div>
+      <div class="card" style="border-left:3px solid var(--s1);margin-top:14px">
+        <div class="tag">Matched-epoch read</div>
+        <h3>Epoch 47, all five</h3>
+        <p style="font-size:13px;color:var(--ink2);margin-top:2px">tc768 stopped at ep47, so every number quoted from here on is taken at <b>epoch 47</b> for all arms —
+          no extrapolation. The three long arms move &lt;0.0003 over their last two epochs.</p>
+      </div>
+      <div class="rulebar" style="margin-top:14px">All arms are still descending slowly at ep47–49. Ranking is stable from ~ep30 onward; absolute values are not converged.</div>
+    </div>
+  </div>
+  <div class="foot"><span>Eval: scalar, epochs 0–49</span><span>tc1536 leaves the pack at epoch 4</span><span class="pageno">3</span></div>
+</section>
+
+<!-- ============ SLIDE 4 — recon vs pointmap, side by side ============ -->
+<section class="slide">
+  <div class="eyebrow">Recon vs pointmap <span class="dim">— all five arms · both eval sets · AR rollout</span></div>
+  <h2>Recon and pointmap, side by side</h2>
+  <div class="body" style="margin-top:14px">
+    <div class="legend" id="lgPair"></div>
+    <div class="cols c2" style="gap:24px">
+      <div><div class="tag">LossRecon_AR · nuScenes</div><div class="chartwrap"><div id="chPairRecon"></div></div></div>
+      <div><div class="tag">LossRecon_AR · KITTI</div><div class="chartwrap"><div id="chPairReconK"></div></div></div>
+    </div>
+    <div class="cols c2" style="gap:24px;margin-top:6px">
+      <div><div class="tag">LossPointmap_PredVsOrig_AR · nuScenes</div><div class="chartwrap"><div id="chPairPm"></div></div></div>
+      <div><div class="tag">LossPointmap_PredVsOrig_AR · KITTI</div><div class="chartwrap"><div id="chPairPmK"></div></div></div>
+    </div>
+    <div class="cols c2" style="gap:20px;margin-top:10px">
+      <div class="rulebar" style="margin-top:0;font-size:12.5px"><b>Last-10-epoch means, tc128 → tc512 → tc768.</b>
+        nuScenes recon <span class="mono">0.0378 → 0.0304 → 0.0303</span>, PvO <span class="mono">0.660 → 0.536 → 0.538</span>.
+        KITTI recon <span class="mono">0.0508 → 0.0416 → 0.0413</span>, PvO <span class="mono">0.677 → 0.613 → 0.632</span>.
+        <b>tc768 lands on tc512 in all four panels.</b></div>
+      <div class="rulebar" style="margin-top:0;font-size:12.5px"><b>tc768 and tc1536 come from TensorBoard.</b> Their stdout logs carry no
+        <span class="mono">LossRecon_AR</span> line — the metrics were written to TB before the stdout echo was added. Read with a seek-past-images
+        TFRecord scan; a full <span class="mono">EventAccumulator</span> parse of the 4.7&nbsp;GB file does not finish.</div>
+    </div>
+  </div>
+  <div class="foot"><span>206 items per eval set · epochs 12–49</span><span>all 5 arms · tc768 + tc1536 read from TB</span><span class="pageno">4</span></div>
+</section>
+
+<!-- ============ SLIDE 5 — fidelity vs tc ============ -->
+<section class="slide">
+  <div class="eyebrow">Fidelity <span class="dim">— what each doubling costs and returns</span></div>
+  <h2>Two good doublings, then the wall</h2>
+  <p class="sub">128→256 and 256→512 each buy ~8–11% of reconstruction. 512→768 buys <b>1.5%</b> for 50% more latent floats.
+    The gap to the uncompressed ceiling stays wide the whole way: even tc768 sits <b>2.4×</b> above it.</p>
+  <div class="body cols c2">
+    <div>
+      <div class="tag" style="margin-bottom:6px">Eval LossRecon @ epoch 47 <span style="text-transform:none;letter-spacing:0">(KITTI + nuScenes mean)</span></div>
+      <div class="chartwrap"><div id="chRecon"></div></div>
+      <div class="rulebar" style="margin-top:12px;font-size:12.5px"><b>Marginal return per doubling:</b>
+        <span class="mono">128→256 −8.1%</span> · <span class="mono">256→512 −10.9%</span> ·
+        <span class="mono" style="color:var(--serious)">512→768 −1.5%</span> <span style="color:var(--muted)">(and that is +50%, not a doubling)</span>.</div>
+    </div>
+    <div>
+      <div class="tag" style="margin-bottom:6px">LossPointmap_PredVsOrig_AR · nuScenes <span style="text-transform:none;letter-spacing:0">(last-10-epoch mean)</span></div>
+      <div class="chartwrap"><div id="chPmBar"></div></div>
+      <div class="rulebar" style="margin-top:12px;font-size:12.5px"><b>PredVsOrig tracks recon.</b> 0.660 → 0.590 → 0.536, the same ~19% span as reconstruction over the
+        the same span as reconstruction. tc768 lands on tc512; tc1536 is the no-squeeze ceiling.</div>
+      <div class="rulebar" style="margin-top:10px;font-size:12.5px"><b>AR costs a flat tax.</b> <span class="mono">LossRecon_AR</span> runs 6–8% above teacher-forced at
+        <em>every</em> width (128 +7.5%, 256 +6.3%, 512 +5.9%) — rolling the tokenizer out does not get harder as the code shrinks.</div>
+    </div>
+  </div>
+  <div class="foot"><span>tc1536 = uncompressed ceiling, not a capacity point</span><span>the wall is between 512 and 768</span><span class="pageno">5</span></div>
+</section>
+
+<!-- ============ SLIDE 5 — spread ============ -->
+<section class="slide">
+  <div class="eyebrow">Spread <span class="dim">— eval ZPartRank, participation ratio of Cz</span></div>
+  <h2>The code stops using the channels you give it</h2>
+  <p class="sub">Effective rank climbs from 81 to 134 across 128→512, then <b>stops dead</b>. tc768 uses exactly as many directions as tc512
+    while paying 1.5× the storage. Utilization falls monotonically: <b>63% → 17%</b>.</p>
+  <div class="body">
+    <div class="cols c2" style="gap:30px">
+      <div><div class="tag" style="margin-bottom:6px">Absolute effective dims · nuScenes</div><div class="chartwrap"><div id="chRankAbs"></div></div></div>
+      <div><div class="tag" style="margin-bottom:6px">…as a fraction of the budget Cz</div><div class="chartwrap"><div id="chRankPct"></div></div></div>
+    </div>
+    <div class="cols c2" style="margin-top:14px;gap:20px">
+      <div class="card" style="border-left:3px solid var(--s2)">
+        <div class="tag">The saturation</div>
+        <p style="font-size:13px;color:var(--ink2);margin-top:6px">SIGReg at <span class="mono">0.005</span> fills <b>63%</b> of a 128-d code but only <b>17%</b> of a 768-d one.
+          Scaling <span class="mono">ns</span> with width kept the <em>per-dimension</em> pressure matched and still did not help — the ceiling is ~<b>134 directions</b>,
+          not a fixed fraction. KITTI agrees: 79 → 101 → 123 → 136.</p>
+      </div>
+      <div class="rulebar" style="margin-top:0"><b>It lines up with fidelity.</b> Recon flattens exactly where the effective rank does, between 512 and 768.
+        The extra channels are not being used, so they cannot reconstruct anything. <span style="color:var(--muted)">tc1536's 225 is again the no-bottleneck case —
+        13% of 1536, the lowest utilization in the sweep.</span></div>
+    </div>
+  </div>
+  <div class="foot"><span>ZPartRank = trace(Σ)² / ‖Σ‖²_F over 106 496 pooled z rows</span><span>~134 dims is the wall</span><span class="pageno">6</span></div>
+</section>
+
+<!-- ============ SLIDE 6 — full table ============ -->
+<section class="slide">
+  <div class="eyebrow">The numbers <span class="dim">— everything, per eval set</span></div>
+  <h2>Full sweep table</h2>
+  <p class="sub">Final logged eval per arm. <span class="mono">TF</span> = teacher-forced, <span class="mono">AR</span> = autoregressive rollout.
+    <span class="mono">PvO</span> = <span class="mono">LossPointmap_PredVsOrig</span>.</p>
+  <div class="body">
+    <table style="font-size:12px">
+      <thead><tr>
+        <th>arm</th><th>eval set</th>
+        <th class="n">LossRecon TF</th><th class="n">LossRecon AR</th>
+        <th class="n">PvO TF</th><th class="n">PvO AR</th>
+        <th class="n">ZPartRank</th><th class="n">% of Cz</th><th class="n">TotalVar/Cz</th>
+      </tr></thead>
+      <tbody>
+        <tr><td rowspan="2"><b>tc128</b></td><td>KITTI</td><td class="n">0.0485</td><td class="n">0.0503</td><td class="n">0.5804</td><td class="n">0.6250</td><td class="n">78.9</td><td class="n">62%</td><td class="n">1.06</td></tr>
+        <tr><td>nuScenes</td><td class="n">0.0348</td><td class="n">0.0374</td><td class="n">0.5173</td><td class="n">0.6219</td><td class="n">80.9</td><td class="n">63%</td><td class="n">0.94</td></tr>
+        <tr><td rowspan="2"><b>tc256</b></td><td>KITTI</td><td class="n">0.0451</td><td class="n">0.0461</td><td class="n">0.5518</td><td class="n">0.7566</td><td class="n">100.7</td><td class="n">39%</td><td class="n">1.04</td></tr>
+        <tr><td>nuScenes</td><td class="n">0.0318</td><td class="n">0.0338</td><td class="n">0.5062</td><td class="n">0.6012</td><td class="n">112.3</td><td class="n">44%</td><td class="n">0.94</td></tr>
+        <tr class="hl"><td rowspan="2"><b>tc512</b></td><td>KITTI</td><td class="n"><b>0.0403</b></td><td class="n"><b>0.0414</b></td><td class="n"><b>0.5112</b></td><td class="n"><b>0.6340</b></td><td class="n">122.6</td><td class="n">24%</td><td class="n">1.10</td></tr>
+        <tr class="hl"><td>nuScenes</td><td class="n"><b>0.0286</b></td><td class="n"><b>0.0303</b></td><td class="n"><b>0.4621</b></td><td class="n"><b>0.5437</b></td><td class="n">133.9</td><td class="n">26%</td><td class="n">0.97</td></tr>
+        <tr><td rowspan="2"><b>tc768</b><br><span style="font-weight:400;color:var(--muted)">ep47 · TB</span></td><td>KITTI</td><td class="n">0.0395</td><td class="n">0.0401</td><td class="n">0.5708</td><td class="n">0.6559</td><td class="n">136.3</td><td class="n">18%</td><td class="n">1.06</td></tr>
+        <tr><td>nuScenes</td><td class="n">0.0280</td><td class="n">0.0295</td><td class="n">0.4664</td><td class="n">0.5599</td><td class="n">133.9</td><td class="n">17%</td><td class="n">0.95</td></tr>
+        <tr class="dim"><td rowspan="2"><b>tc1536</b><br><span style="font-weight:400">ceiling · ep48 · TB</span></td><td>KITTI</td><td class="n">0.0161</td><td class="n">0.0161</td><td class="n">0.3377</td><td class="n">0.3530</td><td class="n">183.1</td><td class="n">12%</td><td class="n">0.97</td></tr>
+        <tr class="dim"><td>nuScenes</td><td class="n">0.0121</td><td class="n">0.0126</td><td class="n">0.2478</td><td class="n">0.2611</td><td class="n">225.3</td><td class="n">15%</td><td class="n">1.04</td></tr>
+      </tbody>
+    </table>
+    <div class="rulebar" style="margin-top:14px"><b>Reference floors (tokenizer-free, identical for all arms):</b>
+      <span class="mono">LossPointmap_OrigVsGT</span> = 2.4018 KITTI / 3.3217 nuScenes ·
+      <span class="mono">LossDepth_OrigVsGT</span> = 1.6557 / 2.5986. <span style="color:var(--muted)">tc768 KITTI recon is the
+      <span class="mono">[12/13]</span> running mean, ±0.0006 against the printed aggregate.</span></div>
+  </div>
+  <div class="foot"><span>grepped from slurm/output/*.out on BSC</span><span>epoch 49 unless noted</span><span class="pageno">7</span></div>
+</section>
+
+<!-- ============ SLIDE 7 — takeaways ============ -->
+<section class="slide">
+  <div class="eyebrow">Takeaways <span class="dim">— what the sweep settles, and what it doesn't</span></div>
+  <h2>tc512 is the knee</h2>
+  <div class="body" style="display:flex;flex-direction:column;gap:12px;margin-top:12px">
+    <div class="takeaway"><div class="n">1</div><div class="tx"><b>Pick tc512.</b> It captures the whole usable return of the channel axis — <b>−18%</b> recon vs tc128 at matched epoch 47 — and going to 768 adds
+      <b>1.5%</b> for 50% more latent storage. Best compressed AR pointmap in the sweep: <span class="mono">PredVsOrig_AR = 0.5437</span> (nuScenes).</div></div>
+    <div class="takeaway"><div class="n">2</div><div class="tx"><b>Spread is the binding constraint, not width.</b> Effective rank saturates at <b>~134 directions</b> — tc512 and tc768 land on the identical
+      ZPartRank. Recon flattens at exactly the same place. Widening the code past 512 adds channels the optimizer never populates.</div></div>
+    <div class="takeaway"><div class="n">3</div><div class="tx"><b>Pointmap follows recon — against the untokenized pointmap.</b> tc128→tc512 moves
+      <span class="mono">LossRecon_AR</span> <b>−19.4%</b> and <span class="mono">LossPointmap_PredVsOrig_AR</span> <b>−18.8%</b> (0.660 → 0.536, last-10-epoch means).
+      Measured against ground truth instead, the same gain shows as <b>−2.4%</b>: DA3's own <span class="mono">OrigVsGT = 3.3217</span> is 94% of that number.</div></div>
+    <div class="takeaway"><div class="n">4</div><div class="tx"><b>SIGReg 0.005 does not scale with width.</b> Utilization drops 63% → 17% across the sweep even though <span class="mono">ns = 2·tc</span> keeps the
+      per-dimension pressure matched. The next lever is the isotropy driver, not the budget.</div></div>
+    <div class="takeaway"><div class="n">5</div><div class="tx"><b>The ceiling is still 2.4× away.</b> Uncompressed <span class="mono">tc1536</span> reaches 0.0141 against tc768's 0.0338. A square
+      <span class="mono">z_proj_down</span> is no bottleneck at all, so this is the honest headroom a channel squeeze is giving up.</div></div>
+    <div class="takeaway"><div class="n">→</div><div class="tx"><b>Open.</b> Nothing here says whether the recon gap survives downstream in flow matching — the sweep measures the tokenizer alone.
+      <span style="color:var(--muted)">tc768 / tc1536 AR and PredVsOrig numbers come from their TensorBoard event files; the stdout echo for those metrics
+      was added after the runs started, so the logs alone under-report them.</span></div></div>
+  </div>
+  <div class="foot"><span>DeltaTok · tc sweep @ sigreg 0.005</span><span>the knee is at 512</span><span class="pageno">8</span></div>
+</section>
+
+</div><!-- /stage -->
+
+<button class="arr" id="prev" aria-label="Previous">‹</button>
+<button class="arr" id="next" aria-label="Next">›</button>
+<div class="nav" id="nav" role="tablist" aria-label="Slides"></div>
+
+<script>
+/* ---------- deck nav ---------- */
+const stage=document.getElementById("stage");
+const slides=[...document.querySelectorAll(".slide")];
+const nav=document.getElementById("nav");
+let cur=0;
+slides.forEach((_,i)=>{
+  const b=document.createElement("button");
+  b.setAttribute("role","tab");b.setAttribute("aria-label","Slide "+(i+1));
+  b.addEventListener("click",()=>go(i));
+  nav.appendChild(b);
+});
+function go(i){
+  cur=Math.max(0,Math.min(slides.length-1,i));
+  slides.forEach((s,j)=>s.classList.toggle("on",j===cur));
+  [...nav.children].forEach((b,j)=>b.classList.toggle("cur",j===cur));
+}
+document.getElementById("prev").addEventListener("click",()=>go(cur-1));
+document.getElementById("next").addEventListener("click",()=>go(cur+1));
+addEventListener("keydown",e=>{
+  if(["ArrowRight","PageDown"," "].includes(e.key)){go(cur+1);e.preventDefault();}
+  else if(["ArrowLeft","PageUp"].includes(e.key)){go(cur-1);e.preventDefault();}
+  else if(e.key==="Home")go(0);
+  else if(e.key==="End")go(slides.length-1);
+});
+go(0);
+/* ---------- auto-scale ---------- */
+function fit(){
+  const s=Math.min(innerWidth/1300,(innerHeight-40)/730);
+  stage.style.transform=`translate(-50%,-50%) scale(${Math.min(s,1.4)})`;
+}
+addEventListener("resize",fit);fit();
+
+/* ---------- CSS var resolver (for SVG fills) ---------- */
+const CV=n=>getComputedStyle(document.documentElement).getPropertyValue(n).trim();
+
+/* ---------- horizontal bar chart ---------- */
+function barH(el,cfg){
+  const W=600,L=cfg.L||168,R=cfg.R||60,T=4,rh=cfg.rh||36;
+  const H=T+cfg.bars.length*rh+(cfg.guides&&cfg.guides.length?18:4), iw=W-L-R, xmax=cfg.xmax;
+  const X=v=>L+iw*Math.min(v/xmax,1);
+  let s=`<svg viewBox="0 0 ${W} ${H}" width="100%" preserveAspectRatio="xMinYMin meet">`;
+  s+=`<line x1="${L}" y1="${T}" x2="${L}" y2="${T+cfg.bars.length*rh}" stroke="${CV('--axis')}"/>`;
+  (cfg.guides||[]).forEach(g=>{const x=X(g.v);
+    s+=`<line x1="${x}" y1="${T}" x2="${x}" y2="${T+cfg.bars.length*rh}" stroke="${CV(g.color)||CV('--axis')}" stroke-dasharray="4 3"/>`;
+    s+=`<text x="${x}" y="${T+cfg.bars.length*rh+13}" text-anchor="middle" class="hll" fill="${CV(g.color)||CV('--muted')}">${g.label}</text>`;});
+  cfg.bars.forEach((b,i)=>{
+    const y=T+i*rh, bw=X(b.value)-L, col=CV(b.color);
+    s+=`<text x="${L-10}" y="${y+rh/2+1}" text-anchor="end" class="barlbl" dominant-baseline="middle">${b.label}</text>`;
+    s+=`<rect x="${L}" y="${y+7}" width="${Math.max(bw,1)}" height="${rh-15}" rx="3" fill="${col}" opacity="${b.hi?1:(b.faint?.45:.82)}"/>`;
+    if(b.hi) s+=`<rect x="${L}" y="${y+7}" width="${Math.max(bw,1)}" height="${rh-15}" rx="3" fill="none" stroke="${CV('--ink')}" stroke-width="1.3"/>`;
+    s+=`<text x="${L+bw+7}" y="${y+rh/2+1}" class="barval" dominant-baseline="middle">${b.disp}</text>`;
+  });
+  s+=`</svg>`;
+  el.innerHTML=s;
+}
+
+/* ---------- multi-series line chart, linear y, x offset by cfg.x0 ---------- */
+function lineChart(el,cfg){
+  const W=560,H=178,L=54,R=44,T=10,B=28, iw=W-L-R, ih=H-T-B;
+  const {ymin,ymax,yticks,x0,x1}=cfg;
+  const X=i=>L+iw*(i/(x1-x0));
+  const Y=v=>T+ih*(1-(Math.min(Math.max(v,ymin),ymax)-ymin)/(ymax-ymin));
+  const fmt=cfg.fmt||(t=>t.toFixed(4));
+  let s=`<svg viewBox="0 0 ${W} ${H}" width="100%" preserveAspectRatio="xMinYMin meet">`;
+  yticks.forEach(t=>{const y=Y(t);
+    s+=`<line x1="${L}" y1="${y}" x2="${L+iw}" y2="${y}" stroke="${CV('--grid')}"/>`;
+    s+=`<text x="${L-7}" y="${y+3}" text-anchor="end" class="axl">${fmt(t)}</text>`;});
+  (cfg.xticks||[]).forEach(t=>{const x=X(t-x0);
+    s+=`<text x="${x}" y="${H-11}" text-anchor="middle" class="axl">${t}</text>`;});
+  // tokenizer-free reference floor
+  (cfg.hlines||[]).forEach(h=>{const y=Y(h.y),c=CV(h.color);
+    s+=`<line x1="${L}" y1="${y}" x2="${L+iw}" y2="${y}" stroke="${c}" stroke-dasharray="5 3" stroke-width="1.4"/>`;
+    s+=`<text x="${L+4}" y="${y-5}" class="hll" fill="${c}">${h.label}</text>`;});
+  cfg.series.forEach(se=>{const c=CV(se.color);
+    const d=se.data.map((v,i)=>`${i?'L':'M'}${X(i).toFixed(1)} ${Y(v).toFixed(1)}`).join(' ');
+    s+=`<path d="${d}" fill="none" stroke="${c}" stroke-width="${se.width||1.9}" ${se.dash?`stroke-dasharray="${se.dash}"`:''}/>`;
+    const n=se.data.length-1;
+    s+=`<circle cx="${X(n).toFixed(1)}" cy="${Y(se.data[n]).toFixed(1)}" r="2.6" fill="${c}"/>`;});
+  s+=`<text x="${L+iw/2}" y="${H-1}" text-anchor="middle" class="axl">epoch</text>`;
+  s+=`</svg>`;
+  el.innerHTML=s;
+}
+
+/* ---------- multi-series line chart, log y, epoch-indexed ---------- */
+function lineChartLog(el,cfg){
+  const W=600,H=330,L=50,R=76,T=12,B=32, iw=W-L-R, ih=H-T-B;
+  const {ymin,ymax,yticks,xmax,xticks}=cfg;
+  const lg=Math.log10, y0=lg(ymin), y1=lg(ymax);
+  const X=i=>L+iw*(i/xmax);
+  const Y=v=>T+ih*(1-(lg(Math.min(Math.max(v,ymin),ymax))-y0)/(y1-y0));
+  let s=`<svg viewBox="0 0 ${W} ${H}" width="100%" preserveAspectRatio="xMinYMin meet">`;
+  yticks.forEach(t=>{const y=Y(t);
+    s+=`<line x1="${L}" y1="${y}" x2="${L+iw}" y2="${y}" stroke="${CV('--grid')}"/>`;
+    s+=`<text x="${L-7}" y="${y+3}" text-anchor="end" class="axl">${t.toFixed(3)}</text>`;});
+  xticks.forEach(t=>{const x=X(t);
+    s+=`<text x="${x}" y="${H-11}" text-anchor="middle" class="axl">${t}</text>`;});
+  cfg.series.forEach(se=>{const c=CV(se.color);
+    const d=se.data.map((v,i)=>`${i?'L':'M'}${X(i).toFixed(1)} ${Y(v).toFixed(1)}`).join(' ');
+    s+=`<path d="${d}" fill="none" stroke="${c}" stroke-width="${se.width||1.9}"/>`;
+    const n=se.data.length-1, lx=X(n), ly=Y(se.data[n]);
+    s+=`<circle cx="${lx.toFixed(1)}" cy="${ly.toFixed(1)}" r="2.6" fill="${c}"/>`;
+    s+=`<text x="${lx+6}" y="${ly+3.5}" class="hll" fill="${c}">${se.tag}</text>`;});
+  s+=`<text x="${L+iw/2}" y="${H-1}" text-anchor="middle" class="axl">epoch</text>`;
+  s+=`</svg>`;
+  el.innerHTML=s;
+}
+
+/* ================= DATA =================
+   Eval: scalar (mean LossRecon over KITTI + Occ3D-nuScenes), epoch 0..N,
+   grepped from BSC slurm/output/train_deltatok_maxgap_sigreg_nozn*_bsc_<jobid>.out  */
+const TC128=[0.1214,0.1213,0.1058,0.0981,0.0897,0.0828,0.0769,0.0718,0.0673,0.0629,0.0597,0.0576,0.0550,0.0531,0.0517,0.0505,0.0494,0.0486,0.0476,0.0468,0.0462,0.0459,0.0457,0.0451,0.0446,0.0444,0.0442,0.0440,0.0439,0.0436,0.0433,0.0433,0.0431,0.0430,0.0428,0.0427,0.0427,0.0426,0.0424,0.0424,0.0425,0.0423,0.0424,0.0424,0.0421,0.0422,0.0420,0.0419,0.0419,0.0417];
+const TC256=[0.1214,0.1194,0.1015,0.0918,0.0834,0.0749,0.0687,0.0637,0.0597,0.0568,0.0543,0.0520,0.0504,0.0488,0.0475,0.0464,0.0458,0.0449,0.0444,0.0439,0.0437,0.0435,0.0428,0.0424,0.0424,0.0421,0.0417,0.0416,0.0416,0.0414,0.0410,0.0409,0.0404,0.0405,0.0402,0.0402,0.0405,0.0400,0.0401,0.0397,0.0400,0.0395,0.0393,0.0393,0.0389,0.0388,0.0390,0.0385,0.0384,0.0384];
+const TC512=[0.1230,0.1199,0.1038,0.0954,0.0866,0.0785,0.0716,0.0659,0.0613,0.0581,0.0552,0.0528,0.0505,0.0488,0.0475,0.0466,0.0454,0.0444,0.0437,0.0431,0.0424,0.0419,0.0414,0.0407,0.0405,0.0401,0.0398,0.0391,0.0389,0.0386,0.0382,0.0382,0.0378,0.0373,0.0371,0.0367,0.0363,0.0361,0.0358,0.0355,0.0353,0.0351,0.0351,0.0349,0.0348,0.0347,0.0345,0.0343,0.0340,0.0344];
+const TC768=[0.1220,0.1207,0.1042,0.0968,0.0882,0.0818,0.0757,0.0695,0.0647,0.0612,0.0582,0.0555,0.0532,0.0507,0.0490,0.0475,0.0462,0.0452,0.0442,0.0436,0.0427,0.0420,0.0414,0.0408,0.0404,0.0400,0.0395,0.0390,0.0387,0.0381,0.0378,0.0375,0.0373,0.0369,0.0369,0.0363,0.0363,0.0360,0.0359,0.0354,0.0351,0.0349,0.0348,0.0345,0.0344,0.0341,0.0339,0.0338];
+const TC1536=[0.1219,0.1243,0.1170,0.0871,0.0533,0.0379,0.0321,0.0289,0.0268,0.0249,0.0234,0.0225,0.0214,0.0204,0.0199,0.0193,0.0189,0.0186,0.0181,0.0178,0.0175,0.0174,0.0171,0.0169,0.0166,0.0164,0.0163,0.0163,0.0161,0.0159,0.0157,0.0157,0.0155,0.0154,0.0152,0.0153,0.0151,0.0150,0.0148,0.0147,0.0146,0.0146,0.0145,0.0144,0.0145,0.0144,0.0142,0.0141,0.0141];
+
+/* slide 3 — convergence, log y */
+lineChartLog(document.getElementById('chCurve'),{
+  ymin:0.013, ymax:0.13, yticks:[0.015,0.020,0.030,0.045,0.070,0.120],
+  xmax:49, xticks:[0,10,20,30,40,49],
+  series:[
+    {tag:'128', color:'--s8', data:TC128},
+    {tag:'256', color:'--s2', data:TC256},
+    {tag:'512', color:'--s1', data:TC512, width:2.6},
+    {tag:'768', color:'--s3', data:TC768},
+    {tag:'1536',color:'--s7', data:TC1536},
+  ]
+});
+document.getElementById('lgCurve').innerHTML=
+  `<span><span class="sw" style="background:var(--s8)"></span>tc128</span>`+
+  `<span><span class="sw" style="background:var(--s2)"></span>tc256</span>`+
+  `<span><span class="sw" style="background:var(--s1)"></span>tc512</span>`+
+  `<span><span class="sw" style="background:var(--s3)"></span>tc768</span>`+
+  `<span><span class="sw" style="background:var(--s7)"></span>tc1536 · no squeeze</span>`;
+
+/* slide 4 — recon @ matched epoch 47 */
+barH(document.getElementById('chRecon'),{
+  xmax:0.048, L:74, rh:40, R:112,
+  guides:[{v:0.0141,label:'ceiling',color:'--s7'}],
+  bars:[
+    {label:'tc128', value:0.0419, disp:'0.0419', color:'--s8'},
+    {label:'tc256', value:0.0385, disp:'0.0385   −8.1%', color:'--s2'},
+    {label:'tc512', value:0.0343, disp:'0.0343   −10.9%', color:'--s1', hi:true},
+    {label:'tc768', value:0.0338, disp:'0.0338   −1.5%', color:'--s3'},
+    {label:'tc1536',value:0.0141, disp:'0.0141   no squeeze', color:'--s7', faint:true},
+  ]
+});
+
+/* slide 5 — pointmap PredVsOrig_AR, nuScenes, mean over epochs 40-49 */
+barH(document.getElementById('chPmBar'),{
+  xmax:0.72, L:74, rh:32, R:150,
+  bars:[
+    {label:'tc128', value:0.6604, disp:'0.660', color:'--s8'},
+    {label:'tc256', value:0.5904, disp:'0.590   −10.6%', color:'--s2'},
+    {label:'tc512', value:0.5363, disp:'0.536   −9.2%', color:'--s1', hi:true},
+    {label:'tc768', value:0.5377, disp:'0.538   +0.3%', color:'--s3'},
+    {label:'tc1536',value:0.2859, disp:'0.286   no squeeze', color:'--s7', faint:true},
+  ]
+});
+
+/* ---- slide 4 — recon vs pointmap, same arms/epochs. nuScenes, AR rollout, epochs 8..49.
+   Epochs 0–7 are cropped: pointmap starts at 22 and would flatten everything else. ---- */
+const R_AR_128=[0.0513,0.0488,0.0477,0.0470,0.0455,0.0447,0.0438,0.0428,0.0424,0.0421,0.0417,0.0411,0.0406,0.0404,0.0404,0.0394,0.0400,0.0390,0.0392,0.0390,0.0386,0.0387,0.0383,0.0386,0.0384,0.0381,0.0379,0.0383,0.0381,0.0377,0.0380,0.0380,0.0377,0.0381,0.0376,0.0375,0.0375,0.0374];
+const R_AR_256=[0.0460,0.0444,0.0431,0.0424,0.0414,0.0406,0.0401,0.0396,0.0400,0.0389,0.0388,0.0382,0.0380,0.0378,0.0376,0.0371,0.0375,0.0371,0.0366,0.0364,0.0360,0.0359,0.0356,0.0356,0.0361,0.0355,0.0355,0.0352,0.0353,0.0349,0.0347,0.0347,0.0342,0.0343,0.0347,0.0341,0.0339,0.0338];
+const R_AR_512=[0.0456,0.0439,0.0427,0.0421,0.0404,0.0396,0.0390,0.0385,0.0377,0.0377,0.0371,0.0361,0.0357,0.0356,0.0355,0.0344,0.0345,0.0340,0.0340,0.0336,0.0332,0.0328,0.0326,0.0322,0.0319,0.0318,0.0315,0.0313,0.0308,0.0308,0.0309,0.0306,0.0306,0.0304,0.0302,0.0300,0.0299,0.0303];
+const P_AR_128=[0.8761,0.7975,0.8752,0.7853,0.6962,0.7604,0.7417,0.7239,0.7419,0.6767,0.8016,0.5576,0.7097,0.5755,0.6329,0.6397,0.6462,0.6032,0.7107,0.6323,0.6468,0.6991,0.6158,0.6928,0.6501,0.6009,0.5980,0.5831,0.6229,0.6454,0.6116,0.6503,0.5929,0.7017,0.7301,0.7018,0.7251,0.6219];
+const P_AR_256=[0.7526,0.7704,0.8031,0.7397,0.7346,0.6490,0.7513,0.6977,0.7059,0.6864,0.7418,0.6550,0.6718,0.6851,0.6511,0.7428,0.7046,0.6768,0.7974,0.6551,0.6937,0.6815,0.6432,0.5990,0.6173,0.6656,0.6133,0.6342,0.6109,0.5899,0.6419,0.5623,0.6108,0.6066,0.5562,0.5585,0.5656,0.6012];
+const P_AR_512=[0.7020,0.7650,0.7693,0.6497,0.6387,0.6673,0.7525,0.7214,0.6505,0.6981,0.6556,0.6510,0.6200,0.6685,0.5323,0.6087,0.6942,0.5849,0.6569,0.5610,0.6128,0.6528,0.7442,0.6884,0.5935,0.5673,0.5929,0.5450,0.4977,0.5359,0.5593,0.5097,0.5288,0.5638,0.5322,0.5456,0.5458,0.5437];
+
+// KITTI, same arms and epochs
+const R_AR_128K=[0.0664,0.0635,0.0620,0.0608,0.0597,0.0586,0.0573,0.0561,0.0554,0.0554,0.0545,0.0542,0.0533,0.0529,0.0532,0.0525,0.0526,0.0525,0.0522,0.0517,0.0517,0.0522,0.0518,0.0517,0.0515,0.0512,0.0514,0.0510,0.0512,0.0508,0.0510,0.0510,0.0506,0.0512,0.0506,0.0505,0.0505,0.0503];
+const R_AR_256K=[0.0606,0.0587,0.0566,0.0556,0.0551,0.0537,0.0530,0.0525,0.0525,0.0518,0.0511,0.0507,0.0506,0.0501,0.0500,0.0496,0.0501,0.0496,0.0490,0.0487,0.0486,0.0485,0.0483,0.0478,0.0487,0.0483,0.0479,0.0478,0.0479,0.0476,0.0474,0.0473,0.0470,0.0465,0.0467,0.0462,0.0462,0.0461];
+const R_AR_512K=[0.0611,0.0588,0.0569,0.0560,0.0547,0.0534,0.0526,0.0521,0.0510,0.0510,0.0502,0.0492,0.0486,0.0480,0.0474,0.0470,0.0469,0.0464,0.0457,0.0457,0.0453,0.0448,0.0445,0.0440,0.0436,0.0433,0.0429,0.0424,0.0422,0.0421,0.0421,0.0417,0.0416,0.0415,0.0412,0.0410,0.0409,0.0414];
+const P_AR_128K=[0.9434,0.8606,1.0729,0.8727,0.7630,0.7546,0.7947,0.7775,0.7201,0.8094,0.7728,0.6897,0.7682,0.6716,0.6916,0.7520,0.7406,0.7722,0.6140,0.7086,0.6808,0.7038,0.6759,0.7239,0.6893,0.6836,0.6691,0.7722,0.7059,0.6780,0.6540,0.6862,0.6859,0.6941,0.7785,0.6326,0.6319,0.6250];
+const P_AR_256K=[0.8694,0.8338,0.7736,0.7621,0.7915,0.7036,0.7252,0.6876,0.7398,0.7891,0.7184,0.7154,0.6696,0.6667,0.6911,0.7659,0.6602,0.7616,0.6732,0.8207,0.7624,0.7466,0.7775,0.6082,0.6689,0.6997,0.7652,0.6477,0.7707,0.7572,0.6811,0.6272,0.6630,0.7092,0.6427,0.5995,0.7403,0.7566];
+const P_AR_512K=[0.8199,0.6990,0.8458,0.7073,0.8213,0.6562,0.6713,0.6590,0.6423,0.6606,0.6795,0.6449,0.6339,0.6425,0.6463,0.6402,0.7560,0.7935,0.7235,0.6275,0.7706,0.7417,0.6472,0.6470,0.5837,0.6202,0.6668,0.5749,0.6603,0.5750,0.6540,0.5735,0.5113,0.6452,0.5461,0.6656,0.6635,0.6340];
+
+// tc768 — from TensorBoard, not the log: these scalars were written to TB before the
+// stdout echo existed. Run ends at epoch 47, so the curve stops short of the others.
+const R_AR_768=[0.0483,0.0459,0.0444,0.0431,0.0414,0.0406,0.0394,0.0388,0.0380,0.0374,0.0369,0.0362,0.0357,0.0355,0.0349,0.0344,0.0343,0.0335,0.0334,0.0329,0.0329,0.0324,0.0324,0.0318,0.0320,0.0315,0.0317,0.0310,0.0306,0.0304,0.0304,0.0302,0.0300,0.0297,0.0296,0.0295];
+const P_AR_768=[0.9024,0.8008,0.8527,0.7998,0.7487,0.7289,0.5993,0.6620,0.6786,0.7104,0.7320,0.6006,0.6439,0.6494,0.6192,0.5825,0.5524,0.5678,0.6422,0.6040,0.5971,0.5194,0.5969,0.5752,0.5749,0.5773,0.5610,0.5332,0.5068,0.5413,0.5782,0.5433,0.4943,0.5028,0.5563,0.5599];
+const R_AR_768K=[0.0642,0.0608,0.0585,0.0564,0.0553,0.0541,0.0528,0.0519,0.0509,0.0502,0.0494,0.0487,0.0483,0.0477,0.0472,0.0464,0.0461,0.0454,0.0449,0.0447,0.0445,0.0441,0.0440,0.0434,0.0433,0.0430,0.0426,0.0421,0.0419,0.0416,0.0415,0.0411,0.0409,0.0405,0.0403,0.0401];
+const P_AR_768K=[1.0323,0.7839,0.7724,0.7647,0.7421,0.7383,0.7915,0.7392,0.7465,0.7375,0.7307,0.7250,0.7604,0.8101,0.7981,0.6578,0.7744,0.7194,0.6574,0.7076,0.7164,0.6746,0.7781,0.6800,0.7318,0.7056,0.7407,0.5703,0.6507,0.6670,0.6231,0.6084,0.6721,0.5821,0.5513,0.6559];
+
+// tc1536 — also TB-only. No channel squeeze (Cz == embed_dim), so it sits far below the rest.
+const R_AR_1536=[0.0187,0.0179,0.0176,0.0171,0.0167,0.0165,0.0161,0.0158,0.0157,0.0154,0.0152,0.0150,0.0147,0.0146,0.0145,0.0145,0.0143,0.0141,0.0140,0.0139,0.0138,0.0137,0.0135,0.0137,0.0135,0.0133,0.0132,0.0131,0.0131,0.0130,0.0129,0.0129,0.0129,0.0128,0.0127,0.0126,0.0126];
+const P_AR_1536=[0.3906,0.3458,0.3623,0.3577,0.3491,0.3399,0.2905,0.3460,0.2966,0.3069,0.3344,0.2981,0.3074,0.3101,0.3397,0.2863,0.2705,0.2664,0.2795,0.3086,0.3008,0.2761,0.2634,0.2806,0.2762,0.2829,0.2718,0.2812,0.2547,0.2829,0.2786,0.2862,0.3059,0.3131,0.3220,0.2733,0.2611];
+const R_AR_1536K=[0.0249,0.0236,0.0231,0.0223,0.0219,0.0214,0.0209,0.0205,0.0201,0.0200,0.0196,0.0194,0.0192,0.0187,0.0188,0.0186,0.0185,0.0183,0.0180,0.0180,0.0178,0.0177,0.0175,0.0176,0.0174,0.0172,0.0170,0.0169,0.0168,0.0167,0.0165,0.0164,0.0165,0.0164,0.0163,0.0161,0.0161];
+const P_AR_1536K=[0.4122,0.4274,0.3437,0.3648,0.3621,0.3335,0.3404,0.3378,0.3500,0.3190,0.3712,0.3118,0.3159,0.2831,0.2866,0.3279,0.3727,0.3116,0.3431,0.3139,0.3153,0.3090,0.3444,0.3599,0.3620,0.3441,0.3251,0.3040,0.3117,0.2983,0.3259,0.3556,0.3787,0.3495,0.3130,0.2978,0.3530];
+
+// one panel per (metric, dataset); rows share a y-scale so the two datasets stay comparable
+const XA={x0:12, x1:49, xticks:[15,25,35,45,49]};
+const YR={ymin:0.010, ymax:0.070, yticks:[0.010,0.020,0.030,0.040,0.050,0.060,0.070], fmt:t=>t.toFixed(3)};
+const YP={ymin:0.22, ymax:1.12, yticks:[0.3,0.5,0.7,0.9,1.1], fmt:t=>t.toFixed(2)};
+const arms=(a,b,c,d,e)=>[{color:'--s8',data:a},{color:'--s2',data:b},
+                         {color:'--s1',data:c,width:2.4},{color:'--s3',data:d},{color:'--s7',data:e}];
+
+lineChart(document.getElementById('chPairRecon'), {...YR, ...XA, series:arms(R_AR_128, R_AR_256, R_AR_512, R_AR_768, R_AR_1536)});
+lineChart(document.getElementById('chPairReconK'),{...YR, ...XA, series:arms(R_AR_128K,R_AR_256K,R_AR_512K,R_AR_768K,R_AR_1536K)});
+lineChart(document.getElementById('chPairPm'),    {...YP, ...XA, series:arms(P_AR_128, P_AR_256, P_AR_512, P_AR_768, P_AR_1536)});
+lineChart(document.getElementById('chPairPmK'),   {...YP, ...XA, series:arms(P_AR_128K,P_AR_256K,P_AR_512K,P_AR_768K,P_AR_1536K)});
+
+document.getElementById('lgPair').innerHTML=
+  `<span><span class="sw" style="background:var(--s8)"></span>tc128</span>`+
+  `<span><span class="sw" style="background:var(--s2)"></span>tc256</span>`+
+  `<span><span class="sw" style="background:var(--s1)"></span>tc512</span>`+
+  `<span><span class="sw" style="background:var(--s3)"></span>tc768</span>`+
+  `<span><span class="sw" style="background:var(--s7)"></span>tc1536 <span style="color:var(--muted)">no squeeze</span></span>`+
+  `<span style="color:var(--muted)">rows share a y-scale · epochs 12–49</span>`;
+
+/* slide 6 — spread: absolute effective dims and utilization, nuScenes */
+barH(document.getElementById('chRankAbs'),{
+  xmax:240, L:74, rh:38, R:132,
+  bars:[
+    {label:'tc128', value:80.9,  disp:'80.9  / 128',  color:'--s8'},
+    {label:'tc256', value:112.3, disp:'112.3 / 256',  color:'--s2'},
+    {label:'tc512', value:133.9, disp:'133.9 / 512',  color:'--s1', hi:true},
+    {label:'tc768', value:133.9, disp:'133.9 / 768  ← same', color:'--s3'},
+    {label:'tc1536',value:225.3, disp:'225.3 / 1536', color:'--s7', faint:true},
+  ]
+});
+barH(document.getElementById('chRankPct'),{
+  xmax:70, L:74, rh:38, R:96,
+  guides:[{v:50,label:'½ budget',color:'--muted'}],
+  bars:[
+    {label:'tc128', value:63.2, disp:'63%', color:'--s8'},
+    {label:'tc256', value:43.9, disp:'44%', color:'--s2'},
+    {label:'tc512', value:26.2, disp:'26%', color:'--s1', hi:true},
+    {label:'tc768', value:17.4, disp:'17%', color:'--s3'},
+    {label:'tc1536',value:14.7, disp:'15%', color:'--s7', faint:true},
+  ]
+});
+</script>
+</body>
+</html>

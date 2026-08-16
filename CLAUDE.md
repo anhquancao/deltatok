@@ -61,7 +61,19 @@ Submit from a **login shell**: `ssh <host> "bash -lc '... sbatch ...'"`. Only th
 - `research.json` — journal entries per research direction. `results.json` — benchmark tables.
 - `projects.json` — the `Deltatok` entry holds deploy paths and the rsync `excludes` that `syncer.py` reads. A new local output dir must be excluded here **and** in `.gitignore`.
 
-**Grep metrics from the `*.out`/`*.err` logs, never TensorBoard.** Trainers print scalars to stdout via `metric_logger`. Live logs are in `slurm/output/`.
+**Grep metrics from the `*.out`/`*.err` logs first.** Trainers print scalars to stdout via `metric_logger`. Live logs are in `slurm/output/`.
+
+**TensorBoard is the fallback, and it has scalars the logs lack** — a metric added to `log_add_scalar` before its stdout echo exists only in TB. Event files are mirrored locally under `/mnt/d/tb_logs/<log_root>/<run>/tb_logs/`, so read them here, not on the cluster.
+
+**Always fast-scan an event file. Never use `EventAccumulator` or `EventFileLoader`** — these runs store images, so a file is ~4.7 GB and a full parse crawls (~400 events/s, killed by the BSC login watchdog). Walk the TFRecord frames yourself and *seek past* any record over 8 KB; only small records are scalars. 4.7 GB then takes ~100 s instead of hours.
+
+```python
+# frame = uint64 len | uint32 crc(len) | payload | uint32 crc(payload)
+hdr = f.read(12)
+ln = struct.unpack('<Q', hdr[:8])[0]
+if ln > 8192: f.seek(ln + 4, 1); continue        # image/histogram — skip, do not parse
+e = Event.FromString(f.read(ln)); f.read(4)      # tensorboard.compat.proto.event_pb2
+```
 
 ## Running jobs
 
@@ -125,5 +137,6 @@ DeltaTok is the active research direction. Read before proposing changes: `docs/
 - **Tensor code:** comment each line and annotate the resulting shape inline, e.g. `x = rearrange(x, 'b (t s) d -> (b s) t d', t=t, s=s)  # (B*S, T, D)`. Define each shape symbol where it first appears.
 - **New variant scripts:** copy the closest existing file (`cp old.py new.py`), then edit. Never rewrite from scratch — copying keeps the diff reviewable.
 - **Code search:** prefer `grep` over `rg`.
+- **Slide decks** in `docs/slide/`: light theme only, white slide background. No dark-mode variant, no `prefers-color-scheme` block.
 - **Dataset strings** in `configs/**/*.yaml` are `eval()`-ed by `occany.datasets.get_data_loader()`, so they must stay valid Python. Every entry states `num_timesteps` (the consecutive-window length) and names its cameras via `fixed_cams`. Cameras and view budgets are never sampled.
 - **Sharding** uses `--world` and `--pid` in `extract_occany_features.py` and `dataset_setup/waymo/preprocess_waymo.py`.

@@ -1,0 +1,418 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>DeltaTok-flow — latent choices</title>
+<style>
+/* ---------- tokens · light only, white slides (no dark variant by request) ---------- */
+:root{
+  color-scheme: light only;
+  --backdrop:#e9e9e6; --page:#f7f7f6; --surface:#ffffff;
+  --ink:#0b0b0b; --ink2:#52514e; --muted:#83817c;
+  --grid:#e4e4de; --axis:#c3c2b7; --border:rgba(11,11,11,.12);
+  --s1:#2a78d6; --s2:#eb6834; --s3:#1baf7a; --s4:#eda100;
+  --s5:#e87ba4; --s6:#008300; --s7:#4a3aa7; --s8:#e34948;
+  --good:#0ca30c; --crit:#d03b3b; --serious:#ec835a;
+  --accent:var(--s1);
+  --serif:"Iowan Old Style","Palatino Linotype",Palatino,Georgia,serif;
+  --sans:system-ui,-apple-system,"Segoe UI",sans-serif;
+  --mono:ui-monospace,"Cascadia Code",Menlo,Consolas,monospace;
+}
+/* ---------- deck chrome ---------- */
+*{box-sizing:border-box;margin:0}
+html,body{height:100%}
+body{background:var(--backdrop);color:var(--ink);font:15px/1.45 var(--sans);overflow:hidden}
+.stage{position:absolute;left:50%;top:50%;width:1280px;height:720px;transform-origin:center center}
+.slide{position:absolute;inset:0;background:var(--surface);border:1px solid var(--border);
+  padding:52px 64px 44px;display:none;flex-direction:column}
+.slide.on{display:flex}
+.eyebrow{font:600 12px/1 var(--mono);letter-spacing:.14em;text-transform:uppercase;color:var(--accent);margin-bottom:14px}
+.eyebrow .dim{color:var(--muted)}
+h1{font:400 44px/1.15 var(--serif);letter-spacing:-.01em;text-wrap:balance}
+h2{font:400 30px/1.2 var(--serif);letter-spacing:-.005em;text-wrap:balance;margin-bottom:6px}
+.sub{color:var(--ink2);font-size:15px;max-width:82ch;margin-top:10px}
+.body{flex:1;min-height:0;margin-top:20px}
+.foot{display:flex;justify-content:space-between;align-items:baseline;color:var(--muted);
+  font:11px/1 var(--mono);letter-spacing:.06em;margin-top:16px;border-top:1px solid var(--grid);padding-top:12px}
+.pageno{font-variant-numeric:tabular-nums}
+/* nav */
+.nav{position:fixed;left:50%;bottom:14px;transform:translateX(-50%);display:flex;gap:8px;align-items:center;z-index:5}
+.nav button{width:9px;height:9px;border-radius:50%;border:1px solid var(--muted);background:transparent;cursor:pointer;padding:0}
+.nav button.cur{background:var(--accent);border-color:var(--accent)}
+.nav button:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+.arr{position:fixed;top:50%;transform:translateY(-50%);z-index:5;border:1px solid var(--border);
+  background:var(--surface);color:var(--ink2);width:34px;height:56px;cursor:pointer;font-size:18px;border-radius:4px}
+.arr:hover{color:var(--ink)}
+#prev{left:10px}#next{right:10px}
+/* ---------- shared bits ---------- */
+.mono{font-family:var(--mono)}
+.num{font-variant-numeric:tabular-nums}
+.chip{display:inline-block;font:600 10.5px/1 var(--mono);letter-spacing:.05em;padding:4px 7px;border-radius:3px;
+  border:1px solid var(--border);white-space:nowrap}
+.chip.good{color:var(--good);border-color:currentColor}
+.sw{display:inline-block;width:10px;height:10px;border-radius:2px;vertical-align:-1px}
+.cols{display:grid;gap:28px;min-height:0}
+.c2{grid-template-columns:1fr 1fr}
+.c3{grid-template-columns:1fr 1fr 1fr}
+.c4{grid-template-columns:1fr 1fr 1fr 1fr}
+table{border-collapse:collapse;width:100%;font-size:12.5px}
+th{font:600 10.5px/1.3 var(--mono);letter-spacing:.08em;text-transform:uppercase;color:var(--muted);
+  text-align:left;padding:6px 10px;border-bottom:1px solid var(--axis)}
+td{padding:6px 10px;border-bottom:1px solid var(--grid);color:var(--ink2);vertical-align:top}
+td.n,th.n{text-align:right;font-variant-numeric:tabular-nums}
+td b{color:var(--ink);font-weight:600}
+tr.hl td{background:color-mix(in srgb,var(--s1) 9%,transparent)}
+tr.dim td{color:var(--muted)}
+.note{border:1px dashed var(--axis);border-radius:6px;padding:10px 14px;font-size:13px;color:var(--ink2);margin-top:12px}
+.note b{color:var(--ink)}
+/* charts */
+.chartwrap{position:relative}
+.panelttl{font:600 13px/1.3 var(--sans);color:var(--ink);margin-bottom:4px}
+.legend{display:flex;flex-wrap:wrap;gap:6px 18px;font:12px/1 var(--sans);color:var(--ink2);margin-bottom:10px}
+.legend span{display:inline-flex;gap:6px;align-items:center}
+svg text{font:10.5px var(--sans);fill:var(--muted)}
+svg .barlbl{font:600 12px var(--sans);fill:var(--ink)}
+svg .barval{font:11px var(--mono);fill:var(--ink2)}
+svg .axl{font:10px var(--mono);fill:var(--muted)}
+.slide kbd{font:11px var(--mono);border:1px solid var(--axis);border-radius:3px;padding:1px 5px;color:var(--ink2)}
+@media (prefers-reduced-motion: no-preference){
+  .slide.on{animation:fadein .18s ease}
+  @keyframes fadein{from{opacity:.4}to{opacity:1}}
+}
+@media print{
+  body{overflow:visible;background:#fff}
+  .stage{position:static;transform:none!important;width:auto;height:auto}
+  .slide{display:flex;position:static;width:1280px;height:720px;page-break-after:always;margin:0 auto}
+  .nav,.arr{display:none}
+}
+</style>
+</head>
+<body>
+<div class="stage" id="stage">
+
+<!-- ============ SLIDE 1 — the arms ============ -->
+<section class="slide on">
+  <div class="eyebrow">DeltaTok-flow <span class="dim">— waymo consec5 cam0 · ctx3 fwd2 · maxgap9 · xxl_d20 DiT · BSC</span></div>
+  <h1>Three flow arms: SIGReg vs whitening, and <span class="mono">tc768</span> vs <span class="mono">tc1536</span></h1>
+  <p class="sub">Identical flow config across all three: <span class="mono">vit_size=xxlarge_d20 · vit_dit_adaln · attn_mode=global · cond_mode=delta_ctx_cross ·
+    num_ctx_deltas=2 · loss_mode=v · t~U(0,1) · lr 1e-4 constant · epoch=100 · eval_num_steps=20</span>. 101 epochs, one BSC job each.</p>
+  <div class="body">
+    <table>
+      <tr><th>Arm</th><th>Tokenizer ckpt</th><th><span class="mono">whiten_stats</span></th><th class="n">Cz</th><th>Raw z scale</th><th>Tok. eval recon</th><th>BSC job</th><th>Elapsed</th></tr>
+      <tr><td><span class="sw" style="background:var(--s2)"></span> <b>whiten</b></td>
+          <td><span class="mono">tc1536_nozn_maxgap9_vpt1to2_<b>nosigreg</b></span> · ep49</td>
+          <td><span class="mono">latent_stats_mg9waymo.pth</span></td><td class="n">1536</td><td>RMS ≈ 14</td><td class="n">0.0141</td><td class="mono">44475204</td><td class="mono">1d 09:33</td></tr>
+      <tr><td><span class="sw" style="background:var(--s1)"></span> <b>SIGReg tc1536</b></td>
+          <td><span class="mono">tc1536_…_<b>sigreg0.005</b>_ns3072_pool8192</span> · ep48</td>
+          <td><span class="chip good">null</span></td><td class="n">1536</td><td>RowMeanSquare 1.05</td><td class="n">0.0141</td><td class="mono">44543763</td><td class="mono">1d 10:20</td></tr>
+      <tr><td><span class="sw" style="background:var(--s3)"></span> <b>SIGReg tc768</b></td>
+          <td><span class="mono">tc768_…_<b>sigreg0.005</b>_ns1536_pool8192</span> · ep47</td>
+          <td><span class="chip good">null</span></td><td class="n">768</td><td>RowMeanSquare 0.96</td><td class="n">0.0338</td><td class="mono">44543837</td><td class="mono">1d 10:21</td></tr>
+    </table>
+    <div class="note"><b>Decision:</b> SIGReg — multi-dataset training makes a per-dataset whitening stats file cumbersome.</div>
+    <div class="note"><b>Metrics.</b> <span class="mono">Eval/128 @ WaymoSeqMultiView</span>, 20-step sampler, per epoch.
+      <span class="mono">*_tok</span> variants decode the ground-truth <span class="mono">z</span> instead of the flow sample — the frozen tokenizer's own error, constant across epochs.
+      <span class="mono">MSEToken</span> is in each arm's own latent units and is not compared.</div>
+    <p class="sub" style="margin-top:14px;font-size:13px"><kbd>←</kbd> <kbd>→</kbd> to navigate · branch <span class="mono">revert</span> ·
+      parsed from <span class="mono">monitor_jobs/data/logs/BSC/*.out</span>.</p>
+  </div>
+  <div class="foot"><span>DeltaTok-flow · waymo · tc1536 / tc768 maxgap9</span><span>3 arms · 101 epochs each</span><span class="pageno">1</span></div>
+</section>
+
+<!-- ============ SLIDE 2 — SIGReg vs whiten, curves ============ -->
+<section class="slide">
+  <div class="eyebrow">SIGReg vs whitening <span class="dim">— both tc1536</span></div>
+  <h2>LossRaymap · LossDepth · LossPointmap</h2>
+  <p class="sub">5-epoch trailing mean, epochs 10–100. Epochs 0–9 dropped (warmup transient — depth starts at 13.5).
+    Raw per-epoch spread over the last 10 epochs: raymap sd 1.22 (whiten) / 1.00 (SIGReg).</p>
+  <div class="body">
+    <div class="legend" id="lgMain"></div>
+    <div class="cols c3" style="gap:20px">
+      <div><div class="panelttl">LossRaymap</div><div class="chartwrap" id="chRay"></div></div>
+      <div><div class="panelttl">LossDepth</div><div class="chartwrap" id="chDep"></div></div>
+      <div><div class="panelttl">LossPointmap</div><div class="chartwrap" id="chPm"></div></div>
+    </div>
+    <div class="note"><b>Curves cross at ~epoch 55</b> on raymap and pointmap: SIGReg lower before, whiten lower after.
+      Both arms are still descending at epoch 100.</div>
+  </div>
+  <div class="foot"><span>BSC 44475204 (whiten) / 44543763 (SIGReg)</span><span>3 metrics · 2 arms</span><span class="pageno">2</span></div>
+</section>
+
+<!-- ============ SLIDE 3 — SIGReg vs whiten, numbers ============ -->
+<section class="slide">
+  <div class="eyebrow">SIGReg vs whitening <span class="dim">— mean over epochs 91–100</span></div>
+  <h2>Final numbers, raw and floor-subtracted</h2>
+  <div class="body">
+    <div class="cols c2">
+      <div>
+        <div class="panelttl" style="margin-bottom:10px">Eval loss</div>
+        <div class="chartwrap" id="chAbs"></div>
+      </div>
+      <div>
+        <div class="panelttl" style="margin-bottom:10px">Excess over tokenizer floor · loss − <span class="mono">loss_tok</span></div>
+        <div class="chartwrap" id="chExc"></div>
+      </div>
+    </div>
+    <table style="margin-top:18px">
+      <tr><th>Metric</th><th class="n">Whiten</th><th class="n">SIGReg</th><th class="n">Δ</th><th class="n">Whiten floor</th><th class="n">SIGReg floor</th><th class="n">Whiten excess</th><th class="n">SIGReg excess</th><th class="n">Δ excess</th></tr>
+      <tr><td><b>LossRaymap</b></td><td class="n"><b>11.602</b></td><td class="n">13.792</td><td class="n" style="color:var(--crit)">+18.9%</td><td class="n">1.6155</td><td class="n">1.5858</td><td class="n"><b>9.986</b></td><td class="n">12.206</td><td class="n" style="color:var(--crit)">+22.2%</td></tr>
+      <tr><td><b>LossDepth</b></td><td class="n">4.058</td><td class="n"><b>3.968</b></td><td class="n" style="color:var(--good)">−2.2%</td><td class="n">2.5695</td><td class="n">2.5016</td><td class="n">1.488</td><td class="n"><b>1.467</b></td><td class="n" style="color:var(--good)">−1.5%</td></tr>
+      <tr><td><b>LossPointmap</b></td><td class="n"><b>13.521</b></td><td class="n">15.122</td><td class="n" style="color:var(--crit)">+11.8%</td><td class="n">3.7756</td><td class="n">3.6862</td><td class="n"><b>9.745</b></td><td class="n">11.436</td><td class="n" style="color:var(--crit)">+17.3%</td></tr>
+      <tr class="dim"><td>LossFlow</td><td class="n">0.851</td><td class="n">0.828</td><td class="n">−2.7%</td><td class="n" colspan="5">no floor defined</td></tr>
+      <tr class="dim"><td>Epoch 100</td><td class="n" colspan="8">raymap 11.30 / 13.26 · depth 4.18 / 3.93 · pointmap 12.96 / 14.57 &nbsp;(whiten / SIGReg)</td></tr>
+    </table>
+    <div class="note">The SIGReg tokenizer's floors are 1.8–2.6% below the nosigreg tokenizer's, so subtracting them widens the gap rather than closing it.</div>
+  </div>
+  <div class="foot"><span>last-10-epoch means · floors are epoch-constant</span><span>2 arms</span><span class="pageno">3</span></div>
+</section>
+
+<!-- ============ SLIDE 4 — tc768 vs tc1536, curves ============ -->
+<section class="slide">
+  <div class="eyebrow">tc768 vs tc1536 <span class="dim">— both SIGReg 0.005</span></div>
+  <h2>LossRaymap · LossDepth · LossPointmap</h2>
+  <p class="sub">Same tokenizer recipe (<span class="mono">l12 · dtok64 · nozn · maxgap9 · vpt1to2 · sigreg 0.005 · pool8192</span>), same flow net.
+    Only <span class="mono">target_channels</span> moves: 1536 → 768, making <span class="mono">z_proj_down</span> a real linear bottleneck. Whiten arm shown dashed as reference.</p>
+  <div class="body">
+    <div class="legend" id="lgTC"></div>
+    <div class="cols c3" style="gap:20px">
+      <div><div class="panelttl">LossRaymap</div><div class="chartwrap" id="chTCRay"></div></div>
+      <div><div class="panelttl">LossDepth</div><div class="chartwrap" id="chTCDep"></div></div>
+      <div><div class="panelttl">LossPointmap</div><div class="chartwrap" id="chTCPm"></div></div>
+    </div>
+    <div class="note">tc768 crosses below tc1536 at ~epoch 45 on raymap and pointmap.
+      Depth sits at 3.97–4.18 for all three arms from epoch 30 on.
+      <span class="mono">LossFlow</span> (not plotted): tc768 <b>0.607</b> vs tc1536 <b>0.828</b> over epochs 91–100.</div>
+  </div>
+  <div class="foot"><span>5-epoch trailing mean · epochs 10–100</span><span>3 arms · 4 metrics</span><span class="pageno">4</span></div>
+</section>
+
+<!-- ============ SLIDE 5 — tc768 vs tc1536, numbers ============ -->
+<section class="slide">
+  <div class="eyebrow">tc768 vs tc1536 <span class="dim">— mean over epochs 91–100</span></div>
+  <h2>Final numbers, with the tokenizer floors</h2>
+  <div class="body">
+    <div class="cols c2" style="gap:26px">
+      <div>
+        <div class="panelttl" style="margin-bottom:10px">Eval loss</div>
+        <div class="chartwrap" id="chTCAbs"></div>
+        <div class="panelttl" style="margin:22px 0 10px">Excess over tokenizer floor</div>
+        <div class="chartwrap" id="chTCExc"></div>
+      </div>
+      <div>
+        <table>
+          <tr><th>Metric</th><th class="n">tc1536</th><th class="n">tc768</th><th class="n">Δ</th></tr>
+          <tr class="hl"><td><b>LossRaymap</b></td><td class="n">13.792</td><td class="n"><b>9.939</b></td><td class="n" style="color:var(--good)">−27.9%</td></tr>
+          <tr><td><b>LossDepth</b></td><td class="n"><b>3.968</b></td><td class="n">4.069</td><td class="n" style="color:var(--serious)">+2.5%</td></tr>
+          <tr class="hl"><td><b>LossPointmap</b></td><td class="n">15.122</td><td class="n"><b>12.145</b></td><td class="n" style="color:var(--good)">−19.7%</td></tr>
+          <tr><td>LossFlow</td><td class="n">0.828</td><td class="n"><b>0.607</b></td><td class="n" style="color:var(--good)">−26.7%</td></tr>
+          <tr><th colspan="4" style="padding-top:16px">Tokenizer floor · <span class="mono">*_tok</span></th></tr>
+          <tr><td>Raymap_tok</td><td class="n"><b>1.5858</b></td><td class="n">1.6946</td><td class="n" style="color:var(--crit)">+6.9%</td></tr>
+          <tr><td>Depth_tok</td><td class="n"><b>2.5016</b></td><td class="n">2.7342</td><td class="n" style="color:var(--crit)">+9.3%</td></tr>
+          <tr><td>Pointmap_tok</td><td class="n"><b>3.6862</b></td><td class="n">3.9994</td><td class="n" style="color:var(--crit)">+8.5%</td></tr>
+          <tr><th colspan="4" style="padding-top:16px">Excess over floor</th></tr>
+          <tr class="hl"><td>Raymap excess</td><td class="n">12.206</td><td class="n"><b>8.244</b></td><td class="n" style="color:var(--good)">−32.5%</td></tr>
+          <tr><td>Depth excess</td><td class="n">1.467</td><td class="n"><b>1.335</b></td><td class="n" style="color:var(--good)">−9.0%</td></tr>
+          <tr class="hl"><td>Pointmap excess</td><td class="n">11.436</td><td class="n"><b>8.146</b></td><td class="n" style="color:var(--good)">−28.8%</td></tr>
+          <tr><th colspan="4" style="padding-top:16px">For reference · whiten tc1536</th></tr>
+          <tr class="dim"><td>Raymap / Pointmap</td><td class="n" colspan="3">11.602 / 13.521 — above tc768's 9.939 / 12.145</td></tr>
+          <tr class="dim"><td>Latent width</td><td class="n">1536 · no squeeze</td><td class="n">768 · linear bottleneck</td><td class="n">0.5×</td></tr>
+          <tr class="dim"><td>Tokenizer eval recon</td><td class="n">0.0141 @ ep48</td><td class="n">0.0338 @ ep47</td><td class="n">2.4× higher</td></tr>
+        </table>
+      </div>
+    </div>
+  </div>
+  <div class="foot"><span>BSC 44543763 (tc1536) / 44543837 (tc768) · 101 epochs each</span><span>2 arms + reference</span><span class="pageno">5</span></div>
+</section>
+
+</div>
+<button class="arr" id="prev" aria-label="Previous slide">‹</button>
+<button class="arr" id="next" aria-label="Next slide">›</button>
+<div class="nav" id="nav" role="tablist" aria-label="Slides"></div>
+
+<script>
+/* ---------- deck nav ---------- */
+const stage=document.getElementById("stage");
+const slides=[...document.querySelectorAll(".slide")];
+const nav=document.getElementById("nav");
+let cur=0;
+slides.forEach((_,i)=>{
+  const b=document.createElement("button");
+  b.setAttribute("role","tab");b.setAttribute("aria-label","Slide "+(i+1));
+  b.addEventListener("click",()=>go(i));
+  nav.appendChild(b);
+});
+function go(i){
+  cur=Math.max(0,Math.min(slides.length-1,i));
+  slides.forEach((s,j)=>s.classList.toggle("on",j===cur));
+  [...nav.children].forEach((b,j)=>b.classList.toggle("cur",j===cur));
+}
+document.getElementById("prev").addEventListener("click",()=>go(cur-1));
+document.getElementById("next").addEventListener("click",()=>go(cur+1));
+addEventListener("keydown",e=>{
+  if(["ArrowRight","PageDown"," "].includes(e.key)){go(cur+1);e.preventDefault();}
+  else if(["ArrowLeft","PageUp"].includes(e.key)){go(cur-1);e.preventDefault();}
+  else if(e.key==="Home")go(0);
+  else if(e.key==="End")go(slides.length-1);
+});
+go(0);
+/* ---------- auto-scale ---------- */
+function fit(){
+  const s=Math.min(innerWidth/1300,(innerHeight-40)/730);
+  stage.style.transform=`translate(-50%,-50%) scale(${Math.min(s,1.4)})`;
+}
+addEventListener("resize",fit);fit();
+
+/* ---------- CSS var resolver (for SVG fills) ---------- */
+const CV=n=>getComputedStyle(document.documentElement).getPropertyValue(n).trim();
+
+/* ---------- horizontal bar chart ---------- */
+function barH(el,cfg){
+  const W=600,L=cfg.L||168,R=cfg.R||60,T=4,rh=cfg.rh||36;
+  const H=T+cfg.bars.length*rh+4, iw=W-L-R, xmax=cfg.xmax;
+  const X=v=>L+iw*Math.min(v/xmax,1);
+  let s=`<svg viewBox="0 0 ${W} ${H}" width="100%" preserveAspectRatio="xMinYMin meet">`;
+  s+=`<line x1="${L}" y1="${T}" x2="${L}" y2="${T+cfg.bars.length*rh}" stroke="${CV('--axis')}"/>`;
+  cfg.bars.forEach((b,i)=>{
+    const y=T+i*rh, bw=X(b.value)-L, col=CV(b.color);
+    s+=`<text x="${L-10}" y="${y+rh/2+1}" text-anchor="end" class="barlbl" dominant-baseline="middle">${b.label}</text>`;
+    s+=`<rect x="${L}" y="${y+7}" width="${Math.max(bw,1)}" height="${rh-15}" rx="3" fill="${col}" opacity=".85"/>`;
+    s+=`<text x="${L+bw+7}" y="${y+rh/2+1}" class="barval" dominant-baseline="middle">${b.disp}</text>`;
+  });
+  s+=`</svg>`;
+  el.innerHTML=s;
+}
+
+/* ---------- multi-series line chart, linear y, x offset by cfg.x0 ---------- */
+function lineChart(el,cfg){
+  const W=560,H=232,L=54,R=20,T=10,B=28, iw=W-L-R, ih=H-T-B;
+  const {ymin,ymax,yticks,x0,x1}=cfg;
+  const X=i=>L+iw*(i/(x1-x0));
+  const Y=v=>T+ih*(1-(Math.min(Math.max(v,ymin),ymax)-ymin)/(ymax-ymin));
+  const fmt=cfg.fmt||(t=>t.toFixed(1));
+  let s=`<svg viewBox="0 0 ${W} ${H}" width="100%" preserveAspectRatio="xMinYMin meet">`;
+  yticks.forEach(t=>{const y=Y(t);
+    s+=`<line x1="${L}" y1="${y}" x2="${L+iw}" y2="${y}" stroke="${CV('--grid')}"/>`;
+    s+=`<text x="${L-7}" y="${y+3}" text-anchor="end" class="axl">${fmt(t)}</text>`;});
+  (cfg.xticks||[]).forEach(t=>{const x=X(t-x0);
+    s+=`<text x="${x}" y="${H-11}" text-anchor="middle" class="axl">${t}</text>`;});
+  cfg.series.forEach(se=>{const c=CV(se.color);
+    const d=se.data.map((v,i)=>`${i?'L':'M'}${X(i).toFixed(1)} ${Y(v).toFixed(1)}`).join(' ');
+    s+=`<path d="${d}" fill="none" stroke="${c}" stroke-width="${se.width||2.1}" ${se.dash?`stroke-dasharray="${se.dash}"`:''}/>`;
+    const n=se.data.length-1;
+    s+=`<circle cx="${X(n).toFixed(1)}" cy="${Y(se.data[n]).toFixed(1)}" r="2.6" fill="${c}"/>`;});
+  s+=`<text x="${L+iw/2}" y="${H-1}" text-anchor="middle" class="axl">epoch</text>`;
+  s+=`</svg>`;
+  el.innerHTML=s;
+}
+
+/* ================= DATA =================
+   Eval/128 @ WaymoSeqMultiView, epoch 0..100, 5-epoch trailing mean. Parsed from
+   monitor_jobs/data/logs/BSC/deltatok_flow_waymo_xxl_tc{1536mg9_whiten_44475204,
+   1536mg9_sigreg005_44543763,768mg9_sigreg005_44543837}.out.
+   TB fast-scan of the 3.2 GB event files confirms no scalar tags beyond these. */
+const W_Raymap=[12.02,14.0327,15.6378,16.3941,17.2106,18.9127,19.167,19.5368,19.5601,19.7816,19.6505,20.3783,20.8625,21.5665,21.3381,22.0844,22.407,22.1475,22.0019,22.2933,21.7508,21.7266,21.9168,21.9103,21.9068,22.405,22.4325,22.1654,22.1095,22.1099,21.5489,21.4027,20.7152,20.1871,19.5491,19.7875,19.5488,19.8977,20.4628,20.1536,19.6029,18.8694,19.0349,18.2762,18.7024,17.7107,18.0419,17.4269,17.6581,17.7581,18.44,17.911,16.8679,16.2765,15.25,15.0636,15.0328,15.4044,15.4249,15.7003,14.8801,14.6273,14.6232,13.6476,13.4294,14.1003,13.9381,13.6668,14.4526,14.3995,13.6862,13.315,13.5719,13.4295,12.9192,13.3261,14.081,13.9043,13.396,13.6114,13.1194,12.3542,12.0819,12.2304,12.222,12.9312,13.3781,13.6268,13.7344,13.5869,12.9474,12.6311,12.3549,12.4873,12.3747,12.4848,12.2062,11.8398,11.4836,10.9977,10.7187];
+const W_Depth=[13.4737,10.5694,9.3984,8.4046,7.8738,6.2258,5.6456,5.2354,5.1059,4.898,4.8098,4.7859,4.6995,4.6865,4.6018,4.5212,4.4434,4.3828,4.2905,4.2767,4.2191,4.1933,4.1783,4.183,4.1454,4.1686,4.1687,4.1159,4.0664,4.0295,3.9847,3.9381,3.9486,3.9505,3.9927,4.0075,4.0448,4.0418,4.0483,4.0271,4.04,4.0459,4.0631,4.0467,4.0869,4.0604,4.053,4.0447,4.0511,4.0429,4.0522,4.0749,4.0689,4.0604,4.0521,4.038,4.0046,4.0345,4.0543,4.0437,4.0604,4.064,4.0703,4.0653,4.0528,4.0407,4.0366,3.9993,3.9813,3.9818,3.9797,3.9939,4.0223,4.0579,4.0875,4.1082,4.1307,4.115,4.0895,4.085,4.0738,4.0367,4.0415,4.0283,4.0277,4.044,4.0648,4.0511,4.085,4.0788,4.0826,4.0772,4.0999,4.1232,4.133,4.0979,4.0626,4.0475,3.999,3.9735,4.0181];
+const W_Pointmap=[17.3605,18.57,20.1477,20.1195,20.428,20.9808,20.4978,19.9858,19.5847,19.4675,19.3466,19.9218,20.4216,21.1126,21.0152,21.6889,22.0375,21.7292,21.7364,21.9179,21.512,21.6306,21.9043,21.993,22.0386,22.5472,22.5025,22.2375,22.2116,22.3178,21.8119,21.7843,21.1888,20.688,20.1447,20.4336,20.2414,20.571,21.0607,20.6608,20.1321,19.4841,19.624,18.9575,19.4961,18.6396,18.9683,18.4546,18.6755,18.7777,19.3946,18.9165,18.0552,17.5518,16.618,16.4873,16.4655,16.7735,16.8409,17.0888,16.3598,16.1197,16.0316,15.1399,14.8975,15.4329,15.315,15.094,15.7471,15.7374,15.1713,14.8049,15.0166,14.9155,14.4772,14.7998,15.5982,15.5041,15.0694,15.2921,14.9605,14.2099,13.9747,14.1176,14.099,14.6816,15.0322,15.2615,15.3715,15.2399,14.671,14.4074,14.166,14.3354,14.261,14.3325,14.1315,13.8635,13.4698,12.9974,12.709];
+
+const S_Raymap=[14.0167,15.537,16.7795,17.4641,17.5298,18.1137,18.7325,18.7042,17.8042,18.1641,18.9109,19.2082,19.7732,20.9238,21.0903,20.7039,20.4096,19.9814,20.1945,20.0738,20.1976,20.3122,20.4146,20.4086,20.5914,20.2642,20.6042,19.839,19.4748,19.8629,19.8721,19.3101,19.3513,19.1992,18.776,18.7536,18.7561,19.1426,19.0589,18.5006,18.5125,18.3495,17.9047,18.0996,18.545,18.2074,18.1156,18.098,17.3433,16.4821,16.5746,16.4738,16.3173,16.4264,16.2446,17.0427,16.423,16.2063,15.3063,15.1841,13.9784,14.1602,14.794,15.2818,16.0665,16.478,16.3728,16.0702,16.2688,15.8425,15.6224,15.4713,15.0837,14.9022,14.5786,15.0295,14.9374,14.8989,14.9891,14.7695,13.959,13.9758,13.7808,13.9379,14.0366,14.0866,14.5165,14.414,14.2075,14.2658,14.3426,14.1172,14.7455,14.2108,14.2034,14.0982,13.8268,13.3335,13.8093,13.5759,13.4851];
+const S_Depth=[11.1738,9.3644,8.1604,7.5738,7.1069,5.7975,5.237,5.0245,4.7189,4.6646,4.6528,4.6316,4.6183,4.6439,4.5445,4.4837,4.4263,4.3703,4.3523,4.3179,4.3131,4.2746,4.2398,4.239,4.2342,4.2004,4.1752,4.1485,4.1049,4.0722,4.0585,4.04,4.0223,3.9922,3.9859,4.0135,4.0571,4.0971,4.1247,4.1163,4.1008,4.078,4.0488,4.0386,4.0617,4.0557,4.056,4.0614,4.0623,4.043,4.0374,4.021,4.0226,3.9981,3.9903,4.0128,3.9995,4.0219,4.0334,4.0351,4.0239,4.0358,4.0053,4.0016,4.0153,3.9992,4.0083,4.0182,4.0242,4.009,4.0273,4.0243,4.0324,4.023,4.0194,4.0104,4.0209,4.0072,4.0265,4.0353,4.0132,3.9983,3.9843,3.9992,4.0019,4.0303,4.0546,4.0665,4.0404,4.0448,4.0173,4.0057,4.01,3.9855,3.9638,3.9549,3.9412,3.9235,3.9692,3.9705,3.982];
+const S_Pointmap=[19.5403,21.0098,21.2232,20.971,20.2255,19.6534,19.0234,18.3564,17.3294,17.7038,18.3859,18.641,19.1416,20.1271,20.285,19.9873,19.8272,19.5222,19.7019,19.6308,19.7511,19.8991,20.0589,20.1302,20.2971,20.0478,20.263,19.6774,19.4488,19.8301,19.9278,19.5621,19.6046,19.5126,19.1964,19.165,19.249,19.5892,19.4683,18.9734,18.9436,18.7421,18.3163,18.5257,18.9638,18.7362,18.6299,18.6629,17.9889,17.2425,17.2631,17.163,17.0881,17.2175,17.0345,17.8014,17.3067,17.0867,16.255,16.1433,15.0735,15.2606,15.7974,16.2754,16.9832,17.3575,17.2511,17.0139,17.1804,16.8276,16.6293,16.5266,16.1782,16.033,15.7219,16.1005,15.9923,15.9622,16.0837,15.8345,15.1557,15.1597,15.0416,15.2156,15.4186,15.4031,15.8138,15.7281,15.4606,15.4695,15.5755,15.3343,15.802,15.3333,15.3345,15.2977,15.1302,14.7601,15.2341,15.08,14.9462];
+
+const S768_Raymap=[12.8555,14.5683,17.4694,18.3742,19.3941,21.3233,22.0192,21.2361,21.8013,21.7351,20.9585,20.8104,21.2631,19.6175,19.7335,20.5522,20.1769,19.3444,20.2255,18.643,17.5768,17.6546,18.2197,17.6973,18.7289,18.5707,18.1752,17.3624,17.214,16.6428,16.089,15.8322,15.8337,15.8489,15.1541,15.247,15.6305,15.4743,14.883,15.0336,14.9366,14.4892,14.3641,14.7624,13.9529,13.7726,13.3807,13.38,12.7375,13.0839,13.1324,13.0766,12.6121,12.5705,12.2359,12.218,12.2028,12.2228,12.0122,12.3451,12.2403,12.0849,11.7872,11.864,11.4007,11.1088,10.9381,10.648,10.2523,10.5269,10.6769,10.8249,11.0033,11.2583,11.1011,10.5998,10.3854,10.4646,10.4636,10.5099,10.4555,10.9463,10.9758,10.9253,10.6898,10.8302,10.4264,10.1473,10.0748,10.108,10.0067,9.7946,9.8921,9.9434,9.7764,9.827,9.8701,9.7343,9.5784,9.8554,10.0509];
+const S768_Depth=[7.297,6.6893,6.029,5.6484,5.503,4.9529,4.5814,4.5168,4.5116,4.4052,4.3459,4.3276,4.2778,4.2208,4.2247,4.2615,4.2757,4.277,4.2691,4.2427,4.1919,4.1763,4.2109,4.2017,4.1665,4.1464,4.1356,4.0957,4.1121,4.1325,4.1633,4.1818,4.1835,4.1782,4.1746,4.1672,4.1982,4.2051,4.1964,4.208,4.2046,4.1594,4.1309,4.1393,4.1304,4.1204,4.1387,4.1815,4.1673,4.1452,4.1429,4.1353,4.1229,4.1352,4.1395,4.1427,4.1343,4.1465,4.1554,4.1465,4.1531,4.1639,4.1587,4.1678,4.179,4.1753,4.1434,4.115,4.088,4.0902,4.0895,4.1256,4.1287,4.1489,4.1633,4.1619,4.1478,4.1791,4.1414,4.1332,4.1378,4.1337,4.1329,4.1599,4.1513,4.1527,4.1466,4.1509,4.1382,4.1346,4.1379,4.1429,4.116,4.0904,4.089,4.062,4.0617,4.0533,4.0797,4.0633,4.0756];
+const S768_Pointmap=[15.5932,18.1836,19.972,20.324,21.0882,22.4373,22.3685,21.6781,22.1921,22.0536,21.5302,21.4137,21.7445,20.4028,20.5343,21.1722,20.8893,20.2409,20.9274,19.5579,18.6843,18.697,19.2509,18.837,19.6226,19.5485,19.2141,18.459,18.3984,18.059,17.5502,17.4037,17.4322,17.4094,16.7365,16.8256,17.1168,16.9676,16.4335,16.5934,16.569,16.2365,16.133,16.5281,15.7922,15.5792,15.2185,15.1877,14.5844,14.9184,14.9392,14.795,14.428,14.4137,14.0888,14.0349,14.0315,14.0739,13.8524,14.202,14.1236,14.0349,13.7835,13.8986,13.454,13.2282,13.0696,12.7413,12.3767,12.6204,12.7626,12.8947,13.0739,13.3085,13.2022,12.7419,12.5693,12.6824,12.6562,12.6727,12.6547,13.1037,13.1433,13.1198,12.9362,13.0534,12.6922,12.4388,12.3667,12.3783,12.2889,12.095,12.1601,12.1614,12.0151,12.0282,12.0734,11.9168,11.826,12.0848,12.2622];
+
+/* epochs 10..100 — 0..9 is the warmup transient */
+const XA={x0:10, x1:100, xticks:[20,40,60,80,100]};
+const cut=a=>a.slice(10);
+
+/* slide 2 — whiten (--s2) vs SIGReg tc1536 (--s1) */
+const pair=(w,s)=>[{color:'--s2',data:cut(w)},{color:'--s1',data:cut(s),width:2.4}];
+
+lineChart(document.getElementById('chRay'),{...XA,
+  ymin:10, ymax:23, yticks:[10,13,16,19,22], fmt:t=>t.toFixed(0),
+  series:pair(W_Raymap,S_Raymap)});
+lineChart(document.getElementById('chDep'),{...XA,
+  ymin:3.85, ymax:4.95, yticks:[3.9,4.1,4.3,4.5,4.7,4.9], fmt:t=>t.toFixed(1),
+  series:pair(W_Depth,S_Depth)});
+lineChart(document.getElementById('chPm'),{...XA,
+  ymin:12, ymax:23, yticks:[12,14,16,18,20,22], fmt:t=>t.toFixed(0),
+  series:pair(W_Pointmap,S_Pointmap)});
+
+document.getElementById('lgMain').innerHTML=
+  `<span><span class="sw" style="background:var(--s2)"></span>whiten &middot; nosigreg tokenizer + latent_stats</span>`+
+  `<span><span class="sw" style="background:var(--s1)"></span>SIGReg 0.005 &middot; no whitening</span>`+
+  `<span style="color:var(--muted)">5-epoch trailing mean</span>`;
+
+/* slide 3 — last-10 means, absolute and floor-subtracted */
+barH(document.getElementById('chAbs'),{
+  xmax:16, L:150, rh:34, R:120,
+  bars:[
+    {label:'Raymap · whiten',   value:11.602, disp:'11.602', color:'--s2'},
+    {label:'Raymap · SIGReg',   value:13.792, disp:'13.792   +18.9%', color:'--s1'},
+    {label:'Depth · whiten',    value:4.058,  disp:'4.058',  color:'--s2'},
+    {label:'Depth · SIGReg',    value:3.968,  disp:'3.968   −2.2%', color:'--s1'},
+    {label:'Pointmap · whiten', value:13.521, disp:'13.521', color:'--s2'},
+    {label:'Pointmap · SIGReg', value:15.122, disp:'15.122   +11.8%', color:'--s1'},
+  ]
+});
+barH(document.getElementById('chExc'),{
+  xmax:13, L:150, rh:34, R:120,
+  bars:[
+    {label:'Raymap · whiten',   value:9.986,  disp:'9.986',  color:'--s2'},
+    {label:'Raymap · SIGReg',   value:12.206, disp:'12.206   +22.2%', color:'--s1'},
+    {label:'Depth · whiten',    value:1.488,  disp:'1.488',  color:'--s2'},
+    {label:'Depth · SIGReg',    value:1.467,  disp:'1.467   −1.5%', color:'--s1'},
+    {label:'Pointmap · whiten', value:9.745,  disp:'9.745',  color:'--s2'},
+    {label:'Pointmap · SIGReg', value:11.436, disp:'11.436   +17.3%', color:'--s1'},
+  ]
+});
+
+/* slide 4 — tc768 (--s3) vs tc1536 SIGReg (--s1), whiten (--s2) dashed reference */
+const trio=(w,s,s7)=>[{color:'--s2',data:cut(w),width:1.5,dash:'4 3'},
+                      {color:'--s1',data:cut(s)},
+                      {color:'--s3',data:cut(s7),width:2.6}];
+
+lineChart(document.getElementById('chTCRay'),{...XA,
+  ymin:9, ymax:23, yticks:[9,12,15,18,21], fmt:t=>t.toFixed(0),
+  series:trio(W_Raymap,S_Raymap,S768_Raymap)});
+lineChart(document.getElementById('chTCDep'),{...XA,
+  ymin:3.85, ymax:4.95, yticks:[3.9,4.1,4.3,4.5,4.7,4.9], fmt:t=>t.toFixed(1),
+  series:trio(W_Depth,S_Depth,S768_Depth)});
+lineChart(document.getElementById('chTCPm'),{...XA,
+  ymin:11.5, ymax:23, yticks:[12,14,16,18,20,22], fmt:t=>t.toFixed(0),
+  series:trio(W_Pointmap,S_Pointmap,S768_Pointmap)});
+
+document.getElementById('lgTC').innerHTML=
+  `<span><span class="sw" style="background:var(--s3)"></span>tc768 &middot; SIGReg 0.005</span>`+
+  `<span><span class="sw" style="background:var(--s1)"></span>tc1536 &middot; SIGReg 0.005</span>`+
+  `<span><span class="sw" style="background:var(--s2);opacity:.55"></span>tc1536 &middot; whiten (dashed)</span>`+
+  `<span style="color:var(--muted)">5-epoch trailing mean</span>`;
+
+/* slide 5 — tc768 vs tc1536, last-10 means */
+barH(document.getElementById('chTCAbs'),{
+  xmax:16, L:150, rh:32, R:126,
+  bars:[
+    {label:'Raymap · tc1536',   value:13.792, disp:'13.792', color:'--s1'},
+    {label:'Raymap · tc768',    value:9.939,  disp:'9.939   −27.9%', color:'--s3'},
+    {label:'Depth · tc1536',    value:3.968,  disp:'3.968', color:'--s1'},
+    {label:'Depth · tc768',     value:4.069,  disp:'4.069   +2.5%', color:'--s3'},
+    {label:'Pointmap · tc1536', value:15.122, disp:'15.122', color:'--s1'},
+    {label:'Pointmap · tc768',  value:12.145, disp:'12.145   −19.7%', color:'--s3'},
+  ]
+});
+barH(document.getElementById('chTCExc'),{
+  xmax:13, L:150, rh:32, R:126,
+  bars:[
+    {label:'Raymap · tc1536',   value:12.206, disp:'12.206', color:'--s1'},
+    {label:'Raymap · tc768',    value:8.244,  disp:'8.244   −32.5%', color:'--s3'},
+    {label:'Depth · tc1536',    value:1.467,  disp:'1.467', color:'--s1'},
+    {label:'Depth · tc768',     value:1.335,  disp:'1.335   −9.0%', color:'--s3'},
+    {label:'Pointmap · tc1536', value:11.436, disp:'11.436', color:'--s1'},
+    {label:'Pointmap · tc768',  value:8.146,  disp:'8.146   −28.8%', color:'--s3'},
+  ]
+});
+</script>
+</body>
+</html>
