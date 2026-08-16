@@ -28,6 +28,9 @@ source env_bsc.sh
 export OMP_NUM_THREADS="${OMP_NUM_THREADS:-4}"
 export TORCH_NCCL_HEARTBEAT_TIMEOUT_SEC="${TORCH_NCCL_HEARTBEAT_TIMEOUT_SEC:-1000}"
 
+# Unique DDP port per job (default 29500 collides with a co-scheduled arm).
+export MASTER_PORT=$((20000 + ${SLURM_JOB_ID:-0} % 20000))
+
 # file_descriptor shm strategy holds an fd per shared tensor per worker
 ulimit -n "$(ulimit -Hn)"
 
