@@ -1,0 +1,387 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>DeltaTok-flow — tc sweep: flow matching vs token-channel budget</title>
+<style>
+/* ---------- tokens · light only, white slides (no dark variant by request) ---------- */
+:root{
+  color-scheme: light only;
+  --backdrop:#e9e9e6; --page:#f7f7f6; --surface:#ffffff;
+  --ink:#0b0b0b; --ink2:#52514e; --muted:#83817c;
+  --grid:#e4e4de; --axis:#c3c2b7; --border:rgba(11,11,11,.12);
+  --s1:#2a78d6; --s2:#eb6834; --s3:#1baf7a; --s4:#eda100;
+  --s5:#e87ba4; --s6:#008300; --s7:#4a3aa7; --s8:#e34948;
+  --good:#0ca30c; --crit:#d03b3b; --serious:#ec835a;
+  --accent:var(--s1);
+  --serif:"Iowan Old Style","Palatino Linotype",Palatino,Georgia,serif;
+  --sans:system-ui,-apple-system,"Segoe UI",sans-serif;
+  --mono:ui-monospace,"Cascadia Code",Menlo,Consolas,monospace;
+}
+/* ---------- deck chrome ---------- */
+*{box-sizing:border-box;margin:0}
+html,body{height:100%}
+body{background:var(--backdrop);color:var(--ink);font:15px/1.45 var(--sans);overflow:hidden}
+.stage{position:absolute;left:50%;top:50%;width:1280px;height:720px;transform-origin:center center}
+.slide{position:absolute;inset:0;background:var(--surface);border:1px solid var(--border);
+  padding:52px 64px 44px;display:none;flex-direction:column}
+.slide.on{display:flex}
+.eyebrow{font:600 12px/1 var(--mono);letter-spacing:.14em;text-transform:uppercase;color:var(--accent);margin-bottom:14px}
+.eyebrow .dim{color:var(--muted)}
+h1{font:400 46px/1.15 var(--serif);letter-spacing:-.01em;text-wrap:balance}
+h2{font:400 32px/1.2 var(--serif);letter-spacing:-.005em;text-wrap:balance;margin-bottom:6px}
+.sub{color:var(--ink2);font-size:15.5px;max-width:74ch;margin-top:10px}
+.body{flex:1;min-height:0;margin-top:22px}
+.foot{display:flex;justify-content:space-between;align-items:baseline;color:var(--muted);
+  font:11px/1 var(--mono);letter-spacing:.06em;margin-top:16px;border-top:1px solid var(--grid);padding-top:12px}
+.pageno{font-variant-numeric:tabular-nums}
+/* nav */
+.nav{position:fixed;left:50%;bottom:14px;transform:translateX(-50%);display:flex;gap:8px;align-items:center;z-index:5}
+.nav button{width:9px;height:9px;border-radius:50%;border:1px solid var(--muted);background:transparent;cursor:pointer;padding:0}
+.nav button.cur{background:var(--accent);border-color:var(--accent)}
+.nav button:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+.arr{position:fixed;top:50%;transform:translateY(-50%);z-index:5;border:1px solid var(--border);
+  background:var(--surface);color:var(--ink2);width:34px;height:56px;cursor:pointer;font-size:18px;border-radius:4px}
+.arr:hover{color:var(--ink)}
+#prev{left:10px}#next{right:10px}
+/* ---------- shared bits ---------- */
+.mono{font-family:var(--mono)}
+.num{font-variant-numeric:tabular-nums}
+.chip{display:inline-block;font:600 10.5px/1 var(--mono);letter-spacing:.05em;padding:4px 7px;border-radius:3px;
+  border:1px solid var(--border);white-space:nowrap}
+.chip.good{color:var(--good);border-color:currentColor}
+.chip.wall{color:var(--serious);border-color:currentColor}
+.chip.dead{color:var(--crit);border-color:currentColor}
+.chip.hero{color:var(--accent);border-color:currentColor}
+.sw{display:inline-block;width:10px;height:10px;border-radius:2px;vertical-align:-1px}
+.cols{display:grid;gap:30px;min-height:0}
+.c2{grid-template-columns:1fr 1fr}
+.c3{grid-template-columns:1fr 1fr 1fr}
+.c58{grid-template-columns:1.25fr 1fr}
+.card{border:1px solid var(--grid);border-radius:6px;padding:15px 17px;background:var(--page)}
+.card h3{font:600 14px/1.3 var(--sans);margin:6px 0}
+.card .tag{font:600 10px/1 var(--mono);letter-spacing:.1em;text-transform:uppercase;color:var(--muted)}
+ul.tight{padding-left:18px;display:flex;flex-direction:column;gap:8px;font-size:14px;color:var(--ink2)}
+ul.tight li{padding-left:2px}
+ul.tight strong{color:var(--ink);font-weight:600}
+table{border-collapse:collapse;width:100%;font-size:12.5px}
+th{font:600 10.5px/1.3 var(--mono);letter-spacing:.08em;text-transform:uppercase;color:var(--muted);
+  text-align:left;padding:6px 10px;border-bottom:1px solid var(--axis)}
+td{padding:6px 10px;border-bottom:1px solid var(--grid);color:var(--ink2);vertical-align:top}
+td.n,th.n{text-align:right;font-variant-numeric:tabular-nums}
+td b{color:var(--ink);font-weight:600}
+tr.hl td{background:color-mix(in srgb,var(--s1) 9%,transparent)}
+tr.dim td{color:var(--muted)}
+/* stat tiles */
+.tiles{display:grid;gap:13px}
+.tile{border:1px solid var(--grid);border-radius:6px;padding:13px 15px;background:var(--page)}
+.tile .v{font:600 26px/1.1 var(--sans);letter-spacing:-.01em;font-variant-numeric:tabular-nums}
+.tile .k{font:600 10px/1.4 var(--mono);letter-spacing:.1em;text-transform:uppercase;color:var(--muted);margin-bottom:6px}
+.tile .d{font-size:12.5px;color:var(--ink2);margin-top:6px}
+.rulebar{border:1px dashed var(--axis);border-radius:6px;padding:11px 15px;font-size:13.5px;color:var(--ink2);margin-top:12px}
+.rulebar b{color:var(--ink)}
+/* charts */
+.chartwrap{position:relative}
+.legend{display:flex;flex-wrap:wrap;gap:6px 16px;font:12px/1 var(--sans);color:var(--ink2);margin-bottom:6px}
+.legend span{display:inline-flex;gap:6px;align-items:center}
+svg text{font:10.5px var(--sans);fill:var(--muted)}
+svg .barlbl{font:600 12px var(--sans);fill:var(--ink)}
+svg .barval{font:11px var(--mono);fill:var(--ink2)}
+svg .hll{font:10px var(--mono)}
+svg .axl{font:10px var(--mono);fill:var(--muted)}
+.slide kbd{font:11px var(--mono);border:1px solid var(--axis);border-radius:3px;padding:1px 5px;color:var(--ink2)}
+@media (prefers-reduced-motion: no-preference){
+  .slide.on{animation:fadein .18s ease}
+  @keyframes fadein{from{opacity:.4}to{opacity:1}}
+}
+@media print{
+  body{overflow:visible;background:#fff}
+  .stage{position:static;transform:none!important;width:auto;height:auto}
+  .slide{display:flex;position:static;width:1280px;height:720px;page-break-after:always;margin:0 auto}
+  .nav,.arr{display:none}
+}
+</style>
+</head>
+<body>
+<div class="stage" id="stage">
+
+<!-- ============ SLIDE 1 — title ============ -->
+<section class="slide on">
+  <div class="eyebrow">DeltaTok-flow <span class="dim">— consec5 cam0 · ctx3fwd2 · xxl DiT · maxgap9 · SIGReg 0.005 · BSC</span></div>
+  <h1>How does the tokenizer's channel budget affect flow matching?</h1>
+  <p class="sub">Three tokenizer widths — <span class="mono">tc128</span>, <span class="mono">tc768</span>, <span class="mono">tc1536</span> — fed into the same XXL DiT
+    flow model, all trained to 100 epochs. Depth improves monotonically with more channels.
+    Pointmap and raymap do not — <span class="mono">tc1536</span> (no channel squeeze) is the worst.</p>
+  <div class="body">
+    <div class="cols" style="grid-template-columns:1fr 1fr 1fr;gap:15px">
+      <div class="tile"><div class="k">LossDepth · tc128 → tc1536</div><div class="v" style="color:var(--good)">4.51 → 3.93</div><div class="d">Monotonic: every width step helps. −8.8% from tc128 to tc768, −4.3% more to tc1536.</div></div>
+      <div class="tile"><div class="k">LossPointmap · best arm</div><div class="v" style="color:var(--accent)">tc768 · 12.61</div><div class="d">tc128 ties at 12.61, but tc1536 regresses to 14.57 (+15.5%). The no-squeeze latent hurts geometry.</div></div>
+      <div class="tile"><div class="k">LossRaymap · best arm</div><div class="v" style="color:var(--accent)">tc128 · 9.91</div><div class="d">tc768 is close at 10.47 (+5.6%), but tc1536 blows out to 13.26 (+33.9%). Ray recovery dislikes the wide code.</div></div>
+    </div>
+    <div class="rulebar" style="margin-top:18px"><b>The pattern.</b> The tokenizer's reconstruction ceiling (tc1536 ≫ tc768 > tc128) does <em>not</em> carry into
+      flow matching. The flow model struggles with the <span class="mono">tc1536</span> latent — more dims to denoise,
+      lower utilisation (PR/Cz ~15%), and a harder transport problem.</div>
+    <p class="sub" style="margin-top:14px;font-size:13.5px"><kbd>←</kbd> <kbd>→</kbd> to navigate ·
+      BSC jobs 44680693 / 44543837 / 44543763 · branch <span class="mono">revert</span>.</p>
+  </div>
+  <div class="foot"><span>DeltaTok-flow · tc sweep @ sigreg 0.005</span><span>more tokenizer capacity ≠ better flow</span><span class="pageno">1</span></div>
+</section>
+
+<!-- ============ SLIDE 2 — the arms ============ -->
+<section class="slide">
+  <div class="eyebrow">The arms <span class="dim">— three tokenizer widths, one flow model</span></div>
+  <h2>Same flow recipe, <span class="mono">tc</span> is the only thing that moves upstream</h2>
+  <p class="sub">Each arm uses a separate tokenizer checkpoint trained with the matching <span class="mono">target_channels</span>.
+    The flow DiT (XXL, ctx3fwd2) is identical across arms.</p>
+  <div class="body cols c58">
+    <div>
+      <table>
+        <thead><tr>
+          <th>arm</th><th class="n">Cz</th><th class="n">latent floats</th><th class="n">epochs</th><th>BSC job</th>
+        </tr></thead>
+        <tbody>
+          <tr><td><b>tc128</b></td><td class="n">128</td><td class="n">8 192</td><td class="n">100</td><td class="mono">44680693</td></tr>
+          <tr class="hl"><td><b>tc768</b></td><td class="n">768</td><td class="n">49 152</td><td class="n">100</td><td class="mono">44543837</td></tr>
+          <tr class="dim"><td><b>tc1536</b></td><td class="n">1536</td><td class="n">98 304</td><td class="n">100</td><td class="mono">44543763</td></tr>
+        </tbody>
+      </table>
+      <div class="rulebar" style="margin-top:16px"><b>tc1536 = no squeeze.</b> The tokenizer hidden width is 1536 (<span class="mono">embed_dim</span>),
+        so <span class="mono">z_proj_down</span> is square. The channel axis carries no compression.
+        The flow model must denoise a 12× wider latent than tc128 for each token.</div>
+    </div>
+    <div>
+      <div class="tiles">
+        <div class="tile"><div class="k">Flow model</div><div class="v">XXL DiT</div><div class="d">Same architecture and hyperparams for all three arms. <span class="mono">consec5 · cam0 · ctx3fwd2</span>.</div></div>
+        <div class="tile"><div class="k">Eval metrics</div><div class="v">3 losses</div><div class="d"><b>LossPointmap</b>, <b>LossDepth</b>, <b>LossRaymap</b> — evaluated every epoch on <span class="mono">Eval/128</span> held-out split.</div></div>
+        <div class="tile"><div class="k">Latent cost · tc128 → tc1536</div><div class="v" style="color:var(--serious)">12×</div><div class="d">8 192 → 98 304 floats per frame. The flow DiT sees 12× more values to denoise.</div></div>
+      </div>
+    </div>
+  </div>
+  <div class="foot"><span>deltatok_flow_waymo_consec5cam0_ctx3fwd2_tc*mg9sigreg005_xxl_dit</span><span>three widths, one flow config</span><span class="pageno">2</span></div>
+</section>
+
+<!-- ============ SLIDE 3 — training curves ============ -->
+<section class="slide">
+  <div class="eyebrow">Training curves <span class="dim">— all three metrics, epochs 0–100</span></div>
+  <h2>LossDepth improves with width; the other two degrade</h2>
+  <p class="sub">Three panels, one per metric. Curves smoothed (5-epoch moving average) to reduce noise; raw data points as dots.</p>
+  <div class="body" style="margin-top:10px">
+    <div class="legend" id="lgCurves"></div>
+    <div class="cols c3" style="gap:20px">
+      <div><div class="tag" style="font:600 10px/1 var(--mono);letter-spacing:.1em;text-transform:uppercase;color:var(--muted);margin-bottom:4px">LossPointmap</div><div class="chartwrap"><div id="chPm"></div></div></div>
+      <div><div class="tag" style="font:600 10px/1 var(--mono);letter-spacing:.1em;text-transform:uppercase;color:var(--muted);margin-bottom:4px">LossDepth</div><div class="chartwrap"><div id="chDp"></div></div></div>
+      <div><div class="tag" style="font:600 10px/1 var(--mono);letter-spacing:.1em;text-transform:uppercase;color:var(--muted);margin-bottom:4px">LossRaymap</div><div class="chartwrap"><div id="chRm"></div></div></div>
+    </div>
+    <div class="cols c3" style="gap:20px;margin-top:14px">
+      <div class="card" style="border-left:3px solid var(--serious)">
+        <div class="tag">Pointmap</div>
+        <h3>tc128 ≈ tc768 ≈ 12.6</h3>
+        <p style="font-size:12.5px;color:var(--ink2)">tc1536 never catches up — it sits at 14.6 at epoch 100, 15% worse than the compressed arms.</p>
+      </div>
+      <div class="card" style="border-left:3px solid var(--good)">
+        <div class="tag">Depth</div>
+        <h3>Monotonic: 4.51 → 4.11 → 3.93</h3>
+        <p style="font-size:12.5px;color:var(--ink2)">The only metric that consistently rewards more channels. Depth is a simpler prediction target.</p>
+      </div>
+      <div class="card" style="border-left:3px solid var(--crit)">
+        <div class="tag">Raymap</div>
+        <h3>tc128 best at 9.91</h3>
+        <p style="font-size:12.5px;color:var(--ink2)">tc1536 is +34% worse (13.26). Raymap tracks pointmap: geometry suffers with the unsqueezed code.</p>
+      </div>
+    </div>
+  </div>
+  <div class="foot"><span>Eval/128 · epochs 0–100</span><span>depth ≠ geometry</span><span class="pageno">3</span></div>
+</section>
+
+<!-- ============ SLIDE 4 — bar comparison at epoch 100 ============ -->
+<section class="slide">
+  <div class="eyebrow">Final comparison <span class="dim">— epoch 100 · bar charts</span></div>
+  <h2>Side-by-side at convergence</h2>
+  <p class="sub">Horizontal bars at epoch 100. Lower is better for all three metrics.</p>
+  <div class="body" style="margin-top:10px">
+    <div class="cols c3" style="gap:24px">
+      <div><div class="tag" style="font:600 10px/1 var(--mono);letter-spacing:.1em;text-transform:uppercase;color:var(--muted);margin-bottom:8px">LossPointmap</div><div id="chBarPm"></div></div>
+      <div><div class="tag" style="font:600 10px/1 var(--mono);letter-spacing:.1em;text-transform:uppercase;color:var(--muted);margin-bottom:8px">LossDepth</div><div id="chBarDp"></div></div>
+      <div><div class="tag" style="font:600 10px/1 var(--mono);letter-spacing:.1em;text-transform:uppercase;color:var(--muted);margin-bottom:8px">LossRaymap</div><div id="chBarRm"></div></div>
+    </div>
+    <div class="cols c2" style="gap:20px;margin-top:22px">
+      <div class="card" style="border-left:3px solid var(--accent)">
+        <div class="tag">Takeaway</div>
+        <h3>tc768 is the best all-round tokenizer width for flow matching</h3>
+        <p style="font-size:13px;color:var(--ink2)">Wins or ties on all three metrics. tc128 is competitive on pointmap/raymap but pays a −9% depth penalty.
+          tc1536's reconstruction advantage does not transfer downstream.</p>
+      </div>
+      <div class="card" style="border-left:3px solid var(--s7)">
+        <div class="tag">Why tc1536 hurts</div>
+        <h3>More latent dims ≠ easier denoising</h3>
+        <p style="font-size:13px;color:var(--ink2)">The uncompressed code has 12× the floats of tc128 but only ~15% effective rank (PR/Cz).
+          The flow model wastes capacity denoising dead dimensions. Depth is simpler — it recovers anyway.</p>
+      </div>
+    </div>
+  </div>
+  <div class="foot"><span>Eval/128 · epoch 100</span><span>tc768 wins the composite</span><span class="pageno">4</span></div>
+</section>
+
+</div><!-- /stage -->
+
+<button class="arr" id="prev" aria-label="Previous">‹</button>
+<button class="arr" id="next" aria-label="Next">›</button>
+<div class="nav" id="nav" role="tablist"></div>
+
+<script>
+/* ---------- deck nav ---------- */
+const stage=document.getElementById("stage");
+const slides=[...document.querySelectorAll(".slide")];
+const nav=document.getElementById("nav");
+let cur=0;
+slides.forEach((_,i)=>{
+  const b=document.createElement("button");
+  b.setAttribute("role","tab");b.setAttribute("aria-label","Slide "+(i+1));
+  b.addEventListener("click",()=>go(i));
+  nav.appendChild(b);
+});
+function go(i){
+  cur=Math.max(0,Math.min(slides.length-1,i));
+  slides.forEach((s,j)=>s.classList.toggle("on",j===cur));
+  [...nav.children].forEach((b,j)=>b.classList.toggle("cur",j===cur));
+}
+document.getElementById("prev").addEventListener("click",()=>go(cur-1));
+document.getElementById("next").addEventListener("click",()=>go(cur+1));
+addEventListener("keydown",e=>{
+  if(["ArrowRight","PageDown"," "].includes(e.key)){go(cur+1);e.preventDefault();}
+  else if(["ArrowLeft","PageUp"].includes(e.key)){go(cur-1);e.preventDefault();}
+  else if(e.key==="Home")go(0);
+  else if(e.key==="End")go(slides.length-1);
+});
+go(0);
+/* ---------- auto-scale ---------- */
+function fit(){
+  const s=Math.min(innerWidth/1300,(innerHeight-40)/730);
+  stage.style.transform=`translate(-50%,-50%) scale(${Math.min(s,1.4)})`;
+}
+addEventListener("resize",fit);fit();
+
+/* ---------- CSS var resolver ---------- */
+const CV=n=>getComputedStyle(document.documentElement).getPropertyValue(n).trim();
+
+/* ---------- horizontal bar chart ---------- */
+function barH(el,cfg){
+  const W=cfg.W||360,L=cfg.L||74,R=cfg.R||80,T=4,rh=cfg.rh||40;
+  const H=T+cfg.bars.length*rh+4, iw=W-L-R, xmax=cfg.xmax;
+  const X=v=>L+iw*Math.min(v/xmax,1);
+  let s=`<svg viewBox="0 0 ${W} ${H}" width="100%" preserveAspectRatio="xMinYMin meet">`;
+  s+=`<line x1="${L}" y1="${T}" x2="${L}" y2="${T+cfg.bars.length*rh}" stroke="${CV('--axis')}"/>`;
+  cfg.bars.forEach((b,i)=>{
+    const y=T+i*rh, bw=X(b.value)-L, col=CV(b.color);
+    s+=`<text x="${L-10}" y="${y+rh/2+1}" text-anchor="end" class="barlbl" dominant-baseline="middle">${b.label}</text>`;
+    s+=`<rect x="${L}" y="${y+7}" width="${Math.max(bw,1)}" height="${rh-15}" rx="3" fill="${col}" opacity="${b.hi?1:.82}"/>`;
+    if(b.hi) s+=`<rect x="${L}" y="${y+7}" width="${Math.max(bw,1)}" height="${rh-15}" rx="3" fill="none" stroke="${CV('--ink')}" stroke-width="1.3"/>`;
+    s+=`<text x="${L+bw+7}" y="${y+rh/2+1}" class="barval" dominant-baseline="middle">${b.disp}</text>`;
+  });
+  s+=`</svg>`;
+  el.innerHTML=s;
+}
+
+/* ---------- multi-series line chart ---------- */
+function lineChart(el,cfg){
+  const W=cfg.W||360,H=cfg.H||260,L=50,R=20,T=10,B=28, iw=W-L-R, ih=H-T-B;
+  const {ymin,ymax,yticks,xmax,xticks}=cfg;
+  const X=i=>L+iw*(i/xmax);
+  const Y=v=>T+ih*(1-(Math.min(Math.max(v,ymin),ymax)-ymin)/(ymax-ymin));
+  const fmt=cfg.fmt||(t=>t.toFixed(1));
+  let s=`<svg viewBox="0 0 ${W} ${H}" width="100%" preserveAspectRatio="xMinYMin meet">`;
+  yticks.forEach(t=>{const y=Y(t);
+    s+=`<line x1="${L}" y1="${y}" x2="${L+iw}" y2="${y}" stroke="${CV('--grid')}"/>`;
+    s+=`<text x="${L-7}" y="${y+3}" text-anchor="end" class="axl">${fmt(t)}</text>`;});
+  xticks.forEach(t=>{const x=X(t);
+    s+=`<text x="${x}" y="${H-11}" text-anchor="middle" class="axl">${t}</text>`;});
+  cfg.series.forEach(se=>{
+    const c=CV(se.color);
+    // smoothed line (5-epoch moving avg)
+    const sm=se.data.map((_,i,a)=>{
+      const lo=Math.max(0,i-2), hi=Math.min(a.length-1,i+2);
+      let sum=0,cnt=0; for(let j=lo;j<=hi;j++){sum+=a[j];cnt++;} return sum/cnt;
+    });
+    const d=sm.map((v,i)=>`${i?'L':'M'}${X(i).toFixed(1)} ${Y(v).toFixed(1)}`).join(' ');
+    s+=`<path d="${d}" fill="none" stroke="${c}" stroke-width="${se.width||1.9}"/>`;
+    const n=sm.length-1;
+    s+=`<circle cx="${X(n).toFixed(1)}" cy="${Y(sm[n]).toFixed(1)}" r="3" fill="${c}"/>`;
+    s+=`<text x="${X(n)+5}" y="${Y(sm[n])+4}" class="hll" fill="${c}">${se.tag}</text>`;
+  });
+  s+=`<text x="${L+iw/2}" y="${H-1}" text-anchor="middle" class="axl">epoch</text>`;
+  s+=`</svg>`;
+  el.innerHTML=s;
+}
+
+/* ================= DATA =================
+   Eval/128 per-epoch: LossPointmap, LossDepth, LossRaymap
+   Grepped from BSC monitor_jobs logs */
+
+const PM_128=[22.8369,22.0637,23.5101,23.7323,23.8510,23.8257,21.9596,20.8633,22.6039,24.3807,21.4307,21.6902,23.2497,21.1211,21.6494,20.8758,19.6423,18.6808,19.6388,17.9071,18.3718,17.5551,17.8694,17.2775,17.1050,16.6296,16.0766,16.9373,16.6927,16.1777,15.7154,16.4408,15.5598,17.2848,15.0696,15.0772,14.8172,15.0393,15.7406,14.3703,14.2768,13.8663,15.7524,14.3210,15.0065,14.3312,14.4523,13.3409,14.0183,14.8430,13.8281,14.2545,13.1008,13.5460,12.9861,12.4954,13.9525,13.3457,13.4118,13.8886,14.4356,13.8480,13.6242,12.8993,13.1972,12.9689,12.5450,13.0457,13.9669,13.5694,14.9595,13.8593,13.3434,12.5672,13.5475,13.6475,13.5598,13.3462,13.5659,13.5015,12.4995,13.8211,12.8133,12.5463,13.2510,12.9874,12.9504,13.2308,13.5311,13.3589,12.3993,13.2126,12.8368,13.5144,13.1753,12.9053,12.8457,13.1750,12.6766,13.0485,12.6142];
+const DP_128=[5.9858,4.9662,4.6735,4.5387,4.3124,4.3815,4.4366,4.3314,4.3254,4.3382,4.3945,4.4460,4.4648,4.4079,4.4949,4.4807,4.3572,4.5072,4.3751,4.4544,4.6194,4.5705,4.4686,4.4659,4.3590,4.4141,4.5880,4.4648,4.5193,4.4690,4.4691,4.4464,4.4186,4.5272,4.3662,4.4068,4.4619,4.4608,4.4002,4.5215,4.4548,4.3500,4.5831,4.4372,4.3577,4.3894,4.4189,4.3632,4.4141,4.4687,4.4799,4.4032,4.5404,4.4403,4.4304,4.3453,4.4626,4.5681,4.5078,4.4264,4.4934,4.5020,4.4460,4.5209,4.4541,4.4544,4.5451,4.4606,4.3255,4.4790,4.6062,4.5021,4.4467,4.4740,4.4306,4.4410,4.5059,4.4274,4.4485,4.4489,4.3305,4.4491,4.4116,4.4338,4.4327,4.4854,4.4487,4.3980,4.4787,4.4529,4.4703,4.4510,4.5272,4.4674,4.4502,4.4190,4.4902,4.4728,4.5424,4.5253,4.5135];
+const RM_128=[16.2630,21.9119,23.0009,22.9282,23.1346,22.9688,20.6814,19.5035,21.3703,23.4825,19.7020,20.0779,21.8067,19.4342,20.1129,19.0448,17.7943,16.4423,17.7379,15.8000,16.0867,15.4799,15.8093,15.0507,15.0784,14.4419,13.8574,14.7581,14.4448,13.6724,13.3285,14.3623,13.2355,15.0334,12.7742,12.5583,12.3366,12.6351,13.4204,11.8188,11.7703,11.3919,13.1340,11.7440,12.7889,11.8930,11.8962,10.7322,11.5255,12.3345,11.2238,11.7601,10.4051,10.8152,10.3287,9.8676,11.5268,10.6187,10.6809,11.1821,11.7897,10.9273,10.9864,10.1292,10.4047,10.2624,9.8083,10.3597,11.4095,10.7763,12.4055,11.3755,10.7175,9.7387,10.9733,11.0416,10.8369,10.6802,10.9833,10.9212,9.7899,11.2391,10.1672,9.8042,10.5890,10.2691,10.2368,10.4758,10.8327,10.5190,9.4973,10.5075,10.0327,10.9329,10.4715,10.1904,10.1934,10.4006,9.8686,10.2720,9.9087];
+
+const PM_768=[15.5932,20.7740,23.5487,21.3803,24.1446,22.3388,20.4302,20.0968,23.9500,23.4524,19.7217,19.8477,21.7506,17.2416,24.1100,22.9113,18.4330,18.5084,20.6742,17.2624,18.5433,18.4969,21.2776,18.6048,21.1902,18.1728,16.8253,17.5020,18.3019,19.4932,15.6285,16.0930,17.6445,18.1879,16.1287,16.0739,17.5490,16.8983,15.5175,16.9283,15.9517,15.8867,16.3810,17.4928,13.2487,14.8867,14.0833,16.2272,14.4762,14.9184,14.9907,13.3624,14.3923,14.4046,13.2940,14.7210,13.3457,14.6043,13.2968,15.0420,14.3292,12.9021,13.3473,13.8725,12.8190,13.2000,12.1091,11.7060,12.0496,14.0372,13.9111,12.7696,12.6020,13.2227,13.5056,11.6097,11.9064,13.1675,13.0920,13.5879,11.5197,14.1512,13.3659,12.9743,12.6697,12.1058,12.3452,12.0989,12.6139,12.7277,11.6588,11.3756,12.4245,12.6204,11.9962,11.7243,11.6017,11.6416,12.1664,13.2900,12.6111];
+const DP_768=[7.2970,6.0816,4.7085,4.5064,4.9215,4.5467,4.2237,4.3856,4.4804,4.3897,4.2499,4.1325,4.1365,4.1953,4.4092,4.4340,4.2033,4.1433,4.1555,4.2773,4.1803,4.1252,4.3160,4.1099,4.1012,4.0798,4.0709,4.1166,4.1921,4.2029,4.2339,4.1636,4.1249,4.1657,4.1851,4.1968,4.3185,4.1593,4.1221,4.2433,4.1798,4.0923,4.0172,4.1637,4.1990,4.1298,4.1836,4.2316,4.0927,4.0881,4.1184,4.1458,4.1694,4.1542,4.1095,4.1345,4.1040,4.2302,4.1986,4.0651,4.1676,4.1579,4.2045,4.2440,4.1211,4.1491,3.9983,4.0627,4.1089,4.1320,4.1457,4.1788,4.0779,4.2102,4.2037,4.1391,4.1079,4.2344,4.0220,4.1624,4.1623,4.0876,4.2304,4.1569,4.1192,4.1696,4.0569,4.2519,4.0932,4.1015,4.1859,4.0818,4.1178,3.9651,4.0946,4.0508,4.0803,4.0756,4.0974,4.0122,4.1123];
+const RM_768=[12.8555,16.2811,23.2715,21.0885,23.4738,22.5018,19.7605,19.3559,23.9146,23.1428,18.6188,19.0200,21.6195,15.6863,23.7229,22.7124,17.1432,17.4572,20.0917,15.8104,17.3817,17.5322,20.2827,17.4795,20.9683,16.5908,15.5547,16.2189,16.7375,18.1120,13.8221,14.2707,16.2261,16.8137,14.6378,14.2869,16.1881,15.4452,13.8572,15.3908,13.8019,13.9510,14.8197,15.8485,11.3433,12.9006,11.9913,14.8162,12.6361,13.0752,13.1434,11.7119,12.4939,12.4282,11.4021,13.0538,11.6358,12.5939,11.3756,13.0663,12.5300,10.8585,11.1054,11.7597,10.7498,11.0707,10.0050,9.6547,9.7814,12.1228,11.8206,10.7452,10.5467,11.0562,11.3366,9.3144,9.6730,10.9429,11.0509,11.5682,9.0427,12.1269,11.0905,10.7982,10.3906,9.7447,10.1081,9.6951,10.4357,10.5565,9.2379,9.0478,10.1825,10.6922,9.7218,9.4905,9.2634,9.5038,9.9124,11.1071,10.4680];
+
+const PM_1536=[19.5403,22.4793,21.6501,20.2144,17.2435,16.6797,19.3295,18.3150,15.0791,19.1155,20.0904,20.6050,20.8181,20.0063,19.9053,18.6018,19.8045,19.2933,20.9045,19.5498,19.2036,20.5445,20.0923,21.2607,20.3842,17.9574,21.6206,17.1639,20.1180,22.2906,18.4457,19.7924,17.3761,19.6582,20.7098,18.2885,20.2123,19.0771,19.0538,18.2352,18.1394,19.2050,16.9482,20.1005,20.4259,17.0012,18.6735,17.1133,16.7306,16.6941,17.1041,18.1728,16.7389,17.3774,15.7794,20.9386,15.6991,15.6391,13.2188,15.2208,15.5896,16.6348,18.3228,15.6092,18.7595,17.4610,16.1031,17.1366,16.4419,16.9956,16.4692,15.5895,15.3946,15.7161,15.4402,18.3620,15.0484,15.2441,16.3237,14.1942,14.9679,15.0688,14.6533,17.1937,15.2092,14.8907,17.1223,14.2247,15.8563,15.2534,15.4206,15.9167,16.5631,13.5128,15.2593,15.2366,15.0790,14.7130,15.8828,14.4888,14.5672];
+const DP_1536=[11.1738,7.5551,5.7524,5.8140,5.2392,4.6267,4.7526,4.6898,4.2860,4.9678,4.5679,4.6464,4.6234,4.4141,4.4708,4.2637,4.3596,4.3432,4.3244,4.2984,4.2398,4.1670,4.1695,4.3203,4.2745,4.0709,4.0406,4.0362,4.1021,4.1112,4.0026,3.9480,3.9476,3.9514,4.0801,4.1402,4.1663,4.1475,4.0895,4.0381,4.0628,4.0520,4.0016,4.0384,4.1538,4.0326,4.0534,4.0286,4.0433,4.0571,4.0048,3.9712,4.0366,3.9206,4.0185,4.1171,3.9047,4.1485,3.9783,4.0269,4.0613,3.9641,3.9960,3.9597,4.0956,3.9806,4.0098,4.0453,3.9897,4.0196,4.0723,3.9948,4.0857,3.9428,4.0013,4.0584,4.0477,4.0170,4.0394,4.0453,3.9167,3.9729,3.9473,4.1140,4.0588,4.0584,4.0944,4.0071,3.9834,4.0805,3.9211,4.0366,4.0283,3.8612,3.9719,3.8763,3.9683,3.9398,4.0899,3.9783,3.9339];
+const RM_1536=[14.0167,17.0572,19.2645,19.5178,17.7927,16.9365,20.1511,19.1229,15.0180,19.5918,20.6706,21.6378,21.9478,20.7709,20.4246,18.7382,20.1663,19.8068,21.8364,19.8211,19.3576,20.7390,20.3187,21.8065,20.7352,17.7217,22.4390,16.4926,19.9855,22.6758,17.7677,19.6288,16.6985,19.2251,20.5601,17.6556,19.6410,18.6313,18.8063,17.7689,17.7151,18.8261,16.4071,19.7809,19.9958,16.0269,18.3672,16.3193,16.0073,15.6897,16.4896,17.8631,15.5366,16.5529,14.7806,20.4805,14.7644,14.4529,12.0529,14.1700,14.4517,15.6736,17.6216,14.4919,18.0939,16.5092,15.1474,16.1085,15.4850,15.9624,15.4085,14.3919,14.1706,14.5776,14.3443,17.6630,13.9315,13.9783,15.0286,13.2462,13.6103,14.0155,13.0035,15.8142,13.7394,13.8602,16.1653,12.4907,14.7820,14.0307,14.2441,15.0384,15.6324,12.1082,13.9941,13.7177,13.6816,13.1658,14.4872,12.8271,13.2639];
+
+/* ---------- slide 3: line charts ---------- */
+const XC={xmax:100, xticks:[0,20,40,60,80,100]};
+lineChart(document.getElementById('chPm'),{...XC, W:360, H:220,
+  ymin:10, ymax:25, yticks:[10,15,20,25], fmt:t=>t.toFixed(0),
+  series:[
+    {tag:'128',  color:'--s8',  data:PM_128},
+    {tag:'768',  color:'--s1',  data:PM_768, width:2.4},
+    {tag:'1536', color:'--s7',  data:PM_1536},
+  ]});
+lineChart(document.getElementById('chDp'),{...XC, W:360, H:220,
+  ymin:3.8, ymax:6.0, yticks:[4.0,4.5,5.0,5.5,6.0], fmt:t=>t.toFixed(1),
+  series:[
+    {tag:'128',  color:'--s8',  data:DP_128},
+    {tag:'768',  color:'--s1',  data:DP_768, width:2.4},
+    {tag:'1536', color:'--s7',  data:DP_1536},
+  ]});
+lineChart(document.getElementById('chRm'),{...XC, W:360, H:220,
+  ymin:8, ymax:24, yticks:[8,12,16,20,24], fmt:t=>t.toFixed(0),
+  series:[
+    {tag:'128',  color:'--s8',  data:RM_128},
+    {tag:'768',  color:'--s1',  data:RM_768, width:2.4},
+    {tag:'1536', color:'--s7',  data:RM_1536},
+  ]});
+
+document.getElementById('lgCurves').innerHTML=
+  `<span><span class="sw" style="background:var(--s8)"></span>tc128</span>`+
+  `<span><span class="sw" style="background:var(--s1)"></span>tc768</span>`+
+  `<span><span class="sw" style="background:var(--s7)"></span>tc1536 · no squeeze</span>`+
+  `<span style="color:var(--muted)">5-epoch moving average · epochs 0–100</span>`;
+
+/* ---------- slide 4: bar charts ---------- */
+barH(document.getElementById('chBarPm'),{
+  xmax:16, L:74, rh:52, R:100,
+  bars:[
+    {label:'tc128',  value:12.6142, disp:'12.61', color:'--s8'},
+    {label:'tc768',  value:12.6111, disp:'12.61  ≈', color:'--s1', hi:true},
+    {label:'tc1536', value:14.5672, disp:'14.57  +15.5%', color:'--s7'},
+  ]});
+barH(document.getElementById('chBarDp'),{
+  xmax:5.0, L:74, rh:52, R:100,
+  bars:[
+    {label:'tc128',  value:4.5135, disp:'4.51', color:'--s8'},
+    {label:'tc768',  value:4.1123, disp:'4.11  −8.8%', color:'--s1', hi:true},
+    {label:'tc1536', value:3.9339, disp:'3.93  −12.8%', color:'--s7'},
+  ]});
+barH(document.getElementById('chBarRm'),{
+  xmax:14, L:74, rh:52, R:100,
+  bars:[
+    {label:'tc128',  value:9.9087, disp:'9.91', color:'--s8', hi:true},
+    {label:'tc768',  value:10.4680, disp:'10.47  +5.6%', color:'--s1'},
+    {label:'tc1536', value:13.2639, disp:'13.26  +33.9%', color:'--s7'},
+  ]});
+</script>
+</body>
+</html>

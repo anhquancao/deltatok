@@ -1,0 +1,352 @@
+<title>Token Composition Impact</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<style>
+  :root {
+    --bg: #ffffff;
+    --text: #1e293b;
+    --text-secondary: #64748b;
+    --grid: #e8ecf1;
+    --border: #cbd5e1;
+    --baseline: #94a3b8;
+    --baseline-fill: rgba(148, 163, 184, 0.08);
+    --compose: #2563eb;
+    --compose-fill: rgba(37, 99, 235, 0.06);
+    --badge-bg: #ecfdf5;
+    --badge-text: #047857;
+    --badge-border: #a7f3d0;
+    --card-bg: #f8fafc;
+  }
+
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: 'IBM Plex Sans', -apple-system, BlinkMacSystemFont, sans-serif;
+    padding: 48px 56px;
+    max-width: 1280px;
+    margin: 0 auto;
+  }
+
+  .header {
+    margin-bottom: 40px;
+  }
+
+  .header h1 {
+    font-size: 22px;
+    font-weight: 600;
+    letter-spacing: -0.3px;
+    color: var(--text);
+    margin-bottom: 6px;
+    text-wrap: balance;
+  }
+
+  .header .subtitle {
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 12.5px;
+    color: var(--text-secondary);
+    line-height: 1.6;
+  }
+
+  .header .subtitle span {
+    display: inline-block;
+    margin-right: 20px;
+  }
+
+  .charts {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 28px;
+  }
+
+  .chart-card {
+    background: var(--card-bg);
+    border: 1px solid var(--grid);
+    border-radius: 6px;
+    padding: 20px 20px 16px;
+    position: relative;
+  }
+
+  .chart-title-row {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    margin-bottom: 14px;
+  }
+
+  .chart-label {
+    font-size: 14px;
+    font-weight: 600;
+    color: var(--text);
+    letter-spacing: -0.2px;
+  }
+
+  .improvement-badge {
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 12px;
+    font-weight: 500;
+    color: var(--badge-text);
+    background: var(--badge-bg);
+    border: 1px solid var(--badge-border);
+    border-radius: 4px;
+    padding: 2px 7px;
+    white-space: nowrap;
+  }
+
+  .chart-canvas-wrap {
+    position: relative;
+    width: 100%;
+    aspect-ratio: 5 / 3;
+  }
+
+  .chart-canvas-wrap canvas {
+    position: absolute;
+    top: 0; left: 0;
+    width: 100%;
+    height: 100%;
+  }
+
+  .legend {
+    display: flex;
+    gap: 24px;
+    justify-content: center;
+    margin-top: 32px;
+    font-size: 13px;
+    color: var(--text-secondary);
+  }
+
+  .legend-item {
+    display: flex;
+    align-items: center;
+    gap: 7px;
+  }
+
+  .legend-swatch {
+    width: 18px;
+    height: 3px;
+    border-radius: 1.5px;
+  }
+
+  .legend-label {
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 12px;
+  }
+
+  .final-vals {
+    display: flex;
+    gap: 6px;
+    margin-top: 10px;
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 11px;
+    color: var(--text-secondary);
+    font-variant-numeric: tabular-nums;
+  }
+
+  .final-val {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+  }
+
+  .final-dot {
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    flex-shrink: 0;
+  }
+</style>
+
+<div class="header">
+  <h1>Impact of Token Composition on Flow Matching</h1>
+  <div class="subtitle">
+    <span>tc128 · mg9 · sigreg0.005 · XXL-DiT</span>
+    <span>Waymo · consec5 · cam0 · ctx3 fwd2</span>
+    <span>Eval @ 128 steps</span>
+  </div>
+</div>
+
+<div class="charts">
+  <div class="chart-card">
+    <div class="chart-title-row">
+      <span class="chart-label">LossPointmap</span>
+      <span class="improvement-badge">↓ 32.0%</span>
+    </div>
+    <div class="chart-canvas-wrap"><canvas id="c-pointmap"></canvas></div>
+    <div class="final-vals">
+      <span class="final-val"><span class="final-dot" style="background:var(--baseline)"></span>12.61</span>
+      <span class="final-val"><span class="final-dot" style="background:var(--compose)"></span>8.58</span>
+    </div>
+  </div>
+  <div class="chart-card">
+    <div class="chart-title-row">
+      <span class="chart-label">LossDepth</span>
+      <span class="improvement-badge">↓ 15.3%</span>
+    </div>
+    <div class="chart-canvas-wrap"><canvas id="c-depth"></canvas></div>
+    <div class="final-vals">
+      <span class="final-val"><span class="final-dot" style="background:var(--baseline)"></span>4.51</span>
+      <span class="final-val"><span class="final-dot" style="background:var(--compose)"></span>3.82</span>
+    </div>
+  </div>
+  <div class="chart-card">
+    <div class="chart-title-row">
+      <span class="chart-label">LossRaymap</span>
+      <span class="improvement-badge">↓ 41.4%</span>
+    </div>
+    <div class="chart-canvas-wrap"><canvas id="c-raymap"></canvas></div>
+    <div class="final-vals">
+      <span class="final-val"><span class="final-dot" style="background:var(--baseline)"></span>9.91</span>
+      <span class="final-val"><span class="final-dot" style="background:var(--compose)"></span>5.81</span>
+    </div>
+  </div>
+</div>
+
+<div class="legend">
+  <div class="legend-item">
+    <span class="legend-swatch" style="background:var(--baseline)"></span>
+    <span class="legend-label">tc128 baseline</span>
+  </div>
+  <div class="legend-item">
+    <span class="legend-swatch" style="background:var(--compose)"></span>
+    <span class="legend-label">tc128 + compose</span>
+  </div>
+</div>
+
+<script>
+const DATA = {"baseline":{"LossPointmap":{"epochs":[0.44,0.89,1.33,1.78,2.22,2.67,3.11,3.56,4,4.44,4.89,5.33,5.78,6.22,6.67,7.11,7.56,8,8.44,8.89,9.33,9.78,10.22,10.67,11.11,11.56,12,12.44,12.89,13.33,13.78,14.22,14.67,15.11,15.56,16,16.44,16.89,17.33,17.78,18.22,18.67,19.11,19.56,20,20.44,20.89,21.33,21.78,22.22,22.67,23.11,23.56,24,24.44,24.89,25.33,25.78,26.22,26.67,27.11,27.56,28,28.44,28.89,29.33,29.78,30.22,30.67,31.11,31.56,32,32.44,32.89,33.33,33.78,34.22,34.67,35.11,35.56,36,36.44,36.89,37.33,37.78,38.22,38.67,39.11,39.56,40,40.44,40.89,41.33,41.78,42.22,42.67,43.11,43.56,44,44.44,44.89],"values":[22.84,22.06,23.51,23.73,23.85,23.83,21.96,20.86,22.6,24.38,21.43,21.69,23.25,21.12,21.65,20.88,19.64,18.68,19.64,17.91,18.37,17.56,17.87,17.28,17.1,16.63,16.08,16.94,16.69,16.18,15.72,16.44,15.56,17.28,15.07,15.08,14.82,15.04,15.74,14.37,14.28,13.87,15.75,14.32,15.01,14.33,14.45,13.34,14.02,14.84,13.83,14.25,13.1,13.55,12.99,12.5,13.95,13.35,13.41,13.89,14.44,13.85,13.62,12.9,13.2,12.97,12.54,13.05,13.97,13.57,14.96,13.86,13.34,12.57,13.55,13.65,13.56,13.35,13.57,13.5,12.5,13.82,12.81,12.55,13.25,12.99,12.95,13.23,13.53,13.36,12.4,13.21,12.84,13.51,13.18,12.91,12.85,13.17,12.68,13.05,12.61]},"LossDepth":{"epochs":[0.44,0.89,1.33,1.78,2.22,2.67,3.11,3.56,4,4.44,4.89,5.33,5.78,6.22,6.67,7.11,7.56,8,8.44,8.89,9.33,9.78,10.22,10.67,11.11,11.56,12,12.44,12.89,13.33,13.78,14.22,14.67,15.11,15.56,16,16.44,16.89,17.33,17.78,18.22,18.67,19.11,19.56,20,20.44,20.89,21.33,21.78,22.22,22.67,23.11,23.56,24,24.44,24.89,25.33,25.78,26.22,26.67,27.11,27.56,28,28.44,28.89,29.33,29.78,30.22,30.67,31.11,31.56,32,32.44,32.89,33.33,33.78,34.22,34.67,35.11,35.56,36,36.44,36.89,37.33,37.78,38.22,38.67,39.11,39.56,40,40.44,40.89,41.33,41.78,42.22,42.67,43.11,43.56,44,44.44,44.89],"values":[5.99,4.97,4.67,4.54,4.31,4.38,4.44,4.33,4.33,4.34,4.39,4.45,4.46,4.41,4.49,4.48,4.36,4.51,4.38,4.45,4.62,4.57,4.47,4.47,4.36,4.41,4.59,4.46,4.52,4.47,4.47,4.45,4.42,4.53,4.37,4.41,4.46,4.46,4.4,4.52,4.45,4.35,4.58,4.44,4.36,4.39,4.42,4.36,4.41,4.47,4.48,4.4,4.54,4.44,4.43,4.35,4.46,4.57,4.51,4.43,4.49,4.5,4.45,4.52,4.45,4.45,4.55,4.46,4.33,4.48,4.61,4.5,4.45,4.47,4.43,4.44,4.51,4.43,4.45,4.45,4.33,4.45,4.41,4.43,4.43,4.49,4.45,4.4,4.48,4.45,4.47,4.45,4.53,4.47,4.45,4.42,4.49,4.47,4.54,4.53,4.51]},"LossRaymap":{"epochs":[0.44,0.89,1.33,1.78,2.22,2.67,3.11,3.56,4,4.44,4.89,5.33,5.78,6.22,6.67,7.11,7.56,8,8.44,8.89,9.33,9.78,10.22,10.67,11.11,11.56,12,12.44,12.89,13.33,13.78,14.22,14.67,15.11,15.56,16,16.44,16.89,17.33,17.78,18.22,18.67,19.11,19.56,20,20.44,20.89,21.33,21.78,22.22,22.67,23.11,23.56,24,24.44,24.89,25.33,25.78,26.22,26.67,27.11,27.56,28,28.44,28.89,29.33,29.78,30.22,30.67,31.11,31.56,32,32.44,32.89,33.33,33.78,34.22,34.67,35.11,35.56,36,36.44,36.89,37.33,37.78,38.22,38.67,39.11,39.56,40,40.44,40.89,41.33,41.78,42.22,42.67,43.11,43.56,44,44.44,44.89],"values":[16.26,21.91,23,22.93,23.13,22.97,20.68,19.5,21.37,23.48,19.7,20.08,21.81,19.43,20.11,19.04,17.79,16.44,17.74,15.8,16.09,15.48,15.81,15.05,15.08,14.44,13.86,14.76,14.44,13.67,13.33,14.36,13.24,15.03,12.77,12.56,12.34,12.64,13.42,11.82,11.77,11.39,13.13,11.74,12.79,11.89,11.9,10.73,11.53,12.33,11.22,11.76,10.41,10.82,10.33,9.87,11.53,10.62,10.68,11.18,11.79,10.93,10.99,10.13,10.4,10.26,9.81,10.36,11.41,10.78,12.41,11.38,10.72,9.74,10.97,11.04,10.84,10.68,10.98,10.92,9.79,11.24,10.17,9.8,10.59,10.27,10.24,10.48,10.83,10.52,9.5,10.51,10.03,10.93,10.47,10.19,10.19,10.4,9.87,10.27,9.91]}},"compose":{"LossPointmap":{"epochs":[0.44,0.89,1.33,1.78,2.22,2.67,3.11,3.56,4,4.44,4.89,5.33,5.78,6.22,6.67,7.11,7.56,8,8.44,8.89,9.33,9.78,10.22,10.67,11.11,11.56,12,12.44,12.89,13.33,13.78,14.22,14.67,15.11,15.56,16,16.44,16.89,17.33,17.78,18.22,18.67,19.11,19.56,20,20.44,20.89,21.33,21.78,22.22,22.67,23.11,23.56,24,24.44,24.89,25.33,25.78,26.22,26.67,27.11,27.56,28,28.44,28.89,29.33,29.78,30.22,30.67,31.11,31.56,32,32.44,32.89,33.33,33.78,34.22,34.67,35.11,35.56,36,36.44,36.89,37.33,37.78,38.22,38.67,39.11,39.56,40,40.44,40.89,41.33,41.78,42.22,42.67,43.11,43.56,44,44.44],"values":[4.89,14.43,21.18,18.47,15.78,19.22,20.22,19.01,14.21,19.36,16.96,18.46,17.5,14.25,14.4,13.64,18.76,17.41,13.89,15.86,14.07,12.56,14,12.43,12.33,14.43,12.57,14.26,10.54,10.67,10.4,10.89,11.75,11.59,11.79,10.81,11.85,11.52,10.08,11.28,9.9,9.35,11.42,10.17,10.56,9.53,10.11,9.56,10.24,9.57,10.43,9.43,9.84,9.9,10.24,9.84,9.66,10.2,9.75,10.23,9.03,9.47,10.18,9.68,9.31,9.43,9.29,9.13,9.21,8.85,9.7,9.79,9.23,9.33,9.23,9.09,8.68,9.6,8.83,9.47,9.13,8.58,9.25,9,8.68,8.83,8.92,8.62,9.28,9.04,9.01,8.56,8.62,8.57,8.89,8.85,8.49,8.93,8.67,8.58]},"LossDepth":{"epochs":[0.44,0.89,1.33,1.78,2.22,2.67,3.11,3.56,4,4.44,4.89,5.33,5.78,6.22,6.67,7.11,7.56,8,8.44,8.89,9.33,9.78,10.22,10.67,11.11,11.56,12,12.44,12.89,13.33,13.78,14.22,14.67,15.11,15.56,16,16.44,16.89,17.33,17.78,18.22,18.67,19.11,19.56,20,20.44,20.89,21.33,21.78,22.22,22.67,23.11,23.56,24,24.44,24.89,25.33,25.78,26.22,26.67,27.11,27.56,28,28.44,28.89,29.33,29.78,30.22,30.67,31.11,31.56,32,32.44,32.89,33.33,33.78,34.22,34.67,35.11,35.56,36,36.44,36.89,37.33,37.78,38.22,38.67,39.11,39.56,40,40.44,40.89,41.33,41.78,42.22,42.67,43.11,43.56,44,44.44],"values":[4.25,4.33,4.43,4.27,4.24,4.29,4.31,4.12,4.09,4.22,4.08,4.01,4.08,4.12,4.14,4.14,4.1,4.06,4.1,4.03,4.01,4.14,4.09,4.06,4.03,4.1,3.91,4,4.01,3.92,3.97,3.97,4,4.03,3.95,3.95,4.03,4.04,3.88,3.95,3.94,3.89,3.9,3.91,3.89,3.94,3.94,3.9,3.89,3.89,3.98,3.86,3.81,3.91,3.93,4,3.95,3.93,3.93,3.87,3.88,3.85,3.88,3.85,3.86,3.88,3.92,3.88,3.89,3.88,3.87,3.92,3.87,3.88,3.83,3.92,3.89,3.83,3.79,3.94,3.88,3.91,3.9,3.88,3.9,3.87,3.88,3.84,3.87,3.88,3.84,3.83,3.8,3.81,3.83,3.84,3.82,3.95,3.89,3.82]},"LossRaymap":{"epochs":[0.44,0.89,1.33,1.78,2.22,2.67,3.11,3.56,4,4.44,4.89,5.33,5.78,6.22,6.67,7.11,7.56,8,8.44,8.89,9.33,9.78,10.22,10.67,11.11,11.56,12,12.44,12.89,13.33,13.78,14.22,14.67,15.11,15.56,16,16.44,16.89,17.33,17.78,18.22,18.67,19.11,19.56,20,20.44,20.89,21.33,21.78,22.22,22.67,23.11,23.56,24,24.44,24.89,25.33,25.78,26.22,26.67,27.11,27.56,28,28.44,28.89,29.33,29.78,30.22,30.67,31.11,31.56,32,32.44,32.89,33.33,33.78,34.22,34.67,35.11,35.56,36,36.44,36.89,37.33,37.78,38.22,38.67,39.11,39.56,40,40.44,40.89,41.33,41.78,42.22,42.67,43.11,43.56,44,44.44],"values":[3.77,12.55,20.58,17.47,14.29,18.24,19.11,17.82,12.59,17.97,15.28,16.76,15.86,12.16,12.2,11.35,17.05,15.74,11.55,13.82,11.85,9.92,11.73,10.19,9.56,12.1,10,12.19,7.97,8.15,7.84,8.14,9.25,8.9,9.39,8.17,9.35,9.24,7.41,8.84,7.08,6.65,8.98,7.49,7.83,6.67,7.49,6.88,7.51,6.75,7.83,6.69,7.13,7.12,7.44,6.89,6.82,7.59,6.95,7.44,6.23,6.72,7.4,6.99,6.7,6.68,6.61,6.34,6.36,6.1,7.06,7.03,6.53,6.59,6.54,6.29,5.8,7.03,6.1,6.69,6.31,5.72,6.38,6.16,5.97,6.08,6.17,5.89,6.59,6.33,6.18,5.84,5.81,5.83,6.14,6.06,5.7,6.06,5.86,5.81]}}};
+
+function drawChart(canvasId, metric) {
+  const canvas = document.getElementById(canvasId);
+  const dpr = window.devicePixelRatio || 1;
+  const rect = canvas.getBoundingClientRect();
+  canvas.width = rect.width * dpr;
+  canvas.height = rect.height * dpr;
+  const ctx = canvas.getContext('2d');
+  ctx.scale(dpr, dpr);
+  const W = rect.width;
+  const H = rect.height;
+
+  const bData = DATA.baseline[metric];
+  const cData = DATA.compose[metric];
+
+  // Compute axis bounds
+  const allVals = [...bData.values, ...cData.values];
+  const allEps = [...bData.epochs, ...cData.epochs];
+  const minEp = 0;
+  const maxEp = Math.ceil(Math.max(...allEps));
+  let minVal = Math.min(...allVals);
+  let maxVal = Math.max(...allVals);
+  const valPad = (maxVal - minVal) * 0.08;
+  minVal = Math.max(0, minVal - valPad);
+  maxVal = maxVal + valPad;
+
+  // Layout
+  const ml = 42, mr = 12, mt = 6, mb = 28;
+  const pw = W - ml - mr;
+  const ph = H - mt - mb;
+
+  function toX(ep) { return ml + (ep - minEp) / (maxEp - minEp) * pw; }
+  function toY(v) { return mt + (1 - (v - minVal) / (maxVal - minVal)) * ph; }
+
+  // Grid lines — y axis
+  const style = getComputedStyle(document.documentElement);
+  const gridColor = style.getPropertyValue('--grid').trim();
+  const textSecondary = style.getPropertyValue('--text-secondary').trim();
+  const baselineColor = style.getPropertyValue('--baseline').trim();
+  const composeColor = style.getPropertyValue('--compose').trim();
+  const baselineFill = style.getPropertyValue('--baseline-fill').trim();
+  const composeFill = style.getPropertyValue('--compose-fill').trim();
+
+  // Nice y-tick intervals
+  const range = maxVal - minVal;
+  const rawStep = range / 4;
+  const mag = Math.pow(10, Math.floor(Math.log10(rawStep)));
+  const niceSteps = [1, 2, 2.5, 5, 10];
+  let step = niceSteps.find(s => s * mag >= rawStep) * mag;
+
+  const yStart = Math.ceil(minVal / step) * step;
+
+  ctx.strokeStyle = gridColor;
+  ctx.lineWidth = 1;
+  ctx.font = '11px "IBM Plex Sans", sans-serif';
+  ctx.fillStyle = textSecondary;
+  ctx.textAlign = 'right';
+  ctx.textBaseline = 'middle';
+
+  for (let v = yStart; v <= maxVal; v += step) {
+    const y = Math.round(toY(v)) + 0.5;
+    ctx.beginPath();
+    ctx.moveTo(ml, y);
+    ctx.lineTo(W - mr, y);
+    ctx.stroke();
+    ctx.fillText(v % 1 === 0 ? v.toFixed(0) : v.toFixed(1), ml - 6, y);
+  }
+
+  // X axis labels
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'top';
+  const xStep = maxEp <= 20 ? 5 : maxEp <= 50 ? 10 : 20;
+  for (let ep = 0; ep <= maxEp; ep += xStep) {
+    const x = toX(ep);
+    ctx.fillText(ep.toString(), x, H - mb + 8);
+  }
+
+  // X-axis label
+  ctx.fillStyle = textSecondary;
+  ctx.font = '10px "IBM Plex Sans", sans-serif';
+  ctx.fillText('epoch', ml + pw / 2, H - 2);
+
+  // Draw area fills
+  function drawArea(data, fillStyle) {
+    if (data.epochs.length < 2) return;
+    ctx.beginPath();
+    ctx.moveTo(toX(data.epochs[0]), toY(minVal));
+    for (let i = 0; i < data.epochs.length; i++) {
+      ctx.lineTo(toX(data.epochs[i]), toY(data.values[i]));
+    }
+    ctx.lineTo(toX(data.epochs[data.epochs.length - 1]), toY(minVal));
+    ctx.closePath();
+    ctx.fillStyle = fillStyle;
+    ctx.fill();
+  }
+
+  drawArea(bData, baselineFill);
+  drawArea(cData, composeFill);
+
+  // Draw lines
+  function drawLine(data, color, width) {
+    if (data.epochs.length < 2) return;
+    ctx.beginPath();
+    ctx.moveTo(toX(data.epochs[0]), toY(data.values[0]));
+    for (let i = 1; i < data.epochs.length; i++) {
+      ctx.lineTo(toX(data.epochs[i]), toY(data.values[i]));
+    }
+    ctx.strokeStyle = color;
+    ctx.lineWidth = width;
+    ctx.lineJoin = 'round';
+    ctx.stroke();
+  }
+
+  drawLine(bData, baselineColor, 1.8);
+  drawLine(cData, composeColor, 2);
+
+  // End dots
+  function drawDot(ep, val, color) {
+    ctx.beginPath();
+    ctx.arc(toX(ep), toY(val), 3, 0, Math.PI * 2);
+    ctx.fillStyle = color;
+    ctx.fill();
+  }
+  drawDot(bData.epochs[bData.epochs.length - 1], bData.values[bData.values.length - 1], baselineColor);
+  drawDot(cData.epochs[cData.epochs.length - 1], cData.values[cData.values.length - 1], composeColor);
+}
+
+function drawAll() {
+  drawChart('c-pointmap', 'LossPointmap');
+  drawChart('c-depth', 'LossDepth');
+  drawChart('c-raymap', 'LossRaymap');
+}
+
+drawAll();
+window.addEventListener('resize', drawAll);
+</script>
