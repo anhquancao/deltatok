@@ -75,10 +75,13 @@
   </table>
 
   <h2>4 · Re-ablate DeltaTok flow matching (18/08/2026)</h2>
+  <p>One-at-a-time ablation off the compose tc128 baseline (<code>uniform</code>, <code>t_shared=true</code>, <code>linear</code>, <code>alpha=0</code>).</p>
   <table>
-    <tr><th>Ablation</th><th>Status</th><th>Job ID</th><th>Notes</th></tr>
-    <tr><td>Sampling scheduler</td><td><span class="pill p-todo">TODO</span></td><td>—</td><td></td></tr>
-    <tr><td>v-loss</td><td><span class="pill p-todo">TODO</span></td><td>—</td><td></td></tr>
+    <tr><th>Arm</th><th>Ablated param</th><th>Value</th><th>Job ID</th><th>Status</th></tr>
+    <tr><td><code>logitnorm</code></td><td>t_dist</td><td>logitnormal</td><td>44767716</td><td><span class="pill p-pend">PENDING</span></td></tr>
+    <tr><td><code>tindep</code></td><td>t_shared</td><td>false</td><td>44767717</td><td><span class="pill p-pend">PENDING</span></td></tr>
+    <tr><td><code>cosinesched</code></td><td>sampler_scheduler_mode</td><td>cosine</td><td>44767718</td><td><span class="pill p-pend">PENDING</span></td></tr>
+    <tr><td><code>alpha05</code></td><td>sampler_alpha</td><td>0.5</td><td>44767719</td><td><span class="pill p-pend">PENDING</span></td></tr>
   </table>
 
   <h2>5 · Train on all datasets — front cam (18/08/2026)</h2>
