@@ -27,7 +27,7 @@ This machine has no GPUs and no env. SSH to a cluster for anything that runs.
 | | Jean Zay | BSC (MareNostrum) |
 |---|---|---|
 | SSH alias | `jean-zay` (reverse tunnel — see `jeanzay-karolina-tunnel` skill if refused) | `bsc` |
-| Account | `trg@h100` | `ehpc1001` |
+| Account | `trg@h100` | `ehpc1001` or `ehpc880` |
 | Partition / QoS | `gpu_p6` via `-C h100`; `qos_gpu_h100-t3` (20 h) / `-t4` (100 h) / `-dev` (2 h) | `acc`; `acc_ehpc` (prod, 72 h) / `acc_debug` (2 h) |
 | Node shape | 4 GPU, `--cpus-per-task=24` | 4 H100, `--cpus-per-task=20` |
 | Repo path | `$TRG_WORK/code/deltatok` | `/gpfs/projects/ehpc1001/code/deltatok` |
@@ -38,7 +38,7 @@ ssh jean-zay "cd \$TRG_WORK/code/deltatok && source env_jz_h100.sh && <command>"
 ssh bsc "cd /gpfs/projects/ehpc1001/code/deltatok && source env_bsc.sh && <command>"
 ```
 
-Many checked-in scripts carry **stale accounts** (`zuw@h100`, `cya@h100`, `lwy@h100`, `ehpc551`). New and edited files use `trg@h100` / `ehpc1001`.
+Many checked-in scripts carry **stale accounts** (`zuw@h100`, `cya@h100`, `lwy@h100`, `ehpc551`, `ehpc793`). New and edited files use `trg@h100` / `ehpc1001` / `ehpc880`.
 
 **Karolina is deprecated.** Anything tagged `_karolina`, any un-suffixed `slurm/*.slurm`, and any `conda activate occany` is dead. The bare `sh/train_*.sh` wrappers still default `CONFIG_NAME` to a `_karolina` config; the slurm scripts override it.
 
@@ -78,9 +78,9 @@ e = Event.FromString(f.read(ln)); f.read(4)      # tensorboard.compat.proto.even
 ## Running jobs
 
 ```bash
-bash sh/train_deltatok.sh            # DeltaTok tokenizer
-bash sh/train_deltatok_flow.sh       # flow matching
-bash sh/train_occrae_img_decoder.sh  # OccRAE image decoder (MAE-style)
+bash sh/train_deltatok.sh            # DeltaTok tokenizer   → train_deltatok.py
+bash sh/train_deltatok_flow.sh       # flow matching        → train_deltatok_flow.py
+bash sh/train_occrae_img_decoder.sh  # OccRAE image decoder → train_occrae_img_decoder.py
 ssh bsc "bash -lc 'cd /gpfs/projects/ehpc1001/code/deltatok && sbatch slurm/deltatok/<name>_bsc.slurm'"
 ```
 
@@ -117,17 +117,13 @@ The repo trains **DeltaTok** (tokenizer), **DeltaTok-flow** (flow matching), and
 
 `occany/` is a **library, not a training target**. The trainers import `DA3Wrapper` (`occany/model/model_da3.py`), `occany/training_da3.py`, `occany/datasets`, and `occany/loss` from it. `occany/model/must3r_blocks/` is historically named shared code that this path still imports, so it is not dead. Everything else under `occany/` and the root occupancy entrypoints are legacy and out of scope.
 
-**OccRAE** caches DA3 tokens at **layer 12**, a pre-fusion local layer. `OccRAE.encode()` early-exits through `DA3Wrapper.encode_to_layer` and runs only blocks 0–12 of the giant's 40. That fast path holds *only* while `encode_layer < alt_start=13`. `encode_layer: 18` is post-fusion and falls back to a full 40-block forward, roughly 3× the backbone cost, so treat it as a deliberate expense. See `docs/occrae.md`. Components: `extract_occany_features.py` (dump tokens dataset-wide), `occrae/{deltatok,deltatok_flow,img_decoder}_trainer.py`, `occrae/dataset/occrae_tokens.py`, `occrae/network/` and `deltatok_shared.py` (nets), `occrae/sigreg.py` and `z_spread.py` (latent regulariser and diagnostics).
+**OccRAE** caches DA3 tokens at **layer 12**, a pre-fusion local layer. `OccRAE.encode()` early-exits through `DA3Wrapper.encode_to_layer` and runs only blocks 0–12 of the giant's 40. That fast path holds *only* while `encode_layer < alt_start=13`. `encode_layer: 18` is post-fusion and falls back to a full 40-block forward, roughly 3× the backbone cost, so treat it as a deliberate expense. See `docs/occrae.md`. Components: `extract_occany_features.py` (dump tokens dataset-wide), `occrae/{deltatok,deltatok_flow,img_decoder}_trainer.py`, `occrae/dataset/occrae_tokens.py`, `occrae/network/` and `deltatok_shared.py` (nets), `occrae/sigreg.py` and `z_spread.py` (latent regulariser and diagnostics), `occrae/flow_matching.py` (ODE/sampler), `occrae/metric_logger.py` (scalar logging to stdout + TB).
 
 **Configs** mirror `slurm/`: `configs/deltatok/`, `configs/deltatok_flow/`, `configs/rae/`. Each wrapper's `CONFIG_DIR` points at its own folder, so `CONFIG_NAME` stays a bare name. Configs are per-cluster, with the tag (`_bsc`, `_jeanzay`) always the last suffix. Edit the one for the cluster you submit to. Hydra resolves `defaults:` relative to the config's own folder, so a config and its parent must share a folder.
 
-**`third_party/`** must be importable from the checkout. Entrypoints prepend the paths via `occany.utils.runtime_paths.prepend_vendored_import_paths()`, and shell wrappers use `occany_prepend_pythonpath`. The `curope` extension compiles once:
+**`third_party/`** must be importable from the checkout. Entrypoints prepend the paths via `occany.utils.runtime_paths.prepend_vendored_import_paths()`, and shell wrappers use `occany_prepend_pythonpath`.
 
-```bash
-cd third_party/croco/models/curope && python setup.py install
-```
-
-DeltaTok is the active research direction. Read before proposing changes: `docs/deltatok.md`, `docs/deltatok_flow_*.md`, `docs/sigreg_*.md`, dated findings in `docs/journal/*.html`, and design docs in `docs/plans/*.md`.
+DeltaTok is the active research direction. Read before proposing changes: `docs/deltatok.md`, `docs/deltatok_flow_*.md`, `docs/sigreg_*.md`, `docs/cpu_mem_metric_overcount.md`, `docs/ssh_tunnel_jz.md`, dated findings in `docs/journal/*.html`, and design docs in `docs/plans/*.md`.
 
 ## Conventions
 

@@ -1,11 +1,11 @@
 ---
 name: jeanzay-job
-description: Submit, monitor, and tail SLURM jobs on the Jean Zay (IDRIS) H100 cluster for the DeltaTok/OccRAE project. Use whenever running training, evaluation, or feature extraction on Jean Zay — the tertiary GPU site used for H100 training and data backup.
+description: Submit, monitor, and tail SLURM jobs on the Jean Zay (IDRIS) H100 cluster for DeltaTok/OccRAE. Use whenever running training, evaluation, or feature extraction on Jean Zay — one of the two active GPU sites (alongside BSC).
 ---
 
 # Running work on Jean Zay (IDRIS)
 
-Jean Zay is the tertiary GPU site for the DeltaTok/OccRAE project — H100 training plus a data-backup tier. Primary GPU work goes to Karolina (`karolina-job` skill); Jean Zay is used for jobs that explicitly target it (`slurm/*_jz.slurm`, `env_jz_*.sh`). This skill captures the conventions.
+Jean Zay is one of the two active GPU sites for DeltaTok/OccRAE (the other is BSC — `bsc-job` skill). 4× H100-80GB per node. Also hosts a data-backup tier. This skill captures JZ-specific conventions; see CLAUDE.md for shared rules.
 
 ## Cluster context
 
@@ -13,7 +13,7 @@ Jean Zay is the tertiary GPU site for the DeltaTok/OccRAE project — H100 train
 |---|---|
 | SSH alias (from local & cougar) | `jean-zay` |
 | Login node | `jean-zay3.idris.fr`, user `uyl37fq` |
-| Compute account | `lwy@h100` (H100), partition `gpu_p6` (`-C h100`) |
+| Compute account | `trg@h100` (H100), partition `gpu_p6` (`-C h100`) |
 | Storage group | `trg` (checkout + data live here — **separate** from the `lwy` compute allocation) |
 | Repo path on cluster | `$TRG_WORK/code/deltatok` = `/lustre/fswork/projects/rech/trg/uyl37fq/code/deltatok` |
 | Env activation | `source env_jz_h100.sh` (no conda — `module load arch/h100` + `pytorch-gpu/py3/2.5.0`) |
@@ -47,16 +47,17 @@ ssh jean-zay "bash -lc 'cd \$TRG_WORK/code/deltatok && sbatch slurm/<name>_jz.sl
 A bare `ssh jean-zay "... sbatch ..."` runs **non-login**, so the `module` shell function (defined only by the login profile) is never initialized in the submission shell and does **not** propagate into the job via `--export=ALL`. The batch script's `source ~/.bashrc` does **not** rescue this — `.bashrc` early-returns for non-interactive shells, so `module` stays undefined. Symptom: the job starts then dies in ~1s with `module: command not found` (in `*.err`) followed by `ModuleNotFoundError: No module named 'torch'` — `env_jz_h100.sh`'s trailing `echo`s still print to `*.out`, so the OUT log looks like the env was set even though no module loaded. Fix: resubmit with `bash -lc`.
 
 Current scripts:
-- `train_deltatok_jz.slurm` — DeltaTok tokenizer trainer
-- `train_deltatok_camera_rope_jz.slurm` — DeltaTok tokenizer with camera rope
-- `train_deltatok_flow_jz.slurm` — DeltaTok flow-matching trainer (overfit-debug variant)
+- `slurm/deltatok/train_deltatok_multitoken_sigreg_nozn_jz.slurm` — DeltaTok tokenizer (multitoken, SIGReg, no z-norm)
+- `slurm/deltatok/train_deltatok_stage2_bottleneck_jz.slurm` — DeltaTok stage-2 bottleneck
+- `slurm/deltatok_flow/train_deltatok_flow_mix_xxl_sigreg_jz.slurm` — flow matching (mix dataset, SIGReg)
+- `slurm/deltatok_flow/train_deltatok_flow_once_xxl_sigreg_jz.slurm` — flow matching (once dataset)
+- `slurm/deltatok_flow/train_deltatok_flow_waymo_xxl_sigreg_jz.slurm` — flow matching (Waymo)
 
 ### H100 partition (gpu_p6) conventions
 
-- `#SBATCH -C h100`, `#SBATCH --account=lwy@h100`
+- `#SBATCH -C h100`, `#SBATCH --account=trg@h100`
 - 4 GPUs/node: `--gres=gpu:4 --ntasks-per-node=4`, `--cpus-per-task=24` (96 cores/node), `--hint=nomultithread`
 - Default QoS `qos_gpu_h100-t3` caps walltime at **20h**. For up to **100h** (fewer GPUs) add `#SBATCH --qos=qos_gpu_h100-t4`.
-- DeltaTok geom supervision: **disable** `training.use_decode_grad_checkpoint` here (H100-80GB has the memory; it's only needed on Karolina's A100-40GB).
 - Logs/ckpts go to the persistent **fswork** tier (e.g. `$TRG_WORK/deltatok_log`), NOT the working **fsn1** tier — `fsn1` purges files untouched for 30 days.
 
 ## Monitoring
