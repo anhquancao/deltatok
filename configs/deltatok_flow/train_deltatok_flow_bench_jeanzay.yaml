@@ -1,0 +1,26 @@
+defaults:
+  - train_deltatok_flow_waymo_jeanzay
+  - _self_
+
+# Scaling-benchmark overlay: times steps, trains nothing. Data recipe, held-out
+# scene exclusion and every model flag are inherited unchanged; only the epoch
+# length and the eval set move.
+dataset:
+  # 320000/epoch keeps 500 optimizer steps inside ONE epoch even at global batch 512
+  # (625 steps). _end_of_epoch always writes current.pth (deltatok_shared.py:38), so a
+  # boundary inside the measurement would cost a 1.2B-model save and stall every rank.
+  # N @ D tiles a shuffled permutation, so N may exceed the 117k-seq train pool.
+  train_dataset: "320000 @ WaymoSeqMultiView(ROOT='/lustre/fsn1/projects/rech/trg/uyl37fq/occany_dataset/waymo_processed', \
+      seq_pkl_name='seq_surround_temporal_sub5_stride9_fs1_all.pkl', \
+      num_timesteps=5, num_views_per_timestep=5, fixed_cams=[0], \
+      z_far=50, split=None, exclude_scenes=${dataset._waymo_val_scenes}, \
+      resolution=[(518, 266)])"
+  # empty -> eval_one_epoch early-returns (deltatok_flow_trainer.py:699); the startup
+  # sanity eval alone is 16 batches at ~11.7 s plus viz PNGs.
+  test_dataset: ""
+
+training:
+  epoch: 0            # one train_one_epoch pass; max_iter is the real stop
+  max_iter: 500       # optimizer steps; first 100 discarded as warmup
+  print_freq: 10      # in OPTIMIZER updates here (deltatok_flow_trainer.py:633)
+  exit_before_time_limit: false

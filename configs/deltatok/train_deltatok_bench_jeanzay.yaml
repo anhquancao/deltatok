@@ -1,0 +1,30 @@
+defaults:
+  - train_deltatok_jeanzay
+  - _self_
+
+# Scaling-benchmark overlay: times steps, trains nothing.
+# Three deliberate departures from train_deltatok_nt10_bsc (the production recipe):
+#   1. ONE Waymo shard at ONE resolution with the view count pinned. The batch sampler
+#      draws res + views_per_timestep per batch and deals batches round-robin to ranks
+#      (batched_sampler.py:161), so ranks do unequal work and DDP waits for the slowest —
+#      that imbalance grows with rank count and would be charged to the interconnect.
+#   2. 64000 items/epoch, so 500 optimizer steps fit in one epoch even at global batch 64
+#      (_end_of_epoch always writes current.pth; no boundary may land inside the measurement).
+#      N @ D tiles a shuffled permutation, so N may exceed the 122k-seq pool.
+#   3. test_dataset empty -> both trainers early-return from eval_one_epoch.
+dataset:
+  # num_timesteps=10 -> triplet spans up to max_gap=9, matching the production arm.
+  train_dataset: "64000 @ WaymoSeqMultiView(ROOT='/lustre/fsn1/projects/rech/trg/uyl37fq/occany_dataset/waymo_processed', \
+      seq_pkl_name='seq_surround_temporal_sub5_stride9_fs1_all.pkl', \
+      num_timesteps=10, num_views_per_timestep=5, \
+      min_views_per_timestep=2, max_views_per_timestep=2, \
+      z_far=50, split='train', \
+      resolution=[(518, 266)])"
+  test_dataset: ""
+
+training:
+  epoch: 0            # one train_one_epoch pass; max_iter is the real stop
+  max_iter: 500       # optimizer steps; first 100 discarded as warmup
+  print_freq: 10      # in LOADER iterations here (metric_logger.log_every)
+  save_ckpt_every_n_epochs: 0
+  exit_before_time_limit: false
