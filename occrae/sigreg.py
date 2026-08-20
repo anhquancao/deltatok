@@ -59,10 +59,11 @@ class SIGReg(nn.Module):
         return A / A.norm(p=2, dim=0, keepdim=True)                     # unit-norm columns -> sphere
 
     def forward(self, live: torch.Tensor, pool: Optional[torch.Tensor], seed: int,
-                sigma: float = 1.0) -> torch.Tensor:
-        assert sigma > 0, f"sigma must be positive, got {sigma}"        # target std N(0, sigma^2 I)
+                sigma: float | torch.Tensor = 1.0) -> torch.Tensor:
         C = live.shape[-1]                                              # feature dim (Cz)
         s = live.reshape(-1, C).float()                                 # (L, C) L=live rows, the only ones with grad
+        if isinstance(sigma, torch.Tensor):                             # differentiable: no .item()
+            sigma = sigma.to(device=s.device, dtype=s.dtype)            # match device/dtype, stay on graph
         A = self._directions(C, s.device, s.dtype, seed)                # (C, K) shared across ranks
         x_t = ((s @ A) / sigma).unsqueeze(-1) * self.t                  # (L, K, Q) Q=knots; t * <z,a>/sigma
         cos_sum, sin_sum = x_t.cos().sum(0), x_t.sin().sum(0)           # (K, Q) each, differentiable
