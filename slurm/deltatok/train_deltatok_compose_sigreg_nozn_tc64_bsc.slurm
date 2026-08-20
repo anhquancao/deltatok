@@ -10,14 +10,13 @@
 #SBATCH --time=40:00:00
 ##SBATCH --qos=acc_debug
 ##SBATCH --time=02:00:00
-#SBATCH --output=slurm/output/train_deltatok_compose_sigreg_nozn_tc128_bsc_%j.out
-#SBATCH --error=slurm/output/train_deltatok_compose_sigreg_nozn_tc128_bsc_%j.err
+#SBATCH --output=slurm/output/train_deltatok_compose_sigreg_nozn_tc64_bsc_%j.out
+#SBATCH --error=slurm/output/train_deltatok_compose_sigreg_nozn_tc64_bsc_%j.err
 
-# Additive-composition arm on the tc128 sigreg0.005 maxgap recipe. Charged to ehpc1001.
-# COMPOSE_WEIGHT enters RUN_NAME:
-#   ssh bsc "bash -lc 'cd /gpfs/projects/ehpc1001/code/deltatok && COMPOSE_WEIGHT=1.0 sbatch --export=ALL slurm/deltatok/train_deltatok_compose_sigreg_nozn_tc128_bsc.slurm'"
-# Warm-start (optional, zero new params -> loads clean): prepend
-#   INIT_CKPT=$SCRATCH/deltatok_log/deltatok_l12_dtok64_tc128_nozn_maxgap9_vpt1to2_sigreg0.005_ns256_pool8192/ckpts/current.pth
+# Additive-composition arm on the tc64 sigreg0.005 maxgap recipe. Narrowest rung of the
+# tc sweep. Charged to ehpc1001. COMPOSE_WEIGHT enters RUN_NAME:
+#   ssh bsc "bash -lc 'cd /gpfs/projects/ehpc1001/code/deltatok && COMPOSE_WEIGHT=1.0 sbatch --export=ALL slurm/deltatok/train_deltatok_compose_sigreg_nozn_tc64_bsc.slurm'"
+# Train from scratch — a warm-start would break parity with the rest of the sweep.
 
 export COMPOSE_WEIGHT=${COMPOSE_WEIGHT:-1.0}
 export SIGREG_WEIGHT=${SIGREG_WEIGHT:-0.005}   # the arm this composes on top of
@@ -38,15 +37,15 @@ export CONFIG_NAME=train_deltatok_nt10_bsc   # num_timesteps=10 -> triplet spans
 export LOG_AND_CKPT_DIR="$SCRATCH/deltatok_log"
 export RESULTS_DIR="$LOG_AND_CKPT_DIR"
 
-export SIGREG_NUM_SLICES=${SIGREG_NUM_SLICES:-256}      # 2*Cz at tc128
+export SIGREG_NUM_SLICES=${SIGREG_NUM_SLICES:-128}      # 2*Cz at tc64
 export SIGREG_POOL_SAMPLES=${SIGREG_POOL_SAMPLES:-8192}  # NOT weight-neutral; keep 8192 (2026-07-31)
 export SIGREG_WARMUP=${SIGREG_WARMUP:-2000}              # held constant across the sweep
 
-export RUN_NAME=deltatok_l12_dtok64_tc128_nozn_maxgap9_vpt1to2_sigreg${SIGREG_WEIGHT}_ns${SIGREG_NUM_SLICES}_pool${SIGREG_POOL_SAMPLES}_compose${COMPOSE_WEIGHT}
+export RUN_NAME=deltatok_l12_dtok64_tc64_nozn_maxgap9_vpt1to2_sigreg${SIGREG_WEIGHT}_ns${SIGREG_NUM_SLICES}_pool${SIGREG_POOL_SAMPLES}_compose${COMPOSE_WEIGHT}
 
 EXTRA_CFG_ARGS=(
     model.deltatok.num_delta_tokens=64         # K delta tokens/camera (~12:1 compression at full res)
-    model.deltatok.target_channels=128         # < hidden_size -> linear z_proj_down/up bottleneck
+    model.deltatok.target_channels=64          # < hidden_size -> linear z_proj_down/up bottleneck
     model.deltatok.z_norm=false                # compose sums two z; a sum leaves the LN sphere
     model.deltatok.use_camera_rope=false       # layer-12 no-rope run
     model.deltatok.norm_affine=false           # inert at z_norm=false; kept for name parity
