@@ -144,9 +144,33 @@ so it is the same work at every point and speed-up is defined for the weak ladde
 epoch is `64000 / total batch x s/step`. The 4-GPU (1-node) job is the reference: one node is the
 smallest allocatable unit on JUPITER Booster, so no 1-GPU point was measured.
 
+### Geometry foundation model / OccAny (WP2) — measured separately, merged in
+
+| ladder | GPUs | Total Batch Size | Batch/GPU | Training Time/Epoch (s) | Speedup (vs. 4 GPU) | Efficiency (%) |
+|---|---|---|---|---|---|---|
+| strong | 4 | 32 | 2 | 5198 | 1.00 | 100 |
+| strong | 8 | 32 | 2 | 2703 | 1.92 | 96 |
+| **strong** | **16** | **32** | **2** | **1354** | **3.84** | **96** |
+| strong | 32 | 32 | 1 | 815 | 6.38 | 80 |
+| weak | 4 | 8 | 2 | 5253 | 1.00 | 100 |
+| weak | 8 | 16 | 2 | 2707 | 1.94 | 97 |
+| weak | 16 | 32 | 2 | 1354 | 3.88 | 97 |
+| **weak** | **32** | **64** | **2** | **682** | **7.70** | **96** |
+
+Same ladder, same protocol, run in the OccAny checkout (JZ jobs 1190110-1190116, ~40 GPU-h) and
+merged here through `parse_scaling_bench.py --extra-csv`. Source:
+`/home/acao/code/OccAny/docs/journal/occany_scaling_jz.csv`.
+
 Per-step times, peak GPU memory, mean-vs-median and `data:` fractions are in
-`deltatok_scaling_jz.csv`. Plots: `deltatok_scaling_jz_tokenizer.png` and
-`deltatok_scaling_jz_flow.png` (+ `.svg`): time/epoch, speed-up and efficiency against GPU count.
+`deltatok_scaling_jz.csv`. Plots: `deltatok_scaling_jz_{tokenizer,flow,occany}.png` (+ `.svg`):
+time/epoch, speed-up and efficiency against GPU count.
+
+**Pinning the batch shape bounds the efficiency from above.** The tokenizer bench config fixes
+one resolution and two views per timestep to remove rank imbalance. Cost is superlinear in token
+count, so the cost at the mean shape is below the mean cost over the shape distribution, and the
+straggler tax the pinning removes grows with N. OccAny measured the gap directly: 0.677 s/micro-
+step pinned against 0.945-0.967 s in production at the same 16-GPU, b=2 job — a factor 1.41. So
+these efficiencies are an upper bound: the omitted effect only ever makes production slower. The flow ladder is unaffected — it already runs one fixed shape.
 
 ## What the numbers say
 

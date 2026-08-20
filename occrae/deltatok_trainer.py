@@ -1105,8 +1105,10 @@ class DeltaTokTrainer(DeltaTokSharedMixin, Trainer):
                 # share a direction draw. Fine: num_slices >= 2*Cz already meets the coverage
                 # bar, and iter is the one counter guaranteed equal on every rank -- which the
                 # CF all-reduce requires (different directions per rank = corrupt statistic).
+                # sigreg_sigma: target marginal std, i.e. N(0, sigma^2 I) instead of N(0, I).
+                sigma = float(self.cfg.training.get("sigreg_sigma", 1.0))
                 with torch.autocast(device_type="cuda", enabled=False):
-                    loss_sigreg = self.sigreg(live, pool, seed=int(self.cfg.training.iter))
+                    loss_sigreg = self.sigreg(live, pool, seed=int(self.cfg.training.iter), sigma=sigma)
                 loss_total = loss_total + (self._sigreg_weight * ramp * scale) * loss_sigreg
 
             (loss_total / self.grad_cum).backward()

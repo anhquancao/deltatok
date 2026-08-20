@@ -119,6 +119,31 @@ def ladder(points, model, mode):
     return sorted(rows, key=lambda p: p["ngpu"])
 
 
+INT_FIELDS = ("nodes", "ngpu", "bsize", "global", "grad_cum", "n_prints",
+               "epochs_seen", "last_idx")
+
+
+def load_extra_csv(path):
+    """Points measured by another session, in this script's own CSV schema (e.g. OccAny/WP2)."""
+    rows = []
+    with open(path, newline="") as fh:
+        for r in csv.DictReader(fh):
+            p = {"error": None, "path": path}
+            for k, v in r.items():
+                if v in (None, ""):
+                    p[k] = None
+                elif k in INT_FIELDS:
+                    p[k] = int(float(v))
+                elif k in ("model", "mode"):
+                    p[k] = v
+                elif k == "path":
+                    p["path"] = v
+                else:
+                    p[k] = float(v)
+            rows.append(p)
+    return rows
+
+
 def score(rows):
     """Add per-epoch time, speed-up and parallel efficiency, relative to the smallest job.
 
@@ -147,10 +172,10 @@ def score(rows):
 # what makes speed-up meaningful for weak scaling too: the batch grows, the epoch does not.
 EPOCH_SAMPLES = 64000
 
-MD_COLS = [("_ladder", "ladder", "{}"), ("ngpu", "GPUs", "{}"),
+MD_COLS = [("_ladder", "ladder", "{}"), ("ngpu", "GPUs", "{}"), ("nodes", "nodes", "{}"),
            ("global", "Total Batch Size", "{}"), ("bsize", "Batch/GPU", "{}"),
            ("_epoch_s", "Training Time/Epoch (s)", "{:.0f}"),
-           ("_speedup", "Speedup (vs. {base} GPU)", "{:.2f}"),   # {base} filled per table
+           ("_speedup", "Speed-up (vs. {base} GPUs)", "{:.2f}"),  # {base} filled per table
            ("_eff_pct", "Efficiency (%)", "{:.0f}")]
 
 
@@ -180,6 +205,11 @@ def markdown(strong_rows, weak_rows, title, production_ngpu=None):
 # the ladder lands one in each.
 PRODUCTION_NGPU = {"tok": 16, "flow": 32, "occany": {"strong": 16, "weak": 32}}
 
+# key, table heading, figure suffix
+MODELS = (("tok", "DeltaTok tokenizer", "tokenizer"),
+          ("flow", "DeltaTok-flow world model", "flow"),
+          ("occany", "OccAny geometry foundation model", "occany"))
+
 
 def _prod_ngpu(spec, kind):
     """The production GPU count for one ladder. Accepts an int or a per-ladder dict."""
@@ -190,8 +220,7 @@ def plot(groups, path_stem):
     """One figure per model, three panels: training time per epoch, speed-up, efficiency.
 
     All three against GPU count, strong and weak ladders overlaid. Dashed lines are the ideal:
-    1/N for time, N for speed-up, 100% for efficiency. Time and speed-up are log-log; efficiency
-    is linear, since a percentage near 100 reads better on a linear axis.
+    1/N for time, N for speed-up, 100% for efficiency. All axes are linear.
     """
     try:
         import matplotlib
@@ -207,7 +236,7 @@ def plot(groups, path_stem):
               ("epoch_speedup", "Speed-up", False, "Speed-up vs GPUs"),
               ("_eff_pct", "Efficiency (%)", False, "Efficiency vs GPUs"))
 
-    for model, tag in (("tok", "tokenizer"), ("flow", "flow")):
+    for model, _label, tag in MODELS:
         if not (groups.get((model, "strong")) or groups.get((model, "weak"))):
             continue
         # readable when the figure is dropped into a proposal at half page width
@@ -229,12 +258,6 @@ def plot(groups, path_stem):
                 ylo = min(y) if ylo is None else min(ylo, min(y))
                 yhi = max(y) if yhi is None else max(yhi, max(y))
                 ax.plot(x, y, marker=marker, color=color, label=label, zorder=3)
-                # EuroHPC asks that the job size carrying the main load be marked
-                prod = _prod_ngpu(PRODUCTION_NGPU[model], kind)
-                for xi, yi in zip(x, y):
-                    if xi == prod:
-                        ax.plot([xi], [yi], marker="o", ms=18, mfc="none", mec="k",
-                                mew=1.8, zorder=4)
             # ideal reference, anchored at the smallest job
             if base_n is not None:
                 xs = [4, 8, 16, 32] if base_n >= 4 else sorted({r["ngpu"] for k in ("strong", "weak")
@@ -292,6 +315,8 @@ def main():
                     help="samples per epoch used for the time-per-epoch column (default 64000)")
     ap.add_argument("--out-stem", default="docs/journal/deltatok_scaling_jz",
                     help="path stem for the .csv / .md / .png / .svg outputs")
+    ap.add_argument("--extra-csv", action="append", default=[],
+                    help="CSV of points measured elsewhere, same schema (repeatable)")
     args = ap.parse_args()
     EPOCH_SAMPLES = args.epoch_samples
 
@@ -303,6 +328,11 @@ def main():
             continue
         (bad if p["error"] else points).append(p)
 
+    for extra in args.extra_csv:
+        rows = load_extra_csv(extra)
+        points.extend(rows)
+        print(f"merged {len(rows)} points from {extra}")
+
     if not points and not bad:
         sys.exit(f"no benchmark logs found under {args.logs}/{args.glob}")
 
@@ -312,7 +342,7 @@ def main():
     points = list(dedup.values())
 
     groups = {}
-    for model in ("tok", "flow"):
+    for model, _, _ in MODELS:
         for kind in ("strong", "weak"):
             groups[(model, kind)] = score(ladder(points, model, kind))
 
@@ -336,10 +366,10 @@ def main():
             w.writerow(p)
     print(f"wrote {csv_path} ({len(points)} points)")
 
-    md = ["# DeltaTok scaling on Jean Zay H100 (gpu_p6)", "",
+    md = ["# Scaling on Jean Zay H100 (gpu_p6)", "",
           f"{args.warmup} warmup steps discarded; step time is the **mean** of the rest, since "
           f"node-hours are mean x steps. Epoch = {EPOCH_SAMPLES:,} samples.", ""]
-    for model, label in (("tok", "DeltaTok tokenizer"), ("flow", "DeltaTok-flow world model")):
+    for model, label, _ in MODELS:
         st, wk = groups[(model, "strong")], groups[(model, "weak")]
         if st or wk:
             gb = st[0]["global"] if st else "—"
