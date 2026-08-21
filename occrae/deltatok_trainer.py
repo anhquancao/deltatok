@@ -619,6 +619,8 @@ class DeltaTokTrainer(DeltaTokSharedMixin, Trainer):
         # ones every step (see _sigreg_pooled). Cleared at epoch start; it refills within
         # a few micro-batches.
         self._sigreg_zbuf = []
+        # Brownian scaling: target N(0, gap·I) by pre-normalizing z /= √gap
+        self._sigreg_gap_sigma = bool(self.cfg.training.get("sigreg_gap_sigma", False))
 
         # z-spread diagnostics (Eval/<test>/Z*): how much of the Cz budget the code
         # actually uses. Measured on eval only -- a fixed val set makes it comparable
@@ -956,7 +958,7 @@ class DeltaTokTrainer(DeltaTokSharedMixin, Trainer):
             loss_recon   = _log_cosh(x_hat.float(), x.detach().float()).mean()
             loss_compose = _log_cosh(x_hat_comp.float(), feats[:, 2].detach().float()).mean()
 
-        return loss_recon, loss_compose, z
+        return loss_recon, loss_compose, z, step_t
 
     def _feature_loss(self, tokens, x_hat, B, T_minus_1, idx, num_cameras, height, width):
         """Downstream DA3 feature loss. Insert the predicted frames' patch features back
@@ -1046,12 +1048,16 @@ class DeltaTokTrainer(DeltaTokSharedMixin, Trainer):
             loss_compose = None
             if self._compose_weight > 0:
                 # Triplet: 3 timesteps, 2 hops encoded, z_a+z_b decoded, both losses
-                loss, loss_compose, z_compose = self._compose_forward(imgs, num_cameras)
+                loss, loss_compose, z_compose, step_t = self._compose_forward(imgs, num_cameras)
                 loss_total = loss + self._compose_weight * loss_compose
                 loss_bneck = None
                 # SIGReg z: one random hop (keeps row count = single-pair arms)
                 if self.sigreg is not None:
-                    z_bneck = z_compose[:, torch.randint(0, 2, ()).item()]        # (B, N, K, Cz)
+                    hop_idx = torch.randint(0, 2, ()).item()              # 0 or 1: pick hop t0→t1 or t1→t2
+                    z_bneck = z_compose[:, hop_idx]                              # (B, N, K, Cz)
+                    if self._sigreg_gap_sigma:
+                        gap_t = (step_t[:, hop_idx + 1] - step_t[:, hop_idx]).float()  # (B,)
+                        z_bneck = z_bneck / gap_t.sqrt()[:, None, None, None]    # (B, N, K, Cz) z/√gap → N(0, I)
             else:
                 # One pair per sequence: sample gap ~ U[1, max_gap], then a random start.
                 B = imgs.shape[0]
@@ -1089,6 +1095,10 @@ class DeltaTokTrainer(DeltaTokSharedMixin, Trainer):
                         loss_bneck = _log_cosh(z_rec.float(), z_pre.detach().float()).mean()
                     loss_total = loss_total + w_bneck * loss_bneck
 
+                # Brownian scaling: z/√gap → N(0, I) when z ~ N(0, gap·I)
+                if self._sigreg_gap_sigma and self.sigreg is not None:
+                    z_bneck = z_bneck / math.sqrt(gap)                   # scalar gap, same for all B items
+
             # Optional SIGReg anti-collapse loss on the z bottleneck (computed in fp32).
             # Runs EVERY micro-batch on the live rows + the FIFO queue, so it rides the same
             # (loss_total/grad_cum).backward() as the recon loss and needs no grad_cum factor;
@@ -1105,10 +1115,8 @@ class DeltaTokTrainer(DeltaTokSharedMixin, Trainer):
                 # share a direction draw. Fine: num_slices >= 2*Cz already meets the coverage
                 # bar, and iter is the one counter guaranteed equal on every rank -- which the
                 # CF all-reduce requires (different directions per rank = corrupt statistic).
-                # sigreg_sigma: target marginal std, i.e. N(0, sigma^2 I) instead of N(0, I).
-                sigma = float(self.cfg.training.get("sigreg_sigma", 1.0))
                 with torch.autocast(device_type="cuda", enabled=False):
-                    loss_sigreg = self.sigreg(live, pool, seed=int(self.cfg.training.iter), sigma=sigma)
+                    loss_sigreg = self.sigreg(live, pool, seed=int(self.cfg.training.iter))
                 loss_total = loss_total + (self._sigreg_weight * ramp * scale) * loss_sigreg
 
             (loss_total / self.grad_cum).backward()

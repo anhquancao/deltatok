@@ -1,11 +1,11 @@
 """SIGReg: Sketched Isometric Gaussian Regularization (LeJEPA, Balestriero & LeCun 2025).
 
 Random 1D slices + the Epps-Pulley characteristic-function statistic push an embedding
-toward isotropic N(0, sigma^2 I). Cramer-Wold: every 1D marginal being N(0, sigma^2)
-<=> the code is isotropic Gaussian. Used as an anti-collapse regularizer on the DeltaTok
-z bottleneck, which under-uses its budget (tc768 -> participation rank ~290), and to hand
-downstream flow matching an easier target. Self-contained reimpl of the paper's
-MINIMAL.md snippet; no dependency on the lejepa package.
+toward isotropic N(0, I). Cramer-Wold: every 1D marginal being N(0, 1) <=> the code is
+isotropic Gaussian. Used as an anti-collapse regularizer on the DeltaTok z bottleneck,
+which under-uses its budget (tc768 -> participation rank ~290), and to hand downstream
+flow matching an easier target. Self-contained reimpl of the paper's MINIMAL.md snippet;
+no dependency on the lejepa package.
 """
 from typing import Optional
 
@@ -16,13 +16,13 @@ from torch.distributed.nn import all_reduce as autograd_all_reduce  # differenti
 
 
 class SIGReg(nn.Module):
-    """Mean over random slices of the Epps-Pulley discrepancy against N(0, sigma^2).
+    """Mean over random slices of the Epps-Pulley discrepancy against N(0, I).
 
-    ``forward(live, pool, seed, sigma)`` flattens leading dims into samples, treats the last
+    ``forward(live, pool, seed)`` flattens leading dims into samples, treats the last
     dim as features. Drops the classical ``* N * world_size`` test-statistic scaling so the
     value is batch-size-independent -- our ``sigreg_weight`` is not on the paper's ``lamb``
-    scale. ``sigma`` is the target marginal std, per call so it can follow a schedule; it
-    enters only as a projection rescale.
+    scale. The caller pre-normalizes z (e.g. z/√gap for Brownian scaling) so the target
+    is always N(0, I).
 
     ``pool`` is separate from ``live`` because only ``live`` carries grad: the CF is a MEAN,
     so ``(sum_pool + sum_live) / (n_pool + n_live)`` is exact, and running the pool under
@@ -58,20 +58,18 @@ class SIGReg(nn.Module):
         A = torch.randn(C, self.num_slices, device=device, dtype=dtype, generator=g)  # (C, K) K=num_slices
         return A / A.norm(p=2, dim=0, keepdim=True)                     # unit-norm columns -> sphere
 
-    def forward(self, live: torch.Tensor, pool: Optional[torch.Tensor], seed: int,
-                sigma: float | torch.Tensor = 1.0) -> torch.Tensor:
+    def forward(self, live: torch.Tensor, pool: Optional[torch.Tensor],
+                seed: int) -> torch.Tensor:
         C = live.shape[-1]                                              # feature dim (Cz)
         s = live.reshape(-1, C).float()                                 # (L, C) L=live rows, the only ones with grad
-        if isinstance(sigma, torch.Tensor):                             # differentiable: no .item()
-            sigma = sigma.to(device=s.device, dtype=s.dtype)            # match device/dtype, stay on graph
         A = self._directions(C, s.device, s.dtype, seed)                # (C, K) shared across ranks
-        x_t = ((s @ A) / sigma).unsqueeze(-1) * self.t                  # (L, K, Q) Q=knots; t * <z,a>/sigma
+        x_t = (s @ A).unsqueeze(-1) * self.t                            # (L, K, Q) Q=knots; t * <z,a>
         cos_sum, sin_sum = x_t.cos().sum(0), x_t.sin().sum(0)           # (K, Q) each, differentiable
         n = s.shape[0]                                                  # local rows behind the CF
         if pool is not None and pool.numel():
             p = pool.reshape(-1, C).float()                             # (P, C) P=detached queue rows
             with torch.no_grad():
-                proj = (p @ A) / sigma                                  # (P, K) reused across knots
+                proj = p @ A                                            # (P, K) reused across knots
                 p_cos, p_sin = torch.zeros_like(cos_sum), torch.zeros_like(sin_sum)
                 for q in range(self.t.numel()):                         # per knot: (P, K, Q) never lands
                     x = proj * self.t[q]                                # (P, K)

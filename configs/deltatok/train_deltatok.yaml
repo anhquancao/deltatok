@@ -124,6 +124,7 @@ training:
   # grad_cum x the pre-queue code's (and no longer varies with grad_cum) -- sigreg arms from
   # before that change are not weight-comparable.
   sigreg_pool_samples: 8192
+  sigreg_gap_sigma: false  # z/√gap before SIGReg (Brownian: Var ∝ gap)
   # z-spread diagnostics (Eval/<test>/Z*): effective rank of the z covariance, i.e. how
   # much of the Cz budget the code uses. One measurement per eval loader, over that
   # loader's rows pooled across ranks. Runs with or without SIGReg -- that is what makes
