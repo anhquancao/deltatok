@@ -1,0 +1,582 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>DeltaTok-flow alldata XXL DiT: multi-dataset training degrades geometric losses</title>
+<style>
+  :root{
+    --bg:#ffffff; --fg:#1b1f24; --muted:#5b6570; --line:#e3e8ee;
+    --card:#f7f9fb; --accent:#2f6feb; --code:#f0f3f7;
+    --ok:#1a7f37; --warn:#9a6700; --add:#1a7f37; --del:#b42318;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--fg);
+    font:15px/1.6 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;}
+  .wrap{max-width:980px;margin:0 auto;padding:32px 20px 80px;}
+  h1{font-size:26px;margin:0 0 4px;letter-spacing:-.01em}
+  h2{font-size:19px;margin:38px 0 10px;padding-bottom:6px;border-bottom:1px solid var(--line)}
+  h3{font-size:15px;margin:22px 0 6px}
+  .sub{color:var(--muted);margin:0 0 6px}
+  code,pre{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:13px}
+  code{background:var(--code);padding:1px 5px;border-radius:4px;overflow-wrap:anywhere}
+  pre{background:var(--code);border:1px solid var(--line);border-radius:8px;padding:12px 14px;overflow-x:auto}
+  pre code{background:none;padding:0}
+  table{border-collapse:collapse;width:100%;margin:10px 0;font-size:14px;display:block;overflow-x:auto}
+  th,td{border:1px solid var(--line);padding:7px 10px;text-align:left;vertical-align:top;white-space:nowrap}
+  th{background:var(--card);font-weight:600}
+  .meta{display:flex;flex-wrap:wrap;gap:8px 18px;color:var(--muted);font-size:13px;margin:10px 0 0}
+  .meta b{color:var(--fg);font-weight:600}
+  .card{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:14px 16px;margin:12px 0}
+  .card.warn{border-color:var(--warn)}
+  .card.ok{border-color:var(--ok)}
+  ul,ol{margin:6px 0 6px 4px;padding-left:20px}
+  li{margin:5px 0}
+  .small{color:var(--muted);font-size:12.5px}
+  .add{color:var(--add);font-weight:600}
+  .del{color:var(--del);font-weight:600}
+  .num{font-variant-numeric:tabular-nums}
+  .fileh{font-family:ui-monospace,monospace;font-size:12px}
+  tr.grp td{background:var(--card)}
+  tr.note td{background:var(--card);border-top:none;padding-top:2px;line-height:1.5;white-space:normal}
+  .row{display:flex;flex-wrap:wrap;gap:16px}
+  .row>div{flex:1 1 400px;min-width:0}
+  .cap{font-size:12px;color:var(--muted);margin-bottom:2px}
+  .legend{display:flex;flex-wrap:wrap;gap:6px 18px;font-size:12.5px;color:var(--muted);margin:8px 0 2px}
+  .legend i{display:inline-block;width:16px;height:3px;border-radius:2px;vertical-align:middle;margin-right:6px}
+  .legend i.dash{background:repeating-linear-gradient(90deg,#8b949e 0 5px,transparent 5px 8px)}
+  canvas{display:block;width:100%;height:auto;margin:6px 0 2px}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <h1>DeltaTok-flow alldata XXL DiT: alldata trails Waymo-only at matched epochs</h1>
+  <p class="sub">Pointmap, Depth, Raymap eval on Waymo (ID), nuScenes &amp; KITTI (OOD) — ep 0–77 from random init, BSC.</p>
+  <div class="meta">
+    <span><b>Date</b> 24/08/2026</span>
+    <span><b>Branch</b> <code>revert</code></span>
+    <span><b>Cluster</b> BSC · <code>ehpc880</code></span>
+    <span><b>Job</b> <code>BSC:44854951</code></span>
+    <span><b>Run</b> <code>deltatok_flow_alldata_consec5cam0_ctx3fwd2_tc128mg9sigreg005compose_xxl_dit</code></span>
+    <span><b>Source</b> <code>*.out</code> eval lines</span>
+  </div>
+
+  <div class="card warn">
+    <b>Verdict — alldata converges slower and trails Waymo-only on Waymo eval.</b>
+    Both runs start from random DiT init with the same frozen tokenizer.
+    At matched ep 77 the alldata run is <span class="del">16% worse</span> on Waymo Pointmap (11.10 vs 9.60)
+    and <span class="del">24% worse</span> on Raymap (8.70 vs 7.03).
+    All metrics remain 2–10× above the tokenizer ceiling after 77 epochs, and convergence is noisy
+    (CV 4–12% over the last 10 epochs). No OOD baseline exists from the Waymo-only run to judge
+    whether alldata helps on nuScenes/KITTI.
+    <br><br>
+    Run stopped at ep 77/100 due to walltime. No chain-resume submitted.
+  </div>
+
+  <h2>Setup</h2>
+  <table>
+    <tr><th>Parameter</th><th>Value</th></tr>
+    <tr><td>Model</td><td><code>xxlarge_d20</code> DiT-AdaLN, width 1536 (~1.2B params)</td></tr>
+    <tr><td>Tokenizer</td><td>ep40 of <code>deltatok_l12_dtok64_tc128_nozn_maxgap9_vpt1to2_sigreg0.005_ns256_pool8192_compose1.0</code></td></tr>
+    <tr><td>Conditioning</td><td><code>delta_ctx_cross</code> — 3 context frames (0–2), 2 forward (3–4)</td></tr>
+    <tr><td>Loss</td><td>v-MSE, uniform <code>t</code>, shared <code>t</code> per sample</td></tr>
+    <tr><td>LR</td><td>1e-4 constant, 1000 warmup steps</td></tr>
+    <tr><td>Train data</td><td>5 front-cam sources: Waymo 8k + VKitti 5k + DDAD 7.5k + Pandaset 3.5k + ONCE 8k</td></tr>
+    <tr><td>Eval data</td><td>Waymo 128 (in-domain) · nuScenes 256 · KITTI 256 (both zero-shot OOD)</td></tr>
+    <tr><td>Init</td><td>Random DiT + frozen tokenizer (no flow checkpoint loaded)</td></tr>
+  </table>
+
+  <h2>Training curves</h2>
+  <p>78 epochs (0–77) from random DiT init. Ep 0 is the eval after the first training epoch —
+    ignore its value as a baseline. Geometric losses peak around ep 2–4 then slowly descend.
+    Dashed lines = tokenizer ceiling (<code>_tok</code>). Hover for values.</p>
+
+  <div class="legend">
+    <span><i style="background:#2f6feb"></i>Waymo (ID)</span>
+    <span><i style="background:#cf222e"></i>KITTI (OOD)</span>
+    <span><i style="background:#1a7f37"></i>nuScenes (OOD)</span>
+    <span><i class="dash"></i>Tokenizer ceiling</span>
+  </div>
+
+  <div class="row">
+    <div>
+      <div class="cap"><b>Pointmap</b> — geometric 3D error (lower = better)</div>
+      <canvas id="c-pointmap" height="220"></canvas>
+    </div>
+    <div>
+      <div class="cap"><b>Depth</b> — closest to ceiling across all datasets</div>
+      <canvas id="c-depth" height="220"></canvas>
+    </div>
+  </div>
+  <div class="row">
+    <div>
+      <div class="cap"><b>Raymap</b> — largest ceiling gap (5–10×)</div>
+      <canvas id="c-raymap" height="220"></canvas>
+    </div>
+    <div>
+      <div class="cap"><b>MSEToken</b> — token-level fidelity</div>
+      <canvas id="c-msetoken" height="220"></canvas>
+    </div>
+  </div>
+
+  <h2>Alldata vs Waymo-only on Waymo eval</h2>
+  <p>Both from random DiT init, same frozen tokenizer. Waymo-only runs to ep 99; alldata stops at ep 77.
+    Solid = alldata, dashed = Waymo-only. Hover for values.</p>
+
+  <div class="legend">
+    <span><i style="background:#2f6feb"></i>Alldata (Waymo eval)</span>
+    <span><i class="dash"></i>Waymo-only</span>
+  </div>
+
+  <div class="row">
+    <div>
+      <div class="cap"><b>Pointmap</b> — alldata 11.10 vs Waymo-only 9.60 at ep 77 (<span class="del">+16%</span>)</div>
+      <canvas id="c-cmp-pointmap" height="220"></canvas>
+    </div>
+    <div>
+      <div class="cap"><b>Raymap</b> — alldata 8.70 vs Waymo-only 7.03 at ep 77 (<span class="del">+24%</span>)</div>
+      <canvas id="c-cmp-raymap" height="220"></canvas>
+    </div>
+  </div>
+
+  <h2>Eval metrics at ep 77</h2>
+  <table>
+    <tr>
+      <th>Metric</th>
+      <th colspan="2">Waymo (ID)</th>
+      <th colspan="2">nuScenes (OOD)</th>
+      <th colspan="2">KITTI (OOD)</th>
+    </tr>
+    <tr>
+      <th></th><th>Value</th><th>Gap to ceil</th>
+      <th>Value</th><th>Gap to ceil</th>
+      <th>Value</th><th>Gap to ceil</th>
+    </tr>
+    <tr>
+      <td><b>Pointmap</b></td>
+      <td class="num">11.10</td><td class="num del">2.7× (ceil 4.06)</td>
+      <td class="num">12.72</td><td class="num del">3.4× (ceil 3.79)</td>
+      <td class="num">18.55</td><td class="num del">6.3× (ceil 2.94)</td>
+    </tr>
+    <tr>
+      <td><b>Depth</b></td>
+      <td class="num">3.88</td><td class="num">1.4× (ceil 2.80)</td>
+      <td class="num">3.62</td><td class="num">1.2× (ceil 3.01)</td>
+      <td class="num">3.12</td><td class="num">1.9× (ceil 1.68)</td>
+    </tr>
+    <tr>
+      <td><b>Raymap</b></td>
+      <td class="num">8.70</td><td class="num del">5.2× (ceil 1.68)</td>
+      <td class="num">11.11</td><td class="num del">8.1× (ceil 1.37)</td>
+      <td class="num">18.36</td><td class="num del">10.1× (ceil 1.82)</td>
+    </tr>
+    <tr>
+      <td><b>MSEToken</b></td>
+      <td class="num">1.00</td><td></td>
+      <td class="num">1.00</td><td></td>
+      <td class="num">1.95</td><td></td>
+    </tr>
+    <tr>
+      <td><b>LossFlow</b></td>
+      <td class="num">0.790</td><td></td>
+      <td class="num">0.825</td><td></td>
+      <td class="num">1.826</td><td></td>
+    </tr>
+  </table>
+
+  <h2>vs Waymo-only baseline (same tokenizer, both from random init)</h2>
+  <p>Comparison on Waymo eval only — the Waymo-only run does not eval on KITTI/nuScenes.
+    Run: <code>BSC:44680758</code>.</p>
+  <table>
+    <tr><th>Metric</th><th>Alldata ep 77</th><th>Waymo-only ep 77</th><th>Δ</th><th>Waymo-only ep 99</th></tr>
+    <tr>
+      <td><b>Pointmap</b></td>
+      <td class="num">11.10</td>
+      <td class="num">9.60</td>
+      <td class="num del">+16%</td>
+      <td class="num">8.58</td>
+    </tr>
+    <tr>
+      <td><b>Depth</b></td>
+      <td class="num">3.88</td>
+      <td class="num">3.83</td>
+      <td class="num del">+1.3%</td>
+      <td class="num">3.82</td>
+    </tr>
+    <tr>
+      <td><b>Raymap</b></td>
+      <td class="num">8.70</td>
+      <td class="num">7.03</td>
+      <td class="num del">+24%</td>
+      <td class="num">5.81</td>
+    </tr>
+    <tr>
+      <td><b>MSEToken</b></td>
+      <td class="num">1.00</td>
+      <td class="num">0.99</td>
+      <td class="num">+1%</td>
+      <td class="num">0.97</td>
+    </tr>
+  </table>
+
+  <h2>Convergence (last 10 epochs, ep 68–77)</h2>
+  <table>
+    <tr><th>Dataset</th><th>Pointmap CV</th><th>Depth CV</th><th>Raymap CV</th></tr>
+    <tr><td><b>Waymo</b></td><td class="num">9.2%</td><td class="num">1.0%</td><td class="num">12.0%</td></tr>
+    <tr><td><b>nuScenes</b></td><td class="num">6.8%</td><td class="num">0.6%</td><td class="num">9.7%</td></tr>
+    <tr><td><b>KITTI</b></td><td class="num">4.3%</td><td class="num">0.3%</td><td class="num">4.8%</td></tr>
+  </table>
+  <p class="small">CV = std/mean over last 10 epochs. Depth is stable; Pointmap and Raymap still oscillate 4–12%.</p>
+
+  <h2>Ep 24 anomaly</h2>
+  <p>
+    All three datasets dip sharply at ep 24 — nuScenes Pointmap hits 8.91 (vs 12.72 at ep 77),
+    Waymo drops to 8.21 (vs 11.10 at ep 77). By ep 25 losses revert to ~16 / ~15.
+    Single-epoch effect; likely a lucky eval batch or a transient basin.
+  </p>
+
+  <h2>Observations</h2>
+  <ul>
+    <li><b>Alldata trails Waymo-only at matched epochs.</b> On Waymo eval at ep 77: Pointmap 11.10 vs 9.60
+      (<span class="del">+16%</span>), Raymap 8.70 vs 7.03 (<span class="del">+24%</span>).
+      Both trained from random init on the same tokenizer. The extra data dilutes per-dataset
+      gradient signal without compensating via transfer.</li>
+    <li><b>No OOD baseline.</b> The Waymo-only run does not eval on KITTI/nuScenes, so we cannot
+      tell whether alldata helps zero-shot transfer. The alldata OOD numbers (KITTI Ptmap 18.55,
+      nuScenes 12.72) stand alone.</li>
+    <li><b>KITTI is hardest</b> — Pointmap 6.3× ceiling, Raymap 10.1×. Its tokenizer ceiling is
+      the smallest (Ptmap 2.94), amplifying the ceiling-relative gap.</li>
+    <li><b>Gap to ceiling is 2–10× across all datasets.</b> Depth is closest (1.2–1.9×). Pointmap
+      and Raymap are 2.7–10.1×. The Waymo-only run has similarly large ceiling gaps, pointing to
+      the flow model architecture or conditioning as the bottleneck, not data.</li>
+    <li><b>Not converged.</b> CV 4–12% on Pointmap/Raymap over last 10 epochs. Run stopped at ep 77/100
+      due to walltime exit. Remaining epochs could narrow the gap but are unlikely to close it.</li>
+  </ul>
+
+</div>
+
+<script>
+// ── Data ──────────────────────────────────────────────────────
+const D = {
+  waymo: {
+    label: 'Waymo',
+    pointmap: [8.01,12.51,20.13,18.94,21.60,18.42,15.26,17.89,18.00,19.92,14.81,19.68,19.95,18.12,16.16,17.53,13.81,17.72,18.16,14.70,15.26,16.96,17.79,15.78,8.21,14.89,14.24,13.15,14.45,15.08,16.95,15.16,12.52,15.38,12.95,16.44,13.16,12.81,14.82,16.21,14.20,13.54,13.51,13.13,11.59,11.94,13.02,14.17,13.43,13.96,13.60,11.57,12.61,13.50,14.36,11.51,12.58,17.05,13.29,12.94,14.02,11.74,13.35,10.71,14.06,12.57,11.12,13.43,11.98,14.48,13.80,13.57,13.12,13.07,11.48,13.24,11.30,11.10],
+    depth: [4.20,4.32,4.31,4.32,4.25,4.27,4.29,4.31,4.27,4.34,4.17,4.31,4.30,4.19,4.18,4.10,4.15,4.21,4.11,4.16,4.07,4.10,4.00,4.14,4.17,4.08,4.11,4.10,4.02,4.07,4.08,3.96,4.06,4.05,4.03,3.99,3.99,3.94,4.02,4.06,3.97,4.03,4.11,4.08,4.01,4.10,4.01,3.95,4.06,4.00,3.99,3.97,3.98,4.03,3.95,4.05,4.04,3.99,4.01,3.87,3.99,4.00,3.89,3.92,3.91,3.92,3.94,3.98,3.91,3.97,3.99,3.92,3.95,3.96,3.91,3.99,3.89,3.88],
+    raymap: [6.86,10.74,19.39,17.99,21.39,17.39,13.74,16.37,16.67,18.61,13.27,18.38,18.89,16.58,14.31,16.12,11.95,16.11,16.59,12.50,13.22,15.35,16.00,13.73,6.37,13.03,12.05,10.92,12.18,12.92,15.13,13.24,10.06,13.65,10.51,15.11,10.90,10.81,12.70,14.33,12.21,11.28,10.93,10.73,9.21,9.57,10.60,12.04,10.77,11.67,11.53,8.93,10.57,11.19,12.09,8.93,10.20,15.22,10.98,10.78,11.85,9.58,11.44,8.18,12.24,10.19,8.61,11.21,9.66,12.37,11.58,11.32,10.63,10.81,9.19,10.81,8.80,8.70],
+    msetoken: [1.47,1.14,1.32,1.34,1.46,1.24,1.15,1.15,1.17,1.24,1.10,1.14,1.17,1.14,1.10,1.16,1.05,1.15,1.13,1.07,1.09,1.13,1.08,1.08,0.94,1.07,1.08,1.08,1.08,1.08,1.09,1.08,1.05,1.11,1.05,1.15,1.09,1.07,1.07,1.07,1.06,1.07,1.08,1.04,1.03,1.02,1.05,1.08,1.02,1.05,1.07,1.03,1.04,1.09,1.07,0.99,1.07,1.13,1.01,1.05,1.06,1.02,1.09,1.00,1.09,1.04,1.01,1.07,1.05,1.08,1.07,1.06,1.04,1.11,1.04,1.04,1.02,1.00],
+    ceil: { pointmap: 4.055, depth: 2.798, raymap: 1.679 },
+    color: '#2f6feb'
+  },
+  kitti: {
+    label: 'KITTI',
+    pointmap: [8.03,12.91,21.31,21.45,22.94,21.02,18.92,18.44,19.33,22.71,18.31,23.84,23.47,24.20,20.64,23.18,20.30,22.90,22.97,22.51,20.52,21.18,23.62,21.69,17.61,22.53,22.19,18.87,21.86,22.61,23.18,22.01,21.02,20.58,19.40,22.85,20.83,19.18,21.47,21.91,20.72,20.15,19.72,21.55,19.25,19.69,20.91,19.80,19.28,22.30,20.67,19.00,20.09,19.70,20.89,19.21,20.51,22.32,19.66,19.21,19.73,18.89,19.75,18.66,19.97,18.69,17.87,19.48,19.38,19.49,19.95,20.45,20.32,20.44,19.12,20.25,17.98,18.55],
+    depth: [3.58,3.50,3.42,3.44,3.43,3.37,3.31,3.25,3.30,3.32,3.29,3.37,3.30,3.32,3.27,3.24,3.21,3.24,3.20,3.25,3.21,3.23,3.21,3.22,3.17,3.19,3.19,3.17,3.18,3.18,3.20,3.26,3.16,3.21,3.16,3.21,3.19,3.16,3.14,3.17,3.16,3.16,3.20,3.16,3.16,3.17,3.15,3.17,3.17,3.20,3.19,3.19,3.16,3.14,3.15,3.14,3.20,3.19,3.14,3.16,3.14,3.12,3.12,3.13,3.16,3.16,3.10,3.13,3.14,3.12,3.14,3.13,3.12,3.14,3.13,3.13,3.11,3.12],
+    raymap: [6.63,11.99,21.38,21.25,23.38,21.05,18.67,18.20,19.17,22.75,18.28,24.03,23.62,24.41,20.70,23.59,20.00,22.88,23.22,22.51,20.46,21.29,23.81,21.54,17.43,22.85,22.23,19.00,21.97,22.56,23.30,22.05,21.17,20.58,19.44,23.29,21.13,19.38,21.46,21.88,20.90,20.23,19.61,21.49,19.16,19.65,20.62,19.92,19.40,22.40,20.78,19.03,19.98,19.72,20.94,19.15,20.46,22.56,19.54,19.08,19.81,18.96,19.79,18.60,19.74,18.57,17.67,19.43,19.17,19.28,19.74,20.30,20.23,20.51,18.90,20.17,17.64,18.36],
+    msetoken: [2.37,1.96,2.20,2.35,2.33,2.16,2.08,1.99,2.04,2.27,2.08,2.04,2.13,2.13,2.04,2.18,1.98,2.17,2.16,2.11,2.10,2.13,2.04,2.09,1.96,2.04,2.16,2.13,2.15,2.15,2.11,2.12,2.12,2.14,2.11,2.27,2.20,2.16,2.17,2.15,2.12,2.12,2.15,2.13,2.12,2.04,2.14,2.15,2.06,2.13,2.17,2.09,2.09,2.11,2.12,2.00,2.16,2.14,2.03,2.00,2.05,2.04,2.06,1.97,2.10,2.03,2.00,2.06,2.04,1.97,2.02,2.08,2.05,2.15,2.01,2.07,1.98,1.95],
+    ceil: { pointmap: 2.938, depth: 1.682, raymap: 1.815 },
+    color: '#cf222e'
+  },
+  nuscenes: {
+    label: 'nuScenes',
+    pointmap: [10.18,15.59,19.80,20.17,20.19,19.12,16.13,17.06,18.27,19.85,15.63,19.06,19.88,18.71,16.40,18.62,14.69,18.06,18.30,15.66,16.07,17.13,17.72,16.25,8.91,16.44,14.95,13.75,15.19,16.19,16.83,16.71,13.92,16.13,13.79,17.68,14.47,13.52,14.77,16.60,15.46,14.43,14.65,13.21,12.74,13.19,13.39,13.98,13.49,15.14,14.88,12.84,13.58,13.74,14.44,12.54,13.86,17.30,13.81,14.00,14.48,12.97,14.03,11.35,14.95,13.09,11.38,14.61,12.80,14.80,13.83,14.34,13.79,14.10,12.33,13.49,12.01,12.72],
+    depth: [3.83,3.87,3.96,3.90,3.98,3.87,3.81,3.73,3.78,3.75,3.72,3.73,3.73,3.74,3.72,3.73,3.68,3.72,3.72,3.68,3.67,3.68,3.65,3.70,3.65,3.65,3.70,3.68,3.67,3.67,3.63,3.64,3.65,3.71,3.66,3.68,3.67,3.64,3.69,3.68,3.69,3.63,3.63,3.63,3.62,3.66,3.68,3.68,3.69,3.63,3.70,3.66,3.67,3.65,3.67,3.61,3.66,3.67,3.67,3.65,3.66,3.72,3.67,3.60,3.67,3.66,3.61,3.66,3.65,3.66,3.69,3.66,3.65,3.67,3.63,3.68,3.67,3.62],
+    raymap: [8.01,13.60,18.20,18.53,19.00,17.53,14.38,15.60,16.89,18.66,13.78,17.88,18.73,17.41,14.68,17.20,12.85,16.73,16.78,14.03,14.69,15.65,16.18,14.90,6.86,14.83,13.42,12.10,13.83,14.68,15.63,15.52,12.17,14.90,12.11,16.53,13.04,11.99,13.52,15.30,14.08,12.91,12.90,11.55,10.83,11.20,11.65,12.66,11.85,13.51,13.54,10.96,11.81,12.08,13.12,10.78,12.42,16.21,12.27,12.52,13.06,11.34,12.55,9.42,13.36,11.37,9.50,12.97,11.04,13.66,12.54,12.83,12.01,12.55,10.29,11.79,10.15,11.11],
+    msetoken: [1.45,1.10,1.31,1.34,1.39,1.22,1.12,1.13,1.15,1.24,1.08,1.12,1.16,1.13,1.08,1.16,1.03,1.14,1.13,1.07,1.08,1.12,1.07,1.08,0.93,1.06,1.08,1.06,1.08,1.08,1.10,1.08,1.05,1.10,1.05,1.15,1.09,1.07,1.07,1.08,1.06,1.07,1.08,1.04,1.04,1.02,1.05,1.08,1.03,1.06,1.08,1.03,1.05,1.08,1.07,1.00,1.08,1.13,1.03,1.05,1.08,1.03,1.10,1.01,1.11,1.06,1.02,1.08,1.05,1.08,1.07,1.08,1.05,1.13,1.04,1.05,1.03,1.00],
+    ceil: { pointmap: 3.794, depth: 3.005, raymap: 1.371 },
+    color: '#1a7f37'
+  }
+};
+
+const KEYS = ['waymo','nuscenes','kitti'];
+
+// ── Canvas charts ─────────────────────────────────────────────
+function draw(id, metric, yLabel) {
+  const canvas = document.getElementById(id);
+  const dpr = window.devicePixelRatio || 1;
+  const rect = canvas.getBoundingClientRect();
+  const W = rect.width, H = rect.height || 220;
+  canvas.width = W * dpr; canvas.height = H * dpr;
+  canvas.style.height = H + 'px';
+  const ctx = canvas.getContext('2d');
+  ctx.scale(dpr, dpr);
+
+  const m = { l:48, r:12, t:10, b:26 };
+  const pw = W - m.l - m.r, ph = H - m.t - m.b;
+
+  // Y range
+  let yMin = Infinity, yMax = -Infinity;
+  for (const k of KEYS) {
+    const a = D[k][metric];
+    for (const v of a) { yMin = Math.min(yMin, v); yMax = Math.max(yMax, v); }
+    const c = D[k].ceil[metric];
+    yMin = Math.min(yMin, c);
+  }
+  if (metric === 'depth') {
+    yMin = Math.floor(yMin * 4) / 4 - 0.1;
+    yMax = Math.ceil(yMax * 4) / 4 + 0.1;
+  } else {
+    yMin = 0;
+    yMax = Math.ceil(yMax / 5) * 5;
+  }
+  const yr = yMax - yMin;
+
+  function xp(i) { return m.l + (i / 77) * pw; }
+  function yp(v) { return m.t + (1 - (v - yMin) / yr) * ph; }
+
+  // Grid
+  ctx.strokeStyle = '#e3e8ee';
+  ctx.lineWidth = 1;
+  const nTicks = 5;
+  ctx.font = '10px -apple-system, system-ui, sans-serif';
+  ctx.fillStyle = '#8b949e';
+  ctx.textAlign = 'right';
+  for (let i = 0; i <= nTicks; i++) {
+    const v = yMin + (i / nTicks) * yr;
+    const y = Math.round(yp(v)) + 0.5;
+    ctx.beginPath(); ctx.moveTo(m.l, y); ctx.lineTo(W - m.r, y); ctx.stroke();
+    ctx.fillText(v.toFixed(metric === 'depth' ? 1 : 0), m.l - 6, y + 3.5);
+  }
+
+  // X ticks
+  ctx.textAlign = 'center';
+  for (const ep of [0,10,20,30,40,50,60,70,77]) {
+    const x = Math.round(xp(ep)) + 0.5;
+    ctx.beginPath(); ctx.moveTo(x, H - m.b); ctx.lineTo(x, H - m.b + 4); ctx.stroke();
+    ctx.fillText(ep, x, H - m.b + 16);
+  }
+
+  // Axes
+  ctx.strokeStyle = '#c3c2b7';
+  ctx.beginPath();
+  ctx.moveTo(m.l, m.t); ctx.lineTo(m.l, H - m.b); ctx.lineTo(W - m.r, H - m.b);
+  ctx.stroke();
+
+  // Ceiling lines (dashed)
+  ctx.setLineDash([5, 3]);
+  ctx.strokeStyle = '#8b949e';
+  ctx.lineWidth = 1;
+  for (const k of KEYS) {
+    const cy = yp(D[k].ceil[metric]);
+    if (cy > m.t && cy < H - m.b) {
+      ctx.beginPath(); ctx.moveTo(m.l, cy); ctx.lineTo(W - m.r, cy); ctx.stroke();
+    }
+  }
+  ctx.setLineDash([]);
+
+  // Data lines
+  ctx.lineWidth = 2;
+  ctx.lineJoin = 'round';
+  ctx.lineCap = 'round';
+  for (const k of KEYS) {
+    ctx.strokeStyle = D[k].color;
+    ctx.beginPath();
+    const a = D[k][metric];
+    for (let i = 0; i < a.length; i++) {
+      const x = xp(i), y = yp(a[i]);
+      i === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y);
+    }
+    ctx.stroke();
+  }
+
+  // End dots (ep 77)
+  for (const k of KEYS) {
+    const v = D[k][metric][77];
+    const cx = xp(77), cy = yp(v);
+    ctx.fillStyle = '#ffffff';
+    ctx.beginPath(); ctx.arc(cx, cy, 5, 0, Math.PI * 2); ctx.fill();
+    ctx.fillStyle = D[k].color;
+    ctx.beginPath(); ctx.arc(cx, cy, 3.5, 0, Math.PI * 2); ctx.fill();
+  }
+
+  // Init dots (ep 0)
+  for (const k of KEYS) {
+    const v = D[k][metric][0];
+    const cx = xp(0), cy = yp(v);
+    ctx.fillStyle = '#ffffff';
+    ctx.beginPath(); ctx.arc(cx, cy, 4, 0, Math.PI * 2); ctx.fill();
+    ctx.fillStyle = D[k].color;
+    ctx.beginPath(); ctx.arc(cx, cy, 2.5, 0, Math.PI * 2); ctx.fill();
+  }
+
+  // Hover tooltip
+  const tip = document.createElement('div');
+  tip.style.cssText = 'position:absolute;pointer-events:none;background:#fff;border:1px solid #e3e8ee;border-radius:6px;padding:6px 8px;font-size:11px;line-height:1.5;box-shadow:0 2px 8px rgba(0,0,0,0.08);z-index:10;display:none;white-space:nowrap;font-variant-numeric:tabular-nums';
+  canvas.parentElement.style.position = 'relative';
+  canvas.parentElement.appendChild(tip);
+
+  canvas.addEventListener('mousemove', (e) => {
+    const r = canvas.getBoundingClientRect();
+    const mx = e.clientX - r.left;
+    const ep = Math.round(Math.max(0, Math.min(77, ((mx - m.l) / pw) * 77)));
+    let html = `<b style="color:#1b1f24">Epoch ${ep}</b>`;
+    for (const k of KEYS) {
+      const v = D[k][metric][ep];
+      html += `<br><span style="display:inline-block;width:7px;height:7px;border-radius:50%;background:${D[k].color};vertical-align:middle;margin-right:4px"></span>${D[k].label}: ${v.toFixed(2)}`;
+    }
+    tip.innerHTML = html;
+    tip.style.display = 'block';
+    const tx = mx + 14, tw = tip.offsetWidth;
+    tip.style.left = (tx + tw > W ? mx - tw - 14 : tx) + 'px';
+    tip.style.top = (e.clientY - r.top - 10) + 'px';
+  });
+  canvas.addEventListener('mouseleave', () => { tip.style.display = 'none'; });
+}
+
+draw('c-pointmap', 'pointmap');
+draw('c-depth', 'depth');
+draw('c-raymap', 'raymap');
+draw('c-msetoken', 'msetoken');
+
+// ── Waymo-only data (BSC:44680758, 100 epochs) ──────────────
+const WO = {
+  pointmap: [4.89,14.43,21.18,18.47,15.78,19.22,20.22,19.01,14.21,19.36,16.96,18.46,17.50,14.25,14.40,13.64,18.76,17.41,13.89,15.86,14.07,12.56,14.00,12.43,12.33,14.43,12.57,14.26,10.54,10.67,10.40,10.89,11.75,11.59,11.79,10.81,11.85,11.52,10.08,11.28,9.90,9.35,11.42,10.17,10.56,9.53,10.11,9.56,10.24,9.57,10.43,9.43,9.84,9.90,10.24,9.84,9.66,10.20,9.75,10.23,9.03,9.47,10.18,9.68,9.31,9.43,9.29,9.13,9.21,8.85,9.70,9.79,9.23,9.33,9.23,9.09,8.68,9.60,8.83,9.47,9.13,8.58,9.25,9.00,8.68,8.83,8.92,8.62,9.28,9.04,9.01,8.56,8.62,8.57,8.89,8.85,8.49,8.93,8.67,8.58],
+  raymap: [3.77,12.55,20.58,17.47,14.29,18.24,19.11,17.82,12.59,17.97,15.28,16.76,15.86,12.16,12.20,11.35,17.05,15.74,11.55,13.82,11.85,9.92,11.73,10.19,9.56,12.10,10.00,12.19,7.97,8.15,7.84,8.14,9.25,8.90,9.39,8.17,9.35,9.24,7.41,8.84,7.08,6.65,8.98,7.49,7.83,6.67,7.49,6.88,7.51,6.75,7.83,6.69,7.13,7.12,7.44,6.89,6.82,7.59,6.95,7.44,6.23,6.72,7.40,6.99,6.70,6.68,6.61,6.34,6.36,6.10,7.06,7.03,6.53,6.59,6.54,6.29,5.80,7.03,6.10,6.69,6.31,5.72,6.38,6.16,5.97,6.08,6.17,5.89,6.59,6.33,6.18,5.84,5.81,5.83,6.14,6.06,5.70,6.06,5.86,5.81],
+  color: '#8b949e'
+};
+
+// ── Comparison chart: alldata vs waymo-only (Waymo eval) ─────
+function drawCmp(id, metric) {
+  const canvas = document.getElementById(id);
+  const dpr = window.devicePixelRatio || 1;
+  const rect = canvas.getBoundingClientRect();
+  const W = rect.width, H = rect.height || 220;
+  canvas.width = W * dpr; canvas.height = H * dpr;
+  canvas.style.height = H + 'px';
+  const ctx = canvas.getContext('2d');
+  ctx.scale(dpr, dpr);
+
+  const m = { l:48, r:12, t:10, b:26 };
+  const pw = W - m.l - m.r, ph = H - m.t - m.b;
+
+  const alldata = D.waymo[metric];   // 78 epochs (0–77)
+  const wonly = WO[metric];          // 100 epochs (0–99)
+  const maxEp = 99;
+
+  // Y range
+  let yMin = 0, yMax = 0;
+  for (const v of alldata) yMax = Math.max(yMax, v);
+  for (const v of wonly) yMax = Math.max(yMax, v);
+  yMax = Math.ceil(yMax / 5) * 5;
+  const yr = yMax - yMin;
+
+  function xp(i) { return m.l + (i / maxEp) * pw; }
+  function yp(v) { return m.t + (1 - (v - yMin) / yr) * ph; }
+
+  // Grid
+  ctx.strokeStyle = '#e3e8ee';
+  ctx.lineWidth = 1;
+  const nTicks = 5;
+  ctx.font = '10px -apple-system, system-ui, sans-serif';
+  ctx.fillStyle = '#8b949e';
+  ctx.textAlign = 'right';
+  for (let i = 0; i <= nTicks; i++) {
+    const v = yMin + (i / nTicks) * yr;
+    const y = Math.round(yp(v)) + 0.5;
+    ctx.beginPath(); ctx.moveTo(m.l, y); ctx.lineTo(W - m.r, y); ctx.stroke();
+    ctx.fillText(v.toFixed(0), m.l - 6, y + 3.5);
+  }
+
+  // X ticks
+  ctx.textAlign = 'center';
+  for (const ep of [0,10,20,30,40,50,60,70,77,90,99]) {
+    const x = Math.round(xp(ep)) + 0.5;
+    ctx.beginPath(); ctx.moveTo(x, H - m.b); ctx.lineTo(x, H - m.b + 4); ctx.stroke();
+    ctx.fillText(ep, x, H - m.b + 16);
+  }
+
+  // Axes
+  ctx.strokeStyle = '#c3c2b7';
+  ctx.beginPath();
+  ctx.moveTo(m.l, m.t); ctx.lineTo(m.l, H - m.b); ctx.lineTo(W - m.r, H - m.b);
+  ctx.stroke();
+
+  // Tokenizer ceiling (dashed)
+  const ceil = D.waymo.ceil[metric];
+  ctx.setLineDash([5, 3]);
+  ctx.strokeStyle = '#8b949e';
+  ctx.lineWidth = 1;
+  const cy = yp(ceil);
+  if (cy > m.t && cy < H - m.b) {
+    ctx.beginPath(); ctx.moveTo(m.l, cy); ctx.lineTo(W - m.r, cy); ctx.stroke();
+  }
+  ctx.setLineDash([]);
+
+  // Waymo-only line (dashed, drawn first so alldata is on top)
+  ctx.strokeStyle = WO.color;
+  ctx.lineWidth = 2;
+  ctx.setLineDash([6, 4]);
+  ctx.lineJoin = 'round'; ctx.lineCap = 'round';
+  ctx.beginPath();
+  for (let i = 0; i < wonly.length; i++) {
+    const x = xp(i), y = yp(wonly[i]);
+    i === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y);
+  }
+  ctx.stroke();
+  ctx.setLineDash([]);
+
+  // Alldata line (solid)
+  ctx.strokeStyle = D.waymo.color;
+  ctx.lineWidth = 2;
+  ctx.beginPath();
+  for (let i = 0; i < alldata.length; i++) {
+    const x = xp(i), y = yp(alldata[i]);
+    i === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y);
+  }
+  ctx.stroke();
+
+  // End dots — alldata ep 77
+  let cx = xp(77), ccy = yp(alldata[77]);
+  ctx.fillStyle = '#ffffff';
+  ctx.beginPath(); ctx.arc(cx, ccy, 5, 0, Math.PI * 2); ctx.fill();
+  ctx.fillStyle = D.waymo.color;
+  ctx.beginPath(); ctx.arc(cx, ccy, 3.5, 0, Math.PI * 2); ctx.fill();
+
+  // End dots — waymo-only ep 99
+  cx = xp(99); ccy = yp(wonly[99]);
+  ctx.fillStyle = '#ffffff';
+  ctx.beginPath(); ctx.arc(cx, ccy, 5, 0, Math.PI * 2); ctx.fill();
+  ctx.fillStyle = WO.color;
+  ctx.beginPath(); ctx.arc(cx, ccy, 3.5, 0, Math.PI * 2); ctx.fill();
+
+  // End labels
+  ctx.font = '10px -apple-system, system-ui, sans-serif';
+  ctx.textAlign = 'left';
+  ctx.fillStyle = D.waymo.color;
+  ctx.fillText(alldata[77].toFixed(1), xp(77) + 8, yp(alldata[77]) + 3.5);
+  ctx.fillStyle = WO.color;
+  ctx.fillText(wonly[99].toFixed(1), xp(99) + 8, yp(wonly[99]) + 3.5);
+
+  // Hover tooltip
+  const tip = document.createElement('div');
+  tip.style.cssText = 'position:absolute;pointer-events:none;background:#fff;border:1px solid #e3e8ee;border-radius:6px;padding:6px 8px;font-size:11px;line-height:1.5;box-shadow:0 2px 8px rgba(0,0,0,0.08);z-index:10;display:none;white-space:nowrap;font-variant-numeric:tabular-nums';
+  canvas.parentElement.style.position = 'relative';
+  canvas.parentElement.appendChild(tip);
+
+  canvas.addEventListener('mousemove', (e) => {
+    const r = canvas.getBoundingClientRect();
+    const mx = e.clientX - r.left;
+    const ep = Math.round(Math.max(0, Math.min(maxEp, ((mx - m.l) / pw) * maxEp)));
+    const av = ep <= 77 ? alldata[ep] : null;
+    const wv = wonly[ep];
+    let html = '<b style="color:#1b1f24">Epoch ' + ep + '</b>';
+    if (av !== null) html += '<br><span style="display:inline-block;width:7px;height:7px;border-radius:50%;background:'+D.waymo.color+';vertical-align:middle;margin-right:4px"></span>Alldata: ' + av.toFixed(2);
+    html += '<br><span style="display:inline-block;width:7px;height:7px;border-radius:50%;background:'+WO.color+';vertical-align:middle;margin-right:4px"></span>Waymo-only: ' + wv.toFixed(2);
+    if (av !== null) {
+      const delta = ((av - wv) / wv * 100);
+      html += '<br><span style="color:'+(delta>0?'#b42318':'#1a7f37')+';font-weight:600">' + (delta>0?'+':'') + delta.toFixed(1) + '%</span>';
+    }
+    tip.innerHTML = html;
+    tip.style.display = 'block';
+    const tx = mx + 14, tw = tip.offsetWidth;
+    tip.style.left = (tx + tw > W ? mx - tw - 14 : tx) + 'px';
+    tip.style.top = (e.clientY - r.top - 10) + 'px';
+  });
+  canvas.addEventListener('mouseleave', () => { tip.style.display = 'none'; });
+}
+
+drawCmp('c-cmp-pointmap', 'pointmap');
+drawCmp('c-cmp-raymap', 'raymap');
+</script>
+</body>
+</html>
