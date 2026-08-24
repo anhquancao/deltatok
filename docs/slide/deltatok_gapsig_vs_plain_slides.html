@@ -133,7 +133,7 @@ plain  …_pool8192_compose1.0          <span class="cm">sigreg_gap_sigma=false<
       </div>
     </div>
   </div>
-  <div class="foot"><span>BSC MareNostrum · nt10 window · matched at epoch 67 (gapsig's last)</span><span class="pageno">1 / 5</span></div>
+  <div class="foot"><span>BSC MareNostrum · nt10 window · matched at epoch 67 (gapsig's last)</span><span class="pageno">1 / 6</span></div>
 </section>
 
 <!-- ============ SLIDE 2 — PredVsOrig trajectories ============ -->
@@ -146,7 +146,7 @@ plain  …_pool8192_compose1.0          <span class="cm">sigreg_gap_sigma=false<
     <div class="legend" id="lg2"></div>
     <div class="pgrid" id="grid2"></div>
   </div>
-  <div class="foot"><span>solid = trained so far · blue dashed = plain's extra epochs past the match point · vertical rule = matched epoch 67</span><span class="pageno">2 / 5</span></div>
+  <div class="foot"><span>solid = trained so far · blue dashed = plain's extra epochs past the match point · vertical rule = matched epoch 67</span><span class="pageno">2 / 6</span></div>
 </section>
 
 <!-- ============ SLIDE 3 — matched bars ============ -->
@@ -168,7 +168,7 @@ plain  …_pool8192_compose1.0          <span class="cm">sigreg_gap_sigma=false<
       </div>
     </div>
   </div>
-  <div class="foot"><span>bar = 100·(gapsig−plain)/plain at epoch 67 · absolute losses printed on each bar</span><span class="pageno">3 / 5</span></div>
+  <div class="foot"><span>bar = 100·(gapsig−plain)/plain at epoch 67 · absolute losses printed on each bar</span><span class="pageno">3 / 6</span></div>
 </section>
 
 <!-- ============ SLIDE 4 — PredVsGT trajectories with ceiling ============ -->
@@ -181,7 +181,7 @@ plain  …_pool8192_compose1.0          <span class="cm">sigreg_gap_sigma=false<
     <div class="legend" id="lg4"></div>
     <div class="pgrid" id="grid4"></div>
   </div>
-  <div class="foot"><span>grey dashed = teacher ceiling (OrigVsGT, identical for both arms) · vertical rule = matched epoch 67</span><span class="pageno">4 / 5</span></div>
+  <div class="foot"><span>grey dashed = teacher ceiling (OrigVsGT, identical for both arms) · vertical rule = matched epoch 67</span><span class="pageno">4 / 6</span></div>
 </section>
 
 <!-- ============ SLIDE 5 — verdict / mechanism ============ -->
@@ -214,7 +214,43 @@ loss_sigreg = sigreg(z, pool)</div>
       </div>
     </div>
   </div>
-  <div class="foot"><span>gapsig job BSC 44895886 · plain BSC 44635509→44846726 · scalars from TB event files</span><span class="pageno">5 / 5</span></div>
+  <div class="foot"><span>gapsig job BSC 44895886 · plain BSC 44635509→44846726 · scalars from TB event files</span><span class="pageno">5 / 6</span></div>
+</section>
+
+<!-- ============ SLIDE 6 — why (mechanism, measured) ============ -->
+<section class="slide">
+  <div class="eyebrow">Why <span class="dim">— the mechanism, measured on the code</span></div>
+  <h2>gapsig converges to a lower-rank, larger-scale code — and DeltaTok loss tracks rank</h2>
+  <p class="sub">The bottleneck code the decoder reads (raw z). Higher participation ratio = more effective dimensions = more usable
+  capacity. gapsig (orange) plateaus <b>~20% below</b> plain (blue) on both sets, while its code scale balloons 2.2×.</p>
+  <div class="body">
+    <div class="cols c58" style="height:100%">
+      <div style="display:flex;flex-direction:column;gap:10px;min-height:0">
+        <div class="legend" id="lg6"></div>
+        <div class="pgrid" style="grid-template-columns:1fr 1fr">
+          <div class="panel"><div class="pt">Effective rank (ZPartRank) <span class="ds">· KITTI</span></div><div id="p_KPR"></div></div>
+          <div class="panel"><div class="pt">Effective rank (ZPartRank) <span class="ds">· nuScenes</span></div><div id="p_NPR"></div></div>
+        </div>
+        <div class="tiles" style="grid-template-columns:1fr 1fr">
+          <div class="tile"><div class="k">Effective rank @ ep67</div><div class="v" style="color:var(--crit)">−21%</div><div class="d">71 vs 90 dims (KITTI) · 78 vs 97 (nuScenes)</div></div>
+          <div class="tile"><div class="k">Code variance @ ep67</div><div class="v" style="color:var(--s2)">+117%</div><div class="d">ZTotalVar 2.2× — the √gap scale inflation</div></div>
+        </div>
+      </div>
+      <div style="display:flex;flex-direction:column;gap:11px">
+        <div class="takeaway"><div class="n">1</div><div class="tx"><b>SIGReg now polices the wrong code.</b> Dividing
+        <span class="mono">z/√gap</span> means the CF test certifies the <i>normalized</i> code, not the raw z the decoder reads.</div></div>
+        <div class="takeaway"><div class="n">2</div><div class="tx"><b>The test gets weaker.</b> Its pool is a soft (w=0.005),
+        stale 8192-row FIFO now spanning a <i>mixture of scales</i> (Var 1→9). That is a poor isotropy driver — so the raw code
+        spreads over fewer dims and its scale balloons.</div></div>
+        <div class="takeaway"><div class="n">3</div><div class="tx"><b>Rank is capacity.</b> DeltaTok recon tracks usable rank at
+        <span class="mono">corr −0.997</span> (tc-width sweep). ~20% fewer usable dims ⇒ the 6–14% worse reconstruction.</div></div>
+        <div class="rulebar"><b>And the premise is shaky.</b> <span class="mono">Var ∝ gap</span> assumes feature deltas diffuse
+        like Brownian motion. Bounded, frame-correlated driving-scene features don't — so √gap over-inflates large-gap codes for
+        no information gain. <span style="color:var(--muted)">(per-gap magnitude unverified)</span></div>
+      </div>
+    </div>
+  </div>
+  <div class="foot"><span>PR pooled over the full held-out set · higher = better · vertical rule = matched epoch 67</span><span class="pageno">6 / 6</span></div>
 </section>
 
 </div><!-- /stage -->
@@ -289,6 +325,13 @@ const NRmO_g=[15.61259,8.96533,7.91367,5.12006,3.50713,2.58375,1.68740,1.38526,1
 const NRmO_c=[12.21123,8.54762,6.40320,2.56345,1.65775,1.16557,0.99792,0.93360,0.91011,0.78329,0.74913,0.69733,0.67972,0.67347,0.67475,0.66327,0.56392,0.51399,0.51543,0.49438,0.44568,0.42616,0.39762,0.41051,0.37532,0.37164,0.36113,0.36577,0.33154,0.33716,0.32461,0.32555,0.31309,0.29602,0.29758,0.30907,0.29289,0.29734,0.30149,0.27910,0.28742,0.28110,0.29379,0.28150,0.29712,0.30867,0.29201,0.29692,0.29127,0.25602,0.25896,0.27179,0.26668,0.27987,0.26161,0.27235,0.26518,0.27191,0.26601,0.27227,0.26370,0.25569,0.25554,0.26445,0.23642,0.24674,0.24933,0.25836,0.24579,0.25730,0.25065,0.23194,0.24181,0.25785,0.24725,0.25486,0.25718,0.24016,0.25203,0.25418,0.24194,0.24523,0.24013,0.23959,0.24072,0.24515,0.23908,0.23911,0.23752,0.24403,0.23379,0.23532,0.23584,0.23597,0.23934,0.23832,0.24313,0.23956,0.24063,0.23560];
 const NRmG_g=[15.43707,8.92568,7.96468,5.41284,3.88769,3.04771,2.34236,2.10773,1.89127,1.96720,1.81050,1.73116,1.69870,1.64545,1.67159,1.59541,1.61177,1.54129,1.58063,1.51123,1.53162,1.53869,1.51279,1.49367,1.42819,1.45333,1.43397,1.41299,1.36498,1.37527,1.35997,1.33704,1.32996,1.31124,1.32215,1.38405,1.31886,1.32193,1.32075,1.30995,1.27301,1.27519,1.29248,1.31095,1.27367,1.30605,1.30595,1.28921,1.28639,1.28090,1.28745,1.28872,1.28622,1.29047,1.26280,1.25854,1.27961,1.28152,1.28487,1.28271,1.27347,1.24568,1.25765,1.26283,1.27548,1.25951,1.26466,1.26246];
 const NRmG_c=[12.11408,8.55632,6.59946,3.06207,2.36609,1.97596,1.81364,1.76135,1.75843,1.65449,1.62935,1.58129,1.58569,1.58192,1.58608,1.58908,1.49850,1.45255,1.43878,1.43153,1.39811,1.38626,1.36497,1.38345,1.34871,1.33945,1.33209,1.35026,1.30615,1.32222,1.30554,1.31419,1.29502,1.28723,1.28671,1.31014,1.28407,1.30465,1.29175,1.27215,1.29515,1.26674,1.28315,1.27212,1.29182,1.30385,1.29309,1.30874,1.29944,1.26150,1.26792,1.28314,1.28280,1.29083,1.27438,1.27519,1.27383,1.26952,1.27907,1.27588,1.26792,1.25870,1.27277,1.26468,1.25355,1.25365,1.26910,1.25594,1.25938,1.26000,1.25950,1.24618,1.25331,1.25624,1.25566,1.26052,1.26409,1.24615,1.26359,1.26832,1.25224,1.25264,1.24288,1.24209,1.25032,1.25454,1.24381,1.24953,1.24364,1.24884,1.24623,1.24477,1.24597,1.24641,1.24894,1.25186,1.25532,1.25085,1.25353,1.24566];
+
+/* z-spread diagnostics (raw code the decoder reads): PR = participation ratio (effective rank),
+   RMS = ZRowMeanSquare (per-row scale). <K|N><PR|RMS>_<g|c>. */
+const KPR_g=[6.0526,12.2189,9.3285,8.1685,8.8192,10.5638,12.1021,14.7441,15.7963,16.4637,18.6847,20.3939,22.9093,23.4897,25.2272,26.5734,27.7424,28.7222,30.0455,32.7783,33.4401,35.0841,35.7745,36.6181,38.4324,39.3324,39.9219,41.2047,42.6911,44.1197,45.2783,47.0287,47.5313,48.0296,49.3403,51.2075,53.0063,53.6574,54.9876,56.0406,56.8683,57.7442,58.4678,59.8810,61.5471,62.3052,63.3880,64.2330,64.4148,64.9434,65.2747,65.6165,66.0234,66.4171,67.4501,67.7629,67.9387,67.9486,68.6692,69.0435,69.6290,69.8096,70.4256,70.1374,70.5703,70.4320,71.0153,70.9242];
+const KPR_c=[3.3997,10.2042,5.9423,10.5791,16.1731,19.8703,21.4145,23.0894,26.1113,27.1016,29.5568,31.0401,31.5624,33.0240,34.8105,36.7403,39.4917,41.3024,42.8330,45.4161,48.2166,51.2381,53.2241,55.2261,56.9359,59.0965,61.1661,62.7422,64.6087,66.9616,68.6764,71.2789,71.8536,72.8909,75.0581,75.7891,77.4960,77.8799,78.6115,78.9335,79.6236,80.5390,81.7780,81.9919,82.4273,82.3942,81.8392,83.1426,82.6443,83.3262,83.6644,83.8359,83.9636,84.3569,85.0493,85.6522,85.1633,86.2826,85.9809,86.9794,87.9471,87.9399,88.0374,88.7841,88.5004,89.8631,90.2786,90.3174,90.1640,90.0092,90.2596,91.2810,90.9350,90.8154,90.8676,91.4026,91.8850,91.7607,91.9728,91.3801,91.2892,91.4534,91.1494,91.7992,91.7150,91.7790,91.5993,91.8746,91.8626,91.8491,91.9251,91.7554,91.9631,91.8764,91.8379,91.8028,91.8309,91.7624,91.7599,91.8280];
+const NPR_g=[6.3033,12.8257,11.2903,12.2633,12.9826,14.0242,15.3555,17.3901,18.3335,19.4011,21.0010,22.1373,24.3044,25.4224,26.2241,28.1960,29.5113,30.5810,32.4042,34.7545,35.3621,36.9879,38.2119,39.0989,41.5012,42.8174,43.4859,44.8900,46.7827,48.8953,49.7483,52.0524,53.6076,54.6155,55.6041,56.7117,57.8126,59.4486,60.9637,62.1890,64.0113,66.0130,66.7851,67.4374,68.3237,69.0193,70.6034,71.4570,72.1129,72.6547,73.3929,74.0016,74.5868,74.8083,75.7453,76.3084,76.8911,77.1939,77.4402,77.3960,77.5047,77.6192,77.7863,78.0353,77.9852,78.1536,78.2380,78.4996];
+const NPR_c=[4.0175,12.0577,9.9666,14.4624,18.6800,21.2542,22.0874,23.2002,26.2811,27.4083,29.3150,31.1627,31.6921,33.4173,35.4059,37.5674,41.2430,43.4879,45.2195,48.6801,51.2463,55.0800,58.2899,61.2057,63.4291,66.2622,68.3505,71.2580,73.4544,76.1870,78.3718,79.8538,81.1637,82.2652,83.6695,84.8923,85.9449,87.3490,88.4583,88.9313,89.3060,89.7660,90.4846,91.3588,91.6441,92.2217,91.9995,92.5488,93.0765,93.3049,93.6386,93.7260,94.0093,94.2468,94.3823,94.3847,94.5608,94.9259,94.9838,95.1521,95.6605,95.4706,96.1432,96.8958,96.9655,97.2750,97.5401,97.3367,97.5538,97.3865,97.6185,97.7034,97.8699,97.8743,98.1193,98.1281,97.8290,97.7867,97.8385,98.0294,97.5052,97.8027,97.5819,97.2338,97.3485,97.1638,97.0423,96.8105,96.6776,96.5543,96.4547,96.1868,96.3074,96.0887,95.9506,95.8765,95.8587,95.8013,95.7094,95.6528];
 
 const SPLIT=67, X0=20, X1=99;   // matched epoch; plot window; plain's last epoch
 
@@ -395,6 +438,12 @@ barH(document.getElementById('chGT'),{
     {label:'Raymap · nuScenes',   value:0.5, disp:'+0.5%  ceiling-masked', color:'--s8', faint:true},
   ]
 });
+
+/* ---------- slide 6 rank panels (higher = better) ---------- */
+const f0=t=>t.toFixed(0);
+trajChart(document.getElementById('p_KPR'),{ymin:30,ymax:95,yticks:[40,60,80],g:KPR_g,c:KPR_c,ceil:null,fmt:f0});
+trajChart(document.getElementById('p_NPR'),{ymin:30,ymax:100,yticks:[40,60,80],g:NPR_g,c:NPR_c,ceil:null,fmt:f0});
+document.getElementById('lg6').innerHTML=legHTML.replace('lower is better','higher is better');
 </script>
 </body>
 </html>
