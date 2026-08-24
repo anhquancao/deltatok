@@ -1,0 +1,400 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>DeltaTok — does Brownian gap-scaling help SIGReg?</title>
+<style>
+/* ---------- tokens · light only, white slides (no dark variant by request) ---------- */
+:root{
+  color-scheme: light only;
+  --backdrop:#e9e9e6; --page:#f7f7f6; --surface:#ffffff;
+  --ink:#0b0b0b; --ink2:#52514e; --muted:#83817c;
+  --grid:#e4e4de; --axis:#c3c2b7; --border:rgba(11,11,11,.12);
+  --s1:#2a78d6; --s2:#eb6834; --s3:#1baf7a; --s4:#eda100;
+  --s5:#e87ba4; --s6:#008300; --s7:#4a3aa7; --s8:#e34948;
+  --good:#0ca30c; --crit:#d03b3b; --serious:#ec835a;
+  --accent:var(--s1);
+  --serif:"Iowan Old Style","Palatino Linotype",Palatino,Georgia,serif;
+  --sans:system-ui,-apple-system,"Segoe UI",sans-serif;
+  --mono:ui-monospace,"Cascadia Code",Menlo,Consolas,monospace;
+}
+/* ---------- deck chrome ---------- */
+*{box-sizing:border-box;margin:0}
+html,body{height:100%}
+body{background:var(--backdrop);color:var(--ink);font:15px/1.45 var(--sans);overflow:hidden}
+.stage{position:absolute;left:50%;top:50%;width:1280px;height:720px;transform-origin:center center}
+.slide{position:absolute;inset:0;background:var(--surface);border:1px solid var(--border);
+  padding:46px 60px 40px;display:none;flex-direction:column}
+.slide.on{display:flex}
+.eyebrow{font:600 12px/1 var(--mono);letter-spacing:.14em;text-transform:uppercase;color:var(--accent);margin-bottom:12px}
+.eyebrow .dim{color:var(--muted)}
+h1{font:400 44px/1.14 var(--serif);letter-spacing:-.01em;text-wrap:balance}
+h2{font:400 30px/1.2 var(--serif);letter-spacing:-.005em;text-wrap:balance;margin-bottom:4px}
+.sub{color:var(--ink2);font-size:15px;max-width:76ch;margin-top:9px}
+.body{flex:1;min-height:0;margin-top:16px}
+.foot{display:flex;justify-content:space-between;align-items:baseline;color:var(--muted);
+  font:11px/1 var(--mono);letter-spacing:.06em;margin-top:12px;border-top:1px solid var(--grid);padding-top:10px}
+.pageno{font-variant-numeric:tabular-nums}
+/* nav */
+.nav{position:fixed;left:50%;bottom:14px;transform:translateX(-50%);display:flex;gap:8px;align-items:center;z-index:5}
+.nav button{width:9px;height:9px;border-radius:50%;border:1px solid var(--muted);background:transparent;cursor:pointer;padding:0}
+.nav button.cur{background:var(--accent);border-color:var(--accent)}
+.nav button:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+.arr{position:fixed;top:50%;transform:translateY(-50%);z-index:5;border:1px solid var(--border);
+  background:var(--surface);color:var(--ink2);width:34px;height:56px;cursor:pointer;font-size:18px;border-radius:4px}
+.arr:hover{color:var(--ink)}
+#prev{left:10px}#next{right:10px}
+/* ---------- shared bits ---------- */
+.mono{font-family:var(--mono)}
+.num{font-variant-numeric:tabular-nums}
+.chip{display:inline-block;font:600 10.5px/1 var(--mono);letter-spacing:.05em;padding:4px 7px;border-radius:3px;
+  border:1px solid var(--border);white-space:nowrap}
+.chip.good{color:var(--good);border-color:currentColor}
+.chip.bad{color:var(--crit);border-color:currentColor}
+.chip.hero{color:var(--accent);border-color:currentColor}
+.sw{display:inline-block;width:10px;height:10px;border-radius:2px;vertical-align:-1px}
+.cols{display:grid;gap:26px;min-height:0}
+.c2{grid-template-columns:1fr 1fr}
+.c58{grid-template-columns:1.3fr 1fr}
+.card{border:1px solid var(--grid);border-radius:6px;padding:14px 16px;background:var(--page)}
+.card h3{font:600 14px/1.3 var(--sans);margin:6px 0}
+.card .tag{font:600 10px/1 var(--mono);letter-spacing:.1em;text-transform:uppercase;color:var(--muted)}
+ul.tight{padding-left:18px;display:flex;flex-direction:column;gap:7px;font-size:14px;color:var(--ink2)}
+ul.tight li{padding-left:2px}
+ul.tight strong{color:var(--ink);font-weight:600}
+/* stat tiles */
+.tiles{display:grid;gap:12px}
+.tile{border:1px solid var(--grid);border-radius:6px;padding:12px 14px;background:var(--page)}
+.tile .v{font:600 25px/1.1 var(--sans);letter-spacing:-.01em;font-variant-numeric:tabular-nums}
+.tile .k{font:600 10px/1.4 var(--mono);letter-spacing:.1em;text-transform:uppercase;color:var(--muted);margin-bottom:5px}
+.tile .d{font-size:12.5px;color:var(--ink2);margin-top:5px}
+.rulebar{border:1px dashed var(--axis);border-radius:6px;padding:11px 15px;font-size:13.5px;color:var(--ink2)}
+.rulebar b{color:var(--ink)}
+.codeline{font:12.5px/1.6 var(--mono);color:var(--ink2);background:var(--page);border:1px solid var(--grid);
+  border-radius:6px;padding:10px 13px;white-space:pre;overflow-x:auto}
+.codeline .cm{color:var(--muted)}
+.codeline b{color:var(--s2)}
+/* charts */
+.legend{display:flex;flex-wrap:wrap;gap:6px 18px;font:12px/1 var(--sans);color:var(--ink2);margin-bottom:4px}
+.legend span{display:inline-flex;gap:6px;align-items:center}
+svg text{font:10.5px var(--sans);fill:var(--muted)}
+svg .axl{font:9.5px var(--mono);fill:var(--muted)}
+svg .barlbl{font:600 12px var(--sans);fill:var(--ink)}
+svg .barval{font:11px var(--mono);fill:var(--ink2)}
+svg .hll{font:9px var(--mono)}
+/* panel grid of trajectory charts */
+.pgrid{display:grid;grid-template-columns:repeat(3,1fr);gap:10px 16px}
+.panel{border:1px solid var(--grid);border-radius:6px;background:var(--page);padding:6px 8px 2px}
+.panel .pt{font:600 11px/1.2 var(--mono);color:var(--ink2);letter-spacing:.02em;padding:2px 2px 0}
+.panel .pt .ds{color:var(--muted)}
+.takeaway{border:1px solid var(--grid);border-radius:6px;padding:13px 15px;background:var(--page);display:flex;gap:12px;align-items:flex-start}
+.takeaway .n{font:600 22px/1 var(--serif);color:var(--accent);flex:0 0 auto;width:24px}
+.takeaway .tx{font-size:13.5px;color:var(--ink2)}
+.takeaway .tx b{color:var(--ink)}
+@media (prefers-reduced-motion: no-preference){
+  .slide.on{animation:fadein .18s ease}
+  @keyframes fadein{from{opacity:.4}to{opacity:1}}
+}
+@media print{
+  body{overflow:visible;background:#fff}
+  .stage{position:static;transform:none!important;width:auto;height:auto}
+  .slide{display:flex;position:static;width:1280px;height:720px;page-break-after:always;margin:0 auto}
+  .nav,.arr{display:none}
+}
+</style>
+</head>
+<body>
+<div class="stage" id="stage">
+
+<!-- ============ SLIDE 1 — title ============ -->
+<section class="slide on">
+  <div class="eyebrow">DeltaTok tokenizer <span class="dim">— layer-12 · dtok64 · tc128 · maxgap9 · SIGReg 0.005 · compose 1.0 · BSC</span></div>
+  <h1>Does Brownian gap-scaling help SIGReg? <span style="color:var(--crit)">No — it hurts.</span></h1>
+  <p class="sub">One knob: <span class="mono">sigreg_gap_sigma</span>. It divides <span class="mono">z/√gap</span> before the SIGReg test, so a delta over
+  a longer time-gap is allowed larger variance (Brownian: Var ∝ gap). At matched compute the gap-scaled arm reconstructs
+  <b>worse on every geometry loss, on both datasets</b>.</p>
+  <div class="body">
+    <div class="cols c58" style="height:100%;align-items:center">
+      <div class="tiles" style="grid-template-columns:1fr 1fr">
+        <div class="tile"><div class="k">Depth · round-trip</div><div class="v" style="color:var(--crit)">+6.5 / +13.6%</div><div class="d">gapsig worse · KITTI / nuScenes</div></div>
+        <div class="tile"><div class="k">Pointmap · round-trip</div><div class="v" style="color:var(--crit)">+11.3 / +13.9%</div><div class="d">gapsig worse · KITTI / nuScenes</div></div>
+        <div class="tile"><div class="k">Raymap · round-trip</div><div class="v" style="color:var(--crit)">+6.6 / +12.3%</div><div class="d">gapsig worse · KITTI / nuScenes</div></div>
+        <div class="tile"><div class="k">Teacher ceiling</div><div class="v">identical</div><div class="d">OrigVsGT matches → fair A/B</div></div>
+      </div>
+      <div style="display:flex;flex-direction:column;gap:12px">
+        <div class="card">
+          <div class="tag">the A/B — one flag differs</div>
+          <div class="codeline" style="margin-top:8px"><b>gapsig</b> …_pool8192<b>_gapsig</b>_compose1.0   <span class="cm">sigreg_gap_sigma=true</span>
+plain  …_pool8192_compose1.0          <span class="cm">sigreg_gap_sigma=false</span></div>
+        </div>
+        <div class="rulebar"><b>Read the round-trip metric (PredVsOrig).</b> It scores the tokenizer against the teacher's own
+        output, so it isolates gapsig's effect. PredVsGT is teacher-ceiling-bound.</div>
+      </div>
+    </div>
+  </div>
+  <div class="foot"><span>BSC MareNostrum · nt10 window · matched at epoch 67 (gapsig's last)</span><span class="pageno">1 / 5</span></div>
+</section>
+
+<!-- ============ SLIDE 2 — PredVsOrig trajectories ============ -->
+<section class="slide">
+  <div class="eyebrow">Evidence 1 <span class="dim">— round-trip fidelity, the clean signal</span></div>
+  <h2>gapsig sits above plain at every epoch — round-trip loss (PredVsOrig)</h2>
+  <p class="sub">Lower is better. Each panel: one geometry loss on one eval set, epochs 20→99. The gap-scaled arm (orange) converges
+  to a <b>higher floor</b> than plain SIGReg (blue) and never crosses it.</p>
+  <div class="body">
+    <div class="legend" id="lg2"></div>
+    <div class="pgrid" id="grid2"></div>
+  </div>
+  <div class="foot"><span>solid = trained so far · blue dashed = plain's extra epochs past the match point · vertical rule = matched epoch 67</span><span class="pageno">2 / 5</span></div>
+</section>
+
+<!-- ============ SLIDE 3 — matched bars ============ -->
+<section class="slide">
+  <div class="eyebrow">Evidence 2 <span class="dim">— the number at matched compute (epoch 67)</span></div>
+  <h2>gapsig's penalty: uniform on round-trip, masked by the ceiling end-to-end</h2>
+  <p class="sub">Each bar is gapsig's loss <b>relative to plain</b> at epoch 67 (right = worse). Round-trip (left) shows a clean
+  6–14% penalty everywhere. End-to-end vs GT (right) shows the same on KITTI, but nuScenes collapses to ~0.5% — the teacher's
+  own error swamps it.</p>
+  <div class="body">
+    <div class="cols c2" style="height:100%">
+      <div class="card">
+        <div class="tag" style="margin-bottom:8px">Round-trip · PredVsOrig · gapsig − plain</div>
+        <div id="chOrig"></div>
+      </div>
+      <div class="card">
+        <div class="tag" style="margin-bottom:8px">End-to-end · PredVsGT · gapsig − plain</div>
+        <div id="chGT"></div>
+      </div>
+    </div>
+  </div>
+  <div class="foot"><span>bar = 100·(gapsig−plain)/plain at epoch 67 · absolute losses printed on each bar</span><span class="pageno">3 / 5</span></div>
+</section>
+
+<!-- ============ SLIDE 4 — PredVsGT trajectories with ceiling ============ -->
+<section class="slide">
+  <div class="eyebrow">Evidence 3 <span class="dim">— why end-to-end hides it on nuScenes</span></div>
+  <h2>Against ground truth, both arms ride the teacher ceiling — gapsig still never wins</h2>
+  <p class="sub">Same panels, now PredVsGT (vs ground truth). The dashed grey line is the teacher's own error (OrigVsGT) — the floor
+  no tokenizer can beat. On nuScenes the two curves nearly overlap just above it; the round-trip view is what separates them.</p>
+  <div class="body">
+    <div class="legend" id="lg4"></div>
+    <div class="pgrid" id="grid4"></div>
+  </div>
+  <div class="foot"><span>grey dashed = teacher ceiling (OrigVsGT, identical for both arms) · vertical rule = matched epoch 67</span><span class="pageno">4 / 5</span></div>
+</section>
+
+<!-- ============ SLIDE 5 — verdict / mechanism ============ -->
+<section class="slide">
+  <div class="eyebrow">Verdict <span class="dim">— what the knob actually did</span></div>
+  <h2>Drop gapsig. Plain SIGReg reconstructs better.</h2>
+  <div class="body">
+    <div class="cols c58" style="height:100%">
+      <div style="display:flex;flex-direction:column;gap:12px;min-height:0">
+        <div class="takeaway"><div class="n">1</div><div class="tx"><b>The result is unanimous.</b> Round-trip loss is 6.5–13.9% worse
+        for gapsig across Depth, Pointmap, Raymap on both KITTI and nuScenes. No metric favours it.</div></div>
+        <div class="takeaway"><div class="n">2</div><div class="tx"><b>The comparison is fair.</b> The teacher ceiling (OrigVsGT) is
+        bit-identical, so both arms see the same eval. gapsig trails from early on, not just at the end.</div></div>
+        <div class="takeaway"><div class="n">3</div><div class="tx"><b>End-to-end masks it.</b> On nuScenes, PredVsGT moves only +0.5%
+        — the teacher's error dwarfs the tokenizer's. Judge tokenizer changes on <span class="mono">PredVsOrig</span>, not PredVsGT.</div></div>
+        <div class="takeaway"><div class="n">4</div><div class="tx"><b>Likely cause.</b> Dividing <span class="mono">z/√gap</span> shrinks
+        large-gap codes before the CF test, so SIGReg pins the <i>rescaled</i> code to N(0,I) and lets raw large-gap z drift off-distribution.
+        Plain SIGReg regularises the code the decoder actually reads.</div></div>
+      </div>
+      <div style="display:flex;flex-direction:column;gap:12px">
+        <div class="card">
+          <div class="tag">the mechanism · deltatok_trainer.py</div>
+          <div class="codeline" style="margin-top:8px">gap = t[hop+1] − t[hop]
+<b>z = z / gap.sqrt()</b>   <span class="cm"># z/√gap → N(0,I)</span>
+loss_sigreg = sigreg(z, pool)</div>
+        </div>
+        <div class="tile"><div class="k">Matched at</div><div class="v">epoch 67</div><div class="d">gapsig's last checkpoint (out of allocation, chain-resume pending); plain ran to 99</div></div>
+        <div class="rulebar"><b>Not done:</b> no chained resume of gapsig to epoch 99 — but plain already leads at 67 <i>and</i> keeps
+        improving after, so the verdict does not depend on it. Single seed each.</div>
+      </div>
+    </div>
+  </div>
+  <div class="foot"><span>gapsig job BSC 44895886 · plain BSC 44635509→44846726 · scalars from TB event files</span><span class="pageno">5 / 5</span></div>
+</section>
+
+</div><!-- /stage -->
+
+<div class="nav" id="nav"></div>
+<button class="arr" id="prev" aria-label="Previous">‹</button>
+<button class="arr" id="next" aria-label="Next">›</button>
+
+<script>
+/* ---------- deck nav ---------- */
+const stage=document.getElementById("stage");
+const slides=[...document.querySelectorAll(".slide")];
+const nav=document.getElementById("nav");
+let cur=0;
+slides.forEach((_,i)=>{
+  const b=document.createElement("button");
+  b.setAttribute("role","tab");b.setAttribute("aria-label","Slide "+(i+1));
+  b.addEventListener("click",()=>go(i));
+  nav.appendChild(b);
+});
+function go(i){
+  cur=Math.max(0,Math.min(slides.length-1,i));
+  slides.forEach((s,j)=>s.classList.toggle("on",j===cur));
+  [...nav.children].forEach((b,j)=>b.classList.toggle("cur",j===cur));
+}
+document.getElementById("prev").addEventListener("click",()=>go(cur-1));
+document.getElementById("next").addEventListener("click",()=>go(cur+1));
+addEventListener("keydown",e=>{
+  if(["ArrowRight","PageDown"," "].includes(e.key)){go(cur+1);e.preventDefault();}
+  else if(["ArrowLeft","PageUp"].includes(e.key)){go(cur-1);e.preventDefault();}
+  else if(e.key==="Home")go(0);
+  else if(e.key==="End")go(slides.length-1);
+});
+go(0);
+function fit(){
+  const s=Math.min(innerWidth/1300,(innerHeight-40)/730);
+  stage.style.transform=`translate(-50%,-50%) scale(${Math.min(s,1.4)})`;
+}
+addEventListener("resize",fit);fit();
+const CV=n=>getComputedStyle(document.documentElement).getPropertyValue(n).trim();
+
+/* ================= DATA — TB scalars, epoch-indexed (Eval every epoch) =================
+   gapsig = ..._pool8192_gapsig_compose1.0 (68 epochs), plain = ..._pool8192_compose1.0 (100 epochs).
+   Naming: <K|N><Dep|Pm|Rm><O=PredVsOrig|G=PredVsGT>_<g=gapsig|c=plain>; _ceil = OrigVsGT teacher floor. */
+const KDep_ceil=1.6566;
+const KDepO_g=[3.28501,2.97362,2.60021,1.76595,1.67475,1.73167,1.29355,1.16007,1.13154,1.05027,1.01841,0.89463,1.03653,0.88007,0.95173,0.77221,0.87014,0.86822,0.77488,0.76859,0.83223,0.70628,0.71284,0.76820,0.67573,0.65626,0.64814,0.65789,0.64380,0.58675,0.59928,0.60202,0.56686,0.58385,0.53912,0.58334,0.63242,0.59751,0.57625,0.55278,0.53767,0.54207,0.54563,0.53678,0.51575,0.51056,0.52485,0.51148,0.50905,0.50697,0.49136,0.49162,0.51082,0.49495,0.48264,0.45321,0.48316,0.49207,0.46323,0.48730,0.47859,0.46913,0.47658,0.46199,0.48135,0.47627,0.45648,0.45448];
+const KDepO_c=[3.29221,2.85990,1.89566,1.49998,1.39864,1.31629,1.20614,0.97202,0.98354,0.84341,0.72278,0.72048,0.74350,0.72518,0.69274,0.72132,0.65987,0.65099,0.64516,0.59591,0.56830,0.60316,0.58535,0.52845,0.50892,0.52493,0.50284,0.51694,0.46259,0.46069,0.51466,0.49564,0.45567,0.45887,0.42581,0.43548,0.45058,0.42503,0.46238,0.43769,0.44281,0.42382,0.43359,0.42810,0.43289,0.47765,0.44458,0.44208,0.42415,0.48794,0.42823,0.43419,0.43783,0.41928,0.42550,0.42934,0.42199,0.40113,0.40929,0.44361,0.42869,0.42692,0.41362,0.44532,0.42893,0.39988,0.42994,0.42688,0.40848,0.39642,0.42666,0.40201,0.44628,0.43037,0.42591,0.41557,0.42799,0.42403,0.43553,0.45778,0.41127,0.42795,0.43213,0.44216,0.45181,0.42156,0.43262,0.44198,0.42168,0.43253,0.41970,0.42591,0.43968,0.41300,0.43598,0.44980,0.43504,0.44166,0.42658,0.42484];
+const KDepG_g=[3.31262,3.20825,2.86980,2.36502,2.30714,2.53082,2.03969,2.16822,2.12703,2.05849,2.09392,1.96286,2.15505,2.02224,2.12356,1.92766,2.03245,2.03301,1.92359,1.95778,2.00920,1.86659,1.91338,1.95922,1.84610,1.83953,1.81297,1.83566,1.81435,1.75741,1.78039,1.78769,1.75845,1.82549,1.72258,1.75952,1.67325,1.73379,1.73074,1.77587,1.71575,1.73688,1.77677,1.74706,1.69271,1.75074,1.73153,1.72364,1.73776,1.74336,1.74366,1.75370,1.71441,1.74210,1.74767,1.69921,1.66550,1.73039,1.69544,1.71952,1.70635,1.71457,1.67053,1.72505,1.71240,1.72450,1.68415,1.69225];
+const KDepG_c=[3.35849,3.17520,2.32814,2.17260,2.33360,2.37893,2.29148,2.08748,2.10590,1.99628,1.85657,1.86930,1.92045,1.89182,1.86382,1.85072,1.82906,1.85326,1.88195,1.76115,1.79228,1.84578,1.81621,1.73345,1.72250,1.72444,1.77400,1.73327,1.70428,1.71136,1.78312,1.71682,1.71614,1.71647,1.68099,1.62755,1.66629,1.65333,1.66112,1.65101,1.66072,1.70061,1.69509,1.63382,1.65483,1.60255,1.65353,1.63930,1.66196,1.61041,1.62870,1.64563,1.62018,1.66589,1.65283,1.63383,1.60983,1.63437,1.66799,1.61592,1.59089,1.58598,1.61971,1.56668,1.61483,1.61638,1.61374,1.58989,1.60427,1.61348,1.60318,1.60173,1.56571,1.58639,1.58178,1.59244,1.59562,1.58063,1.57371,1.54445,1.58500,1.57296,1.56492,1.55193,1.54191,1.57422,1.56461,1.55901,1.57280,1.56583,1.57736,1.56610,1.55601,1.57937,1.55894,1.54969,1.56047,1.55220,1.56848,1.56935];
+const KPm_ceil=2.4022;
+const KPmO_g=[21.49319,8.76689,11.53465,5.77117,4.18713,3.51423,2.27519,1.83678,1.78132,1.71582,1.65207,1.39310,1.70868,1.38339,1.58808,1.24756,1.44633,1.43907,1.25658,1.27519,1.39646,1.15998,1.19129,1.27074,1.06311,1.06358,1.05131,1.04367,1.03633,0.91340,0.97100,0.94615,0.89008,0.95857,0.83218,0.90934,1.02023,0.93698,0.85367,0.88958,0.84098,0.81687,0.87561,0.83003,0.77767,0.80552,0.82258,0.79979,0.79286,0.80191,0.78907,0.80085,0.77790,0.79013,0.77623,0.67907,0.74915,0.76173,0.73389,0.74465,0.74634,0.71588,0.71598,0.71888,0.73932,0.74539,0.70348,0.68434];
+const KPmO_c=[19.15477,8.54881,7.49114,3.29833,2.56114,2.25621,1.99073,1.54708,1.60300,1.35929,1.16074,1.14414,1.21297,1.15908,1.12877,1.16319,1.03908,1.02203,1.05780,0.91419,0.89829,0.99181,0.93861,0.78342,0.76739,0.77083,0.82186,0.79982,0.71337,0.70481,0.82898,0.74929,0.70122,0.70831,0.65533,0.63784,0.70341,0.67396,0.65812,0.63882,0.67193,0.67484,0.65542,0.62151,0.63678,0.70989,0.69469,0.66930,0.64114,0.65164,0.63118,0.62307,0.61727,0.63817,0.63211,0.62261,0.60413,0.61718,0.61929,0.63133,0.63008,0.62779,0.62467,0.66353,0.64721,0.59213,0.64732,0.61492,0.62404,0.58633,0.61383,0.58013,0.63997,0.62651,0.62043,0.58981,0.60955,0.62453,0.64167,0.67726,0.60954,0.63455,0.62898,0.65080,0.67894,0.61679,0.62981,0.64123,0.61903,0.62061,0.61990,0.62373,0.64843,0.59975,0.63780,0.65889,0.64068,0.64662,0.62790,0.62138];
+const KPmG_g=[21.11685,9.18634,12.15944,6.77796,5.09260,4.69595,3.37917,3.43457,3.37352,3.33024,3.36309,3.06354,3.47558,3.16432,3.40142,3.05721,3.26764,3.25747,3.07297,3.11651,3.22976,2.95799,3.06503,3.09165,2.89501,2.90797,2.84283,2.85357,2.83025,2.72202,2.79453,2.82432,2.74095,2.87764,2.66482,2.75544,2.57608,2.68774,2.68388,2.81468,2.65936,2.70942,2.78588,2.71829,2.63948,2.72681,2.70711,2.68035,2.69828,2.73076,2.73351,2.74016,2.67465,2.72294,2.72331,2.62361,2.56180,2.68853,2.63720,2.67508,2.62326,2.65444,2.57522,2.67296,2.66285,2.68027,2.60570,2.60838];
+const KPmG_c=[18.86868,8.73232,8.52698,4.33990,3.98167,3.93704,3.70016,3.27783,3.36563,3.16361,2.95290,2.95394,3.04139,2.98037,2.97180,2.95935,2.85670,2.89873,2.96250,2.73789,2.78484,2.88881,2.84859,2.68896,2.65909,2.65958,2.77631,2.67134,2.64846,2.64876,2.78751,2.66619,2.64815,2.66490,2.60818,2.49568,2.57081,2.55230,2.53902,2.52381,2.56111,2.62775,2.61311,2.48516,2.53482,2.42510,2.52366,2.49228,2.54369,2.45373,2.48892,2.50830,2.45994,2.56540,2.51946,2.49555,2.45692,2.50356,2.54929,2.44512,2.41736,2.40380,2.44372,2.35190,2.43658,2.46171,2.43780,2.40876,2.44656,2.45519,2.43381,2.43246,2.36100,2.39739,2.39768,2.42442,2.41816,2.39264,2.38433,2.33292,2.39311,2.37933,2.36661,2.33327,2.32244,2.38503,2.36340,2.35525,2.38488,2.36526,2.38935,2.36891,2.34651,2.38961,2.35594,2.34139,2.36278,2.33985,2.37103,2.37153];
+const KRm_ceil=1.0837;
+const KRmO_g=[19.38720,8.06120,10.79655,5.10089,3.29485,2.47534,1.53520,1.05845,1.04871,1.07631,0.96391,0.80707,0.99989,0.78716,0.91941,0.73918,0.86394,0.85059,0.76747,0.75003,0.83226,0.69228,0.72508,0.72776,0.62260,0.64266,0.62572,0.59634,0.61314,0.54139,0.59540,0.59374,0.54483,0.59245,0.49718,0.56698,0.61716,0.56600,0.52075,0.58280,0.51085,0.51010,0.53909,0.50529,0.48189,0.49915,0.50951,0.49334,0.48283,0.50683,0.51207,0.49406,0.49687,0.50203,0.47972,0.42752,0.47362,0.46660,0.46689,0.46804,0.46240,0.44298,0.44381,0.44114,0.46600,0.46390,0.44105,0.41651];
+const KRmO_c=[17.63822,7.47983,7.18762,2.60766,1.63570,1.32138,1.12595,0.85278,0.90905,0.77579,0.69622,0.68702,0.70370,0.67666,0.68868,0.72334,0.61119,0.59847,0.61487,0.54304,0.52107,0.58264,0.56985,0.48155,0.45767,0.46699,0.51105,0.47077,0.45749,0.44338,0.51910,0.46595,0.42068,0.45116,0.42848,0.39944,0.44842,0.43540,0.41700,0.40628,0.44181,0.43906,0.42320,0.38337,0.40879,0.44975,0.44648,0.42326,0.40685,0.40096,0.39669,0.39149,0.38813,0.42424,0.39048,0.39232,0.38794,0.38924,0.37693,0.39174,0.40246,0.38969,0.38137,0.40171,0.39788,0.36808,0.40364,0.39077,0.40394,0.37101,0.38847,0.36472,0.40394,0.39356,0.39146,0.37018,0.38667,0.39850,0.41198,0.43392,0.38693,0.40380,0.39512,0.40161,0.42388,0.39237,0.39455,0.40602,0.39641,0.39092,0.39384,0.39528,0.40655,0.37805,0.40334,0.41835,0.40837,0.40464,0.39838,0.39330];
+const KRmG_g=[19.17518,8.12424,11.06747,5.66729,3.75434,3.08239,2.03349,1.85175,1.82409,1.86946,1.81292,1.60873,1.87404,1.64571,1.81209,1.62709,1.76179,1.75536,1.67114,1.65822,1.74049,1.56961,1.64422,1.62088,1.51717,1.54313,1.48244,1.47101,1.46805,1.40574,1.45743,1.50199,1.42873,1.51825,1.37537,1.45205,1.33944,1.39780,1.39906,1.50592,1.37024,1.42621,1.45743,1.41098,1.38065,1.41876,1.41385,1.39338,1.39843,1.42962,1.43847,1.42367,1.40313,1.42698,1.41252,1.35761,1.32711,1.39292,1.37078,1.38959,1.34655,1.36784,1.33134,1.37422,1.38608,1.38951,1.34805,1.33833];
+const KRmG_c=[17.42497,7.39953,7.80584,3.15409,2.33902,2.16756,1.99878,1.70494,1.77781,1.66808,1.57641,1.55909,1.59601,1.56196,1.58524,1.58833,1.48579,1.51037,1.54232,1.42149,1.43876,1.49034,1.48785,1.39478,1.36213,1.36829,1.44236,1.36282,1.37688,1.36496,1.45006,1.38101,1.35557,1.38511,1.35164,1.27882,1.32110,1.31337,1.29555,1.28693,1.32055,1.34685,1.33877,1.25341,1.29529,1.23600,1.29011,1.25943,1.29660,1.25806,1.26271,1.27322,1.24834,1.31902,1.27199,1.26763,1.25239,1.27237,1.28343,1.22593,1.22500,1.20739,1.22158,1.17519,1.21782,1.24175,1.22205,1.21808,1.24375,1.23778,1.23041,1.22695,1.18768,1.20492,1.21555,1.22943,1.22677,1.21120,1.20331,1.18255,1.20066,1.19944,1.19183,1.16638,1.16851,1.20726,1.18880,1.18753,1.20591,1.18990,1.20501,1.19509,1.18042,1.20364,1.18902,1.18376,1.19507,1.17729,1.19499,1.19506];
+const NDep_ceil=2.5324;
+const NDepO_g=[3.64070,3.16216,2.64354,2.01441,1.79286,1.67721,1.46793,1.41358,1.29774,1.30915,1.17702,1.15250,1.05419,1.00389,0.96157,0.90367,0.90811,0.82653,0.85466,0.78816,0.81279,0.79042,0.74453,0.76900,0.73069,0.69740,0.68833,0.65592,0.57959,0.65224,0.60440,0.58755,0.55460,0.55827,0.55301,0.61072,0.57023,0.52329,0.52906,0.52426,0.47765,0.49215,0.49620,0.50909,0.47822,0.48244,0.48215,0.48081,0.46644,0.47177,0.46461,0.45286,0.47494,0.44963,0.42433,0.45382,0.46084,0.47099,0.44998,0.46007,0.45355,0.42384,0.43807,0.43677,0.45670,0.43773,0.45080,0.44373];
+const NDepO_c=[3.33252,3.23832,2.27229,1.50068,1.43181,1.24234,1.13467,1.09951,1.07986,0.96791,0.92854,0.90120,0.87114,0.86338,0.89109,0.83869,0.73066,0.71277,0.71000,0.69670,0.64688,0.65226,0.58575,0.61177,0.57548,0.54763,0.52173,0.53281,0.48529,0.48589,0.50105,0.48819,0.45169,0.45579,0.43716,0.46766,0.44698,0.45238,0.44323,0.42675,0.43697,0.42340,0.43570,0.42475,0.42730,0.45915,0.44382,0.43821,0.44495,0.41290,0.41382,0.40807,0.41160,0.40970,0.40015,0.40953,0.40053,0.39784,0.39359,0.39981,0.40364,0.39914,0.38510,0.39128,0.36438,0.38310,0.37518,0.39062,0.37184,0.38693,0.37667,0.36397,0.36380,0.38513,0.37243,0.38039,0.38102,0.36129,0.37954,0.37971,0.36452,0.36659,0.36317,0.36372,0.36157,0.36584,0.36645,0.35721,0.34903,0.36421,0.35390,0.36135,0.35535,0.35530,0.36349,0.36074,0.36466,0.35857,0.36017,0.35853];
+const NDepG_g=[4.47123,4.04842,3.69220,3.33154,3.26562,3.18231,3.09532,3.09454,3.00856,3.05109,2.99409,2.98632,2.94580,2.91906,2.88818,2.85636,2.85762,2.80388,2.81771,2.78189,2.81930,2.81214,2.78158,2.79948,2.77248,2.75002,2.75079,2.72767,2.66818,2.72465,2.69538,2.67832,2.66982,2.67480,2.67041,2.72400,2.68236,2.64713,2.67142,2.64783,2.62222,2.62244,2.64245,2.64885,2.62916,2.63485,2.63093,2.62559,2.62499,2.62774,2.62810,2.62351,2.62502,2.61980,2.61132,2.61891,2.63369,2.63213,2.62308,2.62968,2.62098,2.60522,2.60894,2.61634,2.62503,2.61375,2.62301,2.61406];
+const NDepG_c=[4.22885,4.11449,3.50442,3.03343,3.11182,2.98777,2.94343,2.97130,2.96866,2.88254,2.87016,2.86816,2.84409,2.84773,2.87282,2.83140,2.75758,2.77579,2.77669,2.76007,2.73784,2.75566,2.69728,2.72985,2.69572,2.69466,2.67652,2.67914,2.64909,2.66253,2.66446,2.65267,2.64193,2.64326,2.62452,2.65634,2.63859,2.64040,2.63018,2.62001,2.64097,2.62975,2.63555,2.61693,2.63650,2.64940,2.64233,2.63867,2.64670,2.61646,2.61113,2.61876,2.61963,2.62497,2.62417,2.61983,2.60491,2.63061,2.62203,2.62325,2.61923,2.62215,2.61632,2.60734,2.59948,2.60332,2.60422,2.59999,2.60561,2.61120,2.60859,2.59311,2.59732,2.60679,2.60700,2.61101,2.60841,2.60163,2.60756,2.60983,2.60171,2.60304,2.59859,2.59493,2.60197,2.60120,2.59987,2.59552,2.59032,2.60149,2.59651,2.59860,2.59704,2.59463,2.60117,2.59719,2.60097,2.59962,2.60179,2.59743];
+const NPm_ceil=3.2243;
+const NPmO_g=[19.40318,11.50065,10.32779,6.63298,4.66937,3.56550,2.51794,2.24946,1.97662,2.04287,1.81492,1.70692,1.58954,1.50525,1.45722,1.37999,1.36761,1.24260,1.29156,1.16441,1.22572,1.19270,1.13671,1.14862,1.05505,1.02948,1.01156,0.96682,0.83208,0.93073,0.86210,0.81828,0.77269,0.77618,0.77623,0.89041,0.79056,0.74468,0.74684,0.74031,0.65398,0.67970,0.68959,0.71472,0.67551,0.67570,0.68107,0.66887,0.64780,0.64965,0.64447,0.63523,0.64971,0.62205,0.58321,0.62484,0.63221,0.65285,0.62064,0.63964,0.62900,0.58087,0.59432,0.60340,0.62971,0.60265,0.61825,0.60949];
+const NPmO_c=[15.50544,11.05415,8.32178,3.35082,2.55222,1.96641,1.72665,1.68726,1.69652,1.47063,1.43435,1.35070,1.31906,1.30234,1.32678,1.27603,1.08826,1.04548,1.04803,1.00124,0.92946,0.93941,0.82200,0.86820,0.79877,0.78492,0.73858,0.74625,0.67342,0.68635,0.67817,0.66379,0.62983,0.61975,0.60257,0.64399,0.61248,0.61959,0.60915,0.58155,0.59674,0.58124,0.60166,0.57589,0.59754,0.64590,0.61246,0.61285,0.61587,0.55218,0.55722,0.56542,0.56267,0.57159,0.55029,0.56232,0.54820,0.55521,0.54440,0.55989,0.55259,0.54625,0.53106,0.54304,0.49577,0.51983,0.51425,0.53527,0.51173,0.53204,0.52413,0.49476,0.50035,0.53647,0.51466,0.52504,0.52725,0.49857,0.52463,0.52996,0.50300,0.50394,0.50138,0.50230,0.49824,0.50569,0.50066,0.49592,0.48446,0.50144,0.48359,0.49203,0.48993,0.49001,0.49967,0.49527,0.50300,0.49543,0.49914,0.49316];
+const NPmG_g=[19.61443,11.89859,10.99600,7.77036,6.07640,5.09412,4.40111,4.26943,4.01677,4.21774,4.04314,3.98671,3.96017,3.90445,3.87257,3.81603,3.84301,3.73503,3.79149,3.69443,3.76676,3.76040,3.72042,3.72900,3.65706,3.65354,3.65112,3.60647,3.50053,3.57992,3.53138,3.49274,3.48074,3.48264,3.48613,3.60735,3.49447,3.45413,3.48523,3.45313,3.39235,3.39402,3.42914,3.44793,3.40622,3.43336,3.43044,3.41299,3.40276,3.39892,3.41251,3.41045,3.40232,3.39992,3.37736,3.37672,3.40504,3.41231,3.39741,3.40744,3.38821,3.34949,3.36544,3.38238,3.39702,3.37893,3.38612,3.37577];
+const NPmG_c=[15.80776,11.54984,9.27524,4.92594,4.54622,4.15858,3.97997,4.02685,4.05486,3.88492,3.87721,3.81930,3.81832,3.81125,3.85555,3.82177,3.67412,3.67513,3.67170,3.63830,3.60558,3.62798,3.53257,3.57760,3.50990,3.51772,3.48315,3.49870,3.43740,3.46813,3.44187,3.43917,3.41545,3.41571,3.39730,3.45090,3.41772,3.43178,3.40916,3.38686,3.42642,3.39373,3.40893,3.37462,3.42136,3.44905,3.42828,3.43724,3.43809,3.37614,3.37601,3.39544,3.39706,3.41069,3.40167,3.39107,3.37630,3.40156,3.40126,3.40145,3.38680,3.38547,3.39115,3.37490,3.35514,3.36140,3.37120,3.36037,3.36827,3.37743,3.37528,3.34829,3.35654,3.36702,3.36946,3.37639,3.37514,3.35975,3.37571,3.38575,3.36282,3.36216,3.35243,3.34733,3.35858,3.36198,3.35062,3.35514,3.34377,3.35899,3.35221,3.35183,3.35360,3.34977,3.36031,3.35601,3.36315,3.36156,3.36542,3.35409];
+const NRm_ceil=1.1406;
+const NRmO_g=[15.61259,8.96533,7.91367,5.12006,3.50713,2.58375,1.68740,1.38526,1.19472,1.18748,1.04566,0.92943,0.85460,0.79364,0.80015,0.75233,0.72659,0.65163,0.67055,0.60327,0.62041,0.60789,0.58556,0.56821,0.50175,0.50881,0.49340,0.47755,0.41466,0.43454,0.41547,0.38728,0.36547,0.35735,0.36991,0.41077,0.35598,0.37155,0.35312,0.35191,0.30759,0.32632,0.32276,0.34436,0.31936,0.32425,0.33619,0.31871,0.31554,0.31029,0.31420,0.30729,0.31348,0.30323,0.28011,0.29524,0.30344,0.30937,0.30050,0.30341,0.30171,0.27767,0.27610,0.28566,0.29446,0.28516,0.29394,0.29014];
+const NRmO_c=[12.21123,8.54762,6.40320,2.56345,1.65775,1.16557,0.99792,0.93360,0.91011,0.78329,0.74913,0.69733,0.67972,0.67347,0.67475,0.66327,0.56392,0.51399,0.51543,0.49438,0.44568,0.42616,0.39762,0.41051,0.37532,0.37164,0.36113,0.36577,0.33154,0.33716,0.32461,0.32555,0.31309,0.29602,0.29758,0.30907,0.29289,0.29734,0.30149,0.27910,0.28742,0.28110,0.29379,0.28150,0.29712,0.30867,0.29201,0.29692,0.29127,0.25602,0.25896,0.27179,0.26668,0.27987,0.26161,0.27235,0.26518,0.27191,0.26601,0.27227,0.26370,0.25569,0.25554,0.26445,0.23642,0.24674,0.24933,0.25836,0.24579,0.25730,0.25065,0.23194,0.24181,0.25785,0.24725,0.25486,0.25718,0.24016,0.25203,0.25418,0.24194,0.24523,0.24013,0.23959,0.24072,0.24515,0.23908,0.23911,0.23752,0.24403,0.23379,0.23532,0.23584,0.23597,0.23934,0.23832,0.24313,0.23956,0.24063,0.23560];
+const NRmG_g=[15.43707,8.92568,7.96468,5.41284,3.88769,3.04771,2.34236,2.10773,1.89127,1.96720,1.81050,1.73116,1.69870,1.64545,1.67159,1.59541,1.61177,1.54129,1.58063,1.51123,1.53162,1.53869,1.51279,1.49367,1.42819,1.45333,1.43397,1.41299,1.36498,1.37527,1.35997,1.33704,1.32996,1.31124,1.32215,1.38405,1.31886,1.32193,1.32075,1.30995,1.27301,1.27519,1.29248,1.31095,1.27367,1.30605,1.30595,1.28921,1.28639,1.28090,1.28745,1.28872,1.28622,1.29047,1.26280,1.25854,1.27961,1.28152,1.28487,1.28271,1.27347,1.24568,1.25765,1.26283,1.27548,1.25951,1.26466,1.26246];
+const NRmG_c=[12.11408,8.55632,6.59946,3.06207,2.36609,1.97596,1.81364,1.76135,1.75843,1.65449,1.62935,1.58129,1.58569,1.58192,1.58608,1.58908,1.49850,1.45255,1.43878,1.43153,1.39811,1.38626,1.36497,1.38345,1.34871,1.33945,1.33209,1.35026,1.30615,1.32222,1.30554,1.31419,1.29502,1.28723,1.28671,1.31014,1.28407,1.30465,1.29175,1.27215,1.29515,1.26674,1.28315,1.27212,1.29182,1.30385,1.29309,1.30874,1.29944,1.26150,1.26792,1.28314,1.28280,1.29083,1.27438,1.27519,1.27383,1.26952,1.27907,1.27588,1.26792,1.25870,1.27277,1.26468,1.25355,1.25365,1.26910,1.25594,1.25938,1.26000,1.25950,1.24618,1.25331,1.25624,1.25566,1.26052,1.26409,1.24615,1.26359,1.26832,1.25224,1.25264,1.24288,1.24209,1.25032,1.25454,1.24381,1.24953,1.24364,1.24884,1.24623,1.24477,1.24597,1.24641,1.24894,1.25186,1.25532,1.25085,1.25353,1.24566];
+
+const SPLIT=67, X0=20, X1=99;   // matched epoch; plot window; plain's last epoch
+
+/* ---------- trajectory chart: gapsig (orange) vs plain (blue), matched-epoch rule ---------- */
+function trajChart(el,cfg){
+  const W=380,H=138,L=40,R=10,T=9,B=20, iw=W-L-R, ih=H-T-B;
+  const {ymin,ymax,yticks,g,c,ceil}=cfg;
+  const X=e=>L+iw*((e-X0)/(X1-X0));
+  const Y=v=>T+ih*(1-(Math.min(Math.max(v,ymin),ymax)-ymin)/(ymax-ymin));
+  const seg=(a,e0,e1)=>{let d='';for(let e=e0;e<=e1 && e<a.length;e++)d+=(e===e0?'M':'L')+X(e).toFixed(1)+' '+Y(a[e]).toFixed(1);return d;};
+  const cG=CV('--s2'), cC=CV('--s1');
+  let s=`<svg viewBox="0 0 ${W} ${H}" width="100%" preserveAspectRatio="xMinYMin meet">`;
+  yticks.forEach(t=>{const y=Y(t);
+    s+=`<line x1="${L}" y1="${y}" x2="${L+iw}" y2="${y}" stroke="${CV('--grid')}"/>`;
+    s+=`<text x="${L-6}" y="${y+3}" text-anchor="end" class="axl">${cfg.fmt(t)}</text>`;});
+  [20,40,60,80,99].forEach(t=>{s+=`<text x="${X(t)}" y="${H-9}" text-anchor="middle" class="axl">${t}</text>`;});
+  if(ceil!=null){const y=Y(ceil);
+    s+=`<line x1="${L}" y1="${y}" x2="${L+iw}" y2="${y}" stroke="${CV('--muted')}" stroke-dasharray="4 3" stroke-width="1.2"/>`;
+    s+=`<text x="${L+iw}" y="${y-3}" text-anchor="end" class="hll" fill="${CV('--muted')}">teacher</text>`;}
+  // matched-epoch marker
+  const vx=X(SPLIT);
+  s+=`<line x1="${vx}" y1="${T}" x2="${vx}" y2="${T+ih}" stroke="${CV('--axis')}" stroke-dasharray="2 3"/>`;
+  // plain: solid to match, dashed after (extra compute)
+  s+=`<path d="${seg(c,X0,SPLIT)}" fill="none" stroke="${cC}" stroke-width="1.9"/>`;
+  s+=`<path d="${seg(c,SPLIT,c.length-1)}" fill="none" stroke="${cC}" stroke-width="1.6" stroke-dasharray="4 3" opacity=".8"/>`;
+  // gapsig: solid to its last epoch (=match)
+  s+=`<path d="${seg(g,X0,g.length-1)}" fill="none" stroke="${cG}" stroke-width="2.1"/>`;
+  s+=`<circle cx="${X(g.length-1).toFixed(1)}" cy="${Y(g[g.length-1]).toFixed(1)}" r="2.6" fill="${cG}"/>`;
+  s+=`<circle cx="${vx.toFixed(1)}" cy="${Y(c[SPLIT]).toFixed(1)}" r="2.6" fill="${cC}"/>`;
+  s+=`</svg>`;
+  el.innerHTML=s;
+}
+
+/* ---------- horizontal bar chart (penalty %) ---------- */
+function barH(el,cfg){
+  const W=560,L=cfg.L||150,R=cfg.R||64,T=4,rh=cfg.rh||34;
+  const H=T+cfg.bars.length*rh+8, iw=W-L-R, xmax=cfg.xmax;
+  const X=v=>L+iw*Math.min(v/xmax,1);
+  let s=`<svg viewBox="0 0 ${W} ${H}" width="100%" preserveAspectRatio="xMinYMin meet">`;
+  s+=`<line x1="${L}" y1="${T}" x2="${L}" y2="${T+cfg.bars.length*rh}" stroke="${CV('--axis')}"/>`;
+  cfg.bars.forEach((b,i)=>{
+    const y=T+i*rh, bw=X(b.value)-L, col=CV(b.color);
+    s+=`<text x="${L-9}" y="${y+rh/2+1}" text-anchor="end" class="barlbl" dominant-baseline="middle">${b.label}</text>`;
+    s+=`<rect x="${L}" y="${y+6}" width="${Math.max(bw,1)}" height="${rh-13}" rx="3" fill="${col}" opacity="${b.faint?.42:.85}"/>`;
+    s+=`<text x="${L+bw+7}" y="${y+rh/2+1}" class="barval" dominant-baseline="middle">${b.disp}</text>`;
+  });
+  s+=`</svg>`;
+  el.innerHTML=s;
+}
+
+/* ---------- build slide 2 (PredVsOrig) and slide 4 (PredVsGT) panel grids ---------- */
+const f2=t=>t.toFixed(2);
+const PANELS_O=[
+  {t:'Depth',ds:'KITTI',   el:'p_KDepO', g:KDepO_g,c:KDepO_c, ymin:0.40,ymax:0.90,yticks:[0.4,0.6,0.8]},
+  {t:'Pointmap',ds:'KITTI',el:'p_KPmO',  g:KPmO_g, c:KPmO_c,  ymin:0.55,ymax:1.45,yticks:[0.6,0.9,1.2]},
+  {t:'Raymap',ds:'KITTI',  el:'p_KRmO',  g:KRmO_g, c:KRmO_c,  ymin:0.35,ymax:0.90,yticks:[0.4,0.6,0.8]},
+  {t:'Depth',ds:'nuScenes',   el:'p_NDepO',g:NDepO_g,c:NDepO_c,ymin:0.33,ymax:0.90,yticks:[0.4,0.6,0.8]},
+  {t:'Pointmap',ds:'nuScenes', el:'p_NPmO', g:NPmO_g, c:NPmO_c, ymin:0.45,ymax:1.45,yticks:[0.6,0.9,1.2]},
+  {t:'Raymap',ds:'nuScenes', el:'p_NRmO', g:NRmO_g, c:NRmO_c, ymin:0.20,ymax:0.85,yticks:[0.3,0.5,0.7]},
+];
+const PANELS_G=[
+  {t:'Depth',ds:'KITTI',   el:'p_KDepG', g:KDepG_g,c:KDepG_c, ceil:KDep_ceil, ymin:1.53,ymax:2.10,yticks:[1.6,1.8,2.0]},
+  {t:'Pointmap',ds:'KITTI',el:'p_KPmG',  g:KPmG_g, c:KPmG_c,  ceil:KPm_ceil,  ymin:2.35,ymax:3.30,yticks:[2.4,2.8,3.2]},
+  {t:'Raymap',ds:'KITTI',  el:'p_KRmG',  g:KRmG_g, c:KRmG_c,  ceil:KRm_ceil,  ymin:1.05,ymax:1.80,yticks:[1.2,1.4,1.6]},
+  {t:'Depth',ds:'nuScenes',   el:'p_NDepG',g:NDepG_g,c:NDepG_c,ceil:NDep_ceil, ymin:2.52,ymax:2.86,yticks:[2.55,2.65,2.75]},
+  {t:'Pointmap',ds:'nuScenes', el:'p_NPmG', g:NPmG_g, c:NPmG_c, ceil:NPm_ceil,  ymin:3.22,ymax:3.82,yticks:[3.3,3.5,3.7]},
+  {t:'Raymap',ds:'nuScenes', el:'p_NRmG', g:NRmG_g, c:NRmG_c, ceil:NRm_ceil,  ymin:1.13,ymax:1.56,yticks:[1.2,1.35,1.5]},
+];
+function buildGrid(host, panels, withCeil){
+  host.innerHTML = panels.map(p=>
+    `<div class="panel"><div class="pt">${p.t} <span class="ds">· ${p.ds}</span></div><div id="${p.el}"></div></div>`).join('');
+  panels.forEach(p=>trajChart(document.getElementById(p.el),{
+    ymin:p.ymin,ymax:p.ymax,yticks:p.yticks,g:p.g,c:p.c,ceil:withCeil?p.ceil:null,fmt:f2}));
+}
+buildGrid(document.getElementById('grid2'), PANELS_O, false);
+buildGrid(document.getElementById('grid4'), PANELS_G, true);
+
+const legHTML=`<span><span class="sw" style="background:var(--s2)"></span>gapsig <span style="color:var(--muted)">z/√gap</span></span>`
+  +`<span><span class="sw" style="background:var(--s1)"></span>plain SIGReg <span style="color:var(--muted)">(baseline)</span></span>`
+  +`<span style="color:var(--muted)">x = epoch (window 20–99) · lower is better</span>`;
+document.getElementById('lg2').innerHTML=legHTML;
+document.getElementById('lg4').innerHTML=legHTML+`<span style="color:var(--muted)">grey dashed = teacher ceiling</span>`;
+
+/* ---------- slide 3 penalty bars (gapsig vs plain @ epoch 67) ---------- */
+barH(document.getElementById('chOrig'),{
+  xmax:16, L:150, rh:34, R:118,
+  bars:[
+    {label:'Depth · KITTI',    value:6.5,  disp:'+6.5%   0.455 vs 0.427', color:'--s2'},
+    {label:'Pointmap · KITTI', value:11.3, disp:'+11.3%  0.684 vs 0.615', color:'--s2'},
+    {label:'Raymap · KITTI',   value:6.6,  disp:'+6.6%   0.417 vs 0.391', color:'--s2'},
+    {label:'Depth · nuScenes',    value:13.6, disp:'+13.6%  0.444 vs 0.391', color:'--s8'},
+    {label:'Pointmap · nuScenes', value:13.9, disp:'+13.9%  0.610 vs 0.535', color:'--s8'},
+    {label:'Raymap · nuScenes',   value:12.3, disp:'+12.3%  0.290 vs 0.258', color:'--s8'},
+  ]
+});
+barH(document.getElementById('chGT'),{
+  xmax:16, L:150, rh:34, R:118,
+  bars:[
+    {label:'Depth · KITTI',    value:6.4, disp:'+6.4%   1.692 vs 1.590', color:'--s2'},
+    {label:'Pointmap · KITTI', value:8.3, disp:'+8.3%   2.608 vs 2.409', color:'--s2'},
+    {label:'Raymap · KITTI',   value:9.9, disp:'+9.9%   1.338 vs 1.218', color:'--s2'},
+    {label:'Depth · nuScenes',    value:0.5, disp:'+0.5%  ceiling-masked', color:'--s8', faint:true},
+    {label:'Pointmap · nuScenes', value:0.5, disp:'+0.5%  ceiling-masked', color:'--s8', faint:true},
+    {label:'Raymap · nuScenes',   value:0.5, disp:'+0.5%  ceiling-masked', color:'--s8', faint:true},
+  ]
+});
+</script>
+</body>
+</html>
