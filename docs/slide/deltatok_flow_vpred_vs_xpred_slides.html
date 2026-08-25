@@ -1,0 +1,407 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>DeltaTok-flow — does v-prediction beat x-prediction?</title>
+<style>
+/* ---------- tokens · light only, white slides (no dark variant by request) ---------- */
+:root{
+  color-scheme: light only;
+  --backdrop:#e9e9e6; --page:#f7f7f6; --surface:#ffffff;
+  --ink:#0b0b0b; --ink2:#52514e; --muted:#83817c;
+  --grid:#e4e4de; --axis:#c3c2b7; --border:rgba(11,11,11,.12);
+  --s1:#2a78d6; --s2:#eb6834; --s3:#1baf7a; --s4:#eda100;
+  --good:#0ca30c; --crit:#d03b3b; --serious:#ec835a;
+  --accent:var(--s1);
+  --serif:"Iowan Old Style","Palatino Linotype",Palatino,Georgia,serif;
+  --sans:system-ui,-apple-system,"Segoe UI",sans-serif;
+  --mono:ui-monospace,"Cascadia Code",Menlo,Consolas,monospace;
+}
+/* ---------- deck chrome ---------- */
+*{box-sizing:border-box;margin:0}
+html,body{height:100%}
+body{background:var(--backdrop);color:var(--ink);font:15px/1.45 var(--sans);overflow:hidden}
+.stage{position:absolute;left:50%;top:50%;width:1280px;height:720px;transform-origin:center center}
+.slide{position:absolute;inset:0;background:var(--surface);border:1px solid var(--border);
+  padding:46px 60px 40px;display:none;flex-direction:column}
+.slide.on{display:flex}
+.eyebrow{font:600 12px/1 var(--mono);letter-spacing:.14em;text-transform:uppercase;color:var(--accent);margin-bottom:12px}
+.eyebrow .dim{color:var(--muted)}
+h1{font:400 44px/1.14 var(--serif);letter-spacing:-.01em;text-wrap:balance}
+h2{font:400 30px/1.2 var(--serif);letter-spacing:-.005em;text-wrap:balance;margin-bottom:4px}
+.sub{color:var(--ink2);font-size:15px;max-width:80ch;margin-top:9px}
+.body{flex:1;min-height:0;margin-top:16px}
+.foot{display:flex;justify-content:space-between;align-items:baseline;color:var(--muted);
+  font:11px/1 var(--mono);letter-spacing:.06em;margin-top:12px;border-top:1px solid var(--grid);padding-top:10px}
+.pageno{font-variant-numeric:tabular-nums}
+/* nav */
+.nav{position:fixed;left:50%;bottom:14px;transform:translateX(-50%);display:flex;gap:8px;align-items:center;z-index:5}
+.nav button{width:9px;height:9px;border-radius:50%;border:1px solid var(--muted);background:transparent;cursor:pointer;padding:0}
+.nav button.cur{background:var(--accent);border-color:var(--accent)}
+.nav button:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+.arr{position:fixed;top:50%;transform:translateY(-50%);z-index:5;border:1px solid var(--border);
+  background:var(--surface);color:var(--ink2);width:34px;height:56px;cursor:pointer;font-size:18px;border-radius:4px}
+.arr:hover{color:var(--ink)}
+#prev{left:10px}#next{right:10px}
+/* ---------- shared bits ---------- */
+.mono{font-family:var(--mono)}
+.num{font-variant-numeric:tabular-nums}
+.chip{display:inline-block;font:600 10.5px/1 var(--mono);letter-spacing:.05em;padding:4px 7px;border-radius:3px;
+  border:1px solid var(--border);white-space:nowrap}
+.chip.good{color:var(--good);border-color:currentColor}
+.chip.bad{color:var(--crit);border-color:currentColor}
+.chip.hero{color:var(--accent);border-color:currentColor}
+.sw{display:inline-block;width:12px;height:3px;border-radius:2px;vertical-align:3px}
+.cols{display:grid;gap:26px;min-height:0}
+.c2{grid-template-columns:1fr 1fr}
+.c3{grid-template-columns:1fr 1fr 1fr}
+.c58{grid-template-columns:1.32fr 1fr}
+.card{border:1px solid var(--grid);border-radius:6px;padding:14px 16px;background:var(--page)}
+.card h3{font:600 14px/1.3 var(--sans);margin:6px 0}
+.card .tag{font:600 10px/1 var(--mono);letter-spacing:.1em;text-transform:uppercase;color:var(--muted)}
+ul.tight{padding-left:18px;display:flex;flex-direction:column;gap:8px;font-size:14px;color:var(--ink2)}
+ul.tight li{padding-left:2px}
+ul.tight strong{color:var(--ink);font-weight:600}
+/* stat tiles */
+.tiles{display:grid;gap:12px}
+.tile{border:1px solid var(--grid);border-radius:6px;padding:12px 14px;background:var(--page)}
+.tile .v{font:600 25px/1.1 var(--sans);letter-spacing:-.01em;font-variant-numeric:tabular-nums}
+.tile .k{font:600 10px/1.4 var(--mono);letter-spacing:.1em;text-transform:uppercase;color:var(--muted);margin-bottom:5px}
+.tile .d{font-size:12.5px;color:var(--ink2);margin-top:5px}
+.rulebar{border:1px dashed var(--axis);border-radius:6px;padding:11px 15px;font-size:13.5px;color:var(--ink2)}
+.rulebar b{color:var(--ink)}
+/* charts */
+.legend{display:flex;flex-wrap:wrap;gap:6px 18px;font:12px/1 var(--sans);color:var(--ink2);margin-bottom:6px}
+.legend span{display:inline-flex;gap:7px;align-items:center}
+svg text{font:10.5px var(--sans);fill:var(--muted)}
+svg .axl{font:9.5px var(--mono);fill:var(--muted)}
+svg .barlbl{font:600 12px var(--sans);fill:var(--ink)}
+svg .barval{font:11px var(--mono);fill:var(--ink2)}
+.chartwrap{display:flex;flex-direction:column;height:100%}
+.chartwrap svg{flex:1;min-height:0}
+.ptitle{font:600 12px/1.2 var(--mono);color:var(--ink2);letter-spacing:.02em;margin-bottom:2px}
+.ptitle span{color:var(--muted);font-weight:400}
+.takeaway{border:1px solid var(--grid);border-radius:6px;padding:13px 15px;background:var(--page);display:flex;gap:12px;align-items:flex-start}
+.takeaway .n{font:600 22px/1 var(--serif);color:var(--accent);flex:0 0 auto;width:24px}
+.takeaway .tx{font-size:13.5px;color:var(--ink2)}
+.takeaway .tx b{color:var(--ink)}
+@media (prefers-reduced-motion: no-preference){
+  .slide.on{animation:fadein .18s ease}
+  @keyframes fadein{from{opacity:.4}to{opacity:1}}
+}
+@media print{
+  body{overflow:visible;background:#fff}
+  .stage{position:static;transform:none!important;width:auto;height:auto}
+  .slide{display:flex;position:static;width:1280px;height:720px;page-break-after:always;margin:0 auto}
+  .nav,.arr{display:none}
+}
+</style>
+</head>
+<body>
+<div class="stage" id="stage">
+
+<!-- ============ SLIDE 1 — title / verdict ============ -->
+<section class="slide on">
+  <div class="eyebrow">DeltaTok-flow <span class="dim">— waymo · consec 5cam0 · ctx3fwd2 · tc128 · maxgap9 · SIGReg 0.005 · compose 1.0 · xxl DiT · BSC</span></div>
+  <h1>Does <span class="mono" style="font-size:.8em">pred_mode=v</span> beat <span class="mono" style="font-size:.8em">pred_mode=x</span>? <span style="color:var(--crit)">No — it loses on all three.</span></h1>
+  <p class="sub">One change: the net predicts <b>velocity</b> instead of the <b>clean token</b>. This drops the
+  <span class="mono">1/(1&minus;t)</span> blow-up the x-arm carries at the clean-context slot — the reason it was tried. But on the
+  generation-quality geometry metrics (sampled rollout of the forecast frames, decoded and scored vs ground truth, lower = better),
+  the v-arm is <b>worse at matched compute</b> on raymap, pointmap, and depth alike.</p>
+  <div class="body">
+    <div class="cols c58" style="height:100%;align-items:center">
+      <div class="tiles" style="grid-template-columns:1fr 1fr">
+        <div class="tile"><div class="k">LossRaymap · @72k matched</div><div class="v" style="color:var(--crit)">+10.4%</div><div class="d">v 7.76 vs x 7.03 · floor 1.68</div></div>
+        <div class="tile"><div class="k">LossPointmap · @72k matched</div><div class="v" style="color:var(--crit)">+7.1%</div><div class="d">v 10.48 vs x 9.79 · floor 4.06</div></div>
+        <div class="tile"><div class="k">LossDepth · @72k matched</div><div class="v" style="color:var(--serious)">+2.2%</div><div class="d">v 4.00 vs x 3.92 · floor 2.80</div></div>
+        <div class="tile"><div class="k">LossFlow · train objective</div><div class="v" style="color:var(--crit)">+4.7%</div><div class="d">v 0.811 vs x 0.775 · v-arm also worse here</div></div>
+      </div>
+      <div>
+        <div class="rulebar" style="margin-bottom:12px"><b>The metric.</b> <span class="mono">Eval/128 @ WaymoSeqMultiView</span> — sample the delta tokens by ODE, roll out forecast frames 3&ndash;4, decode via DA3, score raymap / pointmap / depth against GT. Not teacher-forced.</div>
+        <div class="rulebar"><b>The floor.</b> Decoding the <b>ground-truth</b> tokens (same tokenizer for both arms) gives 1.68 / 4.06 / 2.80. Both arms sit well above it — the gap is generation, not the tokenizer.</div>
+      </div>
+    </div>
+  </div>
+  <div class="foot"><span>DeltaTok-flow · v-pred vs x-pred · matched budget = 72k (v-arm endpoint)</span><span class="pageno">01 / 05</span></div>
+</section>
+
+<!-- ============ SLIDE 2 — the setup ============ -->
+<section class="slide">
+  <div class="eyebrow">The setup · one knob</div>
+  <h2>Identical run, twice — only <span class="mono" style="font-size:.8em">pred_mode</span> flips x &rarr; v</h2>
+  <div class="body">
+    <div class="cols c2" style="height:100%;align-content:start">
+      <div style="display:flex;flex-direction:column;gap:12px">
+        <div class="card">
+          <div class="tag" style="color:var(--s1)">x-arm · baseline</div>
+          <h3 style="margin-bottom:6px"><span class="mono">pred_mode=x</span>, <span class="mono">loss_mode=v</span></h3>
+          <p style="font-size:13.5px;color:var(--ink2)">Net outputs the clean token <span class="mono">x̂</span>; velocity is recovered as
+          <span class="mono">(x̂&minus;z_t)/(1&minus;t)</span>. The v-MSE loss then carries a <span class="mono">1/(1&minus;t)²</span> weight
+          that <b>blows up at the clean-context slot</b> (t&rarr;1).</p>
+        </div>
+        <div class="card">
+          <div class="tag" style="color:var(--s2)">v-arm · the twin</div>
+          <h3 style="margin-bottom:6px"><span class="mono">pred_mode=v</span>, <span class="mono">loss_mode=v</span></h3>
+          <p style="font-size:13.5px;color:var(--ink2)">Net outputs velocity directly, so no <span class="mono">1/(1&minus;t)</span> division.
+          <b>Hypothesis:</b> removing that blow-up should stabilise training and improve generated geometry.</p>
+        </div>
+      </div>
+      <div>
+        <div class="rulebar" style="margin-bottom:12px"><b>Everything else is held fixed.</b> Same frozen tokenizer (compose 1.0, dtok64, epoch_40),
+        same data (waymo consec, 5 frames, cam0, forecast 3&ndash;4), same xxl DiT (width 1536, ~1.2B, AdaLN-Zero),
+        SIGReg 0.005, tc128, maxgap9, <span class="mono">cond_mode=delta_ctx_cross</span>, 2 clean context deltas.</div>
+        <div class="tiles" style="grid-template-columns:1fr 1fr">
+          <div class="tile"><div class="k">Steps logged</div><div class="v">100k <span style="color:var(--muted);font-size:.6em">vs</span> 72k</div><div class="d">x-arm ran on to 100k; v-arm to 72k</div></div>
+          <div class="tile"><div class="k">Fair comparison</div><div class="v">@ 72k</div><div class="d">matched budget = v-arm endpoint</div></div>
+        </div>
+        <div class="rulebar" style="margin-top:12px"><b>Read the curves from ~24k.</b> Both arms spike to ~17&ndash;20 during the 5&ndash;10k warm-up transient, then descend. The next slide zooms the settled region.</div>
+      </div>
+    </div>
+  </div>
+  <div class="foot"><span>only diff: model.pred_mode  x → v  · compose_vpred_bsc.slurm vs compose_bsc.slurm</span><span class="pageno">02 / 05</span></div>
+</section>
+
+<!-- ============ SLIDE 3 — three curves ============ -->
+<section class="slide">
+  <div class="eyebrow">Convergence · sampled rollout vs GT · from step 24k</div>
+  <h2>x-pred sits below v-pred at every step on all three geometry losses</h2>
+  <div class="body" style="gap:0">
+    <div class="legend">
+      <span><span class="sw" style="background:var(--s1)"></span>x-pred (baseline)</span>
+      <span><span class="sw" style="background:var(--s2)"></span>v-pred</span>
+      <span><span class="sw" style="background:var(--axis);width:14px;height:0;border-top:1.4px solid var(--axis)"></span>matched budget · 72k</span>
+      <span style="color:var(--muted)">floor (decode GT tokens) noted per panel · lower = better</span>
+    </div>
+    <div class="cols c3" style="flex:1;min-height:0;margin-top:4px">
+      <div class="chartwrap">
+        <div class="ptitle">LossRaymap <span>· floor 1.68</span></div>
+        <div id="chRay"></div>
+      </div>
+      <div class="chartwrap">
+        <div class="ptitle">LossPointmap <span>· floor 4.06</span></div>
+        <div id="chPm"></div>
+      </div>
+      <div class="chartwrap">
+        <div class="ptitle">LossDepth <span>· floor 2.80</span></div>
+        <div id="chD"></div>
+      </div>
+    </div>
+    <div class="rulebar" style="margin-top:8px">The gap is widest on <b>raymap</b> and <b>pointmap</b> and narrow on <b>depth</b> (depth is already near its floor for both).
+    x-pred keeps improving past 72k, reaching <b>5.81 / 8.58 / 3.82</b> by 100k — the v-arm never gets a matching endpoint.</div>
+  </div>
+  <div class="foot"><span>Eval/128 @ WaymoSeqMultiView · LossRaymap / LossPointmap / LossDepth · every 1k steps</span><span class="pageno">03 / 05</span></div>
+</section>
+
+<!-- ============ SLIDE 4 — matched-budget bars ============ -->
+<section class="slide">
+  <div class="eyebrow">Matched budget · step 72,000</div>
+  <h2>At equal compute the x-arm wins on every term — and on the flow loss itself</h2>
+  <div class="body">
+    <div class="cols c58" style="height:100%">
+      <div class="chartwrap">
+        <div class="legend">
+          <span><span class="sw" style="background:var(--s1)"></span>x-pred</span>
+          <span><span class="sw" style="background:var(--s2)"></span>v-pred</span>
+          <span><span class="sw" style="background:var(--axis);width:14px;height:0;border-top:1.6px dashed var(--axis)"></span>tokenizer floor</span>
+        </div>
+        <div id="chBars"></div>
+      </div>
+      <div>
+        <div class="tiles" style="grid-template-columns:1fr;margin-bottom:12px">
+          <div class="tile"><div class="k">LossFlow · teacher-forced train objective</div><div class="v">0.775 &rarr; <span style="color:var(--crit)">0.811</span> <span class="chip bad">+4.7%</span></div><div class="d">v-pred is worse even on the loss it optimises</div></div>
+          <div class="tile"><div class="k">Gap to floor · pointmap</div><div class="v">5.73 <span style="color:var(--muted);font-size:.55em">vs</span> 6.42</div><div class="d">x-arm is 11% closer to the tokenizer ceiling</div></div>
+        </div>
+        <div class="rulebar"><b>Why the flip backfired.</b> The <span class="mono">1/(1&minus;t)</span> weighting the v-arm removed was
+        <i>up-weighting the near-clean, high-SNR regime</i> — exactly the frames the forecast is conditioned on. Dropping it spreads
+        capacity toward noisier t and hurts the geometry that matters.</div>
+      </div>
+    </div>
+  </div>
+  <div class="foot"><span>bars = matched step 72k · floor = LossRaymap_tok / LossPointmap_tok / LossDepth_tok (shared tokenizer)</span><span class="pageno">04 / 05</span></div>
+</section>
+
+<!-- ============ SLIDE 5 — verdict ============ -->
+<section class="slide">
+  <div class="eyebrow">Verdict</div>
+  <h2>Keep <span class="mono" style="font-size:.8em">pred_mode=x</span>; v-prediction is a regression here</h2>
+  <div class="body">
+    <div class="cols c2" style="height:100%;align-content:start">
+      <div style="display:flex;flex-direction:column;gap:12px">
+        <div class="takeaway"><div class="n">1</div><div class="tx"><b>Worse on every geometry metric.</b> At matched 72k, v-pred is <b>+10.4% raymap</b>, <b>+7.1% pointmap</b>, <b>+2.2% depth</b>. The gap holds at every logged step, not just the endpoint.</div></div>
+        <div class="takeaway"><div class="n">2</div><div class="tx"><b>Worse on the flow loss too.</b> v-pred is <b>+4.7%</b> on the teacher-forced objective — this is not a sampling artifact; the model fits the training target less well.</div></div>
+        <div class="takeaway"><div class="n">3</div><div class="tx"><b>The blow-up was a feature.</b> The <span class="mono">1/(1&minus;t)²</span> weight up-weights the high-SNR slot the forecast leans on. Removing it traded the pathology for a worse prior.</div></div>
+      </div>
+      <div class="card" style="background:var(--surface)">
+        <div class="tag">Caveats &amp; not yet checked</div>
+        <ul class="tight" style="margin-top:10px">
+          <li><strong>v-arm stopped at 72k.</strong> The x-arm's 100k endpoint (5.81 / 8.58 / 3.82) has no v-pred counterpart; comparison is matched-budget, not final-vs-final.</li>
+          <li><strong>Only the compose-1.0 waymo arm.</strong> No test of v-pred on the plain tokenizer, alldata, or other tc.</li>
+          <li><strong>Curves are noisy.</strong> Raymap / pointmap bounce ±1&ndash;2 between adjacent evals; the ranking is read from the trend, and it is consistent.</li>
+          <li><strong>Alternatives untried.</strong> <span class="mono">logit-normal t</span>, cosine schedule, and a t-independent loss are sibling arms that target the same t&rarr;1 issue.</li>
+        </ul>
+      </div>
+    </div>
+  </div>
+  <div class="foot"><span>source · TB event files · deltatok_flow_..._compose_xxl_dit  vs  _vpred</span><span class="pageno">05 / 05</span></div>
+</section>
+
+</div>
+
+<button class="arr" id="prev" aria-label="Previous slide">&lsaquo;</button>
+<button class="arr" id="next" aria-label="Next slide">&rsaquo;</button>
+<div class="nav" id="nav" role="tablist"></div>
+
+<script>
+/* ---------- deck nav ---------- */
+const stage=document.getElementById("stage");
+const slides=[...document.querySelectorAll(".slide")];
+const nav=document.getElementById("nav");
+let cur=0;
+slides.forEach((_,i)=>{
+  const b=document.createElement("button");
+  b.setAttribute("role","tab");b.setAttribute("aria-label","Slide "+(i+1));
+  b.addEventListener("click",()=>go(i));
+  nav.appendChild(b);
+});
+function go(i){
+  cur=Math.max(0,Math.min(slides.length-1,i));
+  slides.forEach((s,j)=>s.classList.toggle("on",j===cur));
+  [...nav.children].forEach((b,j)=>b.classList.toggle("cur",j===cur));
+}
+document.getElementById("prev").addEventListener("click",()=>go(cur-1));
+document.getElementById("next").addEventListener("click",()=>go(cur+1));
+addEventListener("keydown",e=>{
+  if(["ArrowRight","PageDown"," "].includes(e.key)){go(cur+1);e.preventDefault();}
+  else if(["ArrowLeft","PageUp"].includes(e.key)){go(cur-1);e.preventDefault();}
+  else if(e.key==="Home")go(0);
+  else if(e.key==="End")go(slides.length-1);
+});
+go(0);
+function fit(){
+  const s=Math.min(innerWidth/1300,(innerHeight-40)/730);
+  stage.style.transform=`translate(-50%,-50%) scale(${Math.min(s,1.4)})`;
+}
+addEventListener("resize",fit);fit();
+const CV=n=>getComputedStyle(document.documentElement).getPropertyValue(n).trim();
+
+/* ================= DATA — Eval/128 @ WaymoSeqMultiView, [step, value], every 1k steps =================
+   x-arm  = deltatok_flow_waymo_consec5cam0_ctx3fwd2_tc128mg9sigreg005compose_xxl_dit         (pred_mode=x, 100k)
+   v-arm  = deltatok_flow_waymo_consec5cam0_ctx3fwd2_tc128mg9sigreg005compose_xxl_dit_vpred   (pred_mode=v,  72k)
+   floor  = decode GT tokens (shared tokenizer): raymap 1.6786 · pointmap 4.0553 · depth 2.7983 */
+const BASE_RAYMAP=[[1000,3.7705],[2000,12.55],[3000,20.5778],[4000,17.4749],[5000,14.2855],[6000,18.2392],[7000,19.1136],[8000,17.821],[9000,12.5907],[10000,17.9725],[11000,15.283],[12000,16.7587],[13000,15.8578],[14000,12.1598],[15000,12.1952],[16000,11.3523],[17000,17.049],[18000,15.7426],[19000,11.5472],[20000,13.8191],[21000,11.8536],[22000,9.9192],[23000,11.7281],[24000,10.1921],[25000,9.5624],[26000,12.1001],[27000,10.0039],[28000,12.193],[29000,7.9656],[30000,8.1517],[31000,7.8383],[32000,8.1417],[33000,9.2544],[34000,8.901],[35000,9.3877],[36000,8.1724],[37000,9.3482],[38000,9.2406],[39000,7.4146],[40000,8.8415],[41000,7.081],[42000,6.6498],[43000,8.9836],[44000,7.4865],[45000,7.8267],[46000,6.666],[47000,7.4941],[48000,6.882],[49000,7.5087],[50000,6.7521],[51000,7.8252],[52000,6.6897],[53000,7.1306],[54000,7.124],[55000,7.4381],[56000,6.8919],[57000,6.8185],[58000,7.5852],[59000,6.9505],[60000,7.4394],[61000,6.2285],[62000,6.723],[63000,7.4028],[64000,6.994],[65000,6.6958],[66000,6.6799],[67000,6.6094],[68000,6.3423],[69000,6.3617],[70000,6.101],[71000,7.0609],[72000,7.0251],[73000,6.5253],[74000,6.5936],[75000,6.5401],[76000,6.2913],[77000,5.8045],[78000,7.0274],[79000,6.0959],[80000,6.6908],[81000,6.3075],[82000,5.7175],[83000,6.3796],[84000,6.1625],[85000,5.9663],[86000,6.0842],[87000,6.1689],[88000,5.8909],[89000,6.5933],[90000,6.3289],[91000,6.1758],[92000,5.8388],[93000,5.8064],[94000,5.8333],[95000,6.1435],[96000,6.0598],[97000,5.6994],[98000,6.0571],[99000,5.8556],[100000,5.8071]];
+const BASE_POINTMAP=[[1000,4.8926],[2000,14.4253],[3000,21.1779],[4000,18.4656],[5000,15.7779],[6000,19.2209],[7000,20.2202],[8000,19.0123],[9000,14.2146],[10000,19.3588],[11000,16.9553],[12000,18.461],[13000,17.5013],[14000,14.2467],[15000,14.3997],[16000,13.6368],[17000,18.7617],[18000,17.4146],[19000,13.889],[20000,15.8616],[21000,14.0676],[22000,12.5557],[23000,13.9997],[24000,12.4266],[25000,12.3335],[26000,14.4335],[27000,12.5736],[28000,14.2593],[29000,10.538],[30000,10.6657],[31000,10.4013],[32000,10.8896],[33000,11.7533],[34000,11.5893],[35000,11.7939],[36000,10.8063],[37000,11.8543],[38000,11.5157],[39000,10.0833],[40000,11.2845],[41000,9.9037],[42000,9.3455],[43000,11.421],[44000,10.174],[45000,10.5624],[46000,9.5292],[47000,10.1108],[48000,9.5626],[49000,10.2385],[50000,9.5663],[51000,10.4332],[52000,9.4331],[53000,9.8417],[54000,9.904],[55000,10.2429],[56000,9.8414],[57000,9.658],[58000,10.1977],[59000,9.7534],[60000,10.2262],[61000,9.0327],[62000,9.4694],[63000,10.176],[64000,9.679],[65000,9.3083],[66000,9.4315],[67000,9.2944],[68000,9.1257],[69000,9.2106],[70000,8.8501],[71000,9.6978],[72000,9.7923],[73000,9.2295],[74000,9.3294],[75000,9.2284],[76000,9.0888],[77000,8.6766],[78000,9.6033],[79000,8.8301],[80000,9.4667],[81000,9.1333],[82000,8.5837],[83000,9.2536],[84000,9.0027],[85000,8.6756],[86000,8.8321],[87000,8.9222],[88000,8.618],[89000,9.2804],[90000,9.0448],[91000,9.0075],[92000,8.5586],[93000,8.6208],[94000,8.5713],[95000,8.8906],[96000,8.8454],[97000,8.4884],[98000,8.9324],[99000,8.6656],[100000,8.5779]];
+const BASE_DEPTH=[[1000,4.2473],[2000,4.3298],[3000,4.4313],[4000,4.2671],[5000,4.2394],[6000,4.2905],[7000,4.3061],[8000,4.1157],[9000,4.0907],[10000,4.2196],[11000,4.0775],[12000,4.0084],[13000,4.0843],[14000,4.1224],[15000,4.1438],[16000,4.1413],[17000,4.1025],[18000,4.0628],[19000,4.1002],[20000,4.0301],[21000,4.0103],[22000,4.1439],[23000,4.0943],[24000,4.055],[25000,4.0265],[26000,4.0951],[27000,3.9141],[28000,3.9966],[29000,4.0126],[30000,3.9229],[31000,3.9655],[32000,3.9718],[33000,4.0008],[34000,4.0325],[35000,3.9515],[36000,3.9513],[37000,4.0286],[38000,4.0433],[39000,3.8751],[40000,3.9468],[41000,3.9399],[42000,3.8919],[43000,3.9005],[44000,3.9124],[45000,3.8928],[46000,3.944],[47000,3.9425],[48000,3.8991],[49000,3.8865],[50000,3.8928],[51000,3.984],[52000,3.8587],[53000,3.8136],[54000,3.9143],[55000,3.9284],[56000,4.0003],[57000,3.948],[58000,3.9253],[59000,3.9343],[60000,3.8745],[61000,3.883],[62000,3.8532],[63000,3.8841],[64000,3.8545],[65000,3.8599],[66000,3.879],[67000,3.9194],[68000,3.8823],[69000,3.8895],[70000,3.8774],[71000,3.8666],[72000,3.9158],[73000,3.874],[74000,3.8821],[75000,3.8252],[76000,3.9195],[77000,3.8945],[78000,3.8272],[79000,3.7944],[80000,3.9414],[81000,3.8753],[82000,3.905],[83000,3.9002],[84000,3.8759],[85000,3.9037],[86000,3.8722],[87000,3.8783],[88000,3.8378],[89000,3.8654],[90000,3.8802],[91000,3.8353],[92000,3.8273],[93000,3.8001],[94000,3.8125],[95000,3.8297],[96000,3.839],[97000,3.8152],[98000,3.9521],[99000,3.8877],[100000,3.8229]];
+const VPRED_RAYMAP=[[1000,6.9071],[2000,14.8495],[3000,15.9776],[4000,17.6783],[5000,15.8513],[6000,16.125],[7000,18.289],[8000,15.9548],[9000,17.4497],[10000,16.05],[11000,19.0833],[12000,14.0488],[13000,13.6764],[14000,12.2824],[15000,12.5904],[16000,11.3593],[17000,11.5422],[18000,9.5366],[19000,12.9061],[20000,12.1576],[21000,12.3257],[22000,10.8727],[23000,12.1098],[24000,11.3821],[25000,11.0492],[26000,9.3202],[27000,9.7905],[28000,10.7575],[29000,10.52],[30000,9.0854],[31000,9.7412],[32000,9.9475],[33000,9.2163],[34000,9.1262],[35000,8.6678],[36000,9.8208],[37000,9.166],[38000,8.3148],[39000,7.6014],[40000,9.0488],[41000,8.3467],[42000,8.7762],[43000,9.0542],[44000,7.8516],[45000,8.6394],[46000,7.0222],[47000,8.2792],[48000,7.818],[49000,7.6807],[50000,7.4886],[51000,7.0607],[52000,7.7086],[53000,6.7265],[54000,7.0517],[55000,7.8872],[56000,8.5948],[57000,8.0603],[58000,7.7956],[59000,7.514],[60000,7.4706],[61000,7.4748],[62000,8.2511],[63000,8.3007],[64000,7.5565],[65000,7.5486],[66000,7.5142],[67000,8.2382],[68000,7.5094],[69000,7.7133],[70000,6.7996],[71000,7.8295],[72000,7.7566]];
+const VPRED_POINTMAP=[[1000,8.4432],[2000,16.5597],[3000,17.2203],[4000,18.7077],[5000,17.295],[6000,17.5495],[7000,19.4186],[8000,17.4613],[9000,18.6241],[10000,17.7978],[11000,20.4528],[12000,16.1361],[13000,15.7221],[14000,14.3607],[15000,14.6522],[16000,13.6293],[17000,13.6588],[18000,12.0278],[19000,14.9284],[20000,14.3143],[21000,14.3764],[22000,13.0879],[23000,14.2827],[24000,13.6728],[25000,13.2924],[26000,11.6588],[27000,12.1753],[28000,13.0303],[29000,12.8722],[30000,11.6481],[31000,12.0138],[32000,12.4402],[33000,11.6986],[34000,11.5241],[35000,11.2809],[36000,12.0984],[37000,11.6544],[38000,10.8301],[39000,10.1005],[40000,11.4297],[41000,10.835],[42000,11.1328],[43000,11.495],[44000,10.3972],[45000,11.0759],[46000,9.5342],[47000,10.7314],[48000,10.4961],[49000,10.2821],[50000,10.1739],[51000,9.709],[52000,10.2989],[53000,9.501],[54000,9.7986],[55000,10.5686],[56000,11.2077],[57000,10.7066],[58000,10.3396],[59000,10.312],[60000,10.2665],[61000,10.1899],[62000,10.9193],[63000,10.9898],[64000,10.1823],[65000,10.2011],[66000,10.2093],[67000,10.8327],[68000,10.2747],[69000,10.414],[70000,9.4695],[71000,10.4296],[72000,10.4837]];
+const VPRED_DEPTH=[[1000,4.2718],[2000,4.3545],[3000,4.4115],[4000,4.3175],[5000,4.3171],[6000,4.2092],[7000,4.1783],[8000,4.2282],[9000,4.1622],[10000,4.0744],[11000,4.0333],[12000,4.1284],[13000,4.0199],[14000,4.0825],[15000,3.9999],[16000,4.0365],[17000,3.9502],[18000,4.0419],[19000,3.9598],[20000,4.0505],[21000,3.9593],[22000,3.906],[23000,4.0661],[24000,3.9496],[25000,3.9684],[26000,3.9965],[27000,4.0136],[28000,4.018],[29000,3.9812],[30000,4.0263],[31000,4.017],[32000,3.9506],[33000,4.0105],[34000,3.9972],[35000,4.0865],[36000,3.9413],[37000,4.0088],[38000,4.029],[39000,3.9569],[40000,3.9467],[41000,3.9695],[42000,3.935],[43000,3.9789],[44000,3.9831],[45000,3.9396],[46000,3.9393],[47000,3.9204],[48000,3.9606],[49000,3.9283],[50000,3.9395],[51000,3.9995],[52000,3.9725],[53000,3.9389],[54000,3.945],[55000,3.985],[56000,3.9745],[57000,3.9422],[58000,3.9122],[59000,3.9821],[60000,3.9642],[61000,3.972],[62000,3.9288],[63000,3.9444],[64000,3.9011],[65000,3.9382],[66000,3.8683],[67000,3.879],[68000,3.9335],[69000,3.9556],[70000,3.8718],[71000,3.927],[72000,4.0026]];
+
+/* ---------- line chart: loss vs step (step-indexed [x,y] pairs) ---------- */
+function lineChart(el,cfg){
+  const W=380,H=300,L=46,R=14,T=12,B=32;
+  const [x0,x1]=cfg.xdom,[y0,y1]=cfg.ydom;
+  const px=x=>L+(x-x0)/(x1-x0)*(W-L-R);
+  const py=y=>T+(1-(y-y0)/(y1-y0))*(H-T-B);
+  let s=`<svg viewBox="0 0 ${W} ${H}" width="100%" preserveAspectRatio="xMidYMid meet">`;
+  // y gridlines + labels
+  cfg.yticks.forEach(v=>{
+    const y=py(v);
+    s+=`<line x1="${L}" x2="${W-R}" y1="${y}" y2="${y}" stroke="${CV('--grid')}"/>`;
+    s+=`<text class="axl" x="${L-6}" y="${y+3}" text-anchor="end">${v.toFixed(cfg.ydec||1)}</text>`;
+  });
+  // x ticks (steps → k)
+  cfg.xticks.forEach(v=>{
+    const x=px(v);
+    s+=`<line x1="${x}" x2="${x}" y1="${T}" y2="${H-B}" stroke="${CV('--grid')}" stroke-dasharray="1 3"/>`;
+    s+=`<text class="axl" x="${x}" y="${H-B+14}" text-anchor="middle">${v/1000}k</text>`;
+  });
+  // matched-budget marker at 72k
+  if(cfg.vline!=null){const x=px(cfg.vline);
+    s+=`<line x1="${x}" x2="${x}" y1="${T}" y2="${H-B}" stroke="${CV('--axis')}" stroke-width="1.2"/>`;}
+  // series (clip to xdom)
+  cfg.series.forEach(se=>{
+    let d="";
+    se.data.forEach(([x,y])=>{
+      if(x<x0-500||x>x1+500) return;
+      d+=(d?"L":"M")+px(x).toFixed(1)+" "+py(y).toFixed(1)+" ";
+    });
+    s+=`<path d="${d}" fill="none" stroke="${se.color}" stroke-width="2.2" stroke-linejoin="round"/>`;
+  });
+  // 72k value markers
+  (cfg.marks||[]).forEach(m=>{
+    s+=`<circle cx="${px(m.x)}" cy="${py(m.y)}" r="4" fill="${CV('--surface')}" stroke="${m.color}" stroke-width="2.1"/>`;
+    if(m.label) s+=`<text x="${px(m.x)+(m.dx||7)}" y="${py(m.y)+(m.dy||-6)}" style="font:600 10px var(--mono);fill:${m.color}" text-anchor="${m.anchor||'start'}">${m.label}</text>`;
+  });
+  s+="</svg>"; el.innerHTML=s;
+}
+const last=a=>a[a.length-1][1];
+const at72=a=>a.find(p=>p[0]===72000)[1];
+
+lineChart(document.getElementById("chRay"),{
+  xdom:[24000,100000],ydom:[5,12],ydec:0,
+  yticks:[6,8,10,12],xticks:[30000,50000,72000,100000],vline:72000,
+  series:[{data:BASE_RAYMAP,color:CV('--s1')},{data:VPRED_RAYMAP,color:CV('--s2')}],
+  marks:[
+    {x:72000,y:at72(VPRED_RAYMAP),color:CV('--crit'),label:"7.76",dy:-8},
+    {x:72000,y:at72(BASE_RAYMAP),color:CV('--s1'),label:"7.03",dy:13},
+    {x:100000,y:last(BASE_RAYMAP),color:CV('--s1'),label:"5.81",dy:13,dx:-2,anchor:"end"},
+  ],
+});
+lineChart(document.getElementById("chPm"),{
+  xdom:[24000,100000],ydom:[8,14],ydec:0,
+  yticks:[9,11,13],xticks:[30000,50000,72000,100000],vline:72000,
+  series:[{data:BASE_POINTMAP,color:CV('--s1')},{data:VPRED_POINTMAP,color:CV('--s2')}],
+  marks:[
+    {x:72000,y:at72(VPRED_POINTMAP),color:CV('--crit'),label:"10.48",dy:-8},
+    {x:72000,y:at72(BASE_POINTMAP),color:CV('--s1'),label:"9.79",dy:13},
+    {x:100000,y:last(BASE_POINTMAP),color:CV('--s1'),label:"8.58",dy:13,dx:-2,anchor:"end"},
+  ],
+});
+lineChart(document.getElementById("chD"),{
+  xdom:[24000,100000],ydom:[3.75,4.15],ydec:2,
+  yticks:[3.8,3.9,4.0,4.1],xticks:[30000,50000,72000,100000],vline:72000,
+  series:[{data:BASE_DEPTH,color:CV('--s1')},{data:VPRED_DEPTH,color:CV('--s2')}],
+  marks:[
+    {x:72000,y:at72(VPRED_DEPTH),color:CV('--crit'),label:"4.00",dy:-8},
+    {x:72000,y:at72(BASE_DEPTH),color:CV('--s1'),label:"3.92",dy:13},
+    {x:100000,y:last(BASE_DEPTH),color:CV('--s1'),label:"3.82",dy:13,dx:-2,anchor:"end"},
+  ],
+});
+
+/* ---------- grouped bars at matched budget 72k, with tokenizer floor ---------- */
+function barTriples(el,cfg){
+  const W=540,H=330,L=24,R=20,T=22,B=52;
+  const gw=(W-L-R)/cfg.groups.length;
+  const maxv=cfg.max;
+  const py=v=>T+(1-v/maxv)*(H-T-B);
+  let s=`<svg viewBox="0 0 ${W} ${H}" width="100%" preserveAspectRatio="xMidYMid meet">`;
+  s+=`<line x1="${L}" x2="${W-R}" y1="${H-B}" y2="${H-B}" stroke="${CV('--axis')}"/>`;
+  cfg.groups.forEach((g,gi)=>{
+    const cx=L+gw*gi+gw/2, bw=40, gap=10;
+    const bars=[{v:g.x,c:CV('--s1'),lbl:g.x.toFixed(2)},{v:g.v,c:CV('--s2'),lbl:g.v.toFixed(2)}];
+    const x0=cx-(bw+gap/2);
+    bars.forEach((b,bi)=>{
+      const x=x0+bi*(bw+gap), y=py(b.v);
+      s+=`<rect x="${x}" y="${y}" width="${bw}" height="${H-B-y}" rx="3" fill="${b.c}"/>`;
+      s+=`<text class="barval" x="${x+bw/2}" y="${y-6}" text-anchor="middle">${b.lbl}</text>`;
+    });
+    // tokenizer floor dashed across the group
+    const yf=py(g.floor);
+    s+=`<line x1="${x0-6}" x2="${x0+2*bw+gap+6}" y1="${yf}" y2="${yf}" stroke="${CV('--axis')}" stroke-width="1.6" stroke-dasharray="5 4"/>`;
+    s+=`<text class="axl" x="${x0+2*bw+gap+6}" y="${yf-4}" text-anchor="end" fill="${CV('--muted')}">floor ${g.floor.toFixed(2)}</text>`;
+    s+=`<text class="barlbl" x="${cx}" y="${H-B+20}" text-anchor="middle">${g.name}</text>`;
+    s+=`<text class="axl" x="${cx}" y="${H-B+36}" text-anchor="middle" fill="${CV('--crit')}">${g.delta}</text>`;
+  });
+  s+="</svg>"; el.innerHTML=s;
+}
+barTriples(document.getElementById("chBars"),{
+  max:11.5,
+  groups:[
+    {name:"Raymap",  x:7.03, v:7.76,  floor:1.68, delta:"+10.4%"},
+    {name:"Pointmap",x:9.79, v:10.48, floor:4.06, delta:"+7.1%"},
+    {name:"Depth",   x:3.92, v:4.00,  floor:2.80, delta:"+2.2%"},
+  ],
+});
+</script>
+</body>
+</html>
