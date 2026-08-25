@@ -7,7 +7,7 @@
 #SBATCH --account=ehpc1001
 #SBATCH --partition=acc
 #SBATCH --qos=acc_ehpc
-#SBATCH --time=24:00:00
+#SBATCH --time=40:00:00
 ##SBATCH --qos=acc_debug
 ##SBATCH --time=02:00:00
 #SBATCH --output=slurm/output/train_deltatok_maxgap_sigreg_nozn_tc128_bsc_%j.out

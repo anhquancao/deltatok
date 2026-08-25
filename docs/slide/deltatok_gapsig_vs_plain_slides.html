@@ -133,7 +133,7 @@ plain  …_pool8192_compose1.0          <span class="cm">sigreg_gap_sigma=false<
       </div>
     </div>
   </div>
-  <div class="foot"><span>BSC MareNostrum · nt10 window · matched at epoch 67 (gapsig's last)</span><span class="pageno">1 / 6</span></div>
+  <div class="foot"><span>BSC MareNostrum · nt10 window · matched at epoch 67 (gapsig's last)</span><span class="pageno">1 / 8</span></div>
 </section>
 
 <!-- ============ SLIDE 2 — PredVsOrig trajectories ============ -->
@@ -146,7 +146,7 @@ plain  …_pool8192_compose1.0          <span class="cm">sigreg_gap_sigma=false<
     <div class="legend" id="lg2"></div>
     <div class="pgrid" id="grid2"></div>
   </div>
-  <div class="foot"><span>solid = trained so far · blue dashed = plain's extra epochs past the match point · vertical rule = matched epoch 67</span><span class="pageno">2 / 6</span></div>
+  <div class="foot"><span>solid = trained so far · blue dashed = plain's extra epochs past the match point · vertical rule = matched epoch 67</span><span class="pageno">2 / 8</span></div>
 </section>
 
 <!-- ============ SLIDE 3 — matched bars ============ -->
@@ -168,7 +168,7 @@ plain  …_pool8192_compose1.0          <span class="cm">sigreg_gap_sigma=false<
       </div>
     </div>
   </div>
-  <div class="foot"><span>bar = 100·(gapsig−plain)/plain at epoch 67 · absolute losses printed on each bar</span><span class="pageno">3 / 6</span></div>
+  <div class="foot"><span>bar = 100·(gapsig−plain)/plain at epoch 67 · absolute losses printed on each bar</span><span class="pageno">3 / 8</span></div>
 </section>
 
 <!-- ============ SLIDE 4 — PredVsGT trajectories with ceiling ============ -->
@@ -181,7 +181,7 @@ plain  …_pool8192_compose1.0          <span class="cm">sigreg_gap_sigma=false<
     <div class="legend" id="lg4"></div>
     <div class="pgrid" id="grid4"></div>
   </div>
-  <div class="foot"><span>grey dashed = teacher ceiling (OrigVsGT, identical for both arms) · vertical rule = matched epoch 67</span><span class="pageno">4 / 6</span></div>
+  <div class="foot"><span>grey dashed = teacher ceiling (OrigVsGT, identical for both arms) · vertical rule = matched epoch 67</span><span class="pageno">4 / 8</span></div>
 </section>
 
 <!-- ============ SLIDE 5 — verdict / mechanism ============ -->
@@ -214,7 +214,7 @@ loss_sigreg = sigreg(z, pool)</div>
       </div>
     </div>
   </div>
-  <div class="foot"><span>gapsig job BSC 44895886 · plain BSC 44635509→44846726 · scalars from TB event files</span><span class="pageno">5 / 6</span></div>
+  <div class="foot"><span>gapsig job BSC 44895886 · plain BSC 44635509→44846726 · scalars from TB event files</span><span class="pageno">5 / 8</span></div>
 </section>
 
 <!-- ============ SLIDE 6 — why (mechanism, measured) ============ -->
@@ -250,8 +250,85 @@ loss_sigreg = sigreg(z, pool)</div>
       </div>
     </div>
   </div>
-  <div class="foot"><span>PR pooled over the full held-out set · higher = better · vertical rule = matched epoch 67</span><span class="pageno">6 / 6</span></div>
+  <div class="foot"><span>PR pooled over the full held-out set · higher = better · vertical rule = matched epoch 67</span><span class="pageno">6 / 8</span></div>
 </section>
+
+<!-- ============ SLIDE 7 — spread: scale vs directions ============ -->
+<section class="slide">
+  <div class="eyebrow">Evidence 4 <span class="dim">— spread: how big the code is vs how many directions carry it</span></div>
+  <h2>gapsig doubles the code's energy and spends it on fewer directions</h2>
+  <p class="sub">Two different things get called "spread". <span class="mono">ZTotalVar</span> measures <b>scale</b> — how big the code is
+  (<span class="mono">ZRowMeanSquare</span> is the same number ÷ Cz=128). <span class="mono">ZPartRank</span> measures <b>directions</b> —
+  how many dims carry it. gapsig wins the first and loses the second, so energy per direction goes up: concentration, not spread.</p>
+  <div class="body">
+    <div class="cols c58" style="height:100%">
+      <div style="display:flex;flex-direction:column;gap:10px;min-height:0">
+        <div class="legend" id="lg7"></div>
+        <div class="pgrid" style="grid-template-columns:1fr 1fr">
+          <div class="panel"><div class="pt">Code scale (ZTotalVar) <span class="ds">· KITTI</span></div><div id="p_KTV"></div></div>
+          <div class="panel"><div class="pt">Code scale (ZTotalVar) <span class="ds">· nuScenes</span></div><div id="p_NTV"></div></div>
+          <div class="panel"><div class="pt">Variance per used dim <span class="ds">· KITTI</span></div><div id="p_KVR"></div></div>
+          <div class="panel"><div class="pt">Variance per used dim <span class="ds">· nuScenes</span></div><div id="p_NVR"></div></div>
+        </div>
+        <div class="tiles" style="grid-template-columns:1fr 1fr">
+          <div class="tile"><div class="k">Code scale @ ep67</div><div class="v" style="color:var(--s2)">+117 / +115%</div><div class="d">ZTotalVar 390 vs 180 · 281 vs 130</div></div>
+          <div class="tile"><div class="k">Variance per used dim</div><div class="v" style="color:var(--crit)">2.8× / 2.7×</div><div class="d">ZTotalVar ÷ ZPartRank · KITTI / nuScenes</div></div>
+        </div>
+      </div>
+      <div style="display:flex;flex-direction:column;gap:11px">
+        <div class="takeaway"><div class="n">1</div><div class="tx"><b>The inflation is exactly the knob.</b> gapsig divides by
+        <span class="mono">√gap</span> with gap ~ U[1,9], so the raw code is free to grow ~mean(gap) ≈ 5× in variance. Measured 2.2× —
+        the recon loss pulls the rest back.</div></div>
+        <div class="takeaway"><div class="n">2</div><div class="tx"><b>The gap is stable, not a transient.</b> Both arms shed ~a quarter
+        of their variance from epoch 22 on, but the ratio stays pinned at <span class="mono">2.1–2.4×</span> the whole window while rank
+        keeps climbing.</div></div>
+        <div class="takeaway"><div class="n">3</div><div class="tx"><b>Where it lands.</b> Bottom row divides the two: gapsig packs
+        <span class="mono">2.8×</span> the energy into each direction it actually uses, and that is the subspace the decoder must
+        invert.</div></div>
+        <div class="rulebar"><b>Watch the pair, not one number.</b> A rise in ZTotalVar alone reads as "less collapse". Against a
+        falling ZPartRank it reads as the opposite.</div>
+      </div>
+    </div>
+  </div>
+  <div class="foot"><span>raw z, pooled over the full held-out set · vertical rule = matched epoch 67</span><span class="pageno">7 / 8</span></div>
+</section>
+
+<!-- ============ SLIDE 8 — SIGReg pressure ============ -->
+<section class="slide">
+  <div class="eyebrow">Evidence 5 <span class="dim">— what the regulariser is still paying at convergence</span></div>
+  <h2>SIGReg never settles under gapsig — 1.6× the residual pressure, all run</h2>
+  <p class="sub">Raw (unweighted) SIGReg loss from the train epoch line; the applied term is
+  <span class="mono">0.005 · ramp · scale</span> times this. It is the residual distance from Gaussian, so lower = the test is satisfied.
+  gapsig plateaus at <b>0.0048</b> against plain's <b>0.0030</b> and never comes down.</p>
+  <div class="body">
+    <div class="cols c58" style="height:100%">
+      <div style="display:flex;flex-direction:column;gap:10px;min-height:0">
+        <div class="legend" id="lg8"></div>
+        <div class="panel" style="padding:8px 10px 4px"><div class="pt">SIGReg loss, unweighted <span class="ds">· train · log scale</span></div><div id="p_SIG"></div></div>
+        <div class="tiles" style="grid-template-columns:1fr 1fr 1fr">
+          <div class="tile"><div class="k">Plateau ep50–67</div><div class="v" style="color:var(--crit)">+60%</div><div class="d">0.0048 vs 0.0030</div></div>
+          <div class="tile"><div class="k">At matched ep67</div><div class="v" style="color:var(--crit)">+53%</div><div class="d">0.0046 vs 0.0030</div></div>
+          <div class="tile"><div class="k">Plain, ep68→99</div><div class="v">0.0031→0.0040</div><div class="d">drifts up, still under gapsig</div></div>
+        </div>
+      </div>
+      <div style="display:flex;flex-direction:column;gap:11px">
+        <div class="takeaway"><div class="n">1</div><div class="tx"><b>Harder target, not a softer one.</b> gapsig was meant to make the
+        Gaussian test easier by removing the gap-induced scale mixture. It does the reverse: the residual is 1.6× larger for the
+        whole run.</div></div>
+        <div class="takeaway"><div class="n">2</div><div class="tx"><b>Why: the pool goes stale across scales.</b> The 8192-row FIFO
+        holds rows banked under <i>earlier</i> gap draws. Rescaling per micro-batch does not rescale what is already in the queue, so
+        the CF statistic is computed against a mixture the live rows never match.</div></div>
+        <div class="takeaway"><div class="n">3</div><div class="tx"><b>The cost is not the loss value.</b> At w=0.005 the term itself is
+        ~2e-5 — negligible. What matters is that the <i>gradient</i> keeps pushing on a code that never satisfies the test, which is
+        what the rank and recon numbers show.</div></div>
+        <div class="rulebar"><b>Plain's late drift is real but small.</b> 0.0031→0.0040 over epochs 68–99, with rank and recon flat —
+        the code keeps re-arranging without losing quality. It never reaches gapsig's floor.</div>
+      </div>
+    </div>
+  </div>
+  <div class="foot"><span>train scalar, mean over the epoch's micro-batches · warmup 2000 iters · vertical rule = matched epoch 67</span><span class="pageno">8 / 8</span></div>
+</section>
+
 
 </div><!-- /stage -->
 
@@ -333,14 +410,25 @@ const KPR_c=[3.3997,10.2042,5.9423,10.5791,16.1731,19.8703,21.4145,23.0894,26.11
 const NPR_g=[6.3033,12.8257,11.2903,12.2633,12.9826,14.0242,15.3555,17.3901,18.3335,19.4011,21.0010,22.1373,24.3044,25.4224,26.2241,28.1960,29.5113,30.5810,32.4042,34.7545,35.3621,36.9879,38.2119,39.0989,41.5012,42.8174,43.4859,44.8900,46.7827,48.8953,49.7483,52.0524,53.6076,54.6155,55.6041,56.7117,57.8126,59.4486,60.9637,62.1890,64.0113,66.0130,66.7851,67.4374,68.3237,69.0193,70.6034,71.4570,72.1129,72.6547,73.3929,74.0016,74.5868,74.8083,75.7453,76.3084,76.8911,77.1939,77.4402,77.3960,77.5047,77.6192,77.7863,78.0353,77.9852,78.1536,78.2380,78.4996];
 const NPR_c=[4.0175,12.0577,9.9666,14.4624,18.6800,21.2542,22.0874,23.2002,26.2811,27.4083,29.3150,31.1627,31.6921,33.4173,35.4059,37.5674,41.2430,43.4879,45.2195,48.6801,51.2463,55.0800,58.2899,61.2057,63.4291,66.2622,68.3505,71.2580,73.4544,76.1870,78.3718,79.8538,81.1637,82.2652,83.6695,84.8923,85.9449,87.3490,88.4583,88.9313,89.3060,89.7660,90.4846,91.3588,91.6441,92.2217,91.9995,92.5488,93.0765,93.3049,93.6386,93.7260,94.0093,94.2468,94.3823,94.3847,94.5608,94.9259,94.9838,95.1521,95.6605,95.4706,96.1432,96.8958,96.9655,97.2750,97.5401,97.3367,97.5538,97.3865,97.6185,97.7034,97.8699,97.8743,98.1193,98.1281,97.8290,97.7867,97.8385,98.0294,97.5052,97.8027,97.5819,97.2338,97.3485,97.1638,97.0423,96.8105,96.6776,96.5543,96.4547,96.1868,96.3074,96.0887,95.9506,95.8765,95.8587,95.8013,95.7094,95.6528];
 
+/* SIGReg pressure = raw (unweighted) SIGReg loss printed on the KEpoch line; the
+   applied term is 0.005*ramp*scale times this. <SIG>_<g|c>. */
+const SIG_g=[0.03270,0.03410,0.02740,0.02280,0.01900,0.01790,0.01630,0.01460,0.01330,0.01260,0.01200,0.01130,0.01080,0.01000,0.00980,0.00930,0.00900,0.00860,0.00830,0.00800,0.00770,0.00770,0.00730,0.00730,0.00700,0.00690,0.00670,0.00640,0.00650,0.00620,0.00610,0.00580,0.00590,0.00570,0.00570,0.00560,0.00540,0.00530,0.00530,0.00520,0.00520,0.00540,0.00520,0.00520,0.00520,0.00510,0.00490,0.00500,0.00500,0.00500,0.00480,0.00500,0.00480,0.00490,0.00490,0.00480,0.00480,0.00480,0.00480,0.00480,0.00470,0.00480,0.00460,0.00470,0.00470,0.00470,0.00470,0.00460];
+const SIG_c=[0.02510,0.04570,0.02640,0.01820,0.01370,0.01140,0.01060,0.01020,0.00930,0.00860,0.00810,0.00770,0.00750,0.00730,0.00700,0.00650,0.00620,0.00570,0.00540,0.00520,0.00490,0.00460,0.00440,0.00430,0.00410,0.00400,0.00380,0.00360,0.00360,0.00360,0.00350,0.00330,0.00340,0.00330,0.00330,0.00320,0.00320,0.00310,0.00310,0.00310,0.00310,0.00320,0.00310,0.00310,0.00310,0.00310,0.00300,0.00310,0.00310,0.00310,0.00290,0.00320,0.00290,0.00310,0.00300,0.00300,0.00300,0.00290,0.00290,0.00290,0.00300,0.00290,0.00290,0.00300,0.00310,0.00310,0.00300,0.00300,0.00310,0.00320,0.00320,0.00320,0.00320,0.00330,0.00320,0.00330,0.00320,0.00320,0.00360,0.00340,0.00340,0.00350,0.00360,0.00380,0.00350,0.00360,0.00360,0.00370,0.00360,0.00370,0.00370,0.00380,0.00370,0.00380,0.00370,0.00380,0.00370,0.00380,0.00380,0.00400];
+/* code scale: TV = ZTotalVar (sum of per-dim variance). ZRowMeanSquare is TV/Cz, so it is not stored. */
+const KTV_g=[275.28,292.04,350.89,425.07,399.00,442.62,437.91,443.39,464.48,458.15,465.52,466.22,488.89,491.34,472.67,462.96,490.56,501.26,477.84,476.68,463.92,490.72,503.50,481.41,468.24,484.79,471.04,447.86,454.35,448.56,429.61,448.58,421.73,425.51,446.83,408.49,421.38,408.01,395.69,402.72,412.29,412.53,398.99,405.23,412.59,404.47,404.18,396.02,399.50,392.30,408.32,399.84,389.39,392.07,393.49,393.96,396.58,392.53,384.90,390.64,389.28,375.99,402.27,389.65,392.23,384.08,402.52,390.38];
+const KTV_c=[176.31,173.99,226.72,224.77,208.56,210.56,226.24,213.59,222.54,222.38,224.15,230.18,235.14,235.81,224.24,221.27,226.13,225.44,225.17,206.20,202.87,202.17,205.36,200.80,199.56,201.56,200.51,190.06,190.71,185.74,186.99,201.80,190.24,188.28,195.48,185.25,189.56,183.61,189.75,183.67,190.94,185.92,186.84,189.67,192.86,190.39,180.88,182.30,179.89,177.85,179.48,183.53,177.63,179.70,183.00,188.86,177.51,178.65,172.63,171.28,175.22,169.31,172.20,177.70,170.41,180.10,185.44,180.29,173.18,166.90,167.38,177.61,170.39,166.29,162.97,171.64,172.64,175.74,177.39,166.44,165.26,166.94,158.69,170.55,165.91,165.21,162.88,168.92,167.80,165.87,168.25,164.35,167.81,165.67,166.13,165.62,164.09,165.40,164.37,165.96];
+const NTV_g=[279.93,292.54,309.75,251.96,244.38,266.45,261.34,257.23,262.65,259.29,263.89,263.29,275.62,274.77,264.61,257.31,270.52,274.30,263.88,269.15,261.70,276.56,282.71,276.69,277.36,283.46,284.48,277.40,282.28,284.19,277.10,298.53,282.05,283.51,301.34,280.85,291.78,284.91,276.46,285.87,293.69,295.95,286.54,293.79,296.33,291.47,289.21,283.18,290.17,284.64,299.96,292.37,282.08,286.74,289.14,289.42,288.16,288.09,280.09,287.27,284.00,276.71,289.54,282.12,283.75,280.42,288.32,281.18];
+const NTV_c=[170.56,159.74,128.08,122.63,119.54,120.24,130.91,122.24,125.63,118.74,121.92,119.61,125.25,122.60,123.07,119.94,127.54,127.74,129.09,120.87,127.37,124.88,131.24,128.65,131.73,135.24,134.00,131.47,131.52,129.63,131.75,140.26,134.50,131.36,136.22,129.93,131.94,128.13,135.16,129.43,134.29,131.56,130.22,134.70,135.39,135.30,129.10,128.93,131.93,128.13,132.74,134.23,127.19,128.95,133.19,135.61,133.74,131.84,128.68,126.74,128.24,127.50,130.43,132.74,125.72,129.40,134.68,130.47,128.13,123.63,125.08,129.69,126.46,124.31,121.45,124.76,121.84,125.90,124.60,123.35,122.56,124.33,118.61,126.28,123.36,122.49,121.22,124.88,123.98,122.15,122.66,121.49,122.54,121.91,120.67,121.49,120.76,122.12,121.03,122.82];
+
 const SPLIT=67, X0=20, X1=99;   // matched epoch; plot window; plain's last epoch
 
 /* ---------- trajectory chart: gapsig (orange) vs plain (blue), matched-epoch rule ---------- */
 function trajChart(el,cfg){
-  const W=380,H=138,L=40,R=10,T=9,B=20, iw=W-L-R, ih=H-T-B;
+  const W=cfg.W||380,H=cfg.H||138,L=cfg.L||40,R=10,T=9,B=20, iw=W-L-R, ih=H-T-B;
   const {ymin,ymax,yticks,g,c,ceil}=cfg;
   const X=e=>L+iw*((e-X0)/(X1-X0));
-  const Y=v=>T+ih*(1-(Math.min(Math.max(v,ymin),ymax)-ymin)/(ymax-ymin));
+  const tf=cfg.log?Math.log:(v=>v);            // log y where the span is a decade (SIGReg)
+  const Y=v=>T+ih*(1-(tf(Math.min(Math.max(v,ymin),ymax))-tf(ymin))/(tf(ymax)-tf(ymin)));
   const seg=(a,e0,e1)=>{let d='';for(let e=e0;e<=e1 && e<a.length;e++)d+=(e===e0?'M':'L')+X(e).toFixed(1)+' '+Y(a[e]).toFixed(1);return d;};
   const cG=CV('--s2'), cC=CV('--s1');
   let s=`<svg viewBox="0 0 ${W} ${H}" width="100%" preserveAspectRatio="xMinYMin meet">`;
@@ -444,6 +532,20 @@ const f0=t=>t.toFixed(0);
 trajChart(document.getElementById('p_KPR'),{ymin:30,ymax:95,yticks:[40,60,80],g:KPR_g,c:KPR_c,ceil:null,fmt:f0});
 trajChart(document.getElementById('p_NPR'),{ymin:30,ymax:100,yticks:[40,60,80],g:NPR_g,c:NPR_c,ceil:null,fmt:f0});
 document.getElementById('lg6').innerHTML=legHTML.replace('lower is better','higher is better');
+
+/* ---------- slide 7 spread panels (scale: higher = bigger code, NOT better) ---------- */
+trajChart(document.getElementById('p_KTV'), {ymin:150,ymax:520,yticks:[200,350,500],g:KTV_g, c:KTV_c, ceil:null,fmt:f0});
+trajChart(document.getElementById('p_NTV'), {ymin:110,ymax:310,yticks:[150,220,290],g:NTV_g, c:NTV_c, ceil:null,fmt:f0});
+const perDim=(tv,pr)=>tv.map((v,i)=>v/pr[i]);   // ZTotalVar / ZPartRank = energy per used direction
+trajChart(document.getElementById('p_KVR'),{ymin:1.5,ymax:14.5,yticks:[3,8,13],g:perDim(KTV_g,KPR_g),c:perDim(KTV_c,KPR_c),ceil:null,fmt:f2});
+trajChart(document.getElementById('p_NVR'),{ymin:1.0,ymax:7.8,yticks:[2,4.5,7],g:perDim(NTV_g,NPR_g),c:perDim(NTV_c,NPR_c),ceil:null,fmt:f2});
+document.getElementById('lg7').innerHTML=legHTML.replace('lower is better','higher = larger code');
+
+/* ---------- slide 8 SIGReg pressure (one wide log-y panel; lower = test satisfied) ---------- */
+const f4=t=>t.toFixed(4);
+trajChart(document.getElementById('p_SIG'),{W:760,H:244,L:56,log:true,
+  ymin:0.0027,ymax:0.0086,yticks:[0.003,0.004,0.006,0.008],g:SIG_g,c:SIG_c,ceil:null,fmt:f4});
+document.getElementById('lg8').innerHTML=legHTML;
 </script>
 </body>
 </html>

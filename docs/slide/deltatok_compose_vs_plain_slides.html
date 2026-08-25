@@ -1,0 +1,397 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>DeltaTok — does compose 1.0 match the plain tokenizer?</title>
+<style>
+/* ---------- tokens · light only, white slides (no dark variant by request) ---------- */
+:root{
+  color-scheme: light only;
+  --backdrop:#e9e9e6; --page:#f7f7f6; --surface:#ffffff;
+  --ink:#0b0b0b; --ink2:#52514e; --muted:#83817c;
+  --grid:#e4e4de; --axis:#c3c2b7; --border:rgba(11,11,11,.12);
+  --s1:#2a78d6; --s2:#eb6834; --s3:#1baf7a; --s4:#eda100;
+  --good:#0ca30c; --crit:#d03b3b; --serious:#ec835a;
+  --accent:var(--s1);
+  --serif:"Iowan Old Style","Palatino Linotype",Palatino,Georgia,serif;
+  --sans:system-ui,-apple-system,"Segoe UI",sans-serif;
+  --mono:ui-monospace,"Cascadia Code",Menlo,Consolas,monospace;
+}
+/* ---------- deck chrome ---------- */
+*{box-sizing:border-box;margin:0}
+html,body{height:100%}
+body{background:var(--backdrop);color:var(--ink);font:15px/1.45 var(--sans);overflow:hidden}
+.stage{position:absolute;left:50%;top:50%;width:1280px;height:720px;transform-origin:center center}
+.slide{position:absolute;inset:0;background:var(--surface);border:1px solid var(--border);
+  padding:46px 60px 40px;display:none;flex-direction:column}
+.slide.on{display:flex}
+.eyebrow{font:600 12px/1 var(--mono);letter-spacing:.14em;text-transform:uppercase;color:var(--accent);margin-bottom:12px}
+.eyebrow .dim{color:var(--muted)}
+h1{font:400 44px/1.14 var(--serif);letter-spacing:-.01em;text-wrap:balance}
+h2{font:400 30px/1.2 var(--serif);letter-spacing:-.005em;text-wrap:balance;margin-bottom:4px}
+.sub{color:var(--ink2);font-size:15px;max-width:78ch;margin-top:9px}
+.body{flex:1;min-height:0;margin-top:16px}
+.foot{display:flex;justify-content:space-between;align-items:baseline;color:var(--muted);
+  font:11px/1 var(--mono);letter-spacing:.06em;margin-top:12px;border-top:1px solid var(--grid);padding-top:10px}
+.pageno{font-variant-numeric:tabular-nums}
+/* nav */
+.nav{position:fixed;left:50%;bottom:14px;transform:translateX(-50%);display:flex;gap:8px;align-items:center;z-index:5}
+.nav button{width:9px;height:9px;border-radius:50%;border:1px solid var(--muted);background:transparent;cursor:pointer;padding:0}
+.nav button.cur{background:var(--accent);border-color:var(--accent)}
+.nav button:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+.arr{position:fixed;top:50%;transform:translateY(-50%);z-index:5;border:1px solid var(--border);
+  background:var(--surface);color:var(--ink2);width:34px;height:56px;cursor:pointer;font-size:18px;border-radius:4px}
+.arr:hover{color:var(--ink)}
+#prev{left:10px}#next{right:10px}
+/* ---------- shared bits ---------- */
+.mono{font-family:var(--mono)}
+.num{font-variant-numeric:tabular-nums}
+.chip{display:inline-block;font:600 10.5px/1 var(--mono);letter-spacing:.05em;padding:4px 7px;border-radius:3px;
+  border:1px solid var(--border);white-space:nowrap}
+.chip.good{color:var(--good);border-color:currentColor}
+.chip.bad{color:var(--crit);border-color:currentColor}
+.chip.hero{color:var(--accent);border-color:currentColor}
+.sw{display:inline-block;width:12px;height:3px;border-radius:2px;vertical-align:3px}
+.cols{display:grid;gap:26px;min-height:0}
+.c2{grid-template-columns:1fr 1fr}
+.c58{grid-template-columns:1.32fr 1fr}
+.card{border:1px solid var(--grid);border-radius:6px;padding:14px 16px;background:var(--page)}
+.card h3{font:600 14px/1.3 var(--sans);margin:6px 0}
+.card .tag{font:600 10px/1 var(--mono);letter-spacing:.1em;text-transform:uppercase;color:var(--muted)}
+ul.tight{padding-left:18px;display:flex;flex-direction:column;gap:8px;font-size:14px;color:var(--ink2)}
+ul.tight li{padding-left:2px}
+ul.tight strong{color:var(--ink);font-weight:600}
+/* stat tiles */
+.tiles{display:grid;gap:12px}
+.tile{border:1px solid var(--grid);border-radius:6px;padding:12px 14px;background:var(--page)}
+.tile .v{font:600 25px/1.1 var(--sans);letter-spacing:-.01em;font-variant-numeric:tabular-nums}
+.tile .k{font:600 10px/1.4 var(--mono);letter-spacing:.1em;text-transform:uppercase;color:var(--muted);margin-bottom:5px}
+.tile .d{font-size:12.5px;color:var(--ink2);margin-top:5px}
+.rulebar{border:1px dashed var(--axis);border-radius:6px;padding:11px 15px;font-size:13.5px;color:var(--ink2)}
+.rulebar b{color:var(--ink)}
+/* charts */
+.legend{display:flex;flex-wrap:wrap;gap:6px 18px;font:12px/1 var(--sans);color:var(--ink2);margin-bottom:6px}
+.legend span{display:inline-flex;gap:7px;align-items:center}
+svg text{font:10.5px var(--sans);fill:var(--muted)}
+svg .axl{font:9.5px var(--mono);fill:var(--muted)}
+svg .barlbl{font:600 12px var(--sans);fill:var(--ink)}
+svg .barval{font:11px var(--mono);fill:var(--ink2)}
+.chartwrap{display:flex;flex-direction:column;height:100%}
+.chartwrap svg{flex:1;min-height:0}
+.ptitle{font:600 12px/1.2 var(--mono);color:var(--ink2);letter-spacing:.02em;margin-bottom:2px}
+.ptitle span{color:var(--muted);font-weight:400}
+.takeaway{border:1px solid var(--grid);border-radius:6px;padding:13px 15px;background:var(--page);display:flex;gap:12px;align-items:flex-start}
+.takeaway .n{font:600 22px/1 var(--serif);color:var(--accent);flex:0 0 auto;width:24px}
+.takeaway .tx{font-size:13.5px;color:var(--ink2)}
+.takeaway .tx b{color:var(--ink)}
+@media (prefers-reduced-motion: no-preference){
+  .slide.on{animation:fadein .18s ease}
+  @keyframes fadein{from{opacity:.4}to{opacity:1}}
+}
+@media print{
+  body{overflow:visible;background:#fff}
+  .stage{position:static;transform:none!important;width:auto;height:auto}
+  .slide{display:flex;position:static;width:1280px;height:720px;page-break-after:always;margin:0 auto}
+  .nav,.arr{display:none}
+}
+</style>
+</head>
+<body>
+<div class="stage" id="stage">
+
+<!-- ============ SLIDE 1 — title / verdict ============ -->
+<section class="slide on">
+  <div class="eyebrow">DeltaTok tokenizer <span class="dim">— l12 · dtok64 · tc128 · maxgap9 · vpt1to2 · SIGReg 0.005 · ns256 · pool8192 · BSC</span></div>
+  <h1>Does <span class="mono" style="font-size:.82em">compose 1.0</span> match the plain tokenizer? <span style="color:var(--crit)">Not at matched compute.</span></h1>
+  <p class="sub">One change: an added <b>composition loss</b> (weight 1.0) on top of reconstruction + SIGReg. It competes with pure
+  reconstruction, so compose converges <b>slower</b>. It only reaches the plain run's eval loss after <b>~30% more steps</b>, and
+  bottoms out lower only after <b>2× the steps</b> — but the plain arm was stopped at half the budget, so a final-vs-final
+  comparison does not exist.</p>
+  <div class="body">
+    <div class="cols c58" style="height:100%;align-items:center">
+      <div class="tiles" style="grid-template-columns:1fr 1fr">
+        <div class="tile"><div class="k">Matched budget · iter 56,250</div><div class="v" style="color:var(--crit)">+5.5%</div><div class="d">compose eval loss worse · 0.0440 vs 0.0417</div></div>
+        <div class="tile"><div class="k">Steps to match plain</div><div class="v" style="color:var(--serious)">1.30×</div><div class="d">compose hits 0.0417 at iter 73,125</div></div>
+        <div class="tile"><div class="k">Compose floor · iter 112,500</div><div class="v" style="color:var(--good)">0.0401</div><div class="d">−3.8% vs plain end, at 2× steps</div></div>
+        <div class="tile"><div class="k">Plain arm</div><div class="v">stopped</div><div class="d">iter 56,250 · never resumed</div></div>
+      </div>
+      <div>
+        <div class="rulebar" style="margin-bottom:12px"><b>Metric.</b> Eval reconstruction loss over KITTI + Occ3d-nuScenes, logged every epoch (lower = better). Slides 02 and 04 break it out per dataset.</div>
+        <div class="rulebar"><b>Jobs.</b> plain = BSC 44578823 &nbsp;·&nbsp; compose = 44635509 → 44846726 (resume). The third arm <span class="mono">_gapsig_compose1.0</span> is a separate question.</div>
+      </div>
+    </div>
+  </div>
+  <div class="foot"><span>DeltaTok · compose 1.0 vs plain</span><span class="pageno">01 / 05</span></div>
+</section>
+
+<!-- ============ SLIDE 2 — convergence, per eval set ============ -->
+<section class="slide">
+  <div class="eyebrow">Convergence · per eval set</div>
+  <h2>Compose trails plain on both eval sets — the penalty is larger on KITTI</h2>
+  <div class="body" style="gap:0">
+    <div class="legend">
+      <span><span class="sw" style="background:var(--s1)"></span>plain</span>
+      <span><span class="sw" style="background:var(--s2)"></span>compose 1.0</span>
+      <span><span class="sw" style="background:var(--muted);height:0;border-top:2px dashed var(--muted)"></span>plain final · matched budget</span>
+    </div>
+    <div class="cols c2" style="flex:1;min-height:0;margin-top:4px">
+      <div class="chartwrap">
+        <div class="ptitle">Occ3d-nuScenes <span>· eval recon loss vs epoch</span></div>
+        <div id="chNS"></div>
+      </div>
+      <div class="chartwrap">
+        <div class="ptitle">KITTI <span>· eval recon loss vs epoch</span></div>
+        <div id="chKITTI"></div>
+      </div>
+    </div>
+    <div class="rulebar" style="margin-top:8px">At matched budget (epoch 49) compose is <b>+3.5%</b> on nuScenes (0.0381 vs 0.0368) and <b>+7.0%</b> on KITTI (0.0517 vs 0.0483). It reaches plain's endpoint only at epoch <b>58 / 71</b>, and bottoms at 0.0347 / 0.0470 by epoch 99 — twice the steps.</div>
+  </div>
+  <div class="foot"><span>plain 50 epochs (truncated) · compose 100 epochs · same config − compose loss</span><span class="pageno">02 / 05</span></div>
+</section>
+
+<!-- ============ SLIDE 3 — matched-budget bars + confound ============ -->
+<section class="slide">
+  <div class="eyebrow">Matched budget · iter 56,250 (epoch 49)</div>
+  <h2>At equal compute the plain tokenizer wins on both recon terms</h2>
+  <div class="body">
+    <div class="cols c58" style="height:100%">
+      <div class="chartwrap">
+        <div class="legend">
+          <span><span class="sw" style="background:var(--s1)"></span>plain</span>
+          <span><span class="sw" style="background:var(--s2)"></span>compose 1.0</span>
+        </div>
+        <div id="chBars"></div>
+      </div>
+      <div>
+        <div class="tiles" style="grid-template-columns:1fr;margin-bottom:14px">
+          <div class="tile"><div class="k">Eval recon · lower better</div><div class="v">0.0417 → <span style="color:var(--crit)">0.0440</span> <span class="chip bad">+5.5%</span></div></div>
+          <div class="tile"><div class="k">Train recon · lower better</div><div class="v">0.0362 → <span style="color:var(--crit)">0.0367</span> <span class="chip bad">+1.4%</span></div></div>
+        </div>
+        <div class="rulebar"><b>The confound.</b> The plain arm stopped at iter 56,250 with no "reached max iterations" line and no resume job. Compose ran on to 112,500. We do <b>not</b> know where plain would land with the same budget.</div>
+      </div>
+    </div>
+  </div>
+  <div class="foot"><span>compose Train total (0.067) mixes in the compose term — only Recon / Eval are comparable</span><span class="pageno">03 / 05</span></div>
+</section>
+
+<!-- ============ SLIDE 4 — pointmap round-trip, per eval set ============ -->
+<section class="slide">
+  <div class="eyebrow">Geometry · pointmap round-trip · per eval set</div>
+  <h2>Pointmap tells the same story — and on KITTI compose never catches plain</h2>
+  <div class="body" style="gap:0">
+    <div class="legend">
+      <span><span class="sw" style="background:var(--s1)"></span>plain</span>
+      <span><span class="sw" style="background:var(--s2)"></span>compose 1.0</span>
+      <span><span class="sw" style="background:var(--muted);height:0;border-top:2px dashed var(--muted)"></span>plain final · matched budget</span>
+    </div>
+    <div class="cols c2" style="flex:1;min-height:0;margin-top:4px">
+      <div class="chartwrap">
+        <div class="ptitle">Occ3d-nuScenes <span>· pointmap round-trip vs epoch</span></div>
+        <div id="chPmNS"></div>
+      </div>
+      <div class="chartwrap">
+        <div class="ptitle">KITTI <span>· pointmap round-trip vs epoch</span></div>
+        <div id="chPmKITTI"></div>
+      </div>
+    </div>
+    <div class="rulebar" style="margin-top:8px">Round-trip = Pred vs the teacher's own recon, isolating the tokenizer. At epoch 49 compose is <b>+6.7%</b> on nuScenes (0.552 vs 0.517) and <b>+12.3%</b> on KITTI (0.652 vs 0.580). By epoch 99 compose passes plain on nuScenes (0.493) but stays +7.1% behind on KITTI (0.621).</div>
+  </div>
+  <div class="foot"><span>LossPointmap_PredVsOrig · per-epoch eval · plain 44578823 · compose 44846726</span><span class="pageno">04 / 05</span></div>
+</section>
+
+<!-- ============ SLIDE 5 — verdict ============ -->
+<section class="slide">
+  <div class="eyebrow">Verdict</div>
+  <h2>No at matched compute; a modest win only if you pay for 2× the steps</h2>
+  <div class="body">
+    <div class="cols c2" style="height:100%;align-content:start">
+      <div style="display:flex;flex-direction:column;gap:12px">
+        <div class="takeaway"><div class="n">1</div><div class="tx"><b>Slower to converge.</b> The compose loss competes with reconstruction. Compose trails plain at every matched epoch and needs <b>1.30× the steps</b> just to reach plain's endpoint.</div></div>
+        <div class="takeaway"><div class="n">2</div><div class="tx"><b>Lower floor, at a price.</b> Compose bottoms at <b>0.0401</b> vs plain's 0.0417, but only by epoch 99 — <b>2× the compute</b> plain was given.</div></div>
+        <div class="takeaway"><div class="n">3</div><div class="tx"><b>Not a fair race.</b> Plain was truncated at epoch 49. Its asymptote is unknown, so "compose is better" is unproven.</div></div>
+      </div>
+      <div class="card" style="background:var(--surface)">
+        <div class="tag">Not yet checked</div>
+        <ul class="tight" style="margin-top:10px">
+          <li><strong>Downstream flow quality.</strong> This is tokenizer recon, not DeltaTok-flow generation. The flow arms on each tokenizer exist — plain 44680693 vs compose 44680758 (waymo) — and are the decision-grade comparison.</li>
+          <li><strong>Per-geometry TB scalars.</strong> Depth / pointmap round-trip on KITTI + nuScenes live in TensorBoard; only the aggregate eval loss is shown here.</li>
+          <li><strong>Equal-budget rematch.</strong> Resume the plain arm to iter 112,500 to settle whether compose truly wins.</li>
+        </ul>
+      </div>
+    </div>
+  </div>
+  <div class="foot"><span>source · monitor_jobs BSC logs 44578823 · 44635509 · 44846726</span><span class="pageno">05 / 05</span></div>
+</section>
+
+</div>
+
+<button class="arr" id="prev" aria-label="Previous slide">‹</button>
+<button class="arr" id="next" aria-label="Next slide">›</button>
+<div class="nav" id="nav" role="tablist"></div>
+
+<script>
+/* ---------- deck nav ---------- */
+const stage=document.getElementById("stage");
+const slides=[...document.querySelectorAll(".slide")];
+const nav=document.getElementById("nav");
+let cur=0;
+slides.forEach((_,i)=>{
+  const b=document.createElement("button");
+  b.setAttribute("role","tab");b.setAttribute("aria-label","Slide "+(i+1));
+  b.addEventListener("click",()=>go(i));
+  nav.appendChild(b);
+});
+function go(i){
+  cur=Math.max(0,Math.min(slides.length-1,i));
+  slides.forEach((s,j)=>s.classList.toggle("on",j===cur));
+  [...nav.children].forEach((b,j)=>b.classList.toggle("cur",j===cur));
+}
+document.getElementById("prev").addEventListener("click",()=>go(cur-1));
+document.getElementById("next").addEventListener("click",()=>go(cur+1));
+addEventListener("keydown",e=>{
+  if(["ArrowRight","PageDown"," "].includes(e.key)){go(cur+1);e.preventDefault();}
+  else if(["ArrowLeft","PageUp"].includes(e.key)){go(cur-1);e.preventDefault();}
+  else if(e.key==="Home")go(0);
+  else if(e.key==="End")go(slides.length-1);
+});
+go(0);
+function fit(){
+  const s=Math.min(innerWidth/1300,(innerHeight-40)/730);
+  stage.style.transform=`translate(-50%,-50%) scale(${Math.min(s,1.4)})`;
+}
+addEventListener("resize",fit);fit();
+const CV=n=>getComputedStyle(document.documentElement).getPropertyValue(n).trim();
+
+/* ================= DATA — stdout per-dataset eval recon loss, epoch-indexed =================
+   plain = ..._pool8192 (50 ep, job 44578823) · compose = ..._pool8192_compose1.0 (100 ep, 44635509→44846726)
+   NS = Occ3dNuscenesSeqMultiView · KITTI = KittiSeqMultiView (final running-avg loss per epoch) */
+const PLAIN_NS=[0.1063,0.1081,0.0935,0.0867,0.0798,0.0736,0.0682,0.064,0.0601,0.0563,0.0536,0.0519,0.0495,0.0478,0.0467,0.0455,0.0443,0.0437,0.0427,0.0419,0.0414,0.0411,0.0409,0.0403,0.0398,0.0397,0.0394,0.0391,0.0392,0.0386,0.0385,0.0384,0.0382,0.038,0.0378,0.0378,0.0378,0.0376,0.0374,0.0376,0.0376,0.0374,0.0375,0.0374,0.0372,0.0373,0.037,0.037,0.037,0.0368];
+const COMPOSE_NS=[0.106,0.1033,0.0914,0.084,0.0785,0.0737,0.071,0.0684,0.0662,0.0645,0.063,0.0617,0.0608,0.0598,0.0586,0.0575,0.056,0.0549,0.0539,0.0527,0.0513,0.0505,0.0492,0.0485,0.0474,0.0466,0.0458,0.0452,0.0444,0.0437,0.043,0.0427,0.0423,0.042,0.0415,0.041,0.0407,0.0405,0.0402,0.04,0.0398,0.0396,0.0393,0.0392,0.039,0.0389,0.0387,0.0385,0.0383,0.0381,0.038,0.0379,0.0377,0.0375,0.0374,0.0373,0.0371,0.037,0.0368,0.0367,0.0366,0.0365,0.0363,0.0363,0.0362,0.036,0.0359,0.0359,0.0358,0.0357,0.0356,0.0355,0.0355,0.0354,0.0354,0.0353,0.0353,0.0352,0.0352,0.0351,0.0351,0.035,0.035,0.035,0.0349,0.0349,0.0349,0.0348,0.0348,0.0348,0.0348,0.0348,0.0347,0.0347,0.0347,0.0347,0.0347,0.0347,0.0347,0.0347];
+const PLAIN_KITTI=[0.1413,0.1365,0.1237,0.1153,0.1052,0.097,0.0901,0.0836,0.0782,0.0729,0.069,0.0663,0.0633,0.061,0.0593,0.0579,0.0568,0.0558,0.0548,0.0538,0.0532,0.0529,0.0525,0.0518,0.0513,0.051,0.0509,0.0508,0.0507,0.0505,0.0501,0.0502,0.0499,0.0498,0.0496,0.0495,0.0494,0.0494,0.0492,0.0491,0.0493,0.0491,0.0491,0.0492,0.0488,0.049,0.0487,0.0486,0.0486,0.0483];
+const COMPOSE_KITTI=[0.1401,0.1364,0.1225,0.1129,0.106,0.0991,0.0956,0.0921,0.0892,0.0866,0.0846,0.083,0.0816,0.0803,0.0786,0.077,0.0752,0.0741,0.0726,0.0711,0.0696,0.0682,0.0667,0.0655,0.0643,0.0632,0.0624,0.0615,0.0604,0.0596,0.0588,0.0582,0.0576,0.0573,0.0565,0.0559,0.0553,0.0549,0.0548,0.0544,0.0539,0.0535,0.0533,0.053,0.0527,0.0525,0.0522,0.052,0.0518,0.0517,0.0514,0.0513,0.0511,0.051,0.0508,0.0507,0.0505,0.0504,0.0501,0.0497,0.0496,0.0494,0.0492,0.0491,0.049,0.0488,0.0488,0.0487,0.0486,0.0484,0.0484,0.0482,0.0481,0.048,0.0479,0.0479,0.0479,0.0477,0.0477,0.0476,0.0476,0.0475,0.0475,0.0474,0.0474,0.0473,0.0473,0.0472,0.0472,0.0472,0.0472,0.0471,0.0471,0.0471,0.0471,0.0471,0.047,0.047,0.047,0.047];
+/* pointmap round-trip = LossPointmap_PredVsOrig (Pred vs teacher recon), per epoch */
+const PLAIN_PM_NS=[8.4068,26.6418,10.3473,4.9061,2.292,1.6409,1.4338,1.3105,1.0811,0.9373,0.8078,0.8436,0.7767,0.7213,0.6858,0.7081,0.597,0.6851,0.6023,0.5789,0.6033,0.5582,0.6521,0.5127,0.5832,0.4914,0.5566,0.5339,0.5476,0.5341,0.5662,0.5273,0.5477,0.5804,0.5001,0.5256,0.522,0.5131,0.4989,0.4883,0.51,0.524,0.5291,0.5573,0.5214,0.5296,0.5671,0.5637,0.5995,0.5173];
+const COMPOSE_PM_NS=[15.5054,11.0542,8.3218,3.3508,2.5522,1.9664,1.7266,1.6873,1.6965,1.4706,1.4344,1.3507,1.3191,1.3023,1.3268,1.276,1.0883,1.0455,1.048,1.0012,0.9295,0.9394,0.822,0.8682,0.7988,0.7849,0.7386,0.7463,0.6734,0.6863,0.6782,0.6638,0.6298,0.6198,0.6026,0.644,0.6125,0.6196,0.6092,0.5816,0.5967,0.5812,0.6017,0.5759,0.5975,0.6459,0.6125,0.6128,0.6159,0.5522,0.5572,0.5654,0.5627,0.5716,0.5503,0.5623,0.5482,0.5552,0.5444,0.5599,0.5526,0.5462,0.5311,0.543,0.4958,0.5198,0.5142,0.5353,0.5117,0.532,0.5241,0.4948,0.5003,0.5365,0.5147,0.525,0.5272,0.4986,0.5246,0.53,0.503,0.5039,0.5014,0.5023,0.4982,0.5057,0.5007,0.4959,0.4845,0.5014,0.4836,0.492,0.4899,0.49,0.4997,0.4953,0.503,0.4954,0.4991,0.4932];
+const PLAIN_PM_KITTI=[10.9215,30.4197,8.7133,3.9804,2.0382,1.6836,1.3719,1.2754,0.9499,1.0588,0.8815,0.9064,0.8083,0.7455,0.9221,0.7885,0.635,0.6663,0.6975,0.7071,0.649,0.7088,0.6432,0.5463,0.6408,0.5706,0.5996,0.6263,0.6148,0.63,0.5456,0.6213,0.5866,0.6307,0.5871,0.5838,0.6155,0.599,0.5969,0.6407,0.6285,0.6255,0.5543,0.5946,0.6111,0.6057,0.6386,0.546,0.5866,0.5804];
+const COMPOSE_PM_KITTI=[19.1548,8.5488,7.4911,3.2983,2.5611,2.2562,1.9907,1.5471,1.603,1.3593,1.1607,1.1441,1.213,1.1591,1.1288,1.1632,1.0391,1.022,1.0578,0.9142,0.8983,0.9918,0.9386,0.7834,0.7674,0.7708,0.8219,0.7998,0.7134,0.7048,0.829,0.7493,0.7012,0.7083,0.6553,0.6378,0.7034,0.674,0.6581,0.6388,0.6719,0.6748,0.6554,0.6215,0.6368,0.7099,0.6947,0.6693,0.6411,0.6516,0.6312,0.6231,0.6173,0.6382,0.6321,0.6226,0.6041,0.6172,0.6193,0.6313,0.6301,0.6278,0.6247,0.6635,0.6472,0.5921,0.6473,0.6149,0.624,0.5863,0.6138,0.5801,0.64,0.6265,0.6204,0.5898,0.6095,0.6245,0.6417,0.6773,0.6095,0.6346,0.629,0.6508,0.6789,0.6168,0.6298,0.6412,0.619,0.6206,0.6199,0.6237,0.6484,0.5997,0.6378,0.6589,0.6407,0.6466,0.6279,0.6214];
+
+/* ---------- line chart: eval loss vs epoch ---------- */
+function lineChart(el,cfg){
+  const W=560,H=330,L=52,R=16,T=14,B=34;
+  const [x0,x1]=cfg.xdom,[y0,y1]=cfg.ydom;
+  const px=x=>L+(x-x0)/(x1-x0)*(W-L-R);
+  const py=y=>T+(1-(y-y0)/(y1-y0))*(H-T-B);
+  let s=`<svg viewBox="0 0 ${W} ${H}" width="100%" preserveAspectRatio="xMidYMid meet">`;
+  // y gridlines + labels
+  cfg.yticks.forEach(v=>{
+    const y=py(v);
+    s+=`<line x1="${L}" x2="${W-R}" y1="${y}" y2="${y}" stroke="${CV('--grid')}"/>`;
+    s+=`<text class="axl" x="${L-7}" y="${y+3}" text-anchor="end">${v.toFixed(3)}</text>`;
+  });
+  // x ticks
+  cfg.xticks.forEach(v=>{
+    const x=px(v);
+    s+=`<line x1="${x}" x2="${x}" y1="${T}" y2="${H-B}" stroke="${CV('--grid')}" stroke-dasharray="1 3"/>`;
+    s+=`<text class="axl" x="${x}" y="${H-B+15}" text-anchor="middle">${v}</text>`;
+  });
+  s+=`<text class="axl" x="${(L+W-R)/2}" y="${H-4}" text-anchor="middle">epoch</text>`;
+  // plain-final reference line
+  if(cfg.hline){const y=py(cfg.hline.y);
+    s+=`<line x1="${L}" x2="${W-R}" y1="${y}" y2="${y}" stroke="${CV('--muted')}" stroke-width="1.3" stroke-dasharray="5 4"/>`;
+    s+=`<text class="axl" x="${W-R}" y="${y-5}" text-anchor="end" fill="${CV('--muted')}">plain final ${cfg.hline.y.toFixed(4)}</text>`;}
+  // matched-budget marker line at epoch 49
+  if(cfg.vline!=null){const x=px(cfg.vline);
+    s+=`<line x1="${x}" x2="${x}" y1="${T}" y2="${H-B}" stroke="${CV('--axis')}" stroke-width="1.2"/>`;
+    s+=`<text class="axl" x="${x+4}" y="${T+11}" fill="${CV('--muted')}">plain stops · ep 49</text>`;}
+  // series
+  cfg.series.forEach(se=>{
+    let d="";
+    for(let i=cfg.iFrom;i<se.y.length;i++){ d+=(d?"L":"M")+px(i).toFixed(1)+" "+py(se.y[i]).toFixed(1)+" "; }
+    s+=`<path d="${d}" fill="none" stroke="${se.color}" stroke-width="2.4" stroke-linejoin="round"/>`;
+  });
+  // point markers
+  (cfg.marks||[]).forEach(m=>{
+    s+=`<circle cx="${px(m.x)}" cy="${py(m.y)}" r="4.5" fill="${CV('--surface')}" stroke="${m.color}" stroke-width="2.2"/>`;
+    if(m.label) s+=`<text x="${px(m.x)+(m.dx||8)}" y="${py(m.y)+(m.dy||-7)}" style="font:600 10px var(--mono);fill:${m.color}" text-anchor="${m.anchor||'start'}">${m.label}</text>`;
+  });
+  s+="</svg>"; el.innerHTML=s;
+}
+lineChart(document.getElementById("chNS"),{
+  xdom:[8,99],ydom:[0.034,0.067],
+  yticks:[0.04,0.05,0.06],xticks:[10,25,49,75,99],
+  iFrom:8,
+  series:[{y:PLAIN_NS,color:CV('--s1')},{y:COMPOSE_NS,color:CV('--s2')}],
+  hline:{y:0.0368},vline:49,
+  marks:[
+    {x:49,y:COMPOSE_NS[49],color:CV('--crit'),label:"+3.5%",dy:-8},
+    {x:99,y:COMPOSE_NS[99],color:CV('--good'),label:"0.0347",dy:14,dx:-2,anchor:"end"},
+  ],
+});
+lineChart(document.getElementById("chKITTI"),{
+  xdom:[8,99],ydom:[0.045,0.093],
+  yticks:[0.05,0.06,0.07,0.08,0.09],xticks:[10,25,49,75,99],
+  iFrom:8,
+  series:[{y:PLAIN_KITTI,color:CV('--s1')},{y:COMPOSE_KITTI,color:CV('--s2')}],
+  hline:{y:0.0483},vline:49,
+  marks:[
+    {x:49,y:COMPOSE_KITTI[49],color:CV('--crit'),label:"+7.0%",dy:-8},
+    {x:99,y:COMPOSE_KITTI[99],color:CV('--good'),label:"0.0470",dy:14,dx:-2,anchor:"end"},
+  ],
+});
+
+/* ---------- grouped bars at matched budget ---------- */
+function barPairs(el,cfg){
+  const W=520,H=330,L=20,R=20,T=20,B=54;
+  const gw=(W-L-R)/cfg.groups.length;
+  const maxv=cfg.max;
+  const py=v=>T+(1-v/maxv)*(H-T-B);
+  let s=`<svg viewBox="0 0 ${W} ${H}" width="100%" preserveAspectRatio="xMidYMid meet">`;
+  s+=`<line x1="${L}" x2="${W-R}" y1="${H-B}" y2="${H-B}" stroke="${CV('--axis')}"/>`;
+  cfg.groups.forEach((g,gi)=>{
+    const cx=L+gw*gi+gw/2, bw=42, gap=10;
+    const bars=[{v:g.plain,c:CV('--s1'),lbl:g.plain.toFixed(4)},{v:g.compose,c:CV('--s2'),lbl:g.compose.toFixed(4)}];
+    bars.forEach((b,bi)=>{
+      const x=cx-(bw+gap/2)+bi*(bw+gap), y=py(b.v);
+      s+=`<rect x="${x}" y="${y}" width="${bw}" height="${H-B-y}" rx="3" fill="${b.c}"/>`;
+      s+=`<text class="barval" x="${x+bw/2}" y="${y-6}" text-anchor="middle">${b.lbl}</text>`;
+    });
+    s+=`<text class="barlbl" x="${cx}" y="${H-B+20}" text-anchor="middle">${g.name}</text>`;
+    s+=`<text class="axl" x="${cx}" y="${H-B+36}" text-anchor="middle" fill="${CV('--crit')}">${g.delta}</text>`;
+  });
+  s+="</svg>"; el.innerHTML=s;
+}
+barPairs(document.getElementById("chBars"),{
+  max:0.05,
+  groups:[
+    {name:"Eval recon",plain:0.0417,compose:0.0440,delta:"+5.5%"},
+    {name:"Train recon",plain:0.0362,compose:0.0367,delta:"+1.4%"},
+  ],
+});
+
+/* pointmap round-trip trajectories — noisy, so plotted from epoch 18 where values settle below ~1.1 */
+lineChart(document.getElementById("chPmNS"),{
+  xdom:[18,99],ydom:[0.44,1.09],
+  yticks:[0.5,0.7,0.9],xticks:[25,49,75,99],
+  iFrom:18,
+  series:[{y:PLAIN_PM_NS,color:CV('--s1')},{y:COMPOSE_PM_NS,color:CV('--s2')}],
+  hline:{y:0.5173},vline:49,
+  marks:[
+    {x:49,y:COMPOSE_PM_NS[49],color:CV('--crit'),label:"+6.7%",dy:-8},
+    {x:99,y:COMPOSE_PM_NS[99],color:CV('--good'),label:"0.493",dy:14,dx:-2,anchor:"end"},
+  ],
+});
+lineChart(document.getElementById("chPmKITTI"),{
+  xdom:[18,99],ydom:[0.5,1.12],
+  yticks:[0.6,0.8,1.0],xticks:[25,49,75,99],
+  iFrom:18,
+  series:[{y:PLAIN_PM_KITTI,color:CV('--s1')},{y:COMPOSE_PM_KITTI,color:CV('--s2')}],
+  hline:{y:0.5804},vline:49,
+  marks:[
+    {x:49,y:COMPOSE_PM_KITTI[49],color:CV('--crit'),label:"+12.3%",dy:-8},
+    {x:99,y:COMPOSE_PM_KITTI[99],color:CV('--serious'),label:"0.621 · still behind",dy:14,dx:-2,anchor:"end"},
+  ],
+});
+</script>
+</body>
+</html>
