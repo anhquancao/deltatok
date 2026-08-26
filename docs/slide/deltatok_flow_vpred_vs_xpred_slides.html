@@ -108,14 +108,15 @@ svg .barval{font:11px var(--mono);fill:var(--ink2)}
   <p class="sub">One change: the net predicts <b>velocity</b> instead of the <b>clean token</b>. This drops the
   <span class="mono">1/(1&minus;t)</span> blow-up the x-arm carries at the clean-context slot — the reason it was tried. But on the
   generation-quality geometry metrics (sampled rollout of the forecast frames, decoded and scored vs ground truth, lower = better),
-  the v-arm is <b>worse at matched compute</b> on raymap, pointmap, and depth alike.</p>
+  the v-arm is <b>worse at the full 100k budget</b> on raymap and pointmap and a tie on depth. Worse, the gap <b>widens</b>:
+  the x-arm keeps improving while the v-arm <b>stalls</b> after ~72k.</p>
   <div class="body">
     <div class="cols c58" style="height:100%;align-items:center">
       <div class="tiles" style="grid-template-columns:1fr 1fr">
-        <div class="tile"><div class="k">LossRaymap · @72k matched</div><div class="v" style="color:var(--crit)">+10.4%</div><div class="d">v 7.76 vs x 7.03 · floor 1.68</div></div>
-        <div class="tile"><div class="k">LossPointmap · @72k matched</div><div class="v" style="color:var(--crit)">+7.1%</div><div class="d">v 10.48 vs x 9.79 · floor 4.06</div></div>
-        <div class="tile"><div class="k">LossDepth · @72k matched</div><div class="v" style="color:var(--serious)">+2.2%</div><div class="d">v 4.00 vs x 3.92 · floor 2.80</div></div>
-        <div class="tile"><div class="k">LossFlow · train objective</div><div class="v" style="color:var(--crit)">+4.7%</div><div class="d">v 0.811 vs x 0.775 · v-arm also worse here</div></div>
+        <div class="tile"><div class="k">LossRaymap · @100k final</div><div class="v" style="color:var(--crit)">+29.2%</div><div class="d">v 7.50 vs x 5.81 · floor 1.68</div></div>
+        <div class="tile"><div class="k">LossPointmap · @100k final</div><div class="v" style="color:var(--crit)">+17.8%</div><div class="d">v 10.11 vs x 8.58 · floor 4.06</div></div>
+        <div class="tile"><div class="k">LossDepth · @100k final</div><div class="v" style="color:var(--serious)">+0.9%</div><div class="d">v 3.86 vs x 3.82 · near tie at floor</div></div>
+        <div class="tile"><div class="k">LossFlow · train objective</div><div class="v" style="color:var(--crit)">+3.9%</div><div class="d">v 0.860 vs x 0.828 · v-arm also worse here</div></div>
       </div>
       <div>
         <div class="rulebar" style="margin-bottom:12px"><b>The metric.</b> <span class="mono">Eval/128 @ WaymoSeqMultiView</span> — sample the delta tokens by ODE, roll out forecast frames 3&ndash;4, decode via DA3, score raymap / pointmap / depth against GT. Not teacher-forced.</div>
@@ -123,7 +124,7 @@ svg .barval{font:11px var(--mono);fill:var(--ink2)}
       </div>
     </div>
   </div>
-  <div class="foot"><span>DeltaTok-flow · v-pred vs x-pred · matched budget = 72k (v-arm endpoint)</span><span class="pageno">01 / 05</span></div>
+  <div class="foot"><span>DeltaTok-flow · v-pred vs x-pred · both arms to ~100k · final-vs-final</span><span class="pageno">01 / 05</span></div>
 </section>
 
 <!-- ============ SLIDE 2 — the setup ============ -->
@@ -152,8 +153,8 @@ svg .barval{font:11px var(--mono);fill:var(--ink2)}
         same data (waymo consec, 5 frames, cam0, forecast 3&ndash;4), same xxl DiT (width 1536, ~1.2B, AdaLN-Zero),
         SIGReg 0.005, tc128, maxgap9, <span class="mono">cond_mode=delta_ctx_cross</span>, 2 clean context deltas.</div>
         <div class="tiles" style="grid-template-columns:1fr 1fr">
-          <div class="tile"><div class="k">Steps logged</div><div class="v">100k <span style="color:var(--muted);font-size:.6em">vs</span> 72k</div><div class="d">x-arm ran on to 100k; v-arm to 72k</div></div>
-          <div class="tile"><div class="k">Fair comparison</div><div class="v">@ 72k</div><div class="d">matched budget = v-arm endpoint</div></div>
+          <div class="tile"><div class="k">Steps logged</div><div class="v">100k <span style="color:var(--muted);font-size:.6em">vs</span> 101k</div><div class="d">both arms ran to the full budget</div></div>
+          <div class="tile"><div class="k">Fair comparison</div><div class="v">@ 100k</div><div class="d">final-vs-final, both at ~100k</div></div>
         </div>
         <div class="rulebar" style="margin-top:12px"><b>Read the curves from ~24k.</b> Both arms spike to ~17&ndash;20 during the 5&ndash;10k warm-up transient, then descend. The next slide zooms the settled region.</div>
       </div>
@@ -170,8 +171,8 @@ svg .barval{font:11px var(--mono);fill:var(--ink2)}
     <div class="legend">
       <span><span class="sw" style="background:var(--s1)"></span>x-pred (baseline)</span>
       <span><span class="sw" style="background:var(--s2)"></span>v-pred</span>
-      <span><span class="sw" style="background:var(--axis);width:14px;height:0;border-top:1.4px solid var(--axis)"></span>matched budget · 72k</span>
-      <span style="color:var(--muted)">floor (decode GT tokens) noted per panel · lower = better</span>
+      <span><span class="sw" style="background:var(--axis);width:14px;height:0;border-top:1.4px solid var(--axis)"></span>72k · v-arm's prior stop</span>
+      <span style="color:var(--muted)">◦ = 100k endpoint · floor per panel · lower = better</span>
     </div>
     <div class="cols c3" style="flex:1;min-height:0;margin-top:4px">
       <div class="chartwrap">
@@ -187,16 +188,16 @@ svg .barval{font:11px var(--mono);fill:var(--ink2)}
         <div id="chD"></div>
       </div>
     </div>
-    <div class="rulebar" style="margin-top:8px">The gap is widest on <b>raymap</b> and <b>pointmap</b> and narrow on <b>depth</b> (depth is already near its floor for both).
-    x-pred keeps improving past 72k, reaching <b>5.81 / 8.58 / 3.82</b> by 100k — the v-arm never gets a matching endpoint.</div>
+    <div class="rulebar" style="margin-top:8px">The gap is widest on <b>raymap</b> and <b>pointmap</b> and a near-tie on <b>depth</b> (both sit near its floor).
+    Past 72k the arms split: x-pred keeps descending to <b>5.81 / 8.58 / 3.82</b>, the v-arm <b>stalls</b> near its 72k level (<b>7.50 / 10.11 / 3.86</b>), so the raymap gap widens from +10% to <b>+29%</b>.</div>
   </div>
   <div class="foot"><span>Eval/128 @ WaymoSeqMultiView · LossRaymap / LossPointmap / LossDepth · every 1k steps</span><span class="pageno">03 / 05</span></div>
 </section>
 
 <!-- ============ SLIDE 4 — matched-budget bars ============ -->
 <section class="slide">
-  <div class="eyebrow">Matched budget · step 72,000</div>
-  <h2>At equal compute the x-arm wins on every term — and on the flow loss itself</h2>
+  <div class="eyebrow">Full run · step 100,000</div>
+  <h2>At the full budget the x-arm wins on every term — and on the flow loss itself</h2>
   <div class="body">
     <div class="cols c58" style="height:100%">
       <div class="chartwrap">
@@ -209,8 +210,8 @@ svg .barval{font:11px var(--mono);fill:var(--ink2)}
       </div>
       <div>
         <div class="tiles" style="grid-template-columns:1fr;margin-bottom:12px">
-          <div class="tile"><div class="k">LossFlow · teacher-forced train objective</div><div class="v">0.775 &rarr; <span style="color:var(--crit)">0.811</span> <span class="chip bad">+4.7%</span></div><div class="d">v-pred is worse even on the loss it optimises</div></div>
-          <div class="tile"><div class="k">Gap to floor · pointmap</div><div class="v">5.73 <span style="color:var(--muted);font-size:.55em">vs</span> 6.42</div><div class="d">x-arm is 11% closer to the tokenizer ceiling</div></div>
+          <div class="tile"><div class="k">LossFlow · teacher-forced train objective</div><div class="v">0.828 &rarr; <span style="color:var(--crit)">0.860</span> <span class="chip bad">+3.9%</span></div><div class="d">v-pred is worse even on the loss it optimises</div></div>
+          <div class="tile"><div class="k">Gap to floor · pointmap</div><div class="v">4.52 <span style="color:var(--muted);font-size:.55em">vs</span> 6.05</div><div class="d">x-arm is 25% closer to the tokenizer ceiling</div></div>
         </div>
         <div class="rulebar"><b>Why the flip backfired.</b> The <span class="mono">1/(1&minus;t)</span> weighting the v-arm removed was
         <i>up-weighting the near-clean, high-SNR regime</i> — exactly the frames the forecast is conditioned on. Dropping it spreads
@@ -218,7 +219,7 @@ svg .barval{font:11px var(--mono);fill:var(--ink2)}
       </div>
     </div>
   </div>
-  <div class="foot"><span>bars = matched step 72k · floor = LossRaymap_tok / LossPointmap_tok / LossDepth_tok (shared tokenizer)</span><span class="pageno">04 / 05</span></div>
+  <div class="foot"><span>bars = final step 100k · floor = LossRaymap_tok / LossPointmap_tok / LossDepth_tok (shared tokenizer)</span><span class="pageno">04 / 05</span></div>
 </section>
 
 <!-- ============ SLIDE 5 — verdict ============ -->
@@ -228,14 +229,14 @@ svg .barval{font:11px var(--mono);fill:var(--ink2)}
   <div class="body">
     <div class="cols c2" style="height:100%;align-content:start">
       <div style="display:flex;flex-direction:column;gap:12px">
-        <div class="takeaway"><div class="n">1</div><div class="tx"><b>Worse on every geometry metric.</b> At matched 72k, v-pred is <b>+10.4% raymap</b>, <b>+7.1% pointmap</b>, <b>+2.2% depth</b>. The gap holds at every logged step, not just the endpoint.</div></div>
-        <div class="takeaway"><div class="n">2</div><div class="tx"><b>Worse on the flow loss too.</b> v-pred is <b>+4.7%</b> on the teacher-forced objective — this is not a sampling artifact; the model fits the training target less well.</div></div>
+        <div class="takeaway"><div class="n">1</div><div class="tx"><b>Worse on every geometry metric.</b> At the full 100k budget, v-pred is <b>+29% raymap</b>, <b>+18% pointmap</b>, <b>&asymp;tie depth</b>. The gap <b>widens</b> from +10% at 72k — x-pred keeps improving as the v-arm stalls.</div></div>
+        <div class="takeaway"><div class="n">2</div><div class="tx"><b>Worse on the flow loss too.</b> v-pred is <b>+3.9%</b> on the teacher-forced objective at 100k — this is not a sampling artifact; the model fits the training target less well.</div></div>
         <div class="takeaway"><div class="n">3</div><div class="tx"><b>The blow-up was a feature.</b> The <span class="mono">1/(1&minus;t)²</span> weight up-weights the high-SNR slot the forecast leans on. Removing it traded the pathology for a worse prior.</div></div>
       </div>
       <div class="card" style="background:var(--surface)">
         <div class="tag">Caveats &amp; not yet checked</div>
         <ul class="tight" style="margin-top:10px">
-          <li><strong>v-arm stopped at 72k.</strong> The x-arm's 100k endpoint (5.81 / 8.58 / 3.82) has no v-pred counterpart; comparison is matched-budget, not final-vs-final.</li>
+          <li><strong>Both arms now reach ~100k.</strong> v-pred endpoint 7.32 / 9.98 / 3.92 (101k) vs x-pred 5.81 / 8.58 / 3.82 (100k); the headline compares at the matched 100k step.</li>
           <li><strong>Only the compose-1.0 waymo arm.</strong> No test of v-pred on the plain tokenizer, alldata, or other tc.</li>
           <li><strong>Curves are noisy.</strong> Raymap / pointmap bounce ±1&ndash;2 between adjacent evals; the ranking is read from the trend, and it is consistent.</li>
           <li><strong>Alternatives untried.</strong> <span class="mono">logit-normal t</span>, cosine schedule, and a t-independent loss are sibling arms that target the same t&rarr;1 issue.</li>
@@ -287,14 +288,14 @@ const CV=n=>getComputedStyle(document.documentElement).getPropertyValue(n).trim(
 
 /* ================= DATA — Eval/128 @ WaymoSeqMultiView, [step, value], every 1k steps =================
    x-arm  = deltatok_flow_waymo_consec5cam0_ctx3fwd2_tc128mg9sigreg005compose_xxl_dit         (pred_mode=x, 100k)
-   v-arm  = deltatok_flow_waymo_consec5cam0_ctx3fwd2_tc128mg9sigreg005compose_xxl_dit_vpred   (pred_mode=v,  72k)
+   v-arm  = deltatok_flow_waymo_consec5cam0_ctx3fwd2_tc128mg9sigreg005compose_xxl_dit_vpred   (pred_mode=v, 101k)
    floor  = decode GT tokens (shared tokenizer): raymap 1.6786 · pointmap 4.0553 · depth 2.7983 */
 const BASE_RAYMAP=[[1000,3.7705],[2000,12.55],[3000,20.5778],[4000,17.4749],[5000,14.2855],[6000,18.2392],[7000,19.1136],[8000,17.821],[9000,12.5907],[10000,17.9725],[11000,15.283],[12000,16.7587],[13000,15.8578],[14000,12.1598],[15000,12.1952],[16000,11.3523],[17000,17.049],[18000,15.7426],[19000,11.5472],[20000,13.8191],[21000,11.8536],[22000,9.9192],[23000,11.7281],[24000,10.1921],[25000,9.5624],[26000,12.1001],[27000,10.0039],[28000,12.193],[29000,7.9656],[30000,8.1517],[31000,7.8383],[32000,8.1417],[33000,9.2544],[34000,8.901],[35000,9.3877],[36000,8.1724],[37000,9.3482],[38000,9.2406],[39000,7.4146],[40000,8.8415],[41000,7.081],[42000,6.6498],[43000,8.9836],[44000,7.4865],[45000,7.8267],[46000,6.666],[47000,7.4941],[48000,6.882],[49000,7.5087],[50000,6.7521],[51000,7.8252],[52000,6.6897],[53000,7.1306],[54000,7.124],[55000,7.4381],[56000,6.8919],[57000,6.8185],[58000,7.5852],[59000,6.9505],[60000,7.4394],[61000,6.2285],[62000,6.723],[63000,7.4028],[64000,6.994],[65000,6.6958],[66000,6.6799],[67000,6.6094],[68000,6.3423],[69000,6.3617],[70000,6.101],[71000,7.0609],[72000,7.0251],[73000,6.5253],[74000,6.5936],[75000,6.5401],[76000,6.2913],[77000,5.8045],[78000,7.0274],[79000,6.0959],[80000,6.6908],[81000,6.3075],[82000,5.7175],[83000,6.3796],[84000,6.1625],[85000,5.9663],[86000,6.0842],[87000,6.1689],[88000,5.8909],[89000,6.5933],[90000,6.3289],[91000,6.1758],[92000,5.8388],[93000,5.8064],[94000,5.8333],[95000,6.1435],[96000,6.0598],[97000,5.6994],[98000,6.0571],[99000,5.8556],[100000,5.8071]];
 const BASE_POINTMAP=[[1000,4.8926],[2000,14.4253],[3000,21.1779],[4000,18.4656],[5000,15.7779],[6000,19.2209],[7000,20.2202],[8000,19.0123],[9000,14.2146],[10000,19.3588],[11000,16.9553],[12000,18.461],[13000,17.5013],[14000,14.2467],[15000,14.3997],[16000,13.6368],[17000,18.7617],[18000,17.4146],[19000,13.889],[20000,15.8616],[21000,14.0676],[22000,12.5557],[23000,13.9997],[24000,12.4266],[25000,12.3335],[26000,14.4335],[27000,12.5736],[28000,14.2593],[29000,10.538],[30000,10.6657],[31000,10.4013],[32000,10.8896],[33000,11.7533],[34000,11.5893],[35000,11.7939],[36000,10.8063],[37000,11.8543],[38000,11.5157],[39000,10.0833],[40000,11.2845],[41000,9.9037],[42000,9.3455],[43000,11.421],[44000,10.174],[45000,10.5624],[46000,9.5292],[47000,10.1108],[48000,9.5626],[49000,10.2385],[50000,9.5663],[51000,10.4332],[52000,9.4331],[53000,9.8417],[54000,9.904],[55000,10.2429],[56000,9.8414],[57000,9.658],[58000,10.1977],[59000,9.7534],[60000,10.2262],[61000,9.0327],[62000,9.4694],[63000,10.176],[64000,9.679],[65000,9.3083],[66000,9.4315],[67000,9.2944],[68000,9.1257],[69000,9.2106],[70000,8.8501],[71000,9.6978],[72000,9.7923],[73000,9.2295],[74000,9.3294],[75000,9.2284],[76000,9.0888],[77000,8.6766],[78000,9.6033],[79000,8.8301],[80000,9.4667],[81000,9.1333],[82000,8.5837],[83000,9.2536],[84000,9.0027],[85000,8.6756],[86000,8.8321],[87000,8.9222],[88000,8.618],[89000,9.2804],[90000,9.0448],[91000,9.0075],[92000,8.5586],[93000,8.6208],[94000,8.5713],[95000,8.8906],[96000,8.8454],[97000,8.4884],[98000,8.9324],[99000,8.6656],[100000,8.5779]];
 const BASE_DEPTH=[[1000,4.2473],[2000,4.3298],[3000,4.4313],[4000,4.2671],[5000,4.2394],[6000,4.2905],[7000,4.3061],[8000,4.1157],[9000,4.0907],[10000,4.2196],[11000,4.0775],[12000,4.0084],[13000,4.0843],[14000,4.1224],[15000,4.1438],[16000,4.1413],[17000,4.1025],[18000,4.0628],[19000,4.1002],[20000,4.0301],[21000,4.0103],[22000,4.1439],[23000,4.0943],[24000,4.055],[25000,4.0265],[26000,4.0951],[27000,3.9141],[28000,3.9966],[29000,4.0126],[30000,3.9229],[31000,3.9655],[32000,3.9718],[33000,4.0008],[34000,4.0325],[35000,3.9515],[36000,3.9513],[37000,4.0286],[38000,4.0433],[39000,3.8751],[40000,3.9468],[41000,3.9399],[42000,3.8919],[43000,3.9005],[44000,3.9124],[45000,3.8928],[46000,3.944],[47000,3.9425],[48000,3.8991],[49000,3.8865],[50000,3.8928],[51000,3.984],[52000,3.8587],[53000,3.8136],[54000,3.9143],[55000,3.9284],[56000,4.0003],[57000,3.948],[58000,3.9253],[59000,3.9343],[60000,3.8745],[61000,3.883],[62000,3.8532],[63000,3.8841],[64000,3.8545],[65000,3.8599],[66000,3.879],[67000,3.9194],[68000,3.8823],[69000,3.8895],[70000,3.8774],[71000,3.8666],[72000,3.9158],[73000,3.874],[74000,3.8821],[75000,3.8252],[76000,3.9195],[77000,3.8945],[78000,3.8272],[79000,3.7944],[80000,3.9414],[81000,3.8753],[82000,3.905],[83000,3.9002],[84000,3.8759],[85000,3.9037],[86000,3.8722],[87000,3.8783],[88000,3.8378],[89000,3.8654],[90000,3.8802],[91000,3.8353],[92000,3.8273],[93000,3.8001],[94000,3.8125],[95000,3.8297],[96000,3.839],[97000,3.8152],[98000,3.9521],[99000,3.8877],[100000,3.8229]];
-const VPRED_RAYMAP=[[1000,6.9071],[2000,14.8495],[3000,15.9776],[4000,17.6783],[5000,15.8513],[6000,16.125],[7000,18.289],[8000,15.9548],[9000,17.4497],[10000,16.05],[11000,19.0833],[12000,14.0488],[13000,13.6764],[14000,12.2824],[15000,12.5904],[16000,11.3593],[17000,11.5422],[18000,9.5366],[19000,12.9061],[20000,12.1576],[21000,12.3257],[22000,10.8727],[23000,12.1098],[24000,11.3821],[25000,11.0492],[26000,9.3202],[27000,9.7905],[28000,10.7575],[29000,10.52],[30000,9.0854],[31000,9.7412],[32000,9.9475],[33000,9.2163],[34000,9.1262],[35000,8.6678],[36000,9.8208],[37000,9.166],[38000,8.3148],[39000,7.6014],[40000,9.0488],[41000,8.3467],[42000,8.7762],[43000,9.0542],[44000,7.8516],[45000,8.6394],[46000,7.0222],[47000,8.2792],[48000,7.818],[49000,7.6807],[50000,7.4886],[51000,7.0607],[52000,7.7086],[53000,6.7265],[54000,7.0517],[55000,7.8872],[56000,8.5948],[57000,8.0603],[58000,7.7956],[59000,7.514],[60000,7.4706],[61000,7.4748],[62000,8.2511],[63000,8.3007],[64000,7.5565],[65000,7.5486],[66000,7.5142],[67000,8.2382],[68000,7.5094],[69000,7.7133],[70000,6.7996],[71000,7.8295],[72000,7.7566]];
-const VPRED_POINTMAP=[[1000,8.4432],[2000,16.5597],[3000,17.2203],[4000,18.7077],[5000,17.295],[6000,17.5495],[7000,19.4186],[8000,17.4613],[9000,18.6241],[10000,17.7978],[11000,20.4528],[12000,16.1361],[13000,15.7221],[14000,14.3607],[15000,14.6522],[16000,13.6293],[17000,13.6588],[18000,12.0278],[19000,14.9284],[20000,14.3143],[21000,14.3764],[22000,13.0879],[23000,14.2827],[24000,13.6728],[25000,13.2924],[26000,11.6588],[27000,12.1753],[28000,13.0303],[29000,12.8722],[30000,11.6481],[31000,12.0138],[32000,12.4402],[33000,11.6986],[34000,11.5241],[35000,11.2809],[36000,12.0984],[37000,11.6544],[38000,10.8301],[39000,10.1005],[40000,11.4297],[41000,10.835],[42000,11.1328],[43000,11.495],[44000,10.3972],[45000,11.0759],[46000,9.5342],[47000,10.7314],[48000,10.4961],[49000,10.2821],[50000,10.1739],[51000,9.709],[52000,10.2989],[53000,9.501],[54000,9.7986],[55000,10.5686],[56000,11.2077],[57000,10.7066],[58000,10.3396],[59000,10.312],[60000,10.2665],[61000,10.1899],[62000,10.9193],[63000,10.9898],[64000,10.1823],[65000,10.2011],[66000,10.2093],[67000,10.8327],[68000,10.2747],[69000,10.414],[70000,9.4695],[71000,10.4296],[72000,10.4837]];
-const VPRED_DEPTH=[[1000,4.2718],[2000,4.3545],[3000,4.4115],[4000,4.3175],[5000,4.3171],[6000,4.2092],[7000,4.1783],[8000,4.2282],[9000,4.1622],[10000,4.0744],[11000,4.0333],[12000,4.1284],[13000,4.0199],[14000,4.0825],[15000,3.9999],[16000,4.0365],[17000,3.9502],[18000,4.0419],[19000,3.9598],[20000,4.0505],[21000,3.9593],[22000,3.906],[23000,4.0661],[24000,3.9496],[25000,3.9684],[26000,3.9965],[27000,4.0136],[28000,4.018],[29000,3.9812],[30000,4.0263],[31000,4.017],[32000,3.9506],[33000,4.0105],[34000,3.9972],[35000,4.0865],[36000,3.9413],[37000,4.0088],[38000,4.029],[39000,3.9569],[40000,3.9467],[41000,3.9695],[42000,3.935],[43000,3.9789],[44000,3.9831],[45000,3.9396],[46000,3.9393],[47000,3.9204],[48000,3.9606],[49000,3.9283],[50000,3.9395],[51000,3.9995],[52000,3.9725],[53000,3.9389],[54000,3.945],[55000,3.985],[56000,3.9745],[57000,3.9422],[58000,3.9122],[59000,3.9821],[60000,3.9642],[61000,3.972],[62000,3.9288],[63000,3.9444],[64000,3.9011],[65000,3.9382],[66000,3.8683],[67000,3.879],[68000,3.9335],[69000,3.9556],[70000,3.8718],[71000,3.927],[72000,4.0026]];
+const VPRED_RAYMAP=[[1000,6.9071],[2000,14.8495],[3000,15.9776],[4000,17.6783],[5000,15.8513],[6000,16.125],[7000,18.289],[8000,15.9548],[9000,17.4497],[10000,16.05],[11000,19.0833],[12000,14.0488],[13000,13.6764],[14000,12.2824],[15000,12.5904],[16000,11.3593],[17000,11.5422],[18000,9.5366],[19000,12.9061],[20000,12.1576],[21000,12.3257],[22000,10.8727],[23000,12.1098],[24000,11.3821],[25000,11.0492],[26000,9.3202],[27000,9.7905],[28000,10.7575],[29000,10.52],[30000,9.0854],[31000,9.7412],[32000,9.9475],[33000,9.2163],[34000,9.1262],[35000,8.6678],[36000,9.8208],[37000,9.166],[38000,8.3148],[39000,7.6014],[40000,9.0488],[41000,8.3467],[42000,8.7762],[43000,9.0542],[44000,7.8516],[45000,8.6394],[46000,7.0222],[47000,8.2792],[48000,7.818],[49000,7.6807],[50000,7.4886],[51000,7.0607],[52000,7.7086],[53000,6.7265],[54000,7.0517],[55000,7.8872],[56000,8.5948],[57000,8.0603],[58000,7.7956],[59000,7.514],[60000,7.4706],[61000,7.4748],[62000,8.2511],[63000,8.3007],[64000,7.5565],[65000,7.5486],[66000,7.5142],[67000,8.2382],[68000,7.5094],[69000,7.7133],[70000,6.7996],[71000,7.8295],[72000,7.7566],[73000,8.1156],[74000,7.5054],[75000,7.3486],[76000,7.1539],[77000,7.3899],[78000,7.7298],[79000,7.6416],[80000,7.6222],[81000,7.3123],[82000,7.5783],[83000,7.2546],[84000,6.9126],[85000,7.1105],[86000,7.5973],[87000,7.0217],[88000,7.1828],[89000,6.6879],[90000,7.255],[91000,7.1864],[92000,7.4117],[93000,7.4237],[94000,7.3428],[95000,6.943],[96000,7.6186],[97000,6.9296],[98000,7.2461],[99000,7.4233],[100000,7.502],[101000,7.3236]];
+const VPRED_POINTMAP=[[1000,8.4432],[2000,16.5597],[3000,17.2203],[4000,18.7077],[5000,17.295],[6000,17.5495],[7000,19.4186],[8000,17.4613],[9000,18.6241],[10000,17.7978],[11000,20.4528],[12000,16.1361],[13000,15.7221],[14000,14.3607],[15000,14.6522],[16000,13.6293],[17000,13.6588],[18000,12.0278],[19000,14.9284],[20000,14.3143],[21000,14.3764],[22000,13.0879],[23000,14.2827],[24000,13.6728],[25000,13.2924],[26000,11.6588],[27000,12.1753],[28000,13.0303],[29000,12.8722],[30000,11.6481],[31000,12.0138],[32000,12.4402],[33000,11.6986],[34000,11.5241],[35000,11.2809],[36000,12.0984],[37000,11.6544],[38000,10.8301],[39000,10.1005],[40000,11.4297],[41000,10.835],[42000,11.1328],[43000,11.495],[44000,10.3972],[45000,11.0759],[46000,9.5342],[47000,10.7314],[48000,10.4961],[49000,10.2821],[50000,10.1739],[51000,9.709],[52000,10.2989],[53000,9.501],[54000,9.7986],[55000,10.5686],[56000,11.2077],[57000,10.7066],[58000,10.3396],[59000,10.312],[60000,10.2665],[61000,10.1899],[62000,10.9193],[63000,10.9898],[64000,10.1823],[65000,10.2011],[66000,10.2093],[67000,10.8327],[68000,10.2747],[69000,10.414],[70000,9.4695],[71000,10.4296],[72000,10.4837],[73000,10.752],[74000,10.183],[75000,10.0514],[76000,9.8259],[77000,10.013],[78000,10.3407],[79000,10.2354],[80000,10.3573],[81000,10.0103],[82000,10.2252],[83000,9.9509],[84000,9.5642],[85000,9.898],[86000,10.2274],[87000,9.7488],[88000,9.8813],[89000,9.2791],[90000,9.9384],[91000,9.8894],[92000,10.052],[93000,10.0817],[94000,10.0287],[95000,9.5866],[96000,10.5256],[97000,9.6301],[98000,9.9523],[99000,10.132],[100000,10.105],[101000,9.9763]];
+const VPRED_DEPTH=[[1000,4.2718],[2000,4.3545],[3000,4.4115],[4000,4.3175],[5000,4.3171],[6000,4.2092],[7000,4.1783],[8000,4.2282],[9000,4.1622],[10000,4.0744],[11000,4.0333],[12000,4.1284],[13000,4.0199],[14000,4.0825],[15000,3.9999],[16000,4.0365],[17000,3.9502],[18000,4.0419],[19000,3.9598],[20000,4.0505],[21000,3.9593],[22000,3.906],[23000,4.0661],[24000,3.9496],[25000,3.9684],[26000,3.9965],[27000,4.0136],[28000,4.018],[29000,3.9812],[30000,4.0263],[31000,4.017],[32000,3.9506],[33000,4.0105],[34000,3.9972],[35000,4.0865],[36000,3.9413],[37000,4.0088],[38000,4.029],[39000,3.9569],[40000,3.9467],[41000,3.9695],[42000,3.935],[43000,3.9789],[44000,3.9831],[45000,3.9396],[46000,3.9393],[47000,3.9204],[48000,3.9606],[49000,3.9283],[50000,3.9395],[51000,3.9995],[52000,3.9725],[53000,3.9389],[54000,3.945],[55000,3.985],[56000,3.9745],[57000,3.9422],[58000,3.9122],[59000,3.9821],[60000,3.9642],[61000,3.972],[62000,3.9288],[63000,3.9444],[64000,3.9011],[65000,3.9382],[66000,3.8683],[67000,3.879],[68000,3.9335],[69000,3.9556],[70000,3.8718],[71000,3.927],[72000,4.0026],[73000,3.9396],[74000,3.947],[75000,3.9235],[76000,3.9628],[77000,3.8826],[78000,3.9663],[79000,3.8904],[80000,3.946],[81000,3.8812],[82000,3.8719],[83000,3.9248],[84000,3.9204],[85000,3.9749],[86000,3.9306],[87000,3.9151],[88000,3.8937],[89000,3.8612],[90000,3.9194],[91000,3.8847],[92000,3.8977],[93000,3.8804],[94000,3.9323],[95000,3.8857],[96000,3.9324],[97000,3.9437],[98000,3.9218],[99000,3.8679],[100000,3.8557],[101000,3.9173]];
 
 /* ---------- line chart: loss vs step (step-indexed [x,y] pairs) ---------- */
 function lineChart(el,cfg){
@@ -336,15 +337,15 @@ function lineChart(el,cfg){
 }
 const last=a=>a[a.length-1][1];
 const at72=a=>a.find(p=>p[0]===72000)[1];
+const at100=a=>a.find(p=>p[0]===100000)[1];
 
 lineChart(document.getElementById("chRay"),{
   xdom:[24000,100000],ydom:[5,12],ydec:0,
   yticks:[6,8,10,12],xticks:[30000,50000,72000,100000],vline:72000,
   series:[{data:BASE_RAYMAP,color:CV('--s1')},{data:VPRED_RAYMAP,color:CV('--s2')}],
   marks:[
-    {x:72000,y:at72(VPRED_RAYMAP),color:CV('--crit'),label:"7.76",dy:-8},
-    {x:72000,y:at72(BASE_RAYMAP),color:CV('--s1'),label:"7.03",dy:13},
-    {x:100000,y:last(BASE_RAYMAP),color:CV('--s1'),label:"5.81",dy:13,dx:-2,anchor:"end"},
+    {x:100000,y:at100(VPRED_RAYMAP),color:CV('--crit'),label:"v 7.50",dy:-8,dx:-6,anchor:"end"},
+    {x:100000,y:at100(BASE_RAYMAP),color:CV('--s1'),label:"x 5.81",dy:14,dx:-6,anchor:"end"},
   ],
 });
 lineChart(document.getElementById("chPm"),{
@@ -352,9 +353,8 @@ lineChart(document.getElementById("chPm"),{
   yticks:[9,11,13],xticks:[30000,50000,72000,100000],vline:72000,
   series:[{data:BASE_POINTMAP,color:CV('--s1')},{data:VPRED_POINTMAP,color:CV('--s2')}],
   marks:[
-    {x:72000,y:at72(VPRED_POINTMAP),color:CV('--crit'),label:"10.48",dy:-8},
-    {x:72000,y:at72(BASE_POINTMAP),color:CV('--s1'),label:"9.79",dy:13},
-    {x:100000,y:last(BASE_POINTMAP),color:CV('--s1'),label:"8.58",dy:13,dx:-2,anchor:"end"},
+    {x:100000,y:at100(VPRED_POINTMAP),color:CV('--crit'),label:"v 10.11",dy:-8,dx:-6,anchor:"end"},
+    {x:100000,y:at100(BASE_POINTMAP),color:CV('--s1'),label:"x 8.58",dy:14,dx:-6,anchor:"end"},
   ],
 });
 lineChart(document.getElementById("chD"),{
@@ -362,9 +362,8 @@ lineChart(document.getElementById("chD"),{
   yticks:[3.8,3.9,4.0,4.1],xticks:[30000,50000,72000,100000],vline:72000,
   series:[{data:BASE_DEPTH,color:CV('--s1')},{data:VPRED_DEPTH,color:CV('--s2')}],
   marks:[
-    {x:72000,y:at72(VPRED_DEPTH),color:CV('--crit'),label:"4.00",dy:-8},
-    {x:72000,y:at72(BASE_DEPTH),color:CV('--s1'),label:"3.92",dy:13},
-    {x:100000,y:last(BASE_DEPTH),color:CV('--s1'),label:"3.82",dy:13,dx:-2,anchor:"end"},
+    {x:100000,y:at100(VPRED_DEPTH),color:CV('--serious'),label:"v 3.86",dy:-8,dx:-6,anchor:"end"},
+    {x:100000,y:at100(BASE_DEPTH),color:CV('--s1'),label:"x 3.82",dy:14,dx:-6,anchor:"end"},
   ],
 });
 
@@ -397,9 +396,9 @@ function barTriples(el,cfg){
 barTriples(document.getElementById("chBars"),{
   max:11.5,
   groups:[
-    {name:"Raymap",  x:7.03, v:7.76,  floor:1.68, delta:"+10.4%"},
-    {name:"Pointmap",x:9.79, v:10.48, floor:4.06, delta:"+7.1%"},
-    {name:"Depth",   x:3.92, v:4.00,  floor:2.80, delta:"+2.2%"},
+    {name:"Raymap",  x:5.81, v:7.50,  floor:1.68, delta:"+29.2%"},
+    {name:"Pointmap",x:8.58, v:10.11, floor:4.06, delta:"+17.8%"},
+    {name:"Depth",   x:3.82, v:3.86,  floor:2.80, delta:"+0.9%"},
   ],
 });
 </script>
