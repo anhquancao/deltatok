@@ -7,7 +7,7 @@
 #SBATCH --account=ehpc880
 #SBATCH --partition=acc
 #SBATCH --qos=acc_ehpc
-#SBATCH --time=40:00:00
+#SBATCH --time=72:00:00
 ##SBATCH --qos=acc_debug
 ##SBATCH --time=02:00:00
 #SBATCH --output=slurm/output/train_deltatok_flow_waymo_xxl_tc128mg9_sigreg005_compose_bsc_%j.out
