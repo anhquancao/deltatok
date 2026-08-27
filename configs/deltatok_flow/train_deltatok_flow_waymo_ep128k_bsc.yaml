@@ -1,0 +1,13 @@
+defaults:
+  - train_deltatok_flow_waymo_bsc
+  - _self_
+
+# Longer epoch draw for the 4-GPU effective_bsize 64 shape: 128000/epoch = 2000
+# updates, so epoch 100 lands exactly on max_iter 200000. Only train_dataset is
+# re-declared; the val scenes, test_dataset and model blocks are inherited.
+dataset:
+  train_dataset: "128000 @ WaymoSeqMultiView(ROOT='/gpfs/scratch/ehpc1001/occany_data/waymo_processed', \
+      seq_pkl_name='seq_surround_temporal_sub5_stride9_fs1_all.pkl', \
+      num_timesteps=5, num_views_per_timestep=5, fixed_cams=[0], \
+      z_far=50, split=None, exclude_scenes=${dataset._waymo_val_scenes}, \
+      resolution=[(518, 266)])"

@@ -1,8 +1,8 @@
 #!/bin/bash
 #SBATCH --job-name=deltatok_flow_waymo_xxl_tc128mg9_sigreg005_compose
 #SBATCH --nodes=1
-#SBATCH --ntasks-per-node=2
-#SBATCH --gres=gpu:2
+#SBATCH --ntasks-per-node=4
+#SBATCH --gres=gpu:4
 #SBATCH --cpus-per-task=20
 #SBATCH --account=ehpc880
 #SBATCH --partition=acc
@@ -16,7 +16,8 @@
 # Compose arm of train_deltatok_flow_waymo_xxl_tc128mg9_sigreg005_bsc.slurm: identical flow
 # recipe, tokenizer swapped for the compose1.0 twin (additive d(t0->t1)+d(t1->t2)).
 # Charged to ehpc880; $SCRATCH/$PROJECT stay ehpc1001.
-# Both pin epoch_40, so the pair isolates the compose loss. Tokenizer arch flags are unchanged.
+# Pins the tokenizer's terminal epoch_100 (iter 112500), so the epoch_40 twin pair is broken.
+# 4 GPU x bsize 16 -> effective_bsize 64; 128000-sample epochs keep 100 ep = 200k updates.
 #   ssh bsc "bash -lc 'cd /gpfs/projects/ehpc1001/code/deltatok && sbatch slurm/deltatok_flow/train_deltatok_flow_waymo_xxl_tc128mg9_sigreg005_compose_bsc.slurm'"
 
 mkdir -p slurm/output
@@ -34,13 +35,13 @@ export MASTER_PORT=$((20000 + ${SLURM_JOB_ID:-0} % 20000))
 # file_descriptor shm strategy holds an fd per shared tensor per worker
 ulimit -n "$(ulimit -Hn)"
 
-export CONFIG_NAME=train_deltatok_flow_waymo_bsc   # same data as the tc1536mg9 config (comments aside)
+export CONFIG_NAME=train_deltatok_flow_waymo_ep128k_bsc   # 128000/epoch -> 2000 updates/ep
 export RESULTS_DIR="$SCRATCH/deltatok_flow_log"
-export RUN_NAME=deltatok_flow_waymo_consec5cam0_ctx3fwd2_tc128mg9sigreg005compose_xxl_dit
+export RUN_NAME=deltatok_flow_waymo_consec5cam0_ctx3fwd2_tc128mg9sigreg005compose_ep100tok_xxl_dit
 EXTRA_CFG_ARGS=(
     model.deltatok.num_delta_tokens=64         # K=64 delta tokens/camera; must match the frozen ckpt
-    # epoch_40: matches the non-compose twin's pin. compose_weight is train-only, so arch is identical.
-    model.deltatok_ckpt="$SCRATCH/deltatok_log/deltatok_l12_dtok64_tc128_nozn_maxgap9_vpt1to2_sigreg0.005_ns256_pool8192_compose1.0/ckpts/epoch_40.pth"
+    # epoch_100 = iter 112500, the tokenizer's terminal ckpt. Arch identical to epoch_40.
+    model.deltatok_ckpt="$SCRATCH/deltatok_log/deltatok_l12_dtok64_tc128_nozn_maxgap9_vpt1to2_sigreg0.005_ns256_pool8192_compose1.0/ckpts/epoch_100.pth"
     # Tokenizer arch must match the ckpt — parameterless flags silently yield wrong z.
     model.deltatok.target_channels=128         # linear z_proj_down/up bottleneck (flow cfg defaults 0 = off)
     model.deltatok.z_norm=false                # no final z LayerNorm
@@ -56,8 +57,9 @@ EXTRA_CFG_ARGS=(
     model.vit_size=xxlarge_d20                 # width 1536, 12x the latent Cz=128
     model.vit_dit_adaln=true                   # per-block AdaLN-Zero + Fourier t-embed; ~1.2B total
     training.exit_before_time_limit=true       # clean exit near the SLURM wall (chain-resume safe)
-    training.epoch=100                         # 100k updates, chained across SLURM walls
-    training.max_iter=200000                   # lifted so epoch=100 is the sole stop
+    training.effective_bsize=64                # 4 GPU x bsize 16 -> grad_cum 1
+    training.epoch=100                         # 200k updates, chained across SLURM walls
+    training.max_iter=200000                   # epoch=100 x 2000 updates lands exactly here
     training.lr_schedule=constant              # constant 1e-4 after warmup
     model.t_dist=uniform                       # t ~ U(0,1)
     model.t_shared=true                        # one t per sample, all slots — matches sampler_alpha=0
