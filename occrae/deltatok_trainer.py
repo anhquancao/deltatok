@@ -615,10 +615,10 @@ class DeltaTokTrainer(DeltaTokSharedMixin, Trainer):
             ).to(self.device)
         else:
             self.sigreg = None
-        # FIFO queue of detached z rows from recent micro-batches, pooled with the live
-        # ones every step (see _sigreg_pooled). Cleared at epoch start; it refills within
-        # a few micro-batches.
-        self._sigreg_zbuf = []
+        # FIFO of detached z rows from recent micro-batches, pooled with the live ones
+        # every step (see _sigreg_pooled). Cleared at epoch start; refills in a few
+        # micro-batches.
+        self._sigreg_pool = None
         # Brownian scaling: target N(0, gap·I) by pre-normalizing z /= √gap
         self._sigreg_gap_sigma = bool(self.cfg.training.get("sigreg_gap_sigma", False))
 
@@ -637,6 +637,23 @@ class DeltaTokTrainer(DeltaTokSharedMixin, Trainer):
             assert self._max_gap >= 2, f"compose needs max_gap >= 2, got {self._max_gap}"
             assert float(self.cfg.training.get("bottleneck_recon_weight", 0.0)) == 0.0, \
                 "compose is incompatible with bottleneck_recon_weight"
+
+        # Send the composed sum to SIGReg too, cat'd onto both hops. z_a, z_b and z_comp are one
+        # population of gap-deltas (hops draw gap ~ U[1,max_gap]; the sum spans g1+g2), so one
+        # pooled CF test covers all three. Off = one random hop, bit-identical to before.
+        self._sigreg_compose_z = bool(self.cfg.training.get("sigreg_compose_z", False))
+        if self._sigreg_compose_z:
+            assert self._compose_weight > 0 and self._sigreg_weight > 0, \
+                "sigreg_compose_z needs compose_weight > 0 and sigreg_weight > 0"
+            # gapsig divides by √gap; three streams would need three divisors (g1, g2, g1+g2).
+            assert not self._sigreg_gap_sigma, \
+                "sigreg_compose_z and sigreg_gap_sigma are mutually exclusive"
+
+        # Train-time z spread over the same rows SIGReg pools (Train/Z*), so it costs no extra
+        # forward. Flushed per epoch. Runs with or without sigreg_compose_z -- that is what makes
+        # the arm and its twin comparable.
+        self._compose_z_stats = ZSpreadStats(self.device) if (
+            self._compose_weight > 0 and self._z_spread_eval) else None
 
     @torch.no_grad()
     def _log_z_spread(self, stats: "ZSpreadStats", prefix: str) -> None:
@@ -669,40 +686,22 @@ class DeltaTokTrainer(DeltaTokSharedMixin, Trainer):
                   f"ZMeanAbsMax={s['mean_abs_max']:.4f}", flush=True)
 
     def _sigreg_pooled(self, z: torch.Tensor):
-        """(live, pool, scale): SIGReg's live + queued rows, and its gradient rescale.
+        """(live, pool, scale): this micro-batch's z rows, a FIFO of detached rows from
+        recent micro-batches, and the grad rescale.
 
-        One micro-batch on one rank is only L = M*N*K = 128..256 rows of dim Cz
-        (M = bsize, N = 1..2 cameras, K = 64) -- far too few for a
-        Cz-dim isotropy test, whose finite-sample floor at L=128 buries the collapse
-        signal. Hence a FIFO queue of detached rows, fired EVERY micro-batch alongside
-        the live ones: the term then sits in every backward like the recon loss, so the
-        (loss/grad_cum) divisor cancels itself -- no grad_cum compensation, and no
-        cross-rank "is the pool ready" vote that a variable N would make deadlock-prone.
-
-        The CF is a MEAN over live+pool, so each live row's grad carries 1/pooled and
-        pressure would fall as 1/pool; ``scale`` = pooled/live undoes exactly that,
-        keeping pool a pure estimator-quality knob.
-
-        sigreg_pool_samples is the queue size as a GLOBAL row count -- the CF all-reduce
-        already pools ranks, so each rank holds target/world_size.
-
-        NOT pressure-compatible with the pre-queue code (fired once per window at
-        w*grad_cum -> w*D/grad_cum per step; this delivers w*D), but unlike that form it
-        no longer moves with grad_cum, so arms transfer across cluster layouts.
+        One micro-batch is L = bsize*N*K = 128..768 rows -- far below the Cz-dim isotropy
+        test's finite-sample floor, hence the queue. It fires every micro-batch alongside
+        the live rows, so the term rides the same (loss/grad_cum).backward() as recon and
+        needs no grad_cum factor. The CF is a MEAN over live+pool, so each live row's grad
+        carries 1/pooled; ``scale`` = pooled/live undoes that, keeping the pool an
+        estimator-only knob. sigreg_pool_samples is a GLOBAL row count (the CF all-reduce
+        pools ranks): each rank holds its 1/world_size share.
         """
-        live = z.reshape(-1, z.shape[-1])                    # (L, Cz) this micro-batch's rows
-        # Already-detached rows, so this cat builds no graph (SIGReg adds them under no_grad).
-        pool = torch.cat(self._sigreg_zbuf, dim=0) if self._sigreg_zbuf else None  # (P, Cz) or None
-        self._sigreg_zbuf.append(live.detach())              # bank AFTER pooling: no row counted twice
-        cap_local = math.ceil(int(self.cfg.training.sigreg_pool_samples) / max(1, self.world_size))
-        rows = sum(t.shape[0] for t in self._sigreg_zbuf)
-        # len > 1 keeps one micro-batch banked even if it alone exceeds the cap, so the pool
-        # never drops below live + 1 (overshoot is bounded by one micro-batch).
-        while len(self._sigreg_zbuf) > 1 and rows > cap_local:
-            rows -= self._sigreg_zbuf.pop(0).shape[0]        # FIFO: evict the stalest rows
-        n_pooled = live.shape[0] + (0 if pool is None else pool.shape[0])  # must match SIGReg's mean denominator
-        scale = n_pooled / max(1, live.shape[0])             # undo the 1/pool grad attenuation
-        return live, pool, scale
+        live = z.reshape(-1, z.shape[-1])                                        # (L, Cz) this micro-batch's rows
+        pool = self._sigreg_pool if self._sigreg_pool is not None else live.new_zeros(0, live.shape[1])  # (P, Cz) detached
+        cap = math.ceil(self.cfg.training.sigreg_pool_samples / self.world_size)  # global rows -> per-rank share
+        self._sigreg_pool = torch.cat([pool, live.detach()])[-cap:]              # (min(P+L, cap), Cz) FIFO by row; bank AFTER pooling
+        return live, pool, (live.shape[0] + pool.shape[0]) / live.shape[0]       # scale: undo the 1/pooled grad attenuation
 
     def _build_optimizer(self):
         """AdamW with DeltaTok-style param groups: weight decay applies only to
@@ -958,6 +957,7 @@ class DeltaTokTrainer(DeltaTokSharedMixin, Trainer):
             loss_recon   = _log_cosh(x_hat.float(), x.detach().float()).mean()
             loss_compose = _log_cosh(x_hat_comp.float(), feats[:, 2].detach().float()).mean()
 
+        z = torch.cat([z, z_comp.unsqueeze(1)], dim=1)                        # (B, 3, N, K, Cz)
         return loss_recon, loss_compose, z, step_t
 
     def _feature_loss(self, tokens, x_hat, B, T_minus_1, idx, num_cameras, height, width):
@@ -1015,7 +1015,7 @@ class DeltaTokTrainer(DeltaTokSharedMixin, Trainer):
         last_update_time = time.time()
         window_loss = deque(maxlen=self.grad_cum)
         self.optim.zero_grad(set_to_none=True)
-        self._sigreg_zbuf.clear()               # drop last epoch's rows; the queue refills in a few micro-batches
+        self._sigreg_pool = None                # drop last epoch's rows; the pool refills in a few micro-batches
 
         epoch = int(self.cfg.training.global_epoch)
         self._set_train_loader_epoch(epoch)
@@ -1051,13 +1051,19 @@ class DeltaTokTrainer(DeltaTokSharedMixin, Trainer):
                 loss, loss_compose, z_compose, step_t = self._compose_forward(imgs, num_cameras)
                 loss_total = loss + self._compose_weight * loss_compose
                 loss_bneck = None
-                # SIGReg z: one random hop (keeps row count = single-pair arms)
+                # SIGReg z: all three streams (flag on) or one random hop (flag off)
                 if self.sigreg is not None:
-                    hop_idx = torch.randint(0, 2, ()).item()              # 0 or 1: pick hop t0→t1 or t1→t2
-                    z_bneck = z_compose[:, hop_idx]                              # (B, N, K, Cz)
-                    if self._sigreg_gap_sigma:
-                        gap_t = (step_t[:, hop_idx + 1] - step_t[:, hop_idx]).float()  # (B,)
-                        z_bneck = z_bneck / gap_t.sqrt()[:, None, None, None]    # (B, N, K, Cz) z/√gap → N(0, I)
+                    if self._sigreg_compose_z:
+                        z_bneck = torch.cat([z_compose[:, 0], z_compose[:, 1],
+                                             z_compose[:, 2]], dim=0)            # (3B, N, K, Cz)
+                    else:
+                        hop_idx = torch.randint(0, 2, ()).item()                 # 0 or 1: pick hop t0→t1 or t1→t2
+                        z_bneck = z_compose[:, hop_idx]                          # (B, N, K, Cz)
+                        if self._sigreg_gap_sigma:
+                            gap_t = (step_t[:, hop_idx + 1] - step_t[:, hop_idx]).float()  # (B,)
+                            z_bneck = z_bneck / gap_t.sqrt()[:, None, None, None]  # z/√gap → N(0, I)
+                    if self._compose_z_stats is not None:
+                        self._compose_z_stats.update(z_bneck)
             else:
                 # One pair per sequence: sample gap ~ U[1, max_gap], then a random start.
                 B = imgs.shape[0]
@@ -1188,6 +1194,8 @@ class DeltaTokTrainer(DeltaTokSharedMixin, Trainer):
             stats["bneck"] = cum_bneck / n_bneck
         if n_compose:
             stats["compose"] = cum_compose / n_compose
+        if self._compose_z_stats is not None:
+            self._log_z_spread(self._compose_z_stats, "Train")
         return stats
 
     # _compute_frame_losses / _decode_tokens / _reconstruct_full_tokens moved
