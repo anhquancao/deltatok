@@ -15,6 +15,14 @@ export PYTHONNOUSERSITE=1
 : "${PROJECT:?Error: PROJECT is not set}"
 VENV_DIR="${PROJECT}/envs/maskgit"
 
+# ~/.cache, ~/.local and ~/.conda symlink into the dead ehpc793 project (no
+# longer readable), so every import of matplotlib stalls then falls back to
+# /scratch/tmp. Keep caches on scratch instead.
+: "${SCRATCH:?Error: SCRATCH is not set}"
+export XDG_CACHE_HOME="${SCRATCH}/.cache"
+export MPLCONFIGDIR="${XDG_CACHE_HOME}/matplotlib"
+mkdir -p "${MPLCONFIGDIR}"
+
 # shellcheck disable=SC1090
 source "${VENV_DIR}/bin/activate"
 

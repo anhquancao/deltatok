@@ -1,0 +1,391 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>DeltaTok-flow — denoising-step sweep on the tc128 compose arm</title>
+<style>
+/* ---------- tokens · light only, white slides (no dark variant by request) ---------- */
+:root{
+  color-scheme: light only;
+  --backdrop:#e9e9e6; --page:#f7f7f6; --surface:#ffffff;
+  --ink:#0b0b0b; --ink2:#52514e; --muted:#83817c;
+  --grid:#e4e4de; --axis:#c3c2b7; --border:rgba(11,11,11,.12);
+  --s1:#2a78d6; --s2:#eb6834; --s3:#1baf7a; --s4:#eda100;
+  --s5:#e87ba4; --s6:#008300; --s7:#4a3aa7; --s8:#e34948;
+  --good:#0ca30c; --crit:#d03b3b; --serious:#ec835a;
+  --accent:var(--s1);
+  --serif:"Iowan Old Style","Palatino Linotype",Palatino,Georgia,serif;
+  --sans:system-ui,-apple-system,"Segoe UI",sans-serif;
+  --mono:ui-monospace,"Cascadia Code",Menlo,Consolas,monospace;
+}
+/* ---------- deck chrome ---------- */
+*{box-sizing:border-box;margin:0}
+html,body{height:100%}
+body{background:var(--backdrop);color:var(--ink);font:15px/1.45 var(--sans);overflow:hidden}
+.stage{position:absolute;left:50%;top:50%;width:1280px;height:720px;transform-origin:center center}
+.slide{position:absolute;inset:0;background:var(--surface);border:1px solid var(--border);
+  padding:52px 64px 44px;display:none;flex-direction:column}
+.slide.on{display:flex}
+.eyebrow{font:600 12px/1 var(--mono);letter-spacing:.14em;text-transform:uppercase;color:var(--accent);margin-bottom:14px}
+.eyebrow .dim{color:var(--muted)}
+h1{font:400 46px/1.15 var(--serif);letter-spacing:-.01em;text-wrap:balance}
+h2{font:400 32px/1.2 var(--serif);letter-spacing:-.005em;text-wrap:balance;margin-bottom:6px}
+.sub{color:var(--ink2);font-size:15.5px;max-width:74ch;margin-top:10px}
+.body{flex:1;min-height:0;margin-top:22px}
+.foot{display:flex;justify-content:space-between;align-items:baseline;color:var(--muted);
+  font:11px/1 var(--mono);letter-spacing:.06em;margin-top:16px;border-top:1px solid var(--grid);padding-top:12px}
+.pageno{font-variant-numeric:tabular-nums}
+/* nav */
+.nav{position:fixed;left:50%;bottom:14px;transform:translateX(-50%);display:flex;gap:8px;align-items:center;z-index:5}
+.nav button{width:9px;height:9px;border-radius:50%;border:1px solid var(--muted);background:transparent;cursor:pointer;padding:0}
+.nav button.cur{background:var(--accent);border-color:var(--accent)}
+.nav button:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+.arr{position:fixed;top:50%;transform:translateY(-50%);z-index:5;border:1px solid var(--border);
+  background:var(--surface);color:var(--ink2);width:34px;height:56px;cursor:pointer;font-size:18px;border-radius:4px}
+.arr:hover{color:var(--ink)}
+#prev{left:10px}#next{right:10px}
+/* ---------- shared bits ---------- */
+.mono{font-family:var(--mono)}
+.num{font-variant-numeric:tabular-nums}
+.chip{display:inline-block;font:600 10.5px/1 var(--mono);letter-spacing:.05em;padding:4px 7px;border-radius:3px;
+  border:1px solid var(--border);white-space:nowrap}
+.chip.good{color:var(--good);border-color:currentColor}
+.chip.wall{color:var(--serious);border-color:currentColor}
+.chip.dead{color:var(--crit);border-color:currentColor}
+.chip.hero{color:var(--accent);border-color:currentColor}
+.sw{display:inline-block;width:10px;height:10px;border-radius:2px;vertical-align:-1px}
+.cols{display:grid;gap:30px;min-height:0}
+.c2{grid-template-columns:1fr 1fr}
+.c3{grid-template-columns:1fr 1fr 1fr}
+.c4{grid-template-columns:1fr 1fr 1fr 1fr}
+.c58{grid-template-columns:1.25fr 1fr}
+.card{border:1px solid var(--grid);border-radius:6px;padding:15px 17px;background:var(--page)}
+.card h3{font:600 14px/1.3 var(--sans);margin:6px 0}
+.card .tag{font:600 10px/1 var(--mono);letter-spacing:.1em;text-transform:uppercase;color:var(--muted)}
+ul.tight{padding-left:18px;display:flex;flex-direction:column;gap:8px;font-size:14px;color:var(--ink2)}
+ul.tight li{padding-left:2px}
+ul.tight strong{color:var(--ink);font-weight:600}
+table{border-collapse:collapse;width:100%;font-size:12.5px}
+th{font:600 10.5px/1.3 var(--mono);letter-spacing:.08em;text-transform:uppercase;color:var(--muted);
+  text-align:left;padding:6px 10px;border-bottom:1px solid var(--axis)}
+td{padding:6px 10px;border-bottom:1px solid var(--grid);color:var(--ink2);vertical-align:top}
+td.n,th.n{text-align:right;font-variant-numeric:tabular-nums}
+td b{color:var(--ink);font-weight:600}
+tr.hl td{background:color-mix(in srgb,var(--s1) 9%,transparent)}
+tr.dim td{color:var(--muted)}
+/* stat tiles */
+.tiles{display:grid;gap:13px}
+.tile{border:1px solid var(--grid);border-radius:6px;padding:13px 15px;background:var(--page)}
+.tile .v{font:600 26px/1.1 var(--sans);letter-spacing:-.01em;font-variant-numeric:tabular-nums}
+.tile .k{font:600 10px/1.4 var(--mono);letter-spacing:.1em;text-transform:uppercase;color:var(--muted);margin-bottom:6px}
+.tile .d{font-size:12.5px;color:var(--ink2);margin-top:6px}
+.rulebar{border:1px dashed var(--axis);border-radius:6px;padding:11px 15px;font-size:13.5px;color:var(--ink2);margin-top:12px}
+.rulebar b{color:var(--ink)}
+/* charts */
+.chartwrap{position:relative}
+.panelttl{font:600 10px/1 var(--mono);letter-spacing:.1em;text-transform:uppercase;color:var(--muted);margin-bottom:4px}
+.legend{display:flex;flex-wrap:wrap;gap:6px 16px;font:12px/1 var(--sans);color:var(--ink2);margin-bottom:6px}
+.legend span{display:inline-flex;gap:6px;align-items:center}
+svg{display:block}
+svg text{font:10.5px var(--sans);fill:var(--muted)}
+svg .barlbl{font:600 12px var(--sans);fill:var(--ink)}
+svg .barval{font:11px var(--mono);fill:var(--ink2)}
+svg .hll{font:10px var(--mono)}
+svg .axl{font:10px var(--mono);fill:var(--muted)}
+.slide kbd{font:11px var(--mono);border:1px solid var(--axis);border-radius:3px;padding:1px 5px;color:var(--ink2)}
+@media (prefers-reduced-motion: no-preference){
+  .slide.on{animation:fadein .18s ease}
+  @keyframes fadein{from{opacity:.4}to{opacity:1}}
+}
+@media print{
+  body{overflow:visible;background:#fff}
+  .stage{position:static;transform:none!important;width:auto;height:auto}
+  .slide{display:flex;position:static;width:1280px;height:720px;page-break-after:always;margin:0 auto}
+  .nav,.arr{display:none}
+}
+</style>
+</head>
+<body>
+<div class="stage" id="stage">
+
+<!-- ============ SLIDE 1 — title ============ -->
+<section class="slide on">
+  <div class="eyebrow">DeltaTok-flow <span class="dim">— tc128 mg9 sigreg005 compose · ep100 · consec5 cam0 · ctx3fwd2 · xxl DiT</span></div>
+  <h1>Fewer denoising steps are better — on every geometry metric</h1>
+  <p class="sub">The same trained flow checkpoint, sampled with 1, 2, 3, 4 and 20 ODE steps.
+    The arm trains and evaluates at 20 steps, yet 20 is the <em>worst</em> setting of the five.
+    Error rises monotonically with step count.</p>
+  <div class="body">
+    <div class="cols c3" style="gap:15px">
+      <div class="tile"><div class="k">MSEToken · 1 step → 20 steps</div><div class="v" style="color:var(--crit)">0.742 → 0.884</div><div class="d">+19.1% just from integrating longer. The latent the sampler lands on gets steadily worse.</div></div>
+      <div class="tile"><div class="k">LossRaymap · best vs trained default</div><div class="v" style="color:var(--good)">5.29 vs 6.80</div><div class="d">2 steps beats the 20-step default by 22.2%. The largest gap of any metric.</div></div>
+      <div class="tile"><div class="k">Best overall setting</div><div class="v" style="color:var(--accent)">2 steps</div><div class="d">Wins LossPointmap, LossRaymap and LossFlow. 1 step wins MSEToken and LossDepth.</div></div>
+    </div>
+    <div class="rulebar" style="margin-top:18px"><b>The shape of the result.</b> 1 step is the pure regression baseline — it emits
+      <span class="mono">x̂(noise, t=0)</span> with no integration at all — and it already beats the 20-step sampler everywhere.
+      Extra ODE steps do not refine the sample; they walk it away from the target.</div>
+    <p class="sub" style="margin-top:14px;font-size:13.5px"><kbd>←</kbd> <kbd>→</kbd> to navigate ·
+      BSC job <span class="mono">45296762</span> · ckpt <span class="mono">iter 200000</span> ·
+      <span class="mono">eval_deltatok_flow_sampler.py</span>, <span class="mono">step_modes=ode</span>.</p>
+  </div>
+  <div class="foot"><span>DeltaTok-flow · denoising-step sweep</span><span>more steps ≠ better sample</span><span class="pageno">1</span></div>
+</section>
+
+<!-- ============ SLIDE 2 — what ran ============ -->
+<section class="slide">
+  <div class="eyebrow">The measurement <span class="dim">— one checkpoint, five sampler settings</span></div>
+  <h2>Only <span class="mono">eval_num_steps</span> moves; weights and data are pinned</h2>
+  <p class="sub">Five full <span class="mono">eval_one_epoch</span> passes over the same held-out split, from the same
+    frozen checkpoint. The sampler's step count is the single independent variable.</p>
+  <div class="body cols c58">
+    <div>
+      <table>
+        <thead><tr>
+          <th>component</th><th>setting</th>
+        </tr></thead>
+        <tbody>
+          <tr><td><b>Flow ViT</b></td><td class="mono">xxlarge_d20 · dit_adaln · 1209.81M params</td></tr>
+          <tr class="hl"><td><b>Checkpoint</b></td><td class="mono">iter 200000 · global_epoch 100</td></tr>
+          <tr><td><b>Tokenizer</b></td><td class="mono">tc128 · sigreg 0.005 · compose1.0 · epoch_100</td></tr>
+          <tr><td><b>Latent</b></td><td class="mono">K=64 · target_channels 128 · whiten_stats null</td></tr>
+          <tr><td><b>Sampler</b></td><td class="mono">ode · linear schedule · alpha 0 · loss_mode v</td></tr>
+          <tr><td><b>Eval set</b></td><td class="mono">128 seqs · 32 held-out Waymo scenes · seed 42</td></tr>
+          <tr class="dim"><td><b>Steps swept</b></td><td class="mono">1, 2, 3, 4, 20</td></tr>
+        </tbody>
+      </table>
+      <div class="rulebar" style="margin-top:16px"><b>20 steps is the arm's own training-time setting.</b>
+        <span class="mono">training.eval_num_steps=20</span> is what the run logged all through training,
+        so that row reproduces the curves in TensorBoard and doubles as a checkpoint-load check.</div>
+    </div>
+    <div>
+      <div class="tiles">
+        <div class="tile"><div class="k">Samples per pass</div><div class="v">128</div><div class="d">The whole val split. <span class="mono">eval_num_items=256</span> never binds — the loader runs out at 128 first (32 batches × <span class="mono">val_bsize</span> 4).</div></div>
+        <div class="tile"><div class="k">Sequence shape</div><div class="v">3 + 2</div><div class="d">5 consecutive timesteps × cam 0 at 518×266. <span class="mono">num_ctx_deltas=2</span> → frames 0–2 given, frames 3–4 forecast.</div></div>
+        <div class="tile"><div class="k">Controls held fixed</div><div class="v">data · noise · order</div><div class="d"><span class="mono">sampler.set_epoch(0)</span> pins sample order; the eval noise generator is re-seeded per loader, so the prior draws replay identically.</div></div>
+      </div>
+    </div>
+  </div>
+  <div class="foot"><span>deltatok_flow_waymo_consec5cam0_ctx3fwd2_tc128mg9sigreg005compose_ep100tok_xxl_dit</span><span>one variable: step count</span><span class="pageno">2</span></div>
+</section>
+
+<!-- ============ SLIDE 3 — the sweep ============ -->
+<section class="slide">
+  <div class="eyebrow">The sweep <span class="dim">— four metrics, five step counts, lower is better</span></div>
+  <h2>Every metric degrades as the step count rises</h2>
+  <p class="sub">One panel per metric. The x-axis is categorical — 1, 2, 3, 4 and 20 are equally spaced, so the
+    20-step gap is not to scale. Ringed marker = best setting for that metric.</p>
+  <div class="body" style="margin-top:10px">
+    <div class="cols c4" style="gap:18px">
+      <div><div class="panelttl">MSEToken</div><div class="chartwrap"><div id="chTok"></div></div></div>
+      <div><div class="panelttl">LossPointmap</div><div class="chartwrap"><div id="chPm"></div></div></div>
+      <div><div class="panelttl">LossDepth</div><div class="chartwrap"><div id="chDp"></div></div></div>
+      <div><div class="panelttl">LossRaymap</div><div class="chartwrap"><div id="chRm"></div></div></div>
+    </div>
+    <div class="cols c3" style="gap:18px;margin-top:16px">
+      <div class="card" style="border-left:3px solid var(--crit)">
+        <div class="tag">Monotone in the latent</div>
+        <h3>MSEToken 0.742 → 0.884</h3>
+        <p style="font-size:12.5px;color:var(--ink2)">The only strictly monotone metric. Every extra step moves the sampled latent further from the teacher's token.</p>
+      </div>
+      <div class="card" style="border-left:3px solid var(--serious)">
+        <div class="tag">Geometry follows</div>
+        <h3>Pointmap +18%, Raymap +28%</h3>
+        <p style="font-size:12.5px;color:var(--ink2)">Measured from the best setting (2 steps) to the 20-step default. The latent error propagates through the decoder.</p>
+      </div>
+      <div class="card" style="border-left:3px solid var(--good)">
+        <div class="tag">Depth is the least sensitive</div>
+        <h3>3.656 → 3.880, only +6.1%</h3>
+        <p style="font-size:12.5px;color:var(--ink2)">Depth degrades in the same direction but a third as fast. It is the easiest target to recover from a drifted latent.</p>
+      </div>
+    </div>
+  </div>
+  <div class="foot"><span>Eval/128 @ WaymoSeqMultiView · ode sampler</span><span>monotone degradation</span><span class="pageno">3</span></div>
+</section>
+
+<!-- ============ SLIDE 4 — full table + the dissenting metric ============ -->
+<section class="slide">
+  <div class="eyebrow">All numbers <span class="dim">— and the one metric that disagrees</span></div>
+  <h2><span class="mono">LossFlow</span> does not rank the samplers the way geometry does</h2>
+  <p class="sub">Bold = best in column. The training objective is non-monotone in step count, so it cannot be used
+    to pick a sampler setting — the decoded metrics can.</p>
+  <div class="body cols" style="grid-template-columns:1.55fr 1fr;gap:26px;margin-top:8px">
+    <div>
+      <table>
+        <thead><tr>
+          <th class="n">steps</th><th class="n">LossFlow</th><th class="n">MSEToken</th>
+          <th class="n">Pointmap</th><th class="n">Depth</th><th class="n">Raymap</th>
+        </tr></thead>
+        <tbody>
+          <tr><td class="n"><b>1</b></td><td class="n">1.2564</td><td class="n"><b>0.7417</b></td><td class="n">8.1345</td><td class="n"><b>3.6563</b></td><td class="n">5.6041</td></tr>
+          <tr class="hl"><td class="n"><b>2</b></td><td class="n"><b>1.2145</b></td><td class="n">0.7699</td><td class="n"><b>7.9687</b></td><td class="n">3.7226</td><td class="n"><b>5.2918</b></td></tr>
+          <tr><td class="n"><b>3</b></td><td class="n">1.2665</td><td class="n">0.7986</td><td class="n">8.1355</td><td class="n">3.7721</td><td class="n">5.4819</td></tr>
+          <tr><td class="n"><b>4</b></td><td class="n">1.3280</td><td class="n">0.8166</td><td class="n">8.3646</td><td class="n">3.8001</td><td class="n">5.7242</td></tr>
+          <tr class="dim"><td class="n"><b>20</b></td><td class="n">1.2462</td><td class="n">0.8837</td><td class="n">9.4117</td><td class="n">3.8796</td><td class="n">6.7993</td></tr>
+        </tbody>
+      </table>
+      <div class="rulebar" style="margin-top:14px"><b>The teacher ceiling is identical in all five rows.</b>
+        <span class="mono">LossPointmap_tok 4.0557</span> · <span class="mono">LossDepth_tok 2.7923</span> ·
+        <span class="mono">LossRaymap_tok 1.6763</span>. The tokenizer is frozen, so byte-equal <span class="mono">_tok</span>
+        columns confirm only the sampler varied. The best arm still sits 2.0× the pointmap ceiling and 3.2× the raymap ceiling.</div>
+    </div>
+    <div>
+      <div class="panelttl">LossFlow · the training objective</div>
+      <div class="chartwrap"><div id="chFl"></div></div>
+      <div class="card" style="border-left:3px solid var(--s7);margin-top:12px">
+        <div class="tag">Why it disagrees</div>
+        <h3>1.215 at 2 steps, 1.328 at 4, back to 1.246 at 20</h3>
+        <p style="font-size:12.5px;color:var(--ink2)">LossFlow is a v-MSE against a freshly drawn <span class="mono">t</span>, not a
+          property of the emitted sample. It is a sanity check on the weights, not a sampler ranking.</p>
+      </div>
+    </div>
+  </div>
+  <div class="foot"><span>Eval/128 · ode sampler · BSC 45296762</span><span>rank on decoded metrics, not LossFlow</span><span class="pageno">4</span></div>
+</section>
+
+<!-- ============ SLIDE 5 — takeaway + caveats ============ -->
+<section class="slide">
+  <div class="eyebrow">Reading it <span class="dim">— what this changes, and what it does not</span></div>
+  <h2>The sampler is not buying anything on this arm</h2>
+  <p class="sub">A 1-step forward pass matches or beats a 20-step ODE integration on all five metrics, at 1/20th the
+    sampling cost. That is a statement about this checkpoint, not about flow matching in general.</p>
+  <div class="body cols c2" style="gap:26px;margin-top:8px">
+    <div>
+      <div class="card" style="border-left:3px solid var(--accent)">
+        <div class="tag">Takeaway</div>
+        <h3>Evaluate at 1–2 steps, not 20</h3>
+        <p style="font-size:13px;color:var(--ink2)">Switching the eval default from 20 to 2 steps improves LossRaymap 22%,
+          LossPointmap 15% and MSEToken 13%, and cuts eval sampling cost 10×. Nothing about training changes.</p>
+      </div>
+      <div class="card" style="border-left:3px solid var(--s7);margin-top:14px">
+        <div class="tag">Interpretation</div>
+        <h3>The model is regressing, not generating</h3>
+        <p style="font-size:13px;color:var(--ink2)">If integration helped, error would fall with steps. It rises,
+          and the no-integration baseline is already competitive — the network has learned a conditional mean,
+          and the ODE path walks away from it.</p>
+      </div>
+    </div>
+    <div>
+      <div class="card" style="border-left:3px solid var(--serious)">
+        <div class="tag">Caveats</div>
+        <h3>What this does <em>not</em> establish</h3>
+        <ul class="tight" style="margin-top:10px;font-size:12.5px">
+          <li><strong>One seed, one arm.</strong> tc128 compose at ep100 only. No repeat, no other width.</li>
+          <li><strong>ODE mode only.</strong> The <span class="mono">damped</span> sampler was not run in this sweep.</li>
+          <li><strong>Steps &gt; 20 untested here.</strong> The trend is measured over 1–20; 50 and 100 were not sampled on this arm.</li>
+          <li><strong>Non-monotone LossFlow.</strong> 1.2145 at 2, 1.3280 at 4, 1.2462 at 20 — unexplained, and it weakens any single-number summary.</li>
+        </ul>
+      </div>
+      <div class="rulebar" style="margin-top:14px"><b>Cross-arm comparison is missing.</b> An equivalent
+        <span class="mono">1,20,50,75,100</span> sweep exists for the tc768 arm
+        (<span class="mono">slurm/eval_deltatok_flow_numsteps_tc768_bsc.slurm</span>), but its results are not in
+        <span class="mono">monitor_jobs.json</span> or <span class="mono">archived_jobs.json</span> and were not recovered.</div>
+    </div>
+  </div>
+  <div class="foot"><span>DeltaTok-flow · numsteps tc128compose · 01-09-2026</span><span>1–2 steps, and find out why</span><span class="pageno">5</span></div>
+</section>
+
+</div><!-- /stage -->
+
+<button class="arr" id="prev" aria-label="Previous">‹</button>
+<button class="arr" id="next" aria-label="Next">›</button>
+<div class="nav" id="nav" role="tablist"></div>
+
+<script>
+/* ---------- deck nav ---------- */
+const stage=document.getElementById("stage");
+const slides=[...document.querySelectorAll(".slide")];
+const nav=document.getElementById("nav");
+let cur=0;
+slides.forEach((_,i)=>{
+  const b=document.createElement("button");
+  b.setAttribute("role","tab");b.setAttribute("aria-label","Slide "+(i+1));
+  b.addEventListener("click",()=>go(i));
+  nav.appendChild(b);
+});
+function go(i){
+  cur=Math.max(0,Math.min(slides.length-1,i));
+  slides.forEach((s,j)=>s.classList.toggle("on",j===cur));
+  [...nav.children].forEach((b,j)=>b.classList.toggle("cur",j===cur));
+}
+document.getElementById("prev").addEventListener("click",()=>go(cur-1));
+document.getElementById("next").addEventListener("click",()=>go(cur+1));
+addEventListener("keydown",e=>{
+  if(["ArrowRight","PageDown"," "].includes(e.key)){go(cur+1);e.preventDefault();}
+  else if(["ArrowLeft","PageUp"].includes(e.key)){go(cur-1);e.preventDefault();}
+  else if(e.key==="Home")go(0);
+  else if(e.key==="End")go(slides.length-1);
+});
+go(0);
+/* ---------- auto-scale ---------- */
+function fit(){
+  const s=Math.min(innerWidth/1300,(innerHeight-40)/730);
+  stage.style.transform=`translate(-50%,-50%) scale(${Math.min(s,1.4)})`;
+}
+addEventListener("resize",fit);fit();
+
+/* ---------- CSS var resolver ---------- */
+const CV=n=>getComputedStyle(document.documentElement).getPropertyValue(n).trim();
+
+/* ---------- categorical step chart ----------
+   x is the step count as a CATEGORY (1,2,3,4,20 equally spaced), because 20 is
+   an outlier and a linear axis would collapse 1-4 into the left margin. */
+function stepChart(el,cfg){
+  const W=cfg.W||270,H=cfg.H||218,L=cfg.L||42,R=14,T=22,B=30, iw=W-L-R, ih=H-T-B;
+  const {ymin,ymax,yticks,cats,data}=cfg;
+  const n=cats.length;
+  const X=i=>L+iw*(i/(n-1));
+  const Y=v=>T+ih*(1-(v-ymin)/(ymax-ymin));
+  const fmt=cfg.fmt||(t=>t.toFixed(2));           // y-axis tick format
+  const vfmt=cfg.vfmt||(v=>v.toFixed(3));         // point-label format
+  const c=CV(cfg.color||'--s1');
+  const best=data.indexOf(Math.min(...data));     // ringed marker
+  let s=`<svg viewBox="0 0 ${W} ${H}" width="100%" preserveAspectRatio="xMinYMin meet">`;
+  yticks.forEach(t=>{const y=Y(t);
+    s+=`<line x1="${L}" y1="${y}" x2="${L+iw}" y2="${y}" stroke="${CV('--grid')}"/>`;
+    s+=`<text x="${L-7}" y="${y+3}" text-anchor="end" class="axl">${fmt(t)}</text>`;});
+  cats.forEach((t,i)=>{
+    s+=`<text x="${X(i).toFixed(1)}" y="${H-13}" text-anchor="middle" class="axl">${t}</text>`;});
+  const d=data.map((v,i)=>`${i?'L':'M'}${X(i).toFixed(1)} ${Y(v).toFixed(1)}`).join(' ');
+  s+=`<path d="${d}" fill="none" stroke="${c}" stroke-width="2.2"/>`;
+  data.forEach((v,i)=>{
+    const hi=(i===best);
+    s+=`<circle cx="${X(i).toFixed(1)}" cy="${Y(v).toFixed(1)}" r="${hi?4.6:3.2}" `+
+       `fill="${hi?CV('--surface'):c}" stroke="${c}" stroke-width="${hi?2.4:0}"/>`;
+    s+=`<text x="${X(i).toFixed(1)}" y="${(Y(v)-9.5).toFixed(1)}" text-anchor="middle" class="barval" `+
+       `fill="${hi?CV('--ink'):CV('--ink2')}" font-weight="${hi?700:400}">${vfmt(v)}</text>`;
+  });
+  s+=`<text x="${(L+iw/2).toFixed(1)}" y="${H-1}" text-anchor="middle" class="axl">denoising steps</text>`;
+  s+=`</svg>`;
+  el.innerHTML=s;
+}
+
+/* ================= DATA =================
+   BSC 45296762 · eval_deltatok_flow_sampler.py · step_modes=ode
+   Eval/128 @ WaymoSeqMultiView, ckpt iter 200000 (global_epoch 100).
+   Teacher ceiling, byte-identical in all five passes:
+     LossPointmap_tok 4.0557 · LossDepth_tok 2.7923 · LossRaymap_tok 1.6763 */
+const CATS = ['1','2','3','4','20'];
+const FLOW = [1.2564, 1.2145, 1.2665, 1.3280, 1.2462];
+const TOK  = [0.7417, 0.7699, 0.7986, 0.8166, 0.8837];
+const PM   = [8.1345, 7.9687, 8.1355, 8.3646, 9.4117];
+const DP   = [3.6563, 3.7226, 3.7721, 3.8001, 3.8796];
+const RM   = [5.6041, 5.2918, 5.4819, 5.7242, 6.7993];
+
+/* ---------- slide 3: four metric panels ---------- */
+stepChart(document.getElementById('chTok'),{cats:CATS, data:TOK, color:'--s1',
+  ymin:0.70, ymax:0.92, yticks:[0.70,0.75,0.80,0.85,0.90], fmt:t=>t.toFixed(2), vfmt:v=>v.toFixed(3)});
+stepChart(document.getElementById('chPm'),{cats:CATS, data:PM, color:'--s8',
+  ymin:7.5, ymax:9.8, yticks:[7.5,8.0,8.5,9.0,9.5], fmt:t=>t.toFixed(1), vfmt:v=>v.toFixed(2)});
+stepChart(document.getElementById('chDp'),{cats:CATS, data:DP, color:'--s3',
+  ymin:3.58, ymax:3.96, yticks:[3.60,3.70,3.80,3.90], fmt:t=>t.toFixed(2), vfmt:v=>v.toFixed(2)});
+stepChart(document.getElementById('chRm'),{cats:CATS, data:RM, color:'--s7',
+  ymin:5.05, ymax:7.15, yticks:[5.2,5.8,6.4,7.0], fmt:t=>t.toFixed(1), vfmt:v=>v.toFixed(2)});
+
+/* ---------- slide 4: the dissenting objective ---------- */
+stepChart(document.getElementById('chFl'),{cats:CATS, data:FLOW, color:'--s4',
+  W:400, H:200, L:46,
+  ymin:1.19, ymax:1.36, yticks:[1.20,1.25,1.30,1.35], fmt:t=>t.toFixed(2), vfmt:v=>v.toFixed(4)});
+</script>
+</body>
+</html>
