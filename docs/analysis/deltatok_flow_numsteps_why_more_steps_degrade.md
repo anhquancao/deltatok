@@ -144,6 +144,24 @@ Older arms (whitenpos, logitnorm, vpred) are stale and are not used. Each step g
    `flow_noising`: pin 10% of samples to `t=0`. `flow_loss`: add `0.1 * x-MSE` (unweighted, all `t`) to
    the v-MSE — pointdit's `rel_point_loss` at weight 0.1, `engine.py:121-140`, the third mitigation the
    comparison above omits. 10-20k iters, eval at N=1. Most likely to move the number.
+
+   *What the additive x-MSE term is.* Today's loss is the v-MSE. Since `v = (x - z_t)/(1-t)`, that is the
+   x-MSE divided by `(1-t)^2`: a sample at `t=0.95` counts 400x more than one at `t=0`, which is why only
+   0.28% of the gradient mass lands below `t=0.1` and the 1-step readout is the least-trained point. The
+   extra term adds the same x-MSE again without the `1/(1-t)^2` factor, so every `t` gets equal weight and
+   at `t=0` it is the only term that matters. The net is trained as a plain regressor everywhere, on top
+   of the flow objective, which is untouched at high `t`.
+
+   ```python
+   # flow_loss, after the loss_mode branch
+   x_w = float(self.cfg.model.get("x_loss_weight", 0.0))
+   if x_w > 0:
+       loss = loss + x_w * ((x_pred - x) ** 2)[mask].mean()   # plain x-MSE, all t equal
+   ```
+
+   Pointdit's version is a relative L1 (normalised by distance from the origin) because pointmaps carry
+   scale; ours is plain MSE because the SIGReg latents are already unit-scale. 0.1 is pointdit's released
+   weight; sweep 0.1 / 0.3 / 1.0 if the first run moves the 1-step number.
 4. **Only if step 1 says the sampler works:** the wall is the frozen decoder and the tokenizer needs
    noise-augmented decoder training. No such option exists in `occrae/deltatok_trainer.py` today.
 
