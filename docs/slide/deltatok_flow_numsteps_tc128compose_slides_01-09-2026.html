@@ -134,7 +134,7 @@ svg .axl{font:10px var(--mono);fill:var(--muted)}
     <div class="cols c3" style="gap:15px">
       <div class="tile"><div class="k">MSEToken · 1 step → 20 steps</div><div class="v" style="color:var(--crit)">0.742 → 0.884</div><div class="d">+19.1% just from integrating longer. The latent the sampler lands on gets steadily worse.</div></div>
       <div class="tile"><div class="k">LossRaymap · best vs trained default</div><div class="v" style="color:var(--good)">5.29 vs 6.80</div><div class="d">2 steps beats the 20-step default by 22.2%. The largest gap of any metric.</div></div>
-      <div class="tile"><div class="k">Best overall setting</div><div class="v" style="color:var(--accent)">2 steps</div><div class="d">Wins LossPointmap, LossRaymap and LossFlow. 1 step wins MSEToken and LossDepth.</div></div>
+      <div class="tile"><div class="k">Best overall setting</div><div class="v" style="color:var(--accent)">2 steps</div><div class="d">Wins LossPointmap and LossRaymap. 1 step wins MSEToken and LossDepth.</div></div>
     </div>
     <div class="rulebar" style="margin-top:18px"><b>The shape of the result.</b> 1 step is the pure regression baseline — it emits
       <span class="mono">x̂(noise, t=0)</span> with no integration at all — and it already beats the 20-step sampler everywhere.
@@ -163,7 +163,7 @@ svg .axl{font:10px var(--mono);fill:var(--muted)}
           <tr class="hl"><td><b>Checkpoint</b></td><td class="mono">iter 200000 · global_epoch 100</td></tr>
           <tr><td><b>Tokenizer</b></td><td class="mono">tc128 · sigreg 0.005 · compose1.0 · epoch_100</td></tr>
           <tr><td><b>Latent</b></td><td class="mono">K=64 · target_channels 128 · whiten_stats null</td></tr>
-          <tr><td><b>Sampler</b></td><td class="mono">ode · linear schedule · alpha 0 · loss_mode v</td></tr>
+          <tr><td><b>Sampler</b></td><td class="mono">ode · linear schedule · alpha 0 · pred_mode x · loss_mode v</td></tr>
           <tr><td><b>Eval set</b></td><td class="mono">128 seqs · 32 held-out Waymo scenes · seed 42</td></tr>
           <tr class="dim"><td><b>Steps swept</b></td><td class="mono">1, 2, 3, 4, 20</td></tr>
         </tbody>
@@ -176,7 +176,7 @@ svg .axl{font:10px var(--mono);fill:var(--muted)}
       <div class="tiles">
         <div class="tile"><div class="k">Samples per pass</div><div class="v">128</div><div class="d">The whole val split. <span class="mono">eval_num_items=256</span> never binds — the loader runs out at 128 first (32 batches × <span class="mono">val_bsize</span> 4).</div></div>
         <div class="tile"><div class="k">Sequence shape</div><div class="v">3 + 2</div><div class="d">5 consecutive timesteps × cam 0 at 518×266. <span class="mono">num_ctx_deltas=2</span> → frames 0–2 given, frames 3–4 forecast.</div></div>
-        <div class="tile"><div class="k">Controls held fixed</div><div class="v">data · noise · order</div><div class="d"><span class="mono">sampler.set_epoch(0)</span> pins sample order; the eval noise generator is re-seeded per loader, so the prior draws replay identically.</div></div>
+        <div class="tile"><div class="k">Controls held fixed</div><div class="v">data · noise · order</div><div class="d"><span class="mono">sampler.set_epoch(0)</span> pins sample order; the ODE prior is re-seeded per loader and replays identically. The <span class="mono">LossFlow</span> timestep did <em>not</em> — see slide 4.</div></div>
       </div>
     </div>
   </div>
@@ -219,10 +219,10 @@ svg .axl{font:10px var(--mono);fill:var(--muted)}
 
 <!-- ============ SLIDE 4 — full table + the dissenting metric ============ -->
 <section class="slide">
-  <div class="eyebrow">All numbers <span class="dim">— and the one metric that disagrees</span></div>
-  <h2><span class="mono">LossFlow</span> does not rank the samplers the way geometry does</h2>
-  <p class="sub">Bold = best in column. The training objective is non-monotone in step count, so it cannot be used
-    to pick a sampler setting — the decoded metrics can.</p>
+  <div class="eyebrow">All numbers <span class="dim">— and the one column that cannot be read</span></div>
+  <h2><span class="mono">LossFlow</span> is not comparable across these five rows</h2>
+  <p class="sub">Bold = best in column. Every pass drew its own <span class="mono">t</span>, so the LossFlow column
+    measures the draw rather than the sampler. The decoded metrics are unaffected.</p>
   <div class="body cols" style="grid-template-columns:1.55fr 1fr;gap:26px;margin-top:8px">
     <div>
       <table>
@@ -232,7 +232,7 @@ svg .axl{font:10px var(--mono);fill:var(--muted)}
         </tr></thead>
         <tbody>
           <tr><td class="n"><b>1</b></td><td class="n">1.2564</td><td class="n"><b>0.7417</b></td><td class="n">8.1345</td><td class="n"><b>3.6563</b></td><td class="n">5.6041</td></tr>
-          <tr class="hl"><td class="n"><b>2</b></td><td class="n"><b>1.2145</b></td><td class="n">0.7699</td><td class="n"><b>7.9687</b></td><td class="n">3.7226</td><td class="n"><b>5.2918</b></td></tr>
+          <tr class="hl"><td class="n"><b>2</b></td><td class="n">1.2145</td><td class="n">0.7699</td><td class="n"><b>7.9687</b></td><td class="n">3.7226</td><td class="n"><b>5.2918</b></td></tr>
           <tr><td class="n"><b>3</b></td><td class="n">1.2665</td><td class="n">0.7986</td><td class="n">8.1355</td><td class="n">3.7721</td><td class="n">5.4819</td></tr>
           <tr><td class="n"><b>4</b></td><td class="n">1.3280</td><td class="n">0.8166</td><td class="n">8.3646</td><td class="n">3.8001</td><td class="n">5.7242</td></tr>
           <tr class="dim"><td class="n"><b>20</b></td><td class="n">1.2462</td><td class="n">0.8837</td><td class="n">9.4117</td><td class="n">3.8796</td><td class="n">6.7993</td></tr>
@@ -244,17 +244,18 @@ svg .axl{font:10px var(--mono);fill:var(--muted)}
         columns confirm only the sampler varied. The best arm still sits 2.0× the pointmap ceiling and 3.2× the raymap ceiling.</div>
     </div>
     <div>
-      <div class="panelttl">LossFlow · the training objective</div>
+      <div class="panelttl">LossFlow · a different <span class="mono">t</span> in every pass</div>
       <div class="chartwrap"><div id="chFl"></div></div>
-      <div class="card" style="border-left:3px solid var(--s7);margin-top:12px">
-        <div class="tag">Why it disagrees</div>
-        <h3>1.215 at 2 steps, 1.328 at 4, back to 1.246 at 20</h3>
-        <p style="font-size:12.5px;color:var(--ink2)">LossFlow is a v-MSE against a freshly drawn <span class="mono">t</span>, not a
-          property of the emitted sample. It is a sanity check on the weights, not a sampler ranking.</p>
+      <div class="card" style="border-left:3px solid var(--crit);margin-top:12px">
+        <div class="tag">Why it cannot be read</div>
+        <h3>Each pass drew its own timesteps</h3>
+        <p style="font-size:12.5px;color:var(--ink2)"><span class="mono">flow_noising</span> took <span class="mono">t</span> from the global RNG while the
+          eval generator seeded only the noise. Five passes in one process = five different <span class="mono">t</span> sets. Since fixed with a
+          dedicated <span class="mono">_eval_t_gen</span>, which leaves the decoded metrics byte-unchanged.</p>
       </div>
     </div>
   </div>
-  <div class="foot"><span>Eval/128 · ode sampler · BSC 45296762</span><span>rank on decoded metrics, not LossFlow</span><span class="pageno">4</span></div>
+  <div class="foot"><span>Eval/128 · ode sampler · BSC 45296762</span><span>rank on decoded metrics only</span><span class="pageno">4</span></div>
 </section>
 
 <!-- ============ SLIDE 5 — t4 decode + L1, s2_suburb ============ -->
@@ -302,7 +303,8 @@ svg .axl{font:10px var(--mono);fill:var(--muted)}
   <div class="eyebrow">Reading it <span class="dim">— what this changes, and what it does not</span></div>
   <h2>The sampler is not buying anything on this arm</h2>
   <p class="sub">A 1-step forward pass matches or beats a 20-step ODE integration on all five metrics, at 1/20th the
-    sampling cost. That is a statement about this checkpoint, not about flow matching in general.</p>
+    sampling cost. That is a statement about this checkpoint, not about flow matching in general.
+    Mechanism: <span class="mono">docs/analysis/deltatok_flow_numsteps_why_more_steps_degrade.md</span>.</p>
   <div class="body cols c2" style="gap:26px;margin-top:8px">
     <div>
       <div class="card" style="border-left:3px solid var(--accent)">
@@ -313,10 +315,10 @@ svg .axl{font:10px var(--mono);fill:var(--muted)}
       </div>
       <div class="card" style="border-left:3px solid var(--s7);margin-top:14px">
         <div class="tag">Interpretation</div>
-        <h3>The model is regressing, not generating</h3>
-        <p style="font-size:13px;color:var(--ink2)">If integration helped, error would fall with steps. It rises,
-          and the no-integration baseline is already competitive — the network has learned a conditional mean,
-          and the ODE path walks away from it.</p>
+        <h3>Two effects pulling the same way</h3>
+        <p style="font-size:13px;color:var(--ink2)">Any working sampler loses to its own mean on a distortion metric, so a rise
+          is expected. On top of that <span class="mono">t_dist=uniform</span> with the v-weighting leaves 0.28% of the loss mass
+          below <span class="mono">t=0.1</span>, so the 1-step readout is also the least-trained point of the model.</p>
       </div>
     </div>
     <div>
@@ -327,7 +329,7 @@ svg .axl{font:10px var(--mono);fill:var(--muted)}
           <li><strong>One seed, one arm.</strong> tc128 compose at ep100 only. No repeat, no other width.</li>
           <li><strong>ODE mode only.</strong> The <span class="mono">damped</span> sampler was not run in this sweep.</li>
           <li><strong>Steps &gt; 20 untested here.</strong> The trend is measured over 1–20; 50 and 100 were not sampled on this arm.</li>
-          <li><strong>Non-monotone LossFlow.</strong> 1.2145 at 2, 1.3280 at 4, 1.2462 at 20 — unexplained, and it weakens any single-number summary.</li>
+          <li><strong>LossFlow is unusable here.</strong> Each pass drew its own <span class="mono">t</span>, so that column is RNG. Fixed in the trainer; the sweep was not re-run.</li>
           <li><strong>Per-frame L1 is noisy.</strong> Of the 4 val sequences drawn at t4, only one reproduces the monotone ordering.</li>
         </ul>
       </div>
@@ -394,7 +396,7 @@ function stepChart(el,cfg){
   const fmt=cfg.fmt||(t=>t.toFixed(2));           // y-axis tick format
   const vfmt=cfg.vfmt||(v=>v.toFixed(3));         // point-label format
   const c=CV(cfg.color||'--s1');
-  const best=data.indexOf(Math.min(...data));     // ringed marker
+  const best=cfg.nobest?-1:data.indexOf(Math.min(...data));   // ringed marker; nobest = no winner to mark
   let s=`<svg viewBox="0 0 ${W} ${H}" width="100%" preserveAspectRatio="xMinYMin meet">`;
   yticks.forEach(t=>{const y=Y(t);
     s+=`<line x1="${L}" y1="${y}" x2="${L+iw}" y2="${y}" stroke="${CV('--grid')}"/>`;
@@ -437,9 +439,9 @@ stepChart(document.getElementById('chDp'),{cats:CATS, data:DP, color:'--s3',
 stepChart(document.getElementById('chRm'),{cats:CATS, data:RM, color:'--s7',
   ymin:5.05, ymax:7.15, yticks:[5.2,5.8,6.4,7.0], fmt:t=>t.toFixed(1), vfmt:v=>v.toFixed(2)});
 
-/* ---------- slide 4: the dissenting objective ---------- */
+/* ---------- slide 4: RNG column, drawn only to show the scatter ---------- */
 stepChart(document.getElementById('chFl'),{cats:CATS, data:FLOW, color:'--s4',
-  W:400, H:200, L:46,
+  W:400, H:200, L:46, nobest:true,
   ymin:1.19, ymax:1.36, yticks:[1.20,1.25,1.30,1.35], fmt:t=>t.toFixed(2), vfmt:v=>v.toFixed(4)});
 </script>
 </body>

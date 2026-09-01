@@ -71,6 +71,7 @@ class DeltaTokFlowMatchingTrainer(DeltaTokSharedMixin, Trainer):
         self._ema_state = None
         self._fixed_noise_cache = {}  # shape-key -> one cached noise draw (fixed_noise_mode probes)
         self._eval_noise_gen = None   # set during eval_one_epoch so every eval replays the same draws
+        self._eval_t_gen = None       # separate stream: seeding t here leaves the noise draws byte-identical
         # Overfit: memoize the frozen OccRAE+DeltaTok encode per data item so the
         # ~1B backbone runs once per unique sample (item-key -> (tokens, feat0, z, H, W)).
         self._cache_frozen_encode = bool(self.cfg.training.get("cache_frozen_encode", False))
@@ -471,10 +472,11 @@ class DeltaTokFlowMatchingTrainer(DeltaTokSharedMixin, Trainer):
             # distribution when the sampler runs sampler_alpha=0 (all slots share a t).
             n_draw = 1 if bool(self.cfg.model.get("t_shared", False)) else t_dim
             t_dist = str(self.cfg.model.get("t_dist", "logitnormal"))
+            g = self._eval_t_gen   # eval: replay t too, else LossFlow compares draws not weights
             if t_dist == "uniform":
-                t = torch.rand(b, n_draw, device=device)                              # (b, 1|t)
+                t = torch.rand(b, n_draw, generator=g, device=device)                  # (b, 1|t)
             elif t_dist == "logitnormal":
-                s = sigma * torch.randn(b, n_draw, device=device) + mu
+                s = sigma * torch.randn(b, n_draw, generator=g, device=device) + mu
                 t = torch.sigmoid(s)                                                  # (b, 1|t)
             else:
                 raise ValueError(f"model.t_dist must be uniform|logitnormal, got {t_dist!r}")
@@ -745,6 +747,9 @@ class DeltaTokFlowMatchingTrainer(DeltaTokSharedMixin, Trainer):
                 # differ so they don't all sample the same prior.
                 self._eval_noise_gen = torch.Generator(device=self.device).manual_seed(
                     int(self.cfg.training.seed) + 10007 * self.rank
+                )
+                self._eval_t_gen = torch.Generator(device=self.device).manual_seed(
+                    int(self.cfg.training.seed) + 90001 + 10007 * self.rank
                 )
 
                 # SLURM-friendly progress: MetricLogger prints one flushed line
@@ -1020,6 +1025,7 @@ class DeltaTokFlowMatchingTrainer(DeltaTokSharedMixin, Trainer):
         final_loss = overall_loss / overall_n if overall_n > 0 else 0.0
 
         self._eval_noise_gen = None  # back to a fresh prior for training
+        self._eval_t_gen = None
         self.vit.train()
         return final_loss
 
