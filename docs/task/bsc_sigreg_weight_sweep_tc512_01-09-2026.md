@@ -58,10 +58,13 @@ ssh bsc "bash -lc 'grep -E \"account|--time|SIGREG_WEIGHT\" \
 ```bash
 ssh bsc "bash -lc 'cd /gpfs/projects/ehpc1001/code/deltatok && \
   for w in 0.02 0.04 0.08; do \
-    sbatch --time=48:00:00 --export=ALL,COMPOSE_WEIGHT=1.0,SIGREG_WEIGHT=\$w \
+    sbatch --account=ehpc1001 --time=48:00:00 --export=ALL,COMPOSE_WEIGHT=1.0,SIGREG_WEIGHT=\$w \
       slurm/deltatok/train_deltatok_compose_sigreg_nozn_tc512_bsc.slurm; \
   done'"
 ```
+
+Submitted 2026-09-01 as **BSC:45296347 / 45296348 / 45296349** (0.02 / 0.04 / 0.08). Account overridden to
+`ehpc1001` on the command line, so the file's `--account=ehpc880` stays shared with the Q3 arm.
 
 **Budget.** 48 h per arm, overridden on the command line so the file stays shared with the Q3 arm. The Q3 arm ran
 39 h 51 m for 67 epochs = **35.7 min/ep**, so 48 h buys **~ep 80** — past the ep-67 read point with margin.
@@ -137,9 +140,9 @@ iter 2000 — a **spike** there, not a slow climb. If that happens, relaunch wit
 | BSC:44759943 | tc512 compose sigreg**0.005** | **CANCELLED** ep67 | control |
 | BSC:45106935 | tc512 compose sigreg**0.01** | **COMPLETED** ep67/100 | Q3 winner, resumable |
 | BSC:45106990 | tc512 compose sigreg**0.02** | **NEVER RAN** | cancelled while PENDING, `00:00:00`, no logs — resubmit below |
-| — | tc512 compose sigreg**0.02** | **TO SUBMIT** | the `∝ Cz` prediction |
-| — | tc512 compose sigreg**0.04** | **TO SUBMIT** | 8× the sweep value |
-| — | tc512 compose sigreg**0.08** | **TO SUBMIT** | 16×; watch the warmup spike |
+| BSC:45296347 | tc512 compose sigreg**0.02** | **PENDING** | the `∝ Cz` prediction |
+| BSC:45296348 | tc512 compose sigreg**0.04** | **PENDING** | 8× the sweep value |
+| BSC:45296349 | tc512 compose sigreg**0.08** | **PENDING** | 16×; watch the warmup spike |
 
 Logs: `slurm/output/train_deltatok_compose_sigreg_nozn_tc512_bsc_<jobid>.{out,err}`.
 TB mirror: `/mnt/d/tb_logs/deltatok_log/<run>/tb_logs/`.
