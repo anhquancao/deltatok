@@ -101,6 +101,11 @@ def get_args_parser() -> argparse.ArgumentParser:
         help="Comma-separated sampler step counts to sweep; one full eval_one_epoch "
              "pass per (num_steps, step_mode). Empty = use training.eval_num_steps once.",
     )
+    parser.add_argument(
+        "--viz_rgb", action="store_true",
+        help="Keep the MAE image decoder loaded so the eval panels get RGB columns. "
+             "Needs training.eval_num_visualizations > 0 to produce anything.",
+    )
     parser.add_argument("--seed", type=int, default=0)
     parser.add_argument("--output_dir", type=str, default="results/deltatok_flow_sampler_eval")
     return parser
@@ -161,9 +166,9 @@ def main() -> None:
         for key, val in _RUN_DEFAULTS.items():
             if key not in cfg_override_keys:
                 OmegaConf.update(cfg, key, val, merge=False)
-        # No RGB is decoded here, so skip loading the MAE image decoder entirely
-        # (_build_occ_rae treats a falsy ckpt_path as "no decoder").
-        if cfg.model.get("img_decoder", None) is not None:
+        # --viz_rgb keeps the MAE image decoder for the panels' RGB columns; else
+        # drop it (_build_occ_rae treats a falsy ckpt_path as "no decoder").
+        if cfg.model.get("img_decoder", None) is not None and not args.viz_rgb:
             cfg.model.img_decoder.ckpt_path = None
         # No TensorBoard; vit_folder is only touched by get_network's makedirs.
         cfg.training.writer_log = ""
@@ -205,6 +210,9 @@ def main() -> None:
         cfg.training.eval_num_steps = n_steps  # re-read by eval_one_epoch each pass
         for mode in modes:
             cfg.model.sampler_step_mode = mode  # read by eval_one_epoch's flow_euler_sample call
+            with open_dict(cfg):
+                # panel filenames carry no step/mode, so one dir per pass or they overwrite
+                cfg.training.eval_viz_dir = os.path.join(output_dir, "eval_viz", f"{mode}_steps{n_steps}")
             print(f"\n[INFO] ===== sampler_step_mode={mode} "
                   f"(eval_num_steps={n_steps}, "
                   f"eval_num_items={cfg.training.get('eval_num_items', 256)}) =====", flush=True)
