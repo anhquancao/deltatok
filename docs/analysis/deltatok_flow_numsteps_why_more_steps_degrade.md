@@ -127,17 +127,25 @@ Noise floor of the L1 pipeline, measured on the byte-identical GT-z column acros
 depth 0.004 m mean (p99 0.20 m), RGB 0.04 levels. Deck error maps use one fixed scale, vmax = pooled p99
 (depth 12.35 m, RGB 117.7 levels).
 
-## Next experiments, cheapest first
+## Diagnostic to-do (2026-09-02), compose arm only
 
-1. **Zero-predictor MSEToken** — gives R² of the 1-step regression. If latent variance ≈ 1, the model
-   explains only ~26% of it.
-2. **t-bins on this ckpt** at `t` = 0, 0.02, 0.05, 0.1 via the existing `eval_deltatok_flow_t_bins.py`.
-   A drop of a few percent just above `t=0` proves the `t=0` output is not the conditional mean.
-3. **Seed variance at N=1 vs N=20**, 8 seeds. Spread ≈ 0.14 at N=20 means the rise is pure sample variance;
-   much smaller means systematic drift.
-4. **1-step eval on the `logitnorm` arm** — more training mass near `t=0`. Below 0.7417 confirms cause 2.
-5. **Port pointdit's two choices**: a forced-`t=0` fraction in `flow_noising` (deltatok has `train_fixed_t`
-   for all-or-nothing, but no mixed fraction), and a `generate_noise_scale`-style zero init at eval.
+Older arms (whitenpos, logitnorm, vpred) are stale and are not used. Each step gates the next.
+
+1. **Seed spread at N=1 vs N=20, 8 seeds, plus a decoded depth-edge F1.** One `acc_debug` job on
+   `slurm/eval_deltatok_flow_numsteps_tc128compose_bsc.slurm`, `NUM_STEPS=1,20`, 8 values of
+   `training.seed`. Spread ≈ 0.14 MSEToken at N=20 = the rise is sample variance and the sampler works;
+   much smaller = systematic drift. The edge F1 is the one realism number next to the distortion metrics;
+   pointdit has the same probe (`engine.py:869-893`, `--eval_intermediate_boundary`). Without it cause 1
+   stays unmeasured.
+2. **Zero-init ODE at N=1,3.** `zr = zeros` instead of `_sample_noise` in `eval_one_epoch`, behind a cfg
+   flag, one debug job. Pointdit's default (`--generate_noise_scale 0`); a cousin of the damped update, so
+   expect little.
+3. **Fine-tune with the pointdit recipe.** Fresh `RUN_NAME`, init from the 200k ckpt via `--ckpt`.
+   `flow_noising`: pin 10% of samples to `t=0`. `flow_loss`: add `0.1 * x-MSE` (unweighted, all `t`) to
+   the v-MSE — pointdit's `rel_point_loss` at weight 0.1, `engine.py:121-140`, the third mitigation the
+   comparison above omits. 10-20k iters, eval at N=1. Most likely to move the number.
+4. **Only if step 1 says the sampler works:** the wall is the frozen decoder and the tokenizer needs
+   noise-augmented decoder training. No such option exists in `occrae/deltatok_trainer.py` today.
 
 Most relevant paper: [PMRF, ICLR 2025 (arXiv 2410.00418)](https://arxiv.org/abs/2410.00418) — the min-MSE
 estimator with perfect perceptual quality is an optimal-transport map applied on top of the MMSE
