@@ -165,7 +165,10 @@ Deck: `docs/slide/deltatok_tc512_sigreg_weight_slides.html` (9 slides; 04–05 a
   (53,248 / 106,496) across all arms, so the eval numbers are like-for-like.
 - **Verdict:** cheaper to just raise `sigreg_weight`. Keep `sigreg_compose_z` off unless a later question needs the sum pinned.
 
-## Q5 — Where does the weight axis turn over? — **TO RUN**
+## Q5 — Where does the weight axis turn over? — **MOVED**
+
+Split into its own tracker: `docs/task/bsc_sigreg_weight_sweep_tc512_01-09-2026.md`, which carries the full
+0.005 · 0.01 · 0.02 · 0.04 · 0.08 axis, the `weight ∝ Cz` hypothesis and the read protocol. Summary below.
 
 Q3 leaves the knob on a slope at 2× the sweep value with no upper bracket. Three arms extend it, all at fixed tc512:
 
