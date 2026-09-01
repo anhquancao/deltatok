@@ -1,6 +1,7 @@
 # BSC tokenizer arms — compose convergence & sigreg-vs-tc recon regression
 
-Created 2026-08-26. Q1 and Q2 answered 2026-08-27; the Q2 arms were cancelled at ep 43 once answered. Q3 launched 2026-08-27.
+Created 2026-08-26. Q1 and Q2 answered 2026-08-27; the Q2 arms were cancelled at ep 43 once answered. Q3 launched 2026-08-27,
+answered 2026-09-01 — only the 0.01 half of it ran. Q4 (sigreg on the composed sum) added 2026-09-01. Q5 extends the weight axis.
 
 ## Q1 — Does the plain arm reach the compose floor if trained longer? — **ANSWERED: neither branch holds**
 
@@ -93,27 +94,115 @@ knob and is the strongest single check left. 45055387/45055388 were cancelled at
 
 Deck: `docs/slide/deltatok_tc_sigreg_ab_slides.html` (7 slides, 2026-08-27).
 
-## Q3 — Does *raising* sigreg at tc512 raise rank and improve recon?
+## Q3 — Does *raising* sigreg at tc512 raise rank and improve recon? — **ANSWERED: yes, and it is the largest effect in the sweep**
 
-- **Jobs:** BSC:45106935 (`SIGREG_WEIGHT=0.01`) and BSC:45106990 (`SIGREG_WEIGHT=0.02`) — submitted 2026-08-27, `ehpc880`, 40 h each.
-- **Script:** `slurm/deltatok/train_deltatok_compose_sigreg_nozn_tc512_bsc.slurm`, both with `COMPOSE_WEIGHT=1.0`.
-- **Runs:** `deltatok_l12_dtok64_tc512_nozn_maxgap9_vpt1to2_sigreg{0.01,0.02}_ns1024_pool8192_compose1.0` (fresh — no prior ckpts).
+- **Jobs:** BSC:45106935 (`SIGREG_WEIGHT=0.01`) — **COMPLETED** 2026-08-30 04:57, exit 0:0, 39 h 51 m, exited cleanly at
+  epoch 67 / 100 for chain resume (`>> 9.2 min left in SLURM allocation < 36.5 min needed`). BSC:45106990
+  (`SIGREG_WEIGHT=0.02`) — **never ran**: cancelled 15 min after submit while still `PENDING`, `Start=None`,
+  elapsed `00:00:00`, no `slurm/output/*45106990.*` files, no run directory on `$SCRATCH`. Q3 is answered on one point, not two.
+- **Script:** `slurm/deltatok/train_deltatok_compose_sigreg_nozn_tc512_bsc.slurm`, `COMPOSE_WEIGHT=1.0`, `ehpc880`, 40 h.
+- **Run:** `deltatok_l12_dtok64_tc512_nozn_maxgap9_vpt1to2_sigreg0.01_ns1024_pool8192_compose1.0`
 - **Controls:** tc512 `sigreg0.005` (44759943, ep 67) and tc512 `sigreg0.002` (45055388, ep 43).
-- **Axis:** 0.002 → 0.005 → 0.01 → 0.02, a 10× span at fixed tc512 with `ns1024` / `pool8192` / `warmup2000` held.
 
-**Prediction from Q2.** If usable rank is the state variable and SIGReg builds it, the whole axis should be monotone: `ZPartRank`
-up, `LossRecon` down. Q2 established the 0.002 → 0.005 leg (rank 28.5 → 32.9, recon 0.0660 → 0.0639). Two points above 0.005 turn
-that single leg into a curve, so the shape is readable rather than just the sign.
+**Result.** Doubling the weight improves *every* metric on *both* eval sets. The prediction from Q2 holds exactly: rank up,
+recon down, and the two move together.
 
-**Falsifier, and why two points.** If 0.01 loses to 0.005, "more SIGReg is better" is wrong and 0.005 sits near an optimum. If 0.01
-wins but 0.02 turns over, the optimum is bracketed between them. If both win, the knob is still on a slope at 4× the sweep value and
-the ceiling is further out than tc512 can currently reach. Watch the high end for the warmup pathology measured on
-2026-07-31 when `sigreg_pool_samples` was raised to 32768: the effective gradient scale `n_pooled/n_live` grew, the SIGReg statistic
-spiked ~39× right at the end of the 2000-iter warmup, and training never recovered (Eval pinned at 0.12 vs 0.033 by ep 4). A 4× weight
-is a different lever onto the same product `weight × ramp × scale`, so the same failure is available.
+| @ ep 67 · KITTI / nuScenes | sigreg 0.005 | **sigreg 0.01** | Δ |
+|---|---|---|---|
+| Eval `LossRecon` | .0700 / .0478 | **.0493 / .0340** | **−29.6% / −28.9%** |
+| Eval `LossRecon_Comp` | .0787 / .0547 | **.0528 / .0370** | −32.9% / −32.4% |
+| Eval `LossRecon_AR` | .0784 / .0551 | **.0529 / .0377** | −32.5% / −31.6% |
+| Pointmap `PredVsOrig` | 1.173 / 0.903 | **0.658 / 0.491** | −43.9% / −45.6% |
+| Depth `PredVsOrig` | 0.700 / 0.608 | **0.416 / 0.357** | −40.5% / −41.2% |
+| Raymap `PredVsOrig` | 0.696 / 0.466 | **0.404 / 0.244** | −41.9% / −47.5% |
+| `ZPartRank` /512 | 36.7 / 42.5 | **97.2 / 113.0** | **2.6×** |
+| `ZTotalVar` | 744 / 471 | 706 / 536 | −5% / +14% |
+| Train `LossRecon` | 0.0483 | **0.0345** | −28.6% |
 
-**Read at matched ep 42** against 44759943 / 45055388, same metrics as Q2: `LossRecon`, `LossRecon_Comp`, train `LossRecon`,
-`ZPartRank`, `ZTotalVar`. The raw (unweighted) `SIGReg:` term from the epoch line doubles as the knob check.
+- **Separation is early and clean.** The 0.01 arm is ahead by epoch 2 (0.1100 vs 0.1173) and never crosses back. No warmup
+  pathology — the raw `SIGReg:` term falls smoothly, no spike at the end of the 2000-iter ramp.
+- **Rank is confirmed as the state variable.** Over six arms (four weights at tc512, plus tc256 and tc128 at 0.005),
+  eval recon vs `ZPartRank` gives **r = −0.997 at ep 42** and **−0.993 at ep 67**; the same holds per-dataset on
+  `LossRecon_Comp` (−0.98) and on all three geometry losses (−0.94 to −0.99).
+- **The width penalty is gone.** tc512·0.01 ties the narrow arms at ep 67: eval recon 0.0416 vs tc256 0.0416 vs tc128 0.0414,
+  ranks 97.2 / 96.5 / 90.3. On nuScenes geometry it *beats* tc128 (pointmap 0.491 vs 0.535, depth 0.357 vs 0.391, raymap
+  0.244 vs 0.258). **tc512 was never a bad width — it was under-regularised for its width.** The Q2 note calling it "an
+  outlier arm" and the width-sweep "wider is worse" read are both superseded: `sigreg_weight` has to scale with `Cz`.
+- **AR rollout, visually.** Cropped the `Pred Depth (AR)` / `Pred RGB (AR)` columns plus the `GT token` reference out of all
+  three arms' TB panels at step 76,500, forecast frames t1–t4 only (`context_views` = 1 KITTI / 2 nuScenes, so only t0 is
+  context). On nuScenes `scene-0017_000037` the 0.005 arm fuses the pedestrian group into blobs and loses the far lane;
+  0.01 separates the figures and recovers the lane markings. Neither reaches GT — the shared shortfall to the teacher is
+  still larger than the gap between arms. GT columns are byte-identical across arms (md5 match), which checks the crop offsets.
+
+**Still open:** the axis is monotone over 0.002 → 0.01 with **no upper turnover measured**, because 0.02 never ran. See Q5.
+The winner also stopped at ep 67 of 100 while still improving (0.0435 → 0.0416 over the last 12 epochs, rank still climbing);
+`current.pth` is on `$SCRATCH`, so a plain relaunch resumes it.
+
+Deck: `docs/slide/deltatok_tc512_sigreg_weight_slides.html` (9 slides; 04–05 are the AR visuals).
+
+## Q4 — Does SIGReg on the composed sum substitute for a bigger weight? — **ANSWERED: it helps, but less**
+
+- **Job:** BSC:45122721 — **COMPLETED** 2026-08-31 01:08, exit 0:0, 2 d 10 h 47 m, all 100 epochs.
+- **Script:** `slurm/deltatok/train_deltatok_compose_sigregsum_nozn_tc512_bsc.slurm` (`ehpc880`, 72 h), design in
+  `docs/plans/sigreg_compose_z.md`, code in `1140de1` (`training.sigreg_compose_z=true`, `deltatok_trainer.py:644,960,1057`).
+- **Run:** `..._sigreg0.005_ns1024_pool8192_compose1.0_sigregsum` — same 0.005 weight, but SIGReg sees `z_a`, `z_b` **and**
+  `z_a+z_b` in one pooled CF test (train z rows 4.99 M vs 1.66 M, confirming the 3-way cat).
+
+**Result at matched ep 67.** It lands between the two weights on every axis, ordered by rank exactly as Q3 predicts:
+
+| @ ep 67 · mean of both sets | 0.005 | **sum 0.005** | 0.01 |
+|---|---|---|---|
+| Eval `LossRecon` | 0.0589 | 0.0525 (−10.9%) | **0.0416** (−29.4%) |
+| Eval `LossRecon_Comp` | 0.0667 | 0.0577 | **0.0449** |
+| `ZPartRank` KITTI | 36.7 | 60.1 | **97.2** |
+| raw `SIGReg:` | 0.0071 | 0.0052 | **0.0040** |
+
+- **No composability win beyond the rank it buys.** Comp/Recon ratio 1.132 (0.005) → 1.099 (sum) → 1.079 (0.01). The sum
+  arm sits ~1% below the 0.005↔0.01 interpolation at its own rank — inside noise on one seed.
+- **The plan's "hop-scale shrink" outcome is what happened**, not decorrelation: eval `ZRowMeanSquare` on the hops drops
+  1.455 → 1.216 and `ZTotalVar` 744 → 622. No sign of hops going below unit, so no scale-splitting.
+- **Read the eval-side z stats only.** The sum arm's *train* `ZPartRank` is a hop+sum mixture; eval rows are identical
+  (53,248 / 106,496) across all arms, so the eval numbers are like-for-like.
+- **Verdict:** cheaper to just raise `sigreg_weight`. Keep `sigreg_compose_z` off unless a later question needs the sum pinned.
+
+## Q5 — Where does the weight axis turn over? — **TO RUN**
+
+Q3 leaves the knob on a slope at 2× the sweep value with no upper bracket. Three arms extend it, all at fixed tc512:
+
+- **Weights:** `0.02`, `0.04`, `0.08` — 2×, 4× and 8× the sweep value, continuing the 0.002 → 0.005 → 0.01 axis by ~2× steps.
+- **Script:** `slurm/deltatok/train_deltatok_compose_sigreg_nozn_tc512_bsc.slurm` — **no edit needed**, `SIGREG_WEIGHT` is an
+  env var and feeds `RUN_NAME`. `ns1024` / `pool8192` / `warmup2000` / `COMPOSE_WEIGHT=1.0` held, as in Q3.
+
+```bash
+ssh bsc "bash -lc 'cd /gpfs/projects/ehpc1001/code/deltatok && \
+  for w in 0.02 0.04 0.08; do \
+    sbatch --time=48:00:00 --export=ALL,COMPOSE_WEIGHT=1.0,SIGREG_WEIGHT=\$w \
+      slurm/deltatok/train_deltatok_compose_sigreg_nozn_tc512_bsc.slurm; \
+  done'"
+```
+
+- **Runs:** `deltatok_l12_dtok64_tc512_nozn_maxgap9_vpt1to2_sigreg{0.02,0.04,0.08}_ns1024_pool8192_compose1.0` (fresh, no ckpts).
+- **Controls:** the Q3 axis — 0.002 (45055388, ep 43), 0.005 (44759943, ep 67), 0.01 (45106935, ep 67).
+- **Budget:** 48 h per arm, overriding the script's `#SBATCH --time=40:00:00` on the command line so the file stays shared
+  with the Q3 arm. At the measured ~35.6 min/ep that buys ~ep 80, past the ep-67 read; chain one resume to reach ep 99.
+  `training.exit_before_time_limit=true` is already set, so the split is checkpoint-safe. The cost of 48 h over a shorter
+  request is queue tail only — walltime is absent from the BSC priority formula, and measured p90 wait was 8.6 h at 48 h
+  against 4 min at 12 h, medians both ~3–12 min.
+
+**Read at matched ep 67** against the three controls, same metrics as Q3: eval `LossRecon` / `LossRecon_Comp` / `LossRecon_AR`,
+the three `PredVsOrig` geometry losses, train `LossRecon`, `ZPartRank`, `ZTotalVar`, and the raw `SIGReg:` term as the knob check.
+Plot recon against `ZPartRank`, not against the weight — rank is the state variable, and it is what predicts the turnover.
+
+**Falsifier.** If rank keeps rising and recon keeps falling to 0.08, the regulariser is still under-weighted at tc512 and the
+question becomes where `Cz` stops paying. If rank peaks and recon turns over at 0.02 or 0.04, that point is the optimum and the
+`weight ∝ Cz` rule can be calibrated from it. If a high arm diverges outright, that is the warmup pathology, not a turnover —
+see below.
+
+**Watch the high end.** On 2026-07-31, raising `sigreg_pool_samples` to 32768 grew the effective gradient scale `n_pooled/n_live`,
+spiked the SIGReg statistic ~39× right at the end of the 2000-iter warmup, and training never recovered (Eval pinned at 0.12 vs
+0.033 by ep 4). Weight is a different lever onto the same product `weight × ramp × scale`, so 0.08 can reproduce it. The tell is
+the raw `SIGReg:` term in the epoch line around iter 2000 — a spike there, not a slow climb, means the ramp is the problem and the
+arm should be relaunched with a longer `SIGREG_WARMUP` rather than read as a turnover.
 
 ## Tracking
 
@@ -122,7 +211,13 @@ is a different lever onto the same product `weight × ramp × scale`, so the sam
 | BSC:45051916 | tc128 maxgap sigreg (non-compose) | **COMPLETED** ep99 | Q1 answered — compose ≠ recon technique |
 | BSC:45055387 | tc256 compose sigreg**0.002** | **CANCELLED** ep43 | Q2 answered — sigreg is not the cause |
 | BSC:45055388 | tc512 compose sigreg**0.002** | **CANCELLED** ep43 | Q2 answered — sigreg is not the cause |
-| BSC:45106935 | tc512 compose sigreg**0.01** | PENDING | Q3 — does more sigreg help? |
-| BSC:45106990 | tc512 compose sigreg**0.02** | PENDING | Q3 — brackets the optimum |
+| BSC:45106935 | tc512 compose sigreg**0.01** | **COMPLETED** ep67/100 | Q3 answered — −29.6%/−28.9% recon, rank 2.6×; resumable |
+| BSC:45106990 | tc512 compose sigreg**0.02** | **NEVER RAN** | cancelled while PENDING, `00:00:00`, no logs, no run dir → Q5 |
+| BSC:45122721 | tc512 compose sigreg0.005 **sigregsum** | **COMPLETED** ep99 | Q4 answered — half the gain of doubling the weight |
+| — | tc512 compose sigreg**0.02** | **TO SUBMIT** | Q5 — first point above 0.01 |
+| — | tc512 compose sigreg**0.04** | **TO SUBMIT** | Q5 — 4× the sweep value |
+| — | tc512 compose sigreg**0.08** | **TO SUBMIT** | Q5 — 8×; watch for the warmup spike |
 
 Logs: `slurm/output/train_deltatok_*_bsc_<jobid>.{out,err}`. TB mirror under `/mnt/d/tb_logs/.../<run>/tb_logs/`.
+Decks: `docs/slide/deltatok_compose_vs_plain_slides.html` (Q1), `docs/slide/deltatok_tc_sigreg_ab_slides.html` (Q2),
+`docs/slide/deltatok_tc512_sigreg_weight_slides.html` (Q3/Q4).

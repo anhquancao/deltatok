@@ -133,6 +133,55 @@ DeltaTok is the active research direction. Read before proposing changes: `docs/
 - **Tensor code:** comment each line and annotate the resulting shape inline, e.g. `x = rearrange(x, 'b (t s) d -> (b s) t d', t=t, s=s)  # (B*S, T, D)`. Define each shape symbol where it first appears.
 - **New variant scripts:** copy the closest existing file (`cp old.py new.py`), then edit. Never rewrite from scratch — copying keeps the diff reviewable.
 - **Code search:** prefer `grep` over `rg`.
-- **Slide decks** in `docs/slide/`: light theme only, white slide background. No dark-mode variant, no `prefers-color-scheme` block.
+- **Slide decks** in `docs/slide/`: see the section below.
 - **Dataset strings** in `configs/**/*.yaml` are `eval()`-ed by `occany.datasets.get_data_loader()`, so they must stay valid Python. Every entry states `num_timesteps` (the consecutive-window length) and names its cameras via `fixed_cams`. Cameras and view budgets are never sampled.
 - **Sharding** uses `--world` and `--pid` in `extract_occany_features.py` and `dataset_setup/waymo/preprocess_waymo.py`.
+
+## Slide decks
+
+`docs/slide/*.html`, self-contained, light theme only, white slide background. No dark-mode variant,
+no `prefers-color-scheme` block. Copy the closest existing deck and edit — the chrome (1280x720
+stage, nav, print CSS, the `lineChart` helper) is shared and already works.
+
+- **Plots over prose.** Small multiples split by eval set, one metric per panel. Prose only where a
+  number needs a caveat.
+- **Verify by rendering, never by reading.** Headless Chrome, then assert
+  `body.scrollHeight - clientHeight == 0` on every slide, and screenshot each one.
+  `--window-size` height is not the viewport height — add ~90 px or the shots come out cropped.
+- **Two layout traps:** SVG is inline by default, so without `svg{display:block}` every panel
+  overflows ~7 px; and `height:100%` on a grid whose parent also holds a caption overflows by the
+  caption's height.
+- **End-of-line series tags collide** when two curves converge. Suppress them on the faint
+  reference arms and let the legend carry those.
+
+### Arm-comparison frames
+
+From the `eval_depth/<n> @ <dataset>/<scene>_t0-4` panels in each arm's TB event file. Scan with the
+seek-skip TFRecord walker (sniff tag+step from the first ~1.6 KB, seek past the payload); a 6-10 GB
+file indexes in ~7 s. Run it on the login node when the local mirror lags, and return PNGs only.
+
+- **Columns are `arm | arm | ... | GT token`, always.** Without the GT column the comparison reads as
+  a null — the shared gap to the teacher is larger than the gap between arms. GT is byte-identical
+  across arms (frozen teacher), so an md5 match is a free check on the crop offsets.
+- **AR only, last forecast frame only.** `context_views = num_cameras if num_cameras > 1 else 1`
+  (`deltatok_trainer.py:1389`), so t0 is context and its AR cells are blanked. Crop to the final
+  forecast timestep and drop the TF columns. Show the rollout only when the rollout is the point.
+- **Panel geometry:** 7 cols x 518 px, 36 px header, one row per timestep — KITTI 168 px, nuScenes
+  532 px (2 stacked cams, take the top one). Cols `0 RGB | 1 PredDepth(TF) | 2 PredDepth(AR) |
+  3 GTTokenDepth | 4 PredRGB(TF) | 5 PredRGB(AR) | 6 GTTokenRGB`; a deck uses `0, 2, 3, 5, 6`.
+- nuScenes `scene-1062_005538` is the one night scene — never pick it for an RGB visual.
+
+### L1 error maps
+
+Decodes alone hide small differences. Pair every decode row with its own error row directly below,
+same columns.
+
+- `|arm - GT token|` per pixel. **Depth first inverts the JET LUT:** `depth2rgb` runs at a fixed
+  `min_depth=0 / max_depth=50` (`_depths_to_rgb_panel`), so colour maps to metres exactly — assert
+  the inversion residual is 0. Do the LUT distance in float32; int16 overflows and silently returns
+  garbage argmins that look like a peaky error distribution.
+- **One fixed colour scale across every panel in the deck.** Never per-panel autoscale — arms stop
+  being comparable. Take vmax from the p99 pooled over all arms, frames and datasets, print the range
+  and the units on the slide, and say the top 1% clips. `inferno`; the GT column stays as a black
+  `error = 0` tile, which also anchors the scale.
+- Quote the mean L1 next to the maps. The eye reads the map, the number settles it.
