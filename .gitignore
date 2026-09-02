@@ -166,3 +166,5 @@ sync_config.jsonc
 
 # TensorBoard logs
 tb_logs/
+# rsync push/pull state (logs + resume manifests)
+logs/sync_bsc/
