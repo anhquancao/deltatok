@@ -49,7 +49,7 @@ the weight" verdict already in the ledger. Sum 0.005 ran to ep 99 (recon 0.0505,
 0.0551 / rank 75.6 · 86.1, against 0.0509 / 0.0551 / 73.9 · 85.6 for plain 0.01 — indistinguishable. If that
 holds to ep 67, the plain weight optimum is at or below 0.02 and this is the right weight to test the sum at.
 The 0.08 arm agrees from the other side: at ep 32 it is ~2× worse on every loss term with a *lower* rank
-(38.7 · 54.3), the shape of over-regularisation (`../../TODO.md`, TODO 2 note).
+(38.7 · 54.3), the shape of over-regularisation (`../../todo/02-09-2026.md`, TODO 2 note).
 
 ## 3 Solution
 

@@ -16,7 +16,7 @@ the ledger for each thread is a section below.
 | Thread | Open |
 |---|---|
 | [`tc_width`](#tc_width--channel-and-token-budget-of-the-delta-token) | Where `sigreg_weight` turns over at tc512 and whether the optimum scales with Cz. Arms BSC:45296347–49 pending, read at ep 67. |
-| [`sigreg`](#sigreg--making-the-delta-code-spread) | None. The `weight ∝ Cz` question is tracked in `tc_width`. |
+| [`sigreg`](#sigreg--making-the-delta-code-spread) | Does a direct `‖E[zzᵀ]−I‖²_F` penalty break the ~90/512 rank ceiling? Plan only, no code, not submitted. The `weight ∝ Cz` question is tracked in `tc_width`. |
 | [`compose`](#compose--additive-composition-of-delta-tokens) | Composed ≠ autoregressive. Whether a short-schedule plain arm buys composability for free. |
 | [`pair_sampling`](#pair_sampling--which-frame-pairs-and-gaps-the-tokenizer-trains-on) | None. |
 | [`flow`](#flow--flow-matching-over-frozen-delta-tokens) | t≈0 starvation under `loss_mode=v`, and the compose-arm diagnostic in the 2026-09-01 numsteps analysis. |
@@ -26,7 +26,7 @@ the ledger for each thread is a section below.
 
 | Date | File | Stage | Holds |
 |---|---|---|---|
-| 2026-08-18 | [backlog](plan/2026-08-18_cross_backlog.html) | plan | The previous work queue, superseded by [`../TODO.md`](../TODO.md) |
+| 2026-08-18 | [backlog](plan/2026-08-18_cross_backlog.html) | plan | The previous work queue, superseded by [`../todo/02-09-2026.md`](../todo/02-09-2026.md) |
 | 2026-09-02 | [4week_review_slides](results/2026-09-02_cross_4week_review_slides.html) | results | Four-week review deck across every thread |
 
 ## tc_width — channel and token budget of the delta token
@@ -66,8 +66,10 @@ The SIGReg regulariser on z: estimator, pool, weight, and the geometry it needs.
 | 2026-08-24 | [gapsig_vs_plain_slides](results/2026-08-24_sigreg_gapsig_vs_plain_slides.html) | results | Does Brownian gap-scaling (`sigreg_gap_sigma`) help? | No: 6.5–13.9% worse on all geometry losses, both eval sets |
 | 2026-08-27 | [sigreg_compose_z_plan](plan/2026-08-27_sigreg_compose_z.md) | plan | SIGReg on all three compose streams | Code `1140de1`; half the gain of doubling the weight (tc_width Q4) |
 | 2026-09-02 | [sum_at_weight_0.02](plan/2026-09-02_sigreg_sum_at_weight_0.02.md) | plan, **open** | Does the sum win survive at weight 0.02, or was it buying effective weight? | Arm BSC:45345063 vs plain twin BSC:45296347, read at ep 67 |
+| 2026-09-02 | [cov_penalty](plan/2026-09-02_sigreg_cov_penalty.md) | plan, **open** | Does a direct `‖E[zzᵀ]−I‖²_F/Cz` penalty break the ~90/512 rank ceiling the weight axis cannot? | Not submitted; one arm at `cov_weight=1e-5` on top of sigreg 0.02, twin BSC:45296347 |
 
-**Open.** Whether `sigreg_compose_z` still beats its plain twin at weight 0.02 (`2026-09-02`). The live
+**Open.** Whether `sigreg_compose_z` still beats its plain twin at weight 0.02 (`2026-09-02`), and whether a
+direct covariance penalty moves the rank ceiling the weight axis has turned over on (`2026-09-02`, TODO 6). The live
 `sigreg_weight ∝ Cz` question is tracked in [`tc_width`](#tc_width--channel-and-token-budget-of-the-delta-token).
 
 ## compose — additive composition of delta tokens

@@ -10,7 +10,7 @@ question it belongs to — is the tag in its filename.
 | `analysis` | `research/analysis/<date>_<thread>_<slug>.<ext>` | What it means: a mechanism, a diagnosis, or the verdict on a plan |
 
 **Start at [`ROADMAP.md`](ROADMAP.md)**: the CVPR paper skeleton with contributions, method, main results and
-ablations. The work queue is [`TODO.md`](TODO.md); closed items move to [`DONE.md`](DONE.md).
+ablations. The work queue is [`todo/02-09-2026.md`](todo/02-09-2026.md); closed items move to [`DONE.md`](DONE.md).
 
 ## Layout
 
@@ -23,8 +23,8 @@ ablations. The work queue is [`TODO.md`](TODO.md); closed items move to [`DONE.m
 | `occrae/` | OccRAE architecture note and its five 2026-05-31 plans. Only the image decoder landed. |
 | `proposals/` | EuroHPC access proposals (docx/pdf). |
 | `ROADMAP.md` | The paper skeleton: contributions, method, main results, ablations. Each section says what is measured and what is missing. |
-| `TODO.md` | The work queue: one row per item with its thread, the paper section it fills, and its status. |
-| `DONE.md` | Items closed out of `TODO.md`, newest first. A row keeps its original `#`, so old references still resolve. |
+| `todo/02-09-2026.md` | The work queue: one row per item with its thread, the paper section it fills, and its status. |
+| `DONE.md` | Items closed out of `todo/02-09-2026.md`, newest first. A row keeps its original `#`, so old references still resolve. |
 | `deltatok.md` | Eval-only launch note. |
 
 ## Threads
