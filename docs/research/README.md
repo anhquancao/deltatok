@@ -65,8 +65,10 @@ The SIGReg regulariser on z: estimator, pool, weight, and the geometry it needs.
 | 2026-07-31 | [pool_not_weight_neutral](analysis/2026-07-31_sigreg_pool_not_weight_neutral.html) | analysis | Is pool size weight-neutral? | No: pool 32768 at the same weight kills training, spike at warmup end |
 | 2026-08-24 | [gapsig_vs_plain_slides](results/2026-08-24_sigreg_gapsig_vs_plain_slides.html) | results | Does Brownian gap-scaling (`sigreg_gap_sigma`) help? | No: 6.5–13.9% worse on all geometry losses, both eval sets |
 | 2026-08-27 | [sigreg_compose_z_plan](plan/2026-08-27_sigreg_compose_z.md) | plan | SIGReg on all three compose streams | Code `1140de1`; half the gain of doubling the weight (tc_width Q4) |
+| 2026-09-02 | [sum_at_weight_0.02](plan/2026-09-02_sigreg_sum_at_weight_0.02.md) | plan, **open** | Does the sum win survive at weight 0.02, or was it buying effective weight? | Arm BSC:45345063 vs plain twin BSC:45296347, read at ep 67 |
 
-**Open.** None — the live `sigreg_weight ∝ Cz` question is tracked in [`tc_width`](#tc_width--channel-and-token-budget-of-the-delta-token).
+**Open.** Whether `sigreg_compose_z` still beats its plain twin at weight 0.02 (`2026-09-02`). The live
+`sigreg_weight ∝ Cz` question is tracked in [`tc_width`](#tc_width--channel-and-token-budget-of-the-delta-token).
 
 ## compose — additive composition of delta tokens
 

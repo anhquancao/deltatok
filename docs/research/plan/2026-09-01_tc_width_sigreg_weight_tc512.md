@@ -150,12 +150,17 @@ The `PredVsGT` variants are teacher-ceiling-bound and will move less than `PredV
 | BSC:44759943 | tc512 compose sigreg**0.005** | **CANCELLED** ep67 | control |
 | BSC:45106935 | tc512 compose sigreg**0.01** | **COMPLETED** ep67/100 | Q3 winner, resumable |
 | BSC:45106990 | tc512 compose sigreg**0.02** | **NEVER RAN** | cancelled while PENDING, `00:00:00`, no logs — resubmit below |
-| BSC:45296347 | tc512 compose sigreg**0.02** | **PENDING** | the `∝ Cz` prediction |
-| BSC:45296348 | tc512 compose sigreg**0.04** | **PENDING** | 8× the sweep value |
-| BSC:45296349 | tc512 compose sigreg**0.08** | **PENDING** | 16×; watch the warmup spike |
+| BSC:45296347 | tc512 compose sigreg**0.02** | **RUNNING** ep34 | the `∝ Cz` prediction |
+| BSC:45296348 | tc512 compose sigreg**0.04** | **FAILED** 1m17s | died in `import`; resubmitted below |
+| BSC:45297731 | tc512 compose sigreg**0.04** | **RUNNING** | resubmit of 45296348 |
+| BSC:45296349 | tc512 compose sigreg**0.08** | **CANCELLED** ep33 | 16×; no warmup spike seen before the cancel |
 
 Logs: `slurm/output/train_deltatok_compose_sigreg_nozn_tc512_bsc_<jobid>.{out,err}`.
 TB mirror: `/mnt/d/tb_logs/deltatok_log/<run>/tb_logs/`.
+**Early read, ep 33.** 0.02 and 0.01 are indistinguishable — recon 0.0508 vs 0.0509, comp 0.0551 vs
+0.0551, rank 75.6 · 86.1 vs 73.9 · 85.6. If that holds at ep 67 the plain optimum is at or below 0.02.
+The sum variant is being tested at this weight in `../plan/2026-09-02_sigreg_sum_at_weight_0.02.md`.
+
 Prior decks: `../results/2026-09-01_tc_width_tc512_sigreg_weight_slides.html` (0.005 vs 0.01 vs sigregsum),
 `../results/2026-08-27_tc_width_tc_sigreg_ab_slides.html` (0.002 vs 0.005).
 
