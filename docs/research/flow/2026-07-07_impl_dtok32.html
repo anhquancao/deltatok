@@ -1,0 +1,301 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Plan — native-K DeltaTok flow matching (run K=32)</title>
+<style>
+  :root{
+    --bg:#ffffff; --fg:#1b1f24; --muted:#5b6570; --line:#e3e8ee;
+    --card:#f7f9fb; --accent:#2f6feb; --code:#f0f3f7;
+    --ok:#1a7f37; --warn:#9a6700; --add:#1a7f37; --del:#b42318;
+  }
+  @media (prefers-color-scheme:dark){
+    :root{ --bg:#0f1216; --fg:#e6edf3; --muted:#9aa4af; --line:#252c34;
+      --card:#161b22; --accent:#589bff; --code:#161b22;
+      --ok:#3fb950; --warn:#d29922; --add:#3fb950; --del:#f85149; }
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--fg);
+    font:15px/1.6 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;}
+  .wrap{max-width:980px;margin:0 auto;padding:32px 20px 80px;}
+  h1{font-size:26px;margin:0 0 4px;letter-spacing:-.01em}
+  h2{font-size:19px;margin:38px 0 10px;padding-bottom:6px;border-bottom:1px solid var(--line)}
+  h3{font-size:15px;margin:22px 0 6px}
+  .sub{color:var(--muted);margin:0 0 6px}
+  code,pre{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:13px}
+  code{background:var(--code);padding:1px 5px;border-radius:4px;overflow-wrap:anywhere}
+  pre{background:var(--code);border:1px solid var(--line);border-radius:8px;padding:12px 14px;overflow-x:auto}
+  pre code{background:none;padding:0}
+  table{border-collapse:collapse;width:100%;margin:10px 0;font-size:14px;display:block;overflow-x:auto}
+  th,td{border:1px solid var(--line);padding:7px 10px;text-align:left;vertical-align:top}
+  th{background:var(--card);font-weight:600;white-space:nowrap}
+  td code{white-space:nowrap}
+  .meta{display:flex;flex-wrap:wrap;gap:8px 18px;color:var(--muted);font-size:13px;margin:10px 0 0}
+  .meta b{color:var(--fg);font-weight:600}
+  .card{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:14px 16px;margin:12px 0}
+  .card.warn{border-color:var(--warn)}
+  ul,ol{margin:6px 0 6px 4px;padding-left:20px}
+  li{margin:5px 0}
+  .small{color:var(--muted);font-size:12.5px}
+  .tag{font-family:ui-monospace,monospace;font-size:12px;color:var(--muted)}
+  .pill{display:inline-block;padding:1px 8px;border-radius:999px;font-size:11.5px;font-weight:600;border:1px solid var(--line);color:var(--muted)}
+  .pill.key{color:#fff;background:var(--accent);border-color:transparent}
+  .add{color:var(--add);font-weight:600}
+  .del{color:var(--del);font-weight:600}
+  .arrow{color:var(--muted)}
+  .fileh{font-family:ui-monospace,monospace;font-size:13.5px}
+  .step{margin:14px 0;padding-left:12px;border-left:3px solid var(--line)}
+  .step b{display:block;margin-bottom:2px}
+  .lbl{display:inline-block;min-width:44px;font-weight:700;color:var(--accent)}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <h1>Plan — native-K DeltaTok flow matching, run on K=32</h1>
+  <p class="sub">Make the whole delta-token path work with any K (K=1 = special case), then flow-match on the
+  best tokenizer of the <code>num_delta_tokens</code> sweep (K=32) on Jean Zay.</p>
+  <div class="meta">
+    <span><b>Target</b> Jean Zay H100</span>
+    <span><b>Branch</b> <code>revert</code></span>
+    <span><b>Recipe</b> delta_ctx + global + camera_embed <span class="small">(kept)</span></span>
+    <span><b>Latent</b> <code>(B, C, T-1, N, K)</code></span>
+  </div>
+
+  <h2>Context — why</h2>
+  <p>The ablation shows more delta tokens <code>K</code> per camera per transition monotonically lower pointmap
+  loss: <code>K=1 → 2.66</code>, <code>K=8 → 0.74</code>, <code>K=16 → 0.47</code>, <b><code>K=32 → 0.36</code></b>
+  (KITTI PredVsOrig) — ~7&times; better than K=1. <code>dtok32</code> is the best tokenizer of the sweep.</p>
+  <p>The tokenizer already supports configurable K, but the <b>flow-matching trainer</b> only works at K=1 —
+  the K axis is squeezed away when K==1 and the flow code hardcodes the resulting 4D layout with
+  <code>unsqueeze(-1)</code>/<code>squeeze(-1)</code>. Goal: make the delta-token path <b>native to any K</b>
+  (no K=1 special-casing anywhere), then run flow matching on the K=32 tokenizer.</p>
+
+  <h2>Design principle — K is a first-class axis everywhere</h2>
+  <ul>
+    <li>Delta tokens <code>z</code> are always 5D <code>(B, T-1, N, K, C)</code>; per-transition <code>z_t</code>
+      always 4D <code>(M, N, K, C)</code>. Flow latent always <code>(B, C, T-1, N, K)</code>. K=1 ⇒ trailing
+      axis size 1, numerically identical to today.</li>
+    <li><b>Remove all K=1 squeeze/unsqueeze</b> at the source (not downstream shims).</li>
+    <li>The flow <code>Transformer</code> is <b>renamed to speak <code>(B, C, T, N, K)</code> directly</b> (N =
+      cameras, K = delta tokens), replacing the generic <code>(B,C,T,H,W)</code> labels — a scoped,
+      behavior-preserving relabel.</li>
+    <li><code>ref_spatial_size=(1, K)</code> stays a <b>2-tuple</b>: already "1-D over K, broadcast across N"
+      (K→K identity, 1→N replication); the 2-D interpolation machinery must stay because
+      <code>eval_occ_rae.py</code> uses it as a real image grid. <b>No literal 1-D collapse.</b></li>
+  </ul>
+  <div class="card"><b>Flow recipe (kept, per user): <code>delta_ctx</code> + <code>global</code> +
+  <code>camera_embed=true</code>.</b>
+  <ul>
+    <li><code>global</code> → one attention over all <code>t·S</code> tokens, <code>S = N·K</code>.</li>
+    <li><code>delta_ctx</code> (n_ctx=1) → first transition's delta tokens are the clean in-seq context
+      (T-1 axis, K-agnostic); <b>no cross-attn</b> (<code>cross_dim=None</code>).</li>
+    <li><span class="pill key">load-bearing</span> <code>camera_embed=true</code> currently indexes per flat
+      slot <code>arange(S)</code> and asserts <code>S ≤ max_cameras(32)</code> — <b>breaks at K=32</b>
+      (<code>S = N·K</code>). Reworked to <b>native-K</b>: index by <b>camera = s // K</b>, assert on N. Change
+      #3(b) below.</li>
+  </ul></div>
+
+  <h2>Verified facts (from exploration)</h2>
+  <ul>
+    <li><code>_encode_pair_deltas</code> (<code>deltatok_shared.py:207-212</code>) builds 5D and only squeezes at
+      the end when K==1. <code>DeltaTokModule.encode</code> <b>always</b> returns 4D <code>(M,N,K,C)</code>.</li>
+    <li><code>_rollout_from_z</code> is already native-K (no <code>dim()</code> assert / no squeeze;
+      <code>z_t = z_seq[:,t]</code> → 4D straight to decode).</li>
+    <li><code>DeltaTokModule.decode</code>: for K=1, old 3D input <code>(M,N,C)</code>→<code>unsqueeze(2)</code>
+      is <b>bit-for-bit identical</b> to passing 4D <code>(M,N,1,C)</code> — so the 3D branch is dead once every
+      caller passes 4D.</li>
+    <li>Tokenizer-trainer consumers are <b>safe</b> under always-5D: rollout passes z straight through,
+      teacher-forced <code>forward</code> bypasses <code>_encode_pair_deltas</code>, and all
+      <code>_AR</code>/<code>_PredVsOrig</code> metrics consume <code>x_hat</code>, never <code>z</code>.</li>
+    <li>Cross-attn is per-slot, hard check <code>n_cond == S</code> — with <code>S=N·K</code>,
+      <code>_build_cross_cond</code> must emit N·K slots. Only reached in <code>cond_mode=cross</code>; the
+      chosen <code>delta_ctx</code> never builds cross_cond.</li>
+    <li><b>Camera-embed</b> (<code>efficient_transformer.py:220-221, 395-399</code>):
+      <code>nn.Embedding(max_cameras=32, D)</code>, per-slot <code>arange(S)</code>, <code>assert S ≤ 32</code>
+      — the one path that breaks at K=32. <code>camera_rope</code> is disallowed in <code>global</code> mode at
+      construction (<code>:191-193</code>), so it is not exercised.</li>
+    <li>K is read <b>only from config</b> (<code>num_delta_tokens</code>, default 1); the tokenizer loads
+      <code>strict=True</code> → flow config <b>must</b> set <code>num_delta_tokens=32</code> or the
+      <code>z_embed</code> load crashes.</li>
+    <li><code>flow_euler_sample</code>, <code>_sample_noise</code>, <code>flow_noising</code>,
+      <code>flow_loss</code> are shape-generic — no change.</li>
+    <li><b>Second Transformer caller:</b> <code>eval_occ_rae.py</code> passes
+      <code>ref_spatial_size=(patch_h, patch_w)</code> as a genuine image grid and relies on the 2-D bicubic
+      interpolation → the N/K rename is functionally inert there but semantically mislabels it (add a comment);
+      do <b>not</b> collapse to literal 1-D.</li>
+  </ul>
+
+  <h2>Changes by file</h2>
+
+  <h3>1. <span class="fileh">occrae/deltatok_shared.py</span> — remove the squeeze at source</h3>
+  <p><code>_encode_pair_deltas</code> (207-212): delete <code class="del">if K == 1: z = z.squeeze(3)</code> so it
+  always returns 5D <code>(B, T-1, N, K, C)</code>. Refresh the <code>(B,T-1,N,C)</code> comments.</p>
+
+  <h3>2. <span class="fileh">occrae/deltatok_trainer.py</span> — decode native 4D</h3>
+  <p><code>DeltaTokModule.decode</code> (344-350): delete the <code class="del">if z.dim()==3: z = z.unsqueeze(2)</code>
+  back-compat branch; require native <code>(M,N,K,C)</code>. <b>Impl grep</b>: confirm every <code>decode(</code>
+  caller passes 4D (verified: <code>_rollout_from_z</code> + <code>DeltaTokModule.forward</code>).</p>
+
+  <h3>3. <span class="fileh">occrae/network/efficient_transformer.py</span> — rename H,W→N,K + native-K camera-embed</h3>
+  <p><b>(a) Rename</b> — behavior-preserving relabel of the <b>main-latent</b> spatial axes only:</p>
+  <ul>
+    <li><code>forward</code> (365-379, 387, 474): <code>b,c,t,h,w</code>→<code>...,n,k</code>;
+      <code>h_p,w_p</code>→<code>n_p,k_p</code>; <code>S=n_p*k_p</code>; rename the conv/flatten/fold rearrange
+      pattern letters <b>and</b> kwargs to <code>n/k</code> (keep <code>s1,s2</code> proj factors).</li>
+    <li><code>interpolate_pos_encoding</code> (329-345) + <code>__init__</code> (214,216,224): unpack
+      <code>ref_h,ref_w</code>→<code>ref_n,ref_k</code>.</li>
+    <li><b>Do NOT rename:</b> the public kwarg <code>ref_spatial_size</code>; the flat <code>S</code>/<code>s</code>
+      sites and the whole <code>Block</code>/<code>TransformerEncoder</code>; the cross_cond image grid
+      (<code>interpolate_cross_pos_encoding</code>, <code>ch/cw</code>, the <code>'b n h w d → …'</code>
+      rearrange at 451 where <code>n</code>=slot, <code>h,w</code>=image grid); the <code>__main__</code>
+      self-test.</li>
+  </ul>
+  <div class="card warn"><b>(b) Native-K camera-embed</b> (395-399) — required by <code>camera_embed=true</code> at K=32:
+  <pre><code># before
+assert S &lt;= self.max_cameras, ...
+cam_idx = torch.arange(S, device=x.device)
+
+# after — camera = s // K; K delta tokens of a camera share its embedding,
+# per-delta-token identity carried by spatial_pos (ref=(1,K))
+assert n_p &lt;= self.max_cameras, f"camera embed supports &lt;= {self.max_cameras} cameras, got {n_p}"
+cam_idx = torch.arange(S, device=x.device) // k_p    # slot s = n*K + k  →  camera n</code></pre>
+  Backward-compatible: at K=1, <code>k_p==1</code> ⇒ <code>arange(S)//1 == arange(S)</code> and
+  <code>n_p == S</code> — identical to today. <code>camera_rope</code> was initially left un-reworked (disallowed
+  in <code>global</code> mode, guarded when K&gt;1); the <b>review round made it native-K too</b> (per-camera
+  cos/sin then <code>repeat_interleave(k_p)</code>) and removed the guard — see Code review below.</div>
+
+  <h3>4. <span class="fileh">eval_occ_rae.py</span> — one clarifying comment</h3>
+  <p>At the <code>Transformer(... ref_spatial_size=(patch_h, patch_w) ...)</code> instantiation (~L303), add a
+  one-line note that here the axes are a flattened <b>image patch grid</b>, not (N cameras, K delta tokens). No
+  code change — the relabel is functionally inert for this caller.</p>
+
+  <h3>5. <span class="fileh">occrae/deltatok_flow_trainer.py</span> — native 5D flow (no shims)</h3>
+  <div class="step"><b><span class="lbl">#1</span> <code>__init__</code> (~107)</b>
+    <code>self.num_delta_tokens = int(self.deltatok.num_delta_tokens)</code> — before <code>get_network("vit")</code> (109).</div>
+  <div class="step"><b><span class="lbl">#2</span> <code>get_network("vit")</code> (213)</b>
+    <code class="del">ref_spatial_size=(1, 1)</code> <span class="arrow">→</span>
+    <code class="add">ref_spatial_size=(1, self.num_delta_tokens)</code>. <span class="small">(Originally added a
+    <code>num_delta_tokens&gt;1 → forbid camera_rope</code> guard; the review round made camera_rope native-K and
+    removed it — see Code review below.)</span></div>
+  <div class="step"><b><span class="lbl">#3</span> <code>_encode_deltas</code> (294-311)</b>
+    Returns native 5D — <b>no normalization/unsqueeze shim</b>; just update the docstring to <code>(B,T-1,N,K,C)</code>.</div>
+  <div class="step"><b><span class="lbl">#4</span> Train pack (542) &amp; eval pack (715)</b>
+    <code class="del">z.permute(0,3,1,2).unsqueeze(-1)</code> <span class="arrow">→</span>
+    <code class="add">z.permute(0,4,1,2,3).contiguous()</code> <span class="small"># (B,C,T-1,N,K)</span></div>
+  <div class="step"><b><span class="lbl">#5</span> Eval unpack (734)</b>
+    <code class="del">gen.squeeze(-1).permute(0,2,3,1)</code> <span class="arrow">→</span>
+    <code class="add">gen.permute(0,2,3,4,1).contiguous()</code> <span class="small"># (B,T-1,N,K,C)</span></div>
+  <div class="step"><b><span class="lbl">#6</span> <code>_build_cross_cond</code> (388)</b>
+    add <code class="add">.repeat_interleave(self.num_delta_tokens, dim=1)</code> → <code>(B, N·K, Hp, Wp, C)</code>
+    (<code>repeat_interleave</code>, not <code>.repeat</code>). <b>Not exercised by the chosen recipe</b>
+    (<code>delta_ctx</code> ⇒ <code>cross_cond=None</code>); included so <code>cond_mode=cross</code> also works at K&gt;1.</div>
+  <div class="step"><b><span class="lbl">#7</span> <code>MSEToken</code> (799-800)</b>
+    now <code>z_hat</code> (unpack #5) and <code>z</code> are both 5D → ranks match, <b>no change</b>.</div>
+  <div class="step"><b><span class="lbl">#8</span> Comment refreshes</b>
+    <code>_sample_noise</code> / <code>_encode_inputs</code> shape comments (334/343/349/360/538/714) → <code>...N, K</code>.</div>
+  <p class="small"><code>_rollout_from_z</code> calls, <code>flow_noising</code>/<code>flow_loss</code>,
+  <code>_sample_noise</code> body, <code>flow_euler_sample</code>: no change (carry K generically).</p>
+
+  <h3>6. <span class="fileh">visualize_deltatok_flow.py</span> — mirror the flow pack/unpack</h3>
+  <ul>
+    <li>L280: <code class="del">z.permute(0,3,1,2).unsqueeze(-1)</code> → <code class="add">z.permute(0,4,1,2,3).contiguous()</code></li>
+    <li>L297: <code class="del">gen.squeeze(-1).permute(0,2,3,1)</code> → <code class="add">gen.permute(0,2,3,4,1).contiguous()</code></li>
+  </ul>
+
+  <h3>7. <span class="fileh">configs/train_deltatok_flow.yaml</span> — one-line add</h3>
+  <p>Add <code class="add">num_delta_tokens: 1</code> to the <code>model.deltatok</code> block. Hydra composes in
+  struct mode, so a bare <code>model.deltatok.num_delta_tokens=32</code> override <b>crashes</b> without the key
+  present. Default 1 = backward compatible; base K=1 ckpt path untouched.</p>
+
+  <h3>8. <span class="fileh">slurm/train_deltatok_flow_jz.slurm</span> — wire the K=32 run (in place)</h3>
+  <p>Recipe <b>unchanged from today</b>. Only add the K=32 selection to <code>EXTRA_CFG_ARGS</code>:</p>
+  <table>
+    <tr><th>Action</th><th>Override</th></tr>
+    <tr><td class="add">add</td><td><code>model.deltatok.num_delta_tokens=32</code></td></tr>
+    <tr><td class="add">add</td><td><code>model.deltatok_ckpt=.../deltatok_log/deltatok_surround_layer12_bsize2_dtok32_cos1e3_1e5_b95/ckpts/current.pth</code></td></tr>
+    <tr><td>keep</td><td><code>model.cond_mode=delta_ctx</code>, <code>model.attn_mode=global</code>, <code>model.vit_use_camera_embed=true</code></td></tr>
+    <tr><td>keep</td><td><code>loss_mode=v</code>, <code>exit_before_time_limit</code>, <code>epoch=400</code>, <code>eval_num_steps=50</code></td></tr>
+    <tr><td class="add">change</td><td><code>RUN_NAME=deltatok_flow_full_dtok32_deltaCtx_global</code>; refresh header (46-49)</td></tr>
+  </table>
+  <p class="small">Leave the SBATCH block (dev qos / 2h) as-is. camera_embed now works at K=32 via #3(b).
+  <code>$deltatok_log = /lustre/fswork/projects/rech/trg/uyl37fq/deltatok_log</code>.</p>
+
+  <h2>Constraints / notes (not edits)</h2>
+  <ul>
+    <li><b>No K=1 → K=32 pretrained init:</b> the flow ViT <code>spatial_pos</code> grows
+      <code>(1,2,D)→(1,K+1,D)</code>; even <code>strict=False</code> errors on size mismatch → K=32 starts
+      fresh (launcher default <code>RESUME=0</code> is correct).</li>
+    <li>Per CLAUDE.md: sync the edited files to JZ before <code>sbatch</code>; confirm the dtok32
+      <code>current.pth</code> exists on JZ (should, from tokenizer training) via <code>ssh jean-zay</code>;
+      ask the user to sync — don't scp.</li>
+  </ul>
+
+  <h2>Verification</h2>
+  <ul>
+    <li>Do not run code locally. Smoke on JZ via the edited <code>.slurm</code> (its <code>qos_gpu_h100-dev</code>
+      / 2h block): <code>fit()</code> runs <code>eval_one_epoch(sanity_check=True)</code> before any train step,
+      exercising encode → native 5D pack → Transformer forward (global attn over S=N·K, native-K camera_embed,
+      delta_ctx context) → <code>flow_euler_sample</code> → 5D unpack → <code>_rollout_from_z</code> → decode
+      end-to-end; any shape / <code>strict</code>-load / <code>camera embed supports &lt;= max_cameras</code>
+      error surfaces in the first minutes of the <code>.out</code>/<code>.err</code> log.</li>
+    <li>Confirm the <code>strict=True</code> dtok32 load succeeds and the native-K camera-embed assert passes
+      (<code>n_p ≤ 32</code>).</li>
+    <li><b>K=1 regression</b> (the point of "native any K"): a K=1 config must reproduce old numerics exactly —
+      tokenizer <code>_AR</code>/<code>_PredVsOrig</code> metrics unchanged, flow K=1 latent
+      <code>(B,C,T-1,N,1)</code> equals the old <code>unsqueeze(-1)</code> layout bit-for-bit.</li>
+  </ul>
+
+  <h2>Code review — findings &amp; fixes <span class="pill">xhigh · 10 finder angles</span></h2>
+  <p>A multi-agent review swept the working tree. Five independent correctness angles each traced the K axis
+  end-to-end and two <b>empirically</b> verified the bicubic size-1 replication: the <b>production K=32 path is
+  correct</b> — no shipping bug. The findings were latent cross-consumer risks, one drifted duplication, and
+  stale docs. The fixes below are <b>numerically inert for the run</b> (proj=1, global, camera_embed, camera_rope
+  off, fixed_noise_mode=none) — hardening + cleanup only.</p>
+  <table>
+    <tr><th>Fix</th><th>What / why</th></tr>
+    <tr><td class="add">fold-back rearrange</td><td><code>efficient_transformer.py</code> final fold now uses
+      <code>n=n_p,k=k_p</code> (matches the flatten) — correct at proj&gt;1, identical at proj=1.</td></tr>
+    <tr><td class="add">camera_rope native-K</td><td>was <b>not</b> K-reworked (half-migration). Now per-camera
+      cos/sin then <code>repeat_interleave(k_p)</code> to slots (mirrors camera_embed). The obsolete
+      trainer-side <code>num_delta_tokens&gt;1 → forbid camera_rope</code> guard was <b>removed</b>; the combo
+      is now genuinely supported.</td></tr>
+    <tr><td class="add">drop double-compute</td><td>removed the pre-<code>in_proj</code> <code>n_p,k_p/S</code>;
+      <code>S</code> is derived once from the post-conv shape.</td></tr>
+    <tr><td class="add">single-source layout</td><td>flow pack/unpack extracted to
+      <code>DeltaTokSharedMixin._z_to_flow_latent</code> / <code>_flow_latent_to_z</code>; all 5 sites
+      (trainer ×3, visualizer ×2) call them — the ViT layout contract can no longer drift.</td></tr>
+    <tr><td class="add">visualizer noise drift</td><td>visualizer now uses <code>trainer._sample_noise</code>
+      (honors <code>fixed_noise_mode</code>) instead of a hard-coded <code>randn_like</code>, matching eval.</td></tr>
+    <tr><td class="add">stale docs</td><td><code>decode</code> docstring no longer advertises the removed 3D
+      input; <code>_sample_noise</code> per_slot comment includes the K axis; three multi-line comment blocks
+      collapsed to single lines (CLAUDE.md terse rule).</td></tr>
+  </table>
+  <div class="card"><b>Deliberately deferred.</b>
+  <ul>
+    <li><b>Shared-Transformer camera_embed vs the OccRAE image path</b> — dormant (<code>vit_use_camera_embed</code>
+      is False on every non-flow caller); a real fix is an axis-neutral redesign beyond this task. Documented,
+      not redesigned.</li>
+    <li><b><code>_build_cross_cond</code> ×K-before-projection</b> — a ~32× redundant projection, but cross-mode
+      only and unexercised by the <code>delta_ctx</code> recipe; skipped to avoid a payoff-free cross-file change.</li>
+  </ul></div>
+
+  <h3>Files touched</h3>
+  <table>
+    <tr><th>File</th><th>Edit</th></tr>
+    <tr><td><code>occrae/deltatok_shared.py</code></td><td>remove K=1 squeeze (always 5D); add <code>_z_to_flow_latent</code>/<code>_flow_latent_to_z</code> layout helpers</td></tr>
+    <tr><td><code>occrae/deltatok_trainer.py</code></td><td>decode requires native 4D (drop 3D branch); docstring drops 3D contract</td></tr>
+    <tr><td><code>occrae/network/efficient_transformer.py</code></td><td>rename H,W→N,K (scoped) + native-K camera-embed (<code>s // K</code>, assert on N) + native-K camera-rope; single <code>S</code> from post-conv shape; proj-consistent fold-back</td></tr>
+    <tr><td><code>eval_occ_rae.py</code></td><td>one clarifying comment (image-grid axes)</td></tr>
+    <tr><td><code>occrae/deltatok_flow_trainer.py</code></td><td>native 5D flow: K read, ref_spatial_size=(1,K), pack/unpack via shared helpers, cross-cond ×K (cross-mode only); removed obsolete camera_rope guard; comments</td></tr>
+    <tr><td><code>visualize_deltatok_flow.py</code></td><td>pack/unpack via shared helpers; init noise via <code>_sample_noise</code></td></tr>
+    <tr><td><code>configs/train_deltatok_flow.yaml</code></td><td>add <code>num_delta_tokens: 1</code></td></tr>
+    <tr><td><code>slurm/train_deltatok_flow_jz.slurm</code></td><td>dtok32 run; recipe kept (delta_ctx + global + camera_embed)</td></tr>
+  </table>
+
+  <p class="small tag">docs/research/flow/2026-07-07_impl_dtok32.html · native-K DeltaTok flow · K=32 = best tokenizer of the sweep.</p>
+
+</div>
+</body>
+</html>

@@ -7,7 +7,7 @@ description: Connect between Jean Zay (IDRIS) and Karolina over the reverse SSH 
 
 This machine and Karolina cannot reach Jean Zay (IDRIS) directly. A third box, **cougar**, can reach both, so it holds **reverse SSH tunnels open through Karolina**. Everything that reaches Jean Zay from here or from Karolina rides those forwards.
 
-Source of truth: `docs/ssh_tunnel_jz.md` (this repo).
+Source of truth: `docs/infra/ssh_tunnel_jz.md` (this repo).
 
 ## Topology
 
@@ -123,7 +123,7 @@ Add `-i ~/.ssh/id_rsa` if the key authorized on Karolina isn't the default — g
 
 `ExitOnForwardFailure=yes` matters: without it, a forward that fails to bind (stale port held on Karolina after a blip) leaves ssh "healthy" but tunnel-less, and autossh never restarts it — a silent dead tunnel.
 
-A systemd user unit per login node (`~/.config/systemd/user/tunnel-jeanzay{,-login2}.service`, `Restart=always`, plus `loginctl enable-linger acao`) is the durable alternative to tmux — see `docs/ssh_tunnel_jz.md`.
+A systemd user unit per login node (`~/.config/systemd/user/tunnel-jeanzay{,-login2}.service`, `Restart=always`, plus `loginctl enable-linger acao`) is the durable alternative to tmux — see `docs/infra/ssh_tunnel_jz.md`.
 
 ## Why both login nodes
 

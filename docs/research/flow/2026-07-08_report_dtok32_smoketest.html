@@ -1,0 +1,236 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Journal — K=32 flow smoke test: pose-estimation crash + dtok32 NaN checkpoint</title>
+<style>
+  :root{
+    --bg:#ffffff; --fg:#1b1f24; --muted:#5b6570; --line:#e3e8ee;
+    --card:#f7f9fb; --accent:#2f6feb; --code:#f0f3f7;
+    --ok:#1a7f37; --warn:#9a6700; --add:#1a7f37; --del:#b42318;
+  }
+  @media (prefers-color-scheme:dark){
+    :root{ --bg:#0f1216; --fg:#e6edf3; --muted:#9aa4af; --line:#252c34;
+      --card:#161b22; --accent:#589bff; --code:#161b22;
+      --ok:#3fb950; --warn:#d29922; --add:#3fb950; --del:#f85149; }
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--fg);
+    font:15px/1.6 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;}
+  .wrap{max-width:980px;margin:0 auto;padding:32px 20px 80px;}
+  h1{font-size:26px;margin:0 0 4px;letter-spacing:-.01em}
+  h2{font-size:19px;margin:38px 0 10px;padding-bottom:6px;border-bottom:1px solid var(--line)}
+  h3{font-size:15px;margin:22px 0 6px}
+  .sub{color:var(--muted);margin:0 0 6px}
+  code,pre{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:13px}
+  code{background:var(--code);padding:1px 5px;border-radius:4px;overflow-wrap:anywhere}
+  pre{background:var(--code);border:1px solid var(--line);border-radius:8px;padding:12px 14px;overflow-x:auto}
+  pre code{background:none;padding:0}
+  table{border-collapse:collapse;width:100%;margin:10px 0;font-size:14px;display:block;overflow-x:auto}
+  th,td{border:1px solid var(--line);padding:7px 10px;text-align:left;vertical-align:top}
+  th{background:var(--card);font-weight:600;white-space:nowrap}
+  td code{white-space:nowrap}
+  .meta{display:flex;flex-wrap:wrap;gap:8px 18px;color:var(--muted);font-size:13px;margin:10px 0 0}
+  .meta b{color:var(--fg);font-weight:600}
+  .card{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:14px 16px;margin:12px 0}
+  .card.warn{border-color:var(--warn)}
+  .card.bad{border-color:var(--del)}
+  .card.ok{border-color:var(--ok)}
+  ul,ol{margin:6px 0 6px 4px;padding-left:20px}
+  li{margin:5px 0}
+  .small{color:var(--muted);font-size:12.5px}
+  .tag{font-family:ui-monospace,monospace;font-size:12px;color:var(--muted)}
+  .pill{display:inline-block;padding:1px 8px;border-radius:999px;font-size:11.5px;font-weight:600;border:1px solid var(--line);color:var(--muted)}
+  .pill.key{color:#fff;background:var(--accent);border-color:transparent}
+  .pill.bad{color:#fff;background:var(--del);border-color:transparent}
+  .pill.ok{color:#fff;background:var(--ok);border-color:transparent}
+  .add{color:var(--add);font-weight:600}
+  .del{color:var(--del);font-weight:600}
+  .ok{color:var(--ok)}
+  .bad{color:var(--del)}
+  .arrow{color:var(--muted)}
+  .fileh{font-family:ui-monospace,monospace;font-size:13.5px}
+  .step{margin:14px 0;padding-left:12px;border-left:3px solid var(--line)}
+  .step b{display:block;margin-bottom:2px}
+  .lbl{display:inline-block;min-width:44px;font-weight:700;color:var(--accent)}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <h1>Journal — K=32 flow smoke test: a pose-estimation crash, then a dead tokenizer</h1>
+  <p class="sub">Smoke-testing the native-K DeltaTok flow (<a href="2026-07-07_impl_dtok32.html">plan</a>) on Jean&nbsp;Zay
+  surfaced two unrelated failures. Both are now root-caused: a real (fixed) robustness gap in DA3 pose estimation,
+  and the actual blocker — <b>the dtok32 tokenizer checkpoint is 100% NaN</b>.</p>
+  <div class="meta">
+    <span><b>Date</b> 2026-07-07</span>
+    <span><b>Target</b> Jean Zay H100</span>
+    <span><b>Branch</b> <code>revert</code></span>
+    <span><b>Account</b> <code>zuw@h100</code></span>
+    <span><b>Config</b> <code>train_deltatok_flow_jeanzay</code></span>
+  </div>
+
+  <div class="card bad"><b>Verdict.</b> The native-K flow implementation and the pose-estimation fix are <b>correct</b> —
+  the sanity check runs end-to-end. The <b>only</b> blocker to the K=32 run is that the frozen tokenizer it loads,
+  <code>deltatok_surround_layer12_bsize2_dtok32_cos1e3_1e5_b95/ckpts/current.pth</code>, has diverged to <b>NaN
+  across every weight</b> (both <code>current.pth</code> and <code>current_backup.pth</code>). The K=8 and K=16 sweep
+  tokenizers are finite — the blow-up is <b>K=32-specific</b>. No usable dtok32 checkpoint was preserved.</div>
+
+  <h2>Run timeline</h2>
+  <table>
+    <tr><th>Job</th><th>Change under test</th><th>Where it died</th><th>Outcome</th></tr>
+    <tr><td><code>1529055</code></td><td>First submit (native-K flow, dtok32)</td>
+      <td>sanity viz → DA3 homography</td>
+      <td class="bad"><code>ValueError: At least 4 points are required to compute homography</code></td></tr>
+    <tr><td><code>1529525</code></td><td>+ vendored RANSAC &lt;4-inlier fallback</td>
+      <td>same call, one frame deeper</td>
+      <td class="bad"><code>_LinAlgError: linalg.svd failed to converge (ill-conditioned)</code></td></tr>
+    <tr><td><code>1529691</code></td><td>revert vendored + wrapper guard</td>
+      <td>sanity <span class="ok">passes</span>; train loss</td>
+      <td class="bad">all losses <code>nan</code> from iter 1 → cancelled</td></tr>
+  </table>
+  <p class="small">The flow path itself is healthy in every run: dtok32 loads <code>strict=True</code>, config composes
+  <code>num_delta_tokens=32</code>, and the full <code>flow_euler_sample</code> ODE (51 steps) → rollout → decode runs
+  before any of these failures. Native-K camera-embed passes its <code>n_p&nbsp;≤&nbsp;32</code> assert.</p>
+
+  <h2>Failure 1 — DA3 pose estimation crashes on degenerate rays <span class="pill ok">fixed</span></h2>
+  <p>The sanity check's visualization branch (<code>deltatok_flow_trainer.py:814</code>) decodes the
+  <b>flow-generated</b> tokens with <code>pose_from_depth_ray=True</code>, which asks DA3 to fit a camera pose to the
+  predicted ray map. At the first sanity check the flow ViT is random-init (<code>RESUME=0</code>), so the generated
+  rays are geometrically incoherent. Call chain:</p>
+  <pre><code>eval_one_epoch:814  pose_flow = self.occ_rae.decode(..., pose_from_depth_ray=True)
+  occ_rae.decode:173 → model_da3.inference_batch_from_layer:941 → _process_depth_output:691
+    → _process_ray_pose_estimation:614 → get_extrinsic_from_camray → camray_to_caminfo
+      → compute_optimal_rotation_intrinsics_batch → ransac_find_homography_weighted_fast_batch:416
+        → find_homography_least_squares_weighted_torch:122  →  raise / SVD</code></pre>
+
+  <h3>Why "&lt;4 points" when the grid has thousands</h3>
+  <p>The homography is <b>not</b> fit on the input grid — it is refit on the <b>RANSAC inliers</b>. Two funnels shrink
+  the full ray grid (N&nbsp;=&nbsp;H·W):</p>
+  <ul>
+    <li><b>z-mask → zero weight</b> (<code>ray_utils.py:40-53</code>): rays with near-zero z (degenerate direction)
+      get <code>weight=0</code>.</li>
+    <li><b>inlier filter</b> (<code>:387</code>): 100 candidate homographies are scored by points with reprojection
+      error <code>&lt; 3&nbsp;px</code>; the best hypothesis's inliers are kept for the final refit (<code>:396-418</code>).</li>
+  </ul>
+  <p>On incoherent (untrained-model) rays, <b>no</b> candidate reaches 4 inliers, so the refit gets <code>N&lt;4</code>
+  and raises. This is <b>downstream of decode</b>, in DA3's head — <b>K-independent</b> (the delta-token count never
+  reaches it).</p>
+
+  <h3>Fix iterations</h3>
+  <div class="step"><b><span class="lbl">A ✗</span> vendored RANSAC fallback</b>
+    In <code>ray_utils.py</code>, when inliers <code>&lt;4</code>, refit on the top-weighted points instead of raising.
+    <span class="del">Moved the failure one frame deeper</span>: those points are near-degenerate, so
+    <code>torch.linalg.svd</code> hit <code>_LinAlgError</code> (ill-conditioned). <b>Reverted</b> — a vendored patch
+    also has to survive re-vendoring and be synced by hand.</div>
+  <div class="step"><b><span class="lbl">B ✓</span> wrapper guard (shipped)</b>
+    <code class="fileh">occany/model/model_da3.py</code> — <code>DA3Wrapper._process_ray_pose_estimation</code>:
+    <pre><code>try:
+    pred_extrinsic, pred_focal_lengths, pred_principal_points = get_extrinsic_from_camray(
+        ray, ray_conf.clone(), ray.shape[-3], ray.shape[-2])
+except (ValueError, RuntimeError):
+    # Degenerate rays (untrained model / sanity check) make the homography
+    # ill-posed (&lt;4 RANSAC inliers or non-convergent SVD); return identity
+    # poses so eval/viz still runs instead of aborting the job.
+    B, V = ray.shape[0], ray.shape[1]
+    c2w = torch.eye(4, ...)[None, None, :3, :].expand(B, V, 3, 4).contiguous()   # (B, V, 3, 4)
+    intrinsics = torch.eye(3, ...)[None, None].expand(B, V, 3, 3).contiguous()   # (B, V, 3, 3)
+    return c2w, intrinsics</code></pre>
+    <code>(ValueError, RuntimeError)</code> catches <b>both</b> failure modes (the <code>&lt;4 points</code> ValueError
+    and the SVD <code>_LinAlgError</code>, a <code>RuntimeError</code> subclass); the scope is a single call so it
+    masks nothing else. It returns a <b>real identity pose</b> (not <code>None</code>) of the right shape, so the
+    sanity viz runs as usual. For a trained model the estimate succeeds and this branch is never taken — normal eval
+    is byte-identical.</div>
+
+  <h2>Failure 2 — training loss is NaN from step 1 <span class="pill bad">blocker</span></h2>
+  <p>With the crash fixed, the sanity check completed but logged all-NaN metrics, and the training loop produced
+  <code>loss: nan (max nan)  grad: nan</code> from the first iteration — a dead run.</p>
+  <pre><code>[Eval (sanity)/206 @ KittiSeqMultiView] (Epoch 0)  LossFlow: nan  MSEToken: nan
+    LossPointmap: nan  LossDepth: nan  LossRaymap: nan
+    LossPointmap_tok: nan  LossDepth_tok: nan  LossRaymap_tok: nan
+Training (Epoch 0)  [20/281]  loss: nan (max nan)  grad: nan  lr: 0.000002</code></pre>
+
+  <h3>Isolating the source</h3>
+  <p>Two of the NaN metrics share <b>no</b> compute except one tensor:</p>
+  <ul>
+    <li><code>LossFlow</code> — teacher-forced velocity MSE in <b>token space</b>, no decode, no sampling.</li>
+    <li><code>LossPointmap_tok</code> — decodes the <b>tokenizer's own</b> reconstruction of the real deltas; never
+      touches the random flow ViT.</li>
+  </ul>
+  <p>Their only common upstream is <b><code>z</code></b>, the delta tokens from the frozen dtok32 encode. If
+  <code>z</code> is NaN, every metric above is NaN. Ruled out along the way: the flow ViT (absent from
+  <code>_tok</code>), the <code>t</code>-sampling recipe (absent from <code>_tok</code>), the v-loss weight (clamped:
+  <code>torch.clamp(1-t, min=0.05)</code>, <code>deltatok_flow_trainer.py:492</code>), and the pack/unpack (permute
+  only). The encode <b>wrapper</b> (<code>deltatok_shared.py:181-209</code>) is likewise permute-clean — so the NaN is
+  produced <b>inside the frozen tokenizer forward</b>, i.e. the checkpoint itself.</p>
+
+  <h2>Smoking gun — reading the checkpoint directly</h2>
+  <p>Loaded the frozen tokenizer on JZ (<code>torch.load(..., mmap=True)</code>) and scanned every tensor:</p>
+  <div class="card bad"><b><code>dtok32/ckpts/current.pth</code> — entirely NaN.</b>
+  <pre><code>meta: {'iter': 56762, 'global_epoch': 101}
+num tensors: 556
+=== tensors with NaN/Inf: 556 ===        # every single one
+  z_embed.weight:                     nan=49152     (100%)
+  encoder_blocks.0.attention.q_proj.weight: nan=2359296 (100%)
+  encoder_blocks.11.mlp.down_proj.weight:   nan=6291456 (100%)
+  ...
+global finite max|w|: None               # no finite weight exists</code></pre>
+  <code>current_backup.pth</code> (ep&nbsp;100, iter&nbsp;56200) is identical: <b>556/556 tensors NaN,
+  680,986,176 / 680,986,176 elements bad, frac&nbsp;=&nbsp;1.0000</b>. Both rolling checkpoints captured the
+  blown-up state; nothing earlier was saved.</div>
+
+  <h3>The blow-up is K=32-specific</h3>
+  <p>Spot-checking <code>z_embed.weight</code> across the sweep tokenizers (all trained to the same ep&nbsp;101):</p>
+  <table>
+    <tr><th>Tokenizer</th><th>ablation pointmap<span class="small"> (KITTI PredVsOrig)</span></th><th><code>current.pth</code></th></tr>
+    <tr><td><code>…_dtok8_…</code> (K=8)</td><td>0.74</td><td class="ok">finite ✓</td></tr>
+    <tr><td><code>…_dtok16_…</code> (K=16)</td><td>0.47</td><td class="ok">finite ✓</td></tr>
+    <tr><td><b><code>…_dtok32_…</code> (K=32)</b></td><td><b>0.36 — best of the sweep</b></td><td class="bad">100% NaN ✗</td></tr>
+  </table>
+  <p>The recent tokenizer-training commits already flag this fight — <em>"switch anti blow-up recipe to cosine LR
+  decay"</em>, <em>"suffix run dirs with anti blow-up recipe"</em>, <em>"convergence stability"</em>. The recipe
+  held at K=8/16 but <b>not</b> at K=32. The ablation's 0.36 was necessarily measured at an earlier, finite epoch
+  that was <b>not</b> checkpointed (only <code>current</code> + <code>current_backup</code> are kept, and both are
+  post-divergence).</p>
+
+  <h2>What this means</h2>
+  <ul>
+    <li><b>Not a native-K bug.</b> The K-axis plumbing, the <code>strict=True</code> load, native-K camera-embed,
+      global attention over <code>S=N·K</code>, the ODE sample, rollout, and decode all work. The wrapper pose guard
+      is a genuine robustness improvement and is worth keeping regardless.</li>
+    <li><b>The experiment cannot run on dtok32 as-is.</b> Its frozen weights are NaN, so <code>z</code> is NaN, so the
+      flow objective is NaN. No amount of flow-side change fixes a dead tokenizer.</li>
+  </ul>
+
+  <h3>Recovery options</h3>
+  <table>
+    <tr><th>Option</th><th>Cost</th><th>Note</th></tr>
+    <tr><td><b>Retrain dtok32</b> with a stability fix (lower LR / stronger grad-clip / checkpoint best+periodic)</td>
+      <td>high</td><td>Only path to the actual best (0.36) tokenizer; the current run kept no recoverable state.</td></tr>
+    <tr><td><b>Run the flow on dtok16</b> (finite, 0.47)</td>
+      <td>low</td><td>Immediate: set <code>num_delta_tokens=16</code> + the dtok16 ckpt. Still ~5.7× better than K=1
+      (2.66). Not "K=32 = best".</td></tr>
+    <tr><td><b>Recover an earlier finite dtok32 checkpoint</b></td>
+      <td>—</td><td>None exists in the run dir; would need an archived copy elsewhere (e.g. Karolina) if one was kept.</td></tr>
+  </table>
+
+  <h2>Changes shipped this session</h2>
+  <table>
+    <tr><th>File</th><th>Edit</th><th>State</th></tr>
+    <tr><td><code>occany/model/model_da3.py</code></td>
+      <td>guard <code>_process_ray_pose_estimation</code> against degenerate-ray homography failure (identity-pose fallback)</td>
+      <td class="ok">kept</td></tr>
+    <tr><td><code>third_party/Depth-Anything-3/…/ray_utils.py</code></td>
+      <td>vendored &lt;4-inlier fallback — tried, then <b>reverted</b> to pristine</td>
+      <td>reverted</td></tr>
+    <tr><td><code>slurm/train_deltatok_flow_jz.slurm</code></td>
+      <td>account <code>lwy@h100</code> → <code>zuw@h100</code></td>
+      <td class="ok">kept</td></tr>
+  </table>
+  <p class="small tag">docs/research/flow/2026-07-08_report_dtok32_smoketest.html · JZ jobs 1529055 / 1529525 / 1529691 ·
+  root cause: dtok32 checkpoint diverged to NaN (K=32-specific).</p>
+
+</div>
+</body>
+</html>

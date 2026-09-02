@@ -1,0 +1,537 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>DeltaTok — is the wide-tc regression a SIGReg tax?</title>
+<style>
+/* ---------- tokens · light only, white slides (no dark variant by request) ---------- */
+:root{
+  color-scheme: light only;
+  --backdrop:#e9e9e6; --page:#f7f7f6; --surface:#ffffff;
+  --ink:#0b0b0b; --ink2:#52514e; --muted:#83817c;
+  --grid:#e4e4de; --axis:#c3c2b7; --border:rgba(11,11,11,.12);
+  --s1:#2a78d6; --s2:#eb6834; --s3:#1baf7a; --s4:#eda100; --s5:#8a63c8;
+  --good:#0ca30c; --crit:#d03b3b; --serious:#ec835a;
+  --accent:var(--s1);
+  --serif:"Iowan Old Style","Palatino Linotype",Palatino,Georgia,serif;
+  --sans:system-ui,-apple-system,"Segoe UI",sans-serif;
+  --mono:ui-monospace,"Cascadia Code",Menlo,Consolas,monospace;
+}
+/* ---------- deck chrome ---------- */
+*{box-sizing:border-box;margin:0}
+html,body{height:100%}
+body{background:var(--backdrop);color:var(--ink);font:15px/1.45 var(--sans);overflow:hidden}
+.stage{position:absolute;left:50%;top:50%;width:1280px;height:720px;transform-origin:center center}
+.slide{position:absolute;inset:0;background:var(--surface);border:1px solid var(--border);
+  padding:46px 60px 40px;display:none;flex-direction:column}
+.slide.on{display:flex}
+.eyebrow{font:600 12px/1 var(--mono);letter-spacing:.14em;text-transform:uppercase;color:var(--accent);margin-bottom:12px}
+.eyebrow .dim{color:var(--muted)}
+h1{font:400 42px/1.14 var(--serif);letter-spacing:-.01em;text-wrap:balance}
+h2{font:400 29px/1.2 var(--serif);letter-spacing:-.005em;text-wrap:balance;margin-bottom:4px}
+.sub{color:var(--ink2);font-size:14.5px;max-width:80ch;margin-top:9px}
+.body{flex:1;min-height:0;margin-top:16px}
+.foot{display:flex;justify-content:space-between;align-items:baseline;color:var(--muted);
+  font:11px/1 var(--mono);letter-spacing:.06em;margin-top:12px;border-top:1px solid var(--grid);padding-top:10px}
+.pageno{font-variant-numeric:tabular-nums}
+/* nav */
+.nav{position:fixed;left:50%;bottom:14px;transform:translateX(-50%);display:flex;gap:8px;align-items:center;z-index:5}
+.nav button{width:9px;height:9px;border-radius:50%;border:1px solid var(--muted);background:transparent;cursor:pointer;padding:0}
+.nav button.cur{background:var(--accent);border-color:var(--accent)}
+.nav button:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+.arr{position:fixed;top:50%;transform:translateY(-50%);z-index:5;border:1px solid var(--border);
+  background:var(--surface);color:var(--ink2);width:34px;height:56px;cursor:pointer;font-size:18px;border-radius:4px}
+.arr:hover{color:var(--ink)}
+#prev{left:10px}#next{right:10px}
+/* ---------- shared bits ---------- */
+.mono{font-family:var(--mono)}
+.num{font-variant-numeric:tabular-nums}
+.chip{display:inline-block;font:600 10.5px/1 var(--mono);letter-spacing:.05em;padding:4px 7px;border-radius:3px;
+  border:1px solid var(--border);white-space:nowrap}
+.chip.good{color:var(--good);border-color:currentColor}
+.chip.bad{color:var(--crit);border-color:currentColor}
+.chip.hero{color:var(--accent);border-color:currentColor}
+.sw{display:inline-block;width:14px;height:0;border-top-width:3px;border-top-style:solid;vertical-align:4px}
+.cols{display:grid;gap:24px;min-height:0}
+.c2{grid-template-columns:1fr 1fr}
+.c58{grid-template-columns:1.32fr 1fr}
+.c85{grid-template-columns:1fr 1.28fr}
+.card{border:1px solid var(--grid);border-radius:6px;padding:14px 16px;background:var(--page)}
+.card h3{font:600 14px/1.3 var(--sans);margin:6px 0}
+.card .tag{font:600 10px/1 var(--mono);letter-spacing:.1em;text-transform:uppercase;color:var(--muted)}
+ul.tight{padding-left:18px;display:flex;flex-direction:column;gap:8px;font-size:13.5px;color:var(--ink2)}
+ul.tight li{padding-left:2px}
+ul.tight strong{color:var(--ink);font-weight:600}
+/* stat tiles */
+.tiles{display:grid;gap:12px}
+.tile{border:1px solid var(--grid);border-radius:6px;padding:12px 14px;background:var(--page)}
+.tile .v{font:600 25px/1.1 var(--sans);letter-spacing:-.01em;font-variant-numeric:tabular-nums}
+.tile .k{font:600 10px/1.4 var(--mono);letter-spacing:.1em;text-transform:uppercase;color:var(--muted);margin-bottom:5px}
+.tile .d{font-size:12.5px;color:var(--ink2);margin-top:5px}
+.rulebar{border:1px dashed var(--axis);border-radius:6px;padding:11px 15px;font-size:13.5px;color:var(--ink2)}
+.rulebar b{color:var(--ink)}
+/* tables */
+table{border-collapse:collapse;width:100%;font-size:13px;font-variant-numeric:tabular-nums}
+th,td{text-align:right;padding:5px 8px;border-bottom:1px solid var(--grid)}
+th:first-child,td:first-child{text-align:left}
+thead th{font:600 10px/1.3 var(--mono);letter-spacing:.08em;text-transform:uppercase;color:var(--muted);border-bottom:1px solid var(--axis)}
+tbody tr.hi td{background:#fff6f2}
+td.w{color:var(--crit);font-weight:600}
+td.g{color:var(--good);font-weight:600}
+/* charts */
+.legend{display:flex;flex-wrap:wrap;gap:5px 16px;font:12px/1 var(--sans);color:var(--ink2);margin-bottom:4px}
+.legend span{display:inline-flex;gap:7px;align-items:center}
+svg text{font:10.5px var(--sans);fill:var(--muted)}
+svg .axl{font:9.5px var(--mono);fill:var(--muted)}
+svg .hll{font:600 9.5px var(--mono)}
+svg .barlbl{font:600 12px var(--sans);fill:var(--ink)}
+svg .barval{font:11px var(--mono);fill:var(--ink2)}
+.chartwrap{display:flex;flex-direction:column;height:100%;min-height:0}
+.chartwrap svg{flex:1;min-height:0}
+.ptitle{font:600 12px/1.2 var(--mono);color:var(--ink2);letter-spacing:.02em;margin-bottom:2px}
+.ptitle span{color:var(--muted);font-weight:400}
+.takeaway{border:1px solid var(--grid);border-radius:6px;padding:12px 15px;background:var(--page);display:flex;gap:12px;align-items:flex-start}
+.takeaway .n{font:600 22px/1 var(--serif);color:var(--accent);flex:0 0 auto;width:24px}
+.takeaway .tx{font-size:13.5px;color:var(--ink2)}
+.takeaway .tx b{color:var(--ink)}
+@media (prefers-reduced-motion: no-preference){
+  .slide.on{animation:fadein .18s ease}
+  @keyframes fadein{from{opacity:.4}to{opacity:1}}
+}
+@media print{
+  body{overflow:visible;background:#fff}
+  .stage{position:static;transform:none!important;width:auto;height:auto}
+  .slide{display:flex;position:static;width:1280px;height:720px;page-break-after:always;margin:0 auto}
+  .nav,.arr{display:none}
+}
+</style>
+</head>
+<body>
+<div class="stage" id="stage">
+
+
+<!-- ============ SLIDE 1 — verdict ============ -->
+<section class="slide on">
+  <div class="eyebrow">DeltaTok tokenizer <span class="dim">— compose 1.0 · l12 · dtok64 · maxgap9 · vpt1to2 · pool8192 · BSC 45055387 / 45055388</span></div>
+  <h1>Cutting SIGReg does not rescue wide bottlenecks — <span style="color:var(--crit)">it makes them worse</span>.</h1>
+  <p class="sub">The hypothesis: wider <span class="mono">target_channels</span> converges worse because SIGReg holds more channels to
+  N(0,I), so the recon regression is a regularizer tax. Test: halve <span class="mono">sigreg_weight</span> 0.005 → 0.002 at fixed tc,
+  everything else identical. The knob works — through epoch 20 the raw SIGReg statistic runs <b>1.5–2.7× higher</b>, so z really is
+  less constrained where it counts. Recon still gets <b>worse at both widths</b>, and the tc512-vs-tc256 gap barely moves.</p>
+  <div class="body">
+    <div class="cols c58" style="height:100%;align-items:center">
+      <div class="tiles" style="grid-template-columns:1fr 1fr">
+        <div class="tile"><div class="k">tc256 · eval recon @ ep 42</div><div class="v" style="color:var(--crit)">+6.1%</div><div class="d">0.0493 at sigreg 0.002 vs 0.0464 at 0.005</div></div>
+        <div class="tile"><div class="k">tc512 · eval recon @ ep 42</div><div class="v" style="color:var(--crit)">+3.2%</div><div class="d">0.0660 at sigreg 0.002 vs 0.0639 at 0.005</div></div>
+        <div class="tile"><div class="k">Width penalty tc512 / tc256</div><div class="v">1.38× → 1.34×</div><div class="d">95% of the excess survives the cut</div></div>
+        <div class="tile"><div class="k">Usable dims · participation ratio</div><div class="v" style="color:var(--crit)">−9% / −14%</div><div class="d">less SIGReg ⇒ fewer effective z dims</div></div>
+      </div>
+      <div style="display:flex;flex-direction:column;gap:12px">
+        <div class="rulebar"><b>Answer: no.</b> The wide-tc regression is not a SIGReg-pressure story. SIGReg is not the tax — it is
+        what <i>builds</i> the usable rank that recon lives on.</div>
+        <div class="rulebar"><b>What it is instead.</b> Eval recon tracks the z participation ratio (r = −0.97 across the
+        six-width sweep), while channel count predicts nothing (r = −0.10 vs rank). Rank sets recon.</div>
+        <div class="rulebar" style="border-style:solid;border-color:var(--grid);background:var(--page)"><b>Status.</b> Both arms <span class="mono">CANCELLED</span>
+        2026-08-27 13:48 at epoch 43 / 100, 25.4 h in — the question was answered, so the walltime was released. Controls
+        finished epoch 67. Compared at <b>matched epoch 42</b>.</div>
+      </div>
+    </div>
+  </div>
+  <div class="foot"><span>DeltaTok · sigreg 0.002 vs 0.005 at fixed tc · compose 1.0 · BSC</span><span class="pageno">01 / 07</span></div>
+</section>
+
+
+<!-- ============ SLIDE 2 — design + knob check ============ -->
+<section class="slide">
+  <div class="eyebrow">the 2×2 · and proof the knob moved</div>
+  <h2>One variable: <span class="mono" style="font-size:.85em">training.sigreg_weight</span>. Everything else is the width sweep's own recipe.</h2>
+  <div class="body">
+    <div class="cols c85" style="height:100%">
+      <div style="display:flex;flex-direction:column;gap:12px;min-height:0">
+        <table>
+          <thead><tr><th>arm</th><th>sigreg 0.005</th><th>sigreg 0.002</th></tr></thead>
+          <tbody>
+            <tr><td>tc128 <span class="mono" style="color:var(--muted)">ns256</span></td><td>44635509 → 44846726 <span class="chip">ep 99</span></td><td style="color:var(--muted)">— not run</td></tr>
+            <tr><td>tc256 <span class="mono" style="color:var(--muted)">ns512</span></td><td>44759941 <span class="chip">ep 67</span></td><td><b>45055387</b> <span class="chip hero">ep 43</span></td></tr>
+            <tr><td>tc512 <span class="mono" style="color:var(--muted)">ns1024</span></td><td>44759943 <span class="chip">ep 67</span></td><td><b>45055388</b> <span class="chip hero">ep 43</span></td></tr>
+          </tbody>
+        </table>
+        <ul class="tight">
+          <li><strong>Held fixed.</strong> <span class="mono">compose_weight=1.0</span>, <span class="mono">dtok64</span>,
+          <span class="mono">maxgap9</span>, <span class="mono">pool8192</span>, <span class="mono">warmup2000</span>,
+          lr 1e-3, grad_clip 0.1, bsize 2 × eff 16, same nt10 train/eval sets.</li>
+          <li><strong>Slices scale with width</strong> by construction: <span class="mono">ns = 2·Cz</span>. That is part of the
+          "more pressure at higher tc" story the hypothesis blames, and it is unchanged here — only the weight moves.</li>
+          <li><strong>The readout is unweighted.</strong> The <span class="mono">SIGReg:</span> term in the epoch line is
+          <span class="mono">loss_sigreg</span> before <span class="mono">weight × ramp × scale</span>, so it measures how far z
+          actually sits from N(0,I), not how hard we are pushing.</li>
+        </ul>
+        <div class="rulebar"><b>Knob check passed.</b> At w=0.002 the statistic sits <b>1.5–2.7×</b> above its 0.005 twin from epoch 1 through
+        epoch 20 at both widths, then converges back (ep 42: tc512 still 1.2× above, tc256 level). The relaxation is real, and it
+        lands exactly where the recon gap opens.</div>
+      </div>
+      <div class="chartwrap">
+        <div class="ptitle">RAW SIGREG STATISTIC <span>· train mean per epoch · log y · lower = closer to N(0,I)</span></div>
+        <div class="legend">
+          <span><i class="sw" style="border-color:var(--s1)"></i>tc256 · 0.005</span>
+          <span><i class="sw" style="border-color:var(--s1);border-top-style:dashed"></i>tc256 · 0.002</span>
+          <span><i class="sw" style="border-color:var(--s2)"></i>tc512 · 0.005</span>
+          <span><i class="sw" style="border-color:var(--s2);border-top-style:dashed"></i>tc512 · 0.002</span>
+          <span><i class="sw" style="border-color:var(--muted)"></i>tc128 · 0.005</span>
+        </div>
+        <div id="chSig" style="flex:1;min-height:0"></div>
+      </div>
+    </div>
+  </div>
+  <div class="foot"><span>slurm/deltatok/train_deltatok_compose_sigreg_nozn_tc{256,512}_bsc.slurm · account ehpc880</span><span class="pageno">02 / 07</span></div>
+</section>
+
+
+<!-- ============ SLIDE 3 — recon curves ============ -->
+<section class="slide">
+  <div class="eyebrow">result · single-step reconstruction</div>
+  <h2>The dashed lines never cross under the solid ones. Less SIGReg is worse at every epoch, at both widths.</h2>
+  <div class="body">
+    <div class="cols c58" style="height:100%">
+      <div class="chartwrap">
+        <div class="ptitle">EVAL LossRecon <span>· mean of KITTI + Occ3D-nuScenes · log y</span></div>
+        <div class="legend">
+          <span><i class="sw" style="border-color:var(--s1)"></i>tc256 · 0.005</span>
+          <span><i class="sw" style="border-color:var(--s1);border-top-style:dashed"></i>tc256 · 0.002</span>
+          <span><i class="sw" style="border-color:var(--s2)"></i>tc512 · 0.005</span>
+          <span><i class="sw" style="border-color:var(--s2);border-top-style:dashed"></i>tc512 · 0.002</span>
+          <span><i class="sw" style="border-color:var(--muted)"></i>tc128 · 0.005</span>
+        </div>
+        <div id="chRecon" style="flex:1;min-height:0"></div>
+      </div>
+      <div style="display:flex;flex-direction:column;gap:12px;justify-content:center">
+        <div class="tile"><div class="k">Epochs to reach eval recon 0.070</div>
+          <div class="v" style="font-size:20px">tc256 &nbsp;13 → 19 &nbsp;<span style="color:var(--crit);font-size:15px">+6 ep</span></div>
+          <div class="v" style="font-size:20px">tc512 &nbsp;31 → 36 &nbsp;<span style="color:var(--crit);font-size:15px">+5 ep</span></div>
+          <div class="d">halving the weight costs 5–6 epochs of wall-clock for the same reconstruction</div></div>
+        <table>
+          <thead><tr><th>@ ep 42</th><th>KITTI</th><th>nuScenes</th><th>mean</th></tr></thead>
+          <tbody>
+            <tr><td>tc256 · 0.005</td><td>0.0547</td><td>0.0381</td><td class="g">0.0464</td></tr>
+            <tr class="hi"><td>tc256 · 0.002</td><td>0.0583</td><td>0.0402</td><td class="w">0.0493</td></tr>
+            <tr><td>tc512 · 0.005</td><td>0.0763</td><td>0.0515</td><td class="g">0.0639</td></tr>
+            <tr class="hi"><td>tc512 · 0.002</td><td>0.0780</td><td>0.0539</td><td class="w">0.0660</td></tr>
+            <tr><td>tc128 · 0.005 <span style="color:var(--muted)">ref</span></td><td>0.0534</td><td>0.0373</td><td>0.0454</td></tr>
+          </tbody>
+        </table>
+        <div class="rulebar">The low-weight arms also <b>start later</b>: tc512 · 0.002 is still at 0.117 on epoch 4 while its twin is
+        already at 0.102. A weaker pull takes longer to organise the latent at all.</div>
+      </div>
+    </div>
+  </div>
+  <div class="foot"><span>LossRecon · per-epoch eval · epochs 0–42 · both eval sets held out</span><span class="pageno">03 / 07</span></div>
+</section>
+
+
+<!-- ============ SLIDE 4 — the width gap survives ============ -->
+<section class="slide">
+  <div class="eyebrow">the actual question · does the width gap close?</div>
+  <h2>Halving SIGReg removes <span style="color:var(--crit)">5%</span> of the tc512-over-tc256 excess. The other 95% is width.</h2>
+  <div class="body">
+    <div class="cols c2" style="height:100%">
+      <div class="chartwrap">
+        <div class="ptitle">tc512 / tc256 EVAL RECON RATIO <span>· by epoch · 1.00 = width is free</span></div>
+        <div class="legend">
+          <span><i class="sw" style="border-color:var(--s3)"></i>at sigreg 0.005</span>
+          <span><i class="sw" style="border-color:var(--s4);border-top-style:dashed"></i>at sigreg 0.002</span>
+        </div>
+        <div id="chRatio" style="flex:1;min-height:0"></div>
+        <div class="rulebar" style="margin-top:6px">Both curves climb together. If SIGReg were the cause, the dashed line would
+        peel <i>down</i> toward 1.0 — it does not.</div>
+      </div>
+      <div style="display:flex;flex-direction:column;gap:12px;justify-content:center">
+        <table>
+          <thead><tr><th>tc512 excess over tc256</th><th>sigreg 0.005</th><th>sigreg 0.002</th></tr></thead>
+          <tbody>
+            <tr><td>ep 20 · mean recon</td><td>+30.2%</td><td>+25.4%</td></tr>
+            <tr><td>ep 30 · mean recon</td><td>+36.5%</td><td>+34.0%</td></tr>
+            <tr class="hi"><td>ep 42 · mean recon</td><td>+37.7%</td><td>+33.9%</td></tr>
+            <tr><td>ep 42 · absolute</td><td>+0.0175</td><td>+0.0167</td></tr>
+            <tr><td>ep 42 · KITTI only</td><td>1.395×</td><td>1.338×</td></tr>
+            <tr><td>ep 42 · nuScenes only</td><td>1.352×</td><td>1.341×</td></tr>
+          </tbody>
+        </table>
+        <div class="takeaway"><div class="n">→</div><div class="tx">The width penalty is <b>not</b> bought back by relieving the
+        regularizer. It is not even dented: 0.0175 of excess loss becomes 0.0167.</div></div>
+        <div class="takeaway"><div class="n">→</div><div class="tx">And the cut is not free. Both arms move <b>up</b> in absolute
+        terms, so the small ratio shrink comes from tc256 degrading more than tc512 — <b>not</b> from tc512 improving.</div></div>
+      </div>
+    </div>
+  </div>
+  <div class="foot"><span>ratio of mean LossRecon · tc512 arm ÷ tc256 arm at the same sigreg weight</span><span class="pageno">04 / 07</span></div>
+</section>
+
+
+<!-- ============ SLIDE 5 — mechanism: rank ============ -->
+<section class="slide">
+  <div class="eyebrow">mechanism · what actually predicts recon</div>
+  <h2>SIGReg is not a tax on capacity. It is the thing that <span style="color:var(--s3)">creates</span> the capacity.</h2>
+  <div class="body">
+    <div class="cols c58" style="height:100%">
+      <div class="chartwrap">
+        <div class="ptitle">EVAL ZPartRank <span>· participation ratio 1/Σp² of the z covariance · effective dims used</span></div>
+        <div class="legend">
+          <span><i class="sw" style="border-color:var(--s1)"></i>tc256 · 0.005</span>
+          <span><i class="sw" style="border-color:var(--s1);border-top-style:dashed"></i>tc256 · 0.002</span>
+          <span><i class="sw" style="border-color:var(--s2)"></i>tc512 · 0.005</span>
+          <span><i class="sw" style="border-color:var(--s2);border-top-style:dashed"></i>tc512 · 0.002</span>
+          <span><i class="sw" style="border-color:var(--muted)"></i>tc128 · 0.005</span>
+        </div>
+        <div id="chRank" style="flex:1;min-height:0"></div>
+      </div>
+      <div style="display:flex;flex-direction:column;gap:11px;justify-content:center">
+        <table>
+          <thead><tr><th>@ ep 42</th><th>rank</th><th>of Cz</th><th>recon</th></tr></thead>
+          <tbody>
+            <tr><td>tc128 · 0.005</td><td>86.2</td><td>67%</td><td>0.0454</td></tr>
+            <tr><td>tc256 · 0.005</td><td>86.0</td><td>34%</td><td>0.0464</td></tr>
+            <tr class="hi"><td>tc256 · 0.002</td><td class="w">78.0</td><td>30%</td><td class="w">0.0493</td></tr>
+            <tr><td>tc512 · 0.005</td><td>32.9</td><td>6.4%</td><td>0.0639</td></tr>
+            <tr class="hi"><td>tc512 · 0.002</td><td class="w">28.5</td><td>5.6%</td><td class="w">0.0660</td></tr>
+          </tbody>
+        </table>
+        <div class="tile"><div class="k">rank vs eval recon</div><div class="v" style="color:var(--s3)">r = −0.999</div>
+        <div class="d">these 5 arms; and r = −0.97 on the independent 6-width sweep, where Cz vs rank is only −0.10</div></div>
+        <ul class="tight" style="gap:6px">
+          <li><strong>Width buys no usable dims.</strong> Across the whole sweep at ep 67 (Cz 64→1024) rank stays in a 37–97 band:
+          <b>Cz vs rank r = −0.10</b>. Rank vs recon over the same six arms: <b>r = −0.97</b>.</li>
+          <li><strong>tc512 is a stuck arm, not a wide arm.</strong> It is the worst of every width from ep 4 on — tc768 (85.1) and
+          tc1024 (67.9) both beat its 36.7 at ep 67 with <i>more</i> channels. Its low rank is what drives its recon; its width is
+          not what drives its low rank.</li>
+          <li><strong>Halving the weight moves rank the wrong way</strong> at both widths. The damage is early — at ep 12 the
+          low-weight arms are 1.7–1.9× behind on effective dims — and they never close it.</li>
+        </ul>
+      </div>
+    </div>
+  </div>
+  <div class="foot"><span>ZPartRank · eval-time z_spread · mean of KITTI + Occ3D-nuScenes</span><span class="pageno">05 / 07</span></div>
+</section>
+
+
+<!-- ============ SLIDE 6 — train + composed both agree ============ -->
+<section class="slide">
+  <div class="eyebrow">cross-checks · it is not generalisation, and it is not compose-specific</div>
+  <h2>Train loss moves the same way. So does composed recon. Nothing here looks like a released constraint.</h2>
+  <div class="body">
+    <div class="cols c2" style="height:100%">
+      <div class="chartwrap">
+        <div class="ptitle">TRAIN LossRecon <span>· epoch mean · log y · same colour scheme</span></div>
+        <div id="chTrain" style="flex:1;min-height:0"></div>
+        <div class="rulebar" style="margin-top:6px">If SIGReg were stealing recon capacity, the low-weight arms would fit the
+        <b>training</b> set better and only lose on eval. They fit it <b>worse</b>: tc256 0.0415 vs 0.0391, tc512 0.0559 vs 0.0533.</div>
+      </div>
+      <div style="display:flex;flex-direction:column;gap:12px;justify-content:center">
+        <table>
+          <thead><tr><th>@ ep 42 · sigreg 0.005 → 0.002</th><th>tc256</th><th>tc512</th></tr></thead>
+          <tbody>
+            <tr><td>Train LossRecon</td><td class="w">+6.1%</td><td class="w">+4.9%</td></tr>
+            <tr><td>Eval LossRecon</td><td class="w">+6.1%</td><td class="w">+3.2%</td></tr>
+            <tr><td>Eval LossRecon_Comp</td><td class="w">+6.4%</td><td class="w">+4.1%</td></tr>
+            <tr><td>Eval LossRecon_AR</td><td class="w">+6.4%</td><td class="w">+3.4%</td></tr>
+            <tr><td>Pointmap PredVsOrig · KITTI</td><td class="w">+14.7%</td><td class="w">+11.5%</td></tr>
+            <tr><td>ZPartRank</td><td class="w">−9.3%</td><td class="w">−13.5%</td></tr>
+            <tr><td>ZTotalVar</td><td>+10.2%</td><td>+4.8%</td></tr>
+          </tbody>
+        </table>
+        <div class="takeaway"><div class="n">→</div><div class="tx"><b>Every</b> loss column is worse and rank is down, while total
+        variance is up. The latent gets bigger and flatter, not richer — exactly the low-rank blow-up SIGReg exists to stop.</div></div>
+        <div class="takeaway"><div class="n">→</div><div class="tx">The composed and AR heads agree with the single-step head, so this
+        is a property of the tokenizer, not of the compose objective sitting on top of it.</div></div>
+      </div>
+    </div>
+  </div>
+  <div class="foot"><span>train stats from the epoch line · eval stats from the per-set [Eval/…] lines</span><span class="pageno">06 / 07</span></div>
+</section>
+
+
+<!-- ============ SLIDE 7 — read + next ============ -->
+<section class="slide">
+  <div class="eyebrow">read · caveats · next</div>
+  <h2>Q2 is answered against the hypothesis. The wide-tc regression is a rank ceiling.</h2>
+  <div class="body">
+    <div class="cols c2" style="height:100%">
+      <div style="display:flex;flex-direction:column;gap:11px">
+        <div class="card"><div class="tag">what to conclude</div>
+          <ul class="tight" style="gap:7px;margin-top:6px">
+            <li><strong>Retire the sigreg-tax explanation.</strong> Lower weight, worse recon, gap intact — at both widths.</li>
+            <li><strong>Rank is the state variable, width is not.</strong> Rank vs recon r = −0.999 here and −0.97 on the
+            six-width sweep; Cz vs rank is −0.10.</li>
+            <li><strong>Do not generalise from tc512.</strong> It is a stuck arm — worse than tc768 and tc1024 on rank despite
+            having fewer channels. Why it stalls at ep 4 is open.</li>
+          </ul></div>
+        <div class="card"><div class="tag">what would change the answer</div>
+          <ul class="tight" style="gap:7px;margin-top:6px">
+            <li><strong>Single seed, one weight step.</strong> 0.005 → 0.002 only. A much larger cut (or 0) could behave differently —
+            though an earlier no-SIGReg twin measured a ~10× lower participation ratio.</li>
+            <li><strong>Stopped at epoch 43 of 100.</strong> The deficit is narrowing — tc256 peaked at +15.8% (ep 15) and is +6.1% now, tc512 +18.6% (ep 6) → +3.2%. A very late
+            crossover is not excluded, but nothing in the rank curves points at one.</li>
+            <li><strong>No tc128 · 0.002 twin</strong>, so the A/B exists only at 256 and 512.</li>
+          </ul></div>
+      </div>
+      <div style="display:flex;flex-direction:column;gap:11px">
+        <div class="card"><div class="tag">next moves</div>
+          <ul class="tight" style="gap:7px;margin-top:6px">
+            <li><strong>Test the prediction, cheaply.</strong> Run tc512 at sigreg <b>0.01</b>. If rank is the state variable, rank goes
+            up and recon improves. That flips the sign of the knob and is the strongest single check left.</li>
+            <li><strong>Attack the rank ceiling directly</strong> — whitening or per-channel rescale before the isotropy term — rather
+            than tuning the weight. The measured floor says SIGReg is a strong scale anchor and a weak isotropy driver.</li>
+            <li><strong>These two arms are cancelled</strong> — they were answering a question that is already answered. The released
+            walltime is better spent on the 0.01 arm.</li>
+          </ul></div>
+        <div class="card"><div class="tag">where things stand · 2026-08-27</div>
+          <ul class="tight" style="gap:7px;margin-top:6px">
+            <li><span class="mono">BSC 45055387</span> tc256 · CANCELLED 13:48 · last epoch 43 · 25 h 24 m</li>
+            <li><span class="mono">BSC 45055388</span> tc512 · CANCELLED 13:48 · last epoch 43 · 25 h 24 m</li>
+            <li><span class="mono">current.pth</span> is written every epoch, so both arms resume from ep 43 on a plain relaunch if the
+            width question ever needs the extra epochs.</li>
+          </ul></div>
+      </div>
+    </div>
+  </div>
+  <div class="foot"><span>docs/research/tc_width/2026-08-26_task_compose_convergence_sigreg_tc.md · Q2</span><span class="pageno">07 / 07</span></div>
+</section>
+
+</div>
+<button class="arr" id="prev" aria-label="Previous slide">‹</button>
+<button class="arr" id="next" aria-label="Next slide">›</button>
+<div class="nav" id="nav" role="tablist"></div>
+
+<script>
+/* ---------- deck nav ---------- */
+const stage=document.getElementById("stage");
+const slides=[...document.querySelectorAll(".slide")];
+const nav=document.getElementById("nav");
+let cur=0;
+slides.forEach((_,i)=>{
+  const b=document.createElement("button");
+  b.setAttribute("role","tab");b.setAttribute("aria-label","Slide "+(i+1));
+  b.addEventListener("click",()=>go(i));
+  nav.appendChild(b);
+});
+function go(i){
+  cur=Math.max(0,Math.min(slides.length-1,i));
+  slides.forEach((s,j)=>s.classList.toggle("on",j===cur));
+  [...nav.children].forEach((b,j)=>b.classList.toggle("cur",j===cur));
+}
+document.getElementById("prev").addEventListener("click",()=>go(cur-1));
+document.getElementById("next").addEventListener("click",()=>go(cur+1));
+addEventListener("keydown",e=>{
+  if(["ArrowRight","PageDown"," "].includes(e.key)){go(cur+1);e.preventDefault();}
+  else if(["ArrowLeft","PageUp"].includes(e.key)){go(cur-1);e.preventDefault();}
+  else if(e.key==="Home")go(0);
+  else if(e.key==="End")go(slides.length-1);
+});
+go(0);
+/* ---------- auto-scale ---------- */
+function fit(){
+  const s=Math.min(innerWidth/1300,(innerHeight-40)/730);
+  stage.style.transform=`translate(-50%,-50%) scale(${Math.min(s,1.4)})`;
+}
+addEventListener("resize",fit);fit();
+
+/* ---------- CSS var resolver (for SVG strokes) ---------- */
+const CV=n=>getComputedStyle(document.documentElement).getPropertyValue(n).trim();
+
+/* ---------- multi-series epoch line chart; cfg.log switches the y scale ---------- */
+function lineChart(el,cfg){
+  const W=cfg.W||600,H=cfg.H||300,L=cfg.L||52,R=cfg.R||70,T=12,B=30, iw=W-L-R, ih=H-T-B;
+  const {ymin,ymax,yticks,xmax,xticks,log}=cfg;
+  const f=log?Math.log10:(v=>v), y0=f(ymin), y1=f(ymax);
+  const X=i=>L+iw*(i/xmax);
+  const Y=v=>T+ih*(1-(f(Math.min(Math.max(v,ymin),ymax))-y0)/(y1-y0));
+  const fmt=cfg.fmt||(t=>t.toFixed(4));
+  let s=`<svg viewBox="0 0 ${W} ${H}" width="100%" height="100%" preserveAspectRatio="xMidYMid meet">`;
+  yticks.forEach(t=>{const y=Y(t);
+    s+=`<line x1="${L}" y1="${y}" x2="${L+iw}" y2="${y}" stroke="${CV('--grid')}"/>`;
+    s+=`<text x="${L-7}" y="${y+3}" text-anchor="end" class="axl">${fmt(t)}</text>`;});
+  xticks.forEach(t=>{const x=X(t);
+    s+=`<text x="${x}" y="${H-11}" text-anchor="middle" class="axl">${t}</text>`;});
+  (cfg.hlines||[]).forEach(h=>{const y=Y(h.y),c=CV(h.color||'--muted');
+    s+=`<line x1="${L}" y1="${y}" x2="${L+iw}" y2="${y}" stroke="${c}" stroke-dasharray="2 3" stroke-width="1.1"/>`;
+    s+=`<text x="${L+4}" y="${y-4}" class="hll" fill="${c}">${h.label}</text>`;});
+  cfg.series.forEach(se=>{const c=CV(se.color);
+    const d=se.data.map((v,i)=>`${i?'L':'M'}${X(i).toFixed(1)} ${Y(v).toFixed(1)}`).join(' ');
+    s+=`<path d="${d}" fill="none" stroke="${c}" stroke-width="${se.width||1.9}" opacity="${se.faint?.55:1}" ${se.dash?`stroke-dasharray="${se.dash}"`:''}/>`;
+    const n=se.data.length-1, lx=X(n), ly=Y(se.data[n]);
+    s+=`<circle cx="${lx.toFixed(1)}" cy="${ly.toFixed(1)}" r="2.6" fill="${c}" opacity="${se.faint?.55:1}"/>`;
+    if(se.tag) s+=`<text x="${lx+6}" y="${ly+3.5}" class="hll" fill="${c}">${se.tag}</text>`;});
+  s+=`<text x="${L+iw/2}" y="${H-1}" text-anchor="middle" class="axl">epoch</text>`;
+  s+=`</svg>`;
+  el.innerHTML=s;
+}
+
+/* ================= DATA =================
+   Grepped from the cached BSC stdout of each job:
+     eval  -> "[Eval/206 @ <set>] LossRecon=..., ZPartRank=..." lines, meaned over KITTI + Occ3D-nuScenes
+     train -> the per-epoch "Epoch N, Iter ..., Train: ... (Recon: ..., SIGReg: ...)" line
+   Index i == epoch i, epochs 0..42.                                                        */
+const RECON={
+ tc128_005:[0.1208,0.1176,0.1038,0.0953,0.0893,0.0838,0.0809,0.078,0.0755,0.0734,0.0718,0.0703,0.0693,0.0681,0.0667,0.0654,0.0639,0.0628,0.0616,0.0604,0.0589,0.0578,0.0565,0.0557,0.0546,0.0536,0.0528,0.0522,0.0513,0.0505,0.0498,0.0493,0.0489,0.0485,0.0479,0.0474,0.047,0.0466,0.0465,0.0462,0.0459,0.0456,0.0454],
+ tc256_005:[0.1207,0.1177,0.105,0.0983,0.0921,0.0869,0.083,0.0806,0.0788,0.0769,0.0756,0.0737,0.0713,0.0696,0.0683,0.0661,0.0651,0.063,0.0617,0.0601,0.0588,0.0576,0.0563,0.0554,0.0546,0.0539,0.0533,0.0528,0.0524,0.052,0.0513,0.0508,0.0502,0.0495,0.0491,0.0487,0.0485,0.0481,0.0478,0.0471,0.0469,0.0466,0.0464],
+ tc256_002:[0.1204,0.1177,0.1123,0.1031,0.0982,0.095,0.0923,0.0897,0.0877,0.0853,0.0832,0.0819,0.0801,0.0794,0.0777,0.0766,0.0745,0.0726,0.0709,0.069,0.0667,0.0651,0.0635,0.0619,0.0604,0.0592,0.0578,0.057,0.0561,0.0555,0.0548,0.0541,0.0536,0.0529,0.0524,0.0519,0.0512,0.0508,0.0504,0.0502,0.0498,0.0495,0.0493],
+ tc512_005:[0.1213,0.118,0.1173,0.1084,0.1023,0.0965,0.0925,0.0901,0.0877,0.0859,0.0847,0.0834,0.0823,0.081,0.0807,0.0809,0.0796,0.0786,0.0774,0.0769,0.0766,0.0759,0.0745,0.0745,0.0742,0.0735,0.0729,0.0726,0.0719,0.0708,0.0701,0.0697,0.0686,0.0678,0.067,0.067,0.0662,0.0653,0.065,0.0648,0.0645,0.0645,0.0639],
+ tc512_002:[0.1221,0.1177,0.1168,0.1176,0.1147,0.1115,0.1098,0.1052,0.1011,0.099,0.0965,0.0945,0.092,0.091,0.0896,0.0885,0.0868,0.0861,0.0852,0.0844,0.0835,0.0824,0.0813,0.0802,0.0789,0.0783,0.077,0.0762,0.0754,0.0746,0.0735,0.0728,0.0723,0.072,0.0711,0.0703,0.0698,0.0689,0.0683,0.0679,0.0673,0.0668,0.066]};
+const RANK={
+ tc128_005:[3.7,11.15,7.95,12.55,17.45,20.6,21.75,23.15,26.2,27.25,29.45,31.1,31.65,33.2,35.1,37.15,40.35,42.4,44,47.05,49.7,53.15,55.75,58.2,60.15,62.7,64.8,67,69.05,71.6,73.55,75.6,76.55,77.6,79.4,80.35,81.7,82.6,83.55,83.9,84.45,85.15,86.15],
+ tc256_005:[9.35,12.45,6.5,10.65,14.3,17.5,20.45,21.25,22,23.6,24.25,26.35,29.95,32.4,34.45,37.6,40,43.2,46,49.65,52.25,55.55,58.25,60.85,62.15,64.5,66.3,67.45,67.95,68.55,70.15,72.25,73.95,75.55,78.95,79.55,80.55,82.2,81.65,81.8,83.65,84.45,86],
+ tc256_002:[2.65,6.45,6.2,5.6,7.9,8.9,9.95,11.7,12.5,13.8,15.6,16.55,17.35,17.85,19.8,20.65,23.4,26.75,29.45,32.8,37.3,40.45,43.65,47.35,50.5,53.05,56.65,59.4,61.45,63.5,64.55,66.9,68.1,68.25,69.7,70.65,73.3,74.45,75.4,75.9,77.2,77.1,78],
+ tc512_005:[5.25,11.15,7.7,7.05,6.7,10.45,12.3,13.2,14.5,14.75,15.55,16.35,16.95,17.35,17.55,17.5,17.55,18.45,18.95,19.2,19.2,20.1,20.95,21.3,21.55,21.65,22,22.5,23.4,24.45,25,25.65,26.6,27.5,28.25,29.05,29.9,30.65,31.2,31.6,32,32.35,32.9],
+ tc512_002:[3.55,4.15,4.9,2.95,2.95,5.05,4,3.5,3.2,4.45,6.05,7.8,8.7,9.7,10.55,11,11.3,11.95,12.1,12.65,13.25,14,15,15.6,16.45,17.15,18.2,18.6,19.5,20.25,21.65,21.85,22.2,22.55,22.95,23.95,24.5,24.9,26.1,26.7,27.2,27.5,28.45]};
+const SIG={
+ tc128_005:[0.0251,0.0457,0.0264,0.0182,0.0137,0.0114,0.0106,0.0102,0.0093,0.0086,0.0081,0.0077,0.0075,0.0073,0.007,0.0065,0.0062,0.0057,0.0054,0.0052,0.0049,0.0046,0.0044,0.0043,0.0041,0.004,0.0038,0.0036,0.0036,0.0036,0.0035,0.0033,0.0034,0.0033,0.0033,0.0032,0.0032,0.0031,0.0031,0.0031,0.0031,0.0032,0.0031],
+ tc256_005:[0.027,0.0385,0.0265,0.0221,0.017,0.0141,0.0129,0.012,0.0116,0.0113,0.0107,0.0103,0.0094,0.0087,0.0081,0.0076,0.0072,0.0067,0.0063,0.0059,0.0056,0.0053,0.0052,0.0051,0.005,0.005,0.0048,0.0047,0.0048,0.0048,0.005,0.0049,0.0051,0.0048,0.0047,0.005,0.005,0.005,0.005,0.0051,0.0052,0.0052,0.0053],
+ tc256_002:[0.0412,0.0895,0.0651,0.0418,0.0286,0.0245,0.023,0.0207,0.0185,0.0176,0.0161,0.015,0.0144,0.0139,0.0132,0.0125,0.0118,0.0106,0.0096,0.009,0.0083,0.0076,0.0072,0.0069,0.0065,0.0062,0.0059,0.0056,0.0054,0.0054,0.0054,0.0051,0.0051,0.0051,0.005,0.005,0.005,0.0048,0.0048,0.0048,0.0048,0.0048,0.0047],
+ tc512_005:[0.0261,0.0424,0.0364,0.0285,0.025,0.0213,0.0187,0.0169,0.0159,0.0153,0.0149,0.0142,0.0138,0.0135,0.0133,0.0131,0.0131,0.0128,0.0125,0.0123,0.0122,0.012,0.0116,0.0114,0.0112,0.0111,0.011,0.0107,0.0105,0.0102,0.01,0.0097,0.0096,0.0093,0.0091,0.0089,0.0088,0.0085,0.0084,0.0082,0.0082,0.0081,0.008],
+ tc512_002:[0.0447,0.091,0.073,0.0713,0.0686,0.0516,0.0379,0.0307,0.0289,0.0284,0.0266,0.026,0.0243,0.0237,0.0223,0.0214,0.0211,0.0205,0.0197,0.0193,0.0187,0.0181,0.0173,0.0166,0.0158,0.0152,0.0147,0.014,0.0139,0.0132,0.0125,0.0121,0.012,0.0118,0.0116,0.0114,0.0111,0.0109,0.0106,0.0102,0.0101,0.01,0.0098]};
+const TRAIN={
+ tc128_005:[0.127,0.1058,0.0975,0.0869,0.0804,0.075,0.0712,0.0685,0.0661,0.0639,0.0628,0.0613,0.0601,0.0591,0.0579,0.0566,0.0554,0.054,0.0531,0.0519,0.0508,0.0497,0.0484,0.0475,0.0467,0.0457,0.0449,0.0443,0.0435,0.0428,0.042,0.0417,0.0412,0.0409,0.0405,0.0401,0.0395,0.0394,0.0391,0.0388,0.0386,0.0383,0.0382],
+ tc256_005:[0.1271,0.1058,0.098,0.0894,0.0833,0.0777,0.074,0.0707,0.0691,0.0673,0.066,0.0645,0.0625,0.0608,0.0592,0.0578,0.0566,0.055,0.0537,0.0522,0.051,0.0498,0.0484,0.0476,0.0471,0.0462,0.0456,0.0452,0.0446,0.0441,0.0436,0.0431,0.0425,0.0421,0.0417,0.0413,0.0408,0.0408,0.0404,0.0399,0.0396,0.0393,0.0391],
+ tc256_002:[0.1269,0.1059,0.102,0.0942,0.0882,0.0842,0.0818,0.0789,0.0767,0.0747,0.0731,0.0713,0.0699,0.0689,0.0677,0.0664,0.0648,0.0631,0.0617,0.0598,0.0579,0.0564,0.0547,0.0533,0.0521,0.0508,0.0496,0.0488,0.0477,0.0471,0.0464,0.0461,0.0453,0.0449,0.0444,0.0439,0.0432,0.043,0.0425,0.0421,0.0419,0.0416,0.0415],
+ tc512_005:[0.1271,0.1059,0.1029,0.0999,0.091,0.0862,0.0824,0.0789,0.0767,0.0749,0.0739,0.0725,0.0713,0.0702,0.0692,0.0685,0.068,0.0671,0.0665,0.0657,0.0653,0.0648,0.0639,0.0633,0.0629,0.0624,0.0618,0.0615,0.0606,0.06,0.0593,0.059,0.058,0.0574,0.0566,0.0562,0.0554,0.0552,0.0547,0.054,0.0538,0.0535,0.0533],
+ tc512_002:[0.127,0.1059,0.1032,0.102,0.1008,0.0988,0.0965,0.0924,0.0887,0.0865,0.0846,0.0825,0.0803,0.0788,0.0773,0.0762,0.0753,0.0741,0.0734,0.0722,0.0714,0.0708,0.0697,0.0687,0.0679,0.067,0.066,0.0653,0.0642,0.0635,0.0625,0.0621,0.0613,0.0609,0.0605,0.06,0.059,0.0587,0.058,0.0573,0.057,0.0564,0.0559]};
+
+/* colour = width, dash = the halved weight; tc128 stays a faint reference */
+const S=(k,color,dash,tag,faint)=>({data:k,color,dash,tag,faint,width:dash?1.9:2.1});
+const X43={xmax:42,xticks:[0,10,20,30,42]};
+const ARMS=d=>[
+  S(d.tc128_005,'--muted',null,'tc128',true),
+  S(d.tc256_005,'--s1',null,'256·5'),
+  S(d.tc256_002,'--s1','5 3','256·2'),
+  S(d.tc512_005,'--s2',null,'512·5'),
+  S(d.tc512_002,'--s2','5 3','512·2')];
+
+/* slide 2 — raw SIGReg statistic */
+lineChart(document.getElementById('chSig'),{...X43,log:true,H:300,
+  ymin:0.0028,ymax:0.10,yticks:[0.003,0.005,0.009,0.017,0.032,0.060,0.100],
+  fmt:t=>t.toFixed(3),series:ARMS(SIG)});
+
+/* slide 3 — eval recon */
+lineChart(document.getElementById('chRecon'),{...X43,log:true,H:300,
+  ymin:0.044,ymax:0.125,yticks:[0.045,0.055,0.065,0.080,0.100,0.125],
+  fmt:t=>t.toFixed(3),series:ARMS(RECON)});
+
+/* slide 4 — tc512/tc256 recon ratio at each weight */
+const ratio=(a,b)=>a.map((v,i)=>v/b[i]);
+lineChart(document.getElementById('chRatio'),{xmax:42,xticks:[0,10,20,30,42],H:280,
+  ymin:0.98,ymax:1.42,yticks:[1.0,1.1,1.2,1.3,1.4],fmt:t=>t.toFixed(2),
+  hlines:[{y:1.0,label:'width is free',color:'--axis'}],
+  series:[S(ratio(RECON.tc512_005,RECON.tc256_005),'--s3',null,'0.005'),
+          S(ratio(RECON.tc512_002,RECON.tc256_002),'--s4','5 3','0.002')]});
+
+/* slide 5 — participation ratio */
+lineChart(document.getElementById('chRank'),{...X43,H:300,
+  ymin:0,ymax:90,yticks:[0,20,40,60,80],fmt:t=>t.toFixed(0),series:ARMS(RANK)});
+
+/* slide 6 — train recon */
+lineChart(document.getElementById('chTrain'),{...X43,log:true,H:280,
+  ymin:0.037,ymax:0.13,yticks:[0.038,0.048,0.060,0.078,0.100,0.130],
+  fmt:t=>t.toFixed(3),series:ARMS(TRAIN)});
+</script>
+</body>
+</html>

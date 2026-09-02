@@ -41,7 +41,7 @@ export TORCH_NCCL_HEARTBEAT_TIMEOUT_SEC="${TORCH_NCCL_HEARTBEAT_TIMEOUT_SEC:-100
 ulimit -n "$(ulimit -Hn)"
 
 # WIDTH-FIX of train_deltatok_flow_waymo_whiten_pos_jz.slurm (see
-# docs/journal/deltatok_flow_whitenpos_failure_analysis.html): xlarge (1152) <
+# docs/research/flow/2026-07-18_findings_whitenpos.html): xlarge (1152) <
 # C=1536 gave a compressive in_proj the sampler can't invert. Single change vs
 # whitenpos: vit_size=xxlarge (width==C). out_proj zero-init is now unconditional
 # in code. EMA and mu/sigma deliberately left off to isolate the width fix (EMA

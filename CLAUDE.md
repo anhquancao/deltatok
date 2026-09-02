@@ -2,9 +2,9 @@
 
 ## Interaction rules
 
-- Never add `Co-Authored-By` trailers to commit messages.
+- Never add `Co-Authored-By` or `Claude-Session` trailers to commit messages.
 - Ask clarifying questions or offer choices via `AskUserQuestion`, never inline in plain text.
-- Track multi-step tasks with `TaskCreate`. Mark each one completed as it finishes, not in a batch.
+- On multi-step tasks, post a one-line progress update as each step finishes, not in a batch.
 
 ## Response style
 
@@ -102,7 +102,7 @@ ssh jean-zay "bash -lc 'grep -E \"account|partition|time\" \$TRG_WORK/code/delta
 
 A returned job ID is **not** a successful launch. Watch until the job is `RUNNING` *and* its log shows a first iteration or loss line. Report only then. Most breakage lands in the first ~60 s: missing `module`, Hydra config errors, checkpoint shape mismatches, OOM, DDP port collisions.
 
-Run the watch with `run_in_background: true` so it never blocks the session. Loop on `squeue`, then tail both streams:
+Run the watch as an `until` loop with `run_in_background: true` (foreground `sleep` is blocked) that exits on the first loss line **or** when the job leaves `squeue`, so silence is never mistaken for running. `Monitor` is for open-ended per-event tails, not this one-shot check. Loop on `squeue`, then tail both streams:
 
 ```bash
 ssh jean-zay "bash -lc 'squeue -j <jobid> -h -o \"%T %M %R\"'"
@@ -117,29 +117,29 @@ The repo trains **DeltaTok** (tokenizer), **DeltaTok-flow** (flow matching), and
 
 `occany/` is a **library, not a training target**. The trainers import `DA3Wrapper` (`occany/model/model_da3.py`), `occany/training_da3.py`, `occany/datasets`, and `occany/loss` from it. `occany/model/must3r_blocks/` is historically named shared code that this path still imports, so it is not dead. Everything else under `occany/` and the root occupancy entrypoints are legacy and out of scope.
 
-**OccRAE** caches DA3 tokens at **layer 12**, a pre-fusion local layer. `OccRAE.encode()` early-exits through `DA3Wrapper.encode_to_layer` and runs only blocks 0–12 of the giant's 40. That fast path holds *only* while `encode_layer < alt_start=13`. `encode_layer: 18` is post-fusion and falls back to a full 40-block forward, roughly 3× the backbone cost, so treat it as a deliberate expense. See `docs/occrae.md`. Components: `extract_occany_features.py` (dump tokens dataset-wide), `occrae/{deltatok,deltatok_flow,img_decoder}_trainer.py`, `occrae/dataset/occrae_tokens.py`, `occrae/network/` and `deltatok_shared.py` (nets), `occrae/sigreg.py` and `z_spread.py` (latent regulariser and diagnostics), `occrae/flow_matching.py` (ODE/sampler), `occrae/metric_logger.py` (scalar logging to stdout + TB).
+**OccRAE** caches DA3 tokens at **layer 12**, a pre-fusion local layer. `OccRAE.encode()` early-exits through `DA3Wrapper.encode_to_layer` and runs only blocks 0–12 of the giant's 40. That fast path holds *only* while `encode_layer < alt_start=13`. `encode_layer: 18` is post-fusion and falls back to a full 40-block forward, roughly 3× the backbone cost, so treat it as a deliberate expense. See `docs/occrae/occrae.md`. Components: `extract_occany_features.py` (dump tokens dataset-wide), `occrae/{deltatok,deltatok_flow,img_decoder}_trainer.py`, `occrae/dataset/occrae_tokens.py`, `occrae/network/` and `deltatok_shared.py` (nets), `occrae/sigreg.py` and `z_spread.py` (latent regulariser and diagnostics), `occrae/flow_matching.py` (ODE/sampler), `occrae/metric_logger.py` (scalar logging to stdout + TB).
 
 **Configs** mirror `slurm/`: `configs/deltatok/`, `configs/deltatok_flow/`, `configs/rae/`. Each wrapper's `CONFIG_DIR` points at its own folder, so `CONFIG_NAME` stays a bare name. Configs are per-cluster, with the tag (`_bsc`, `_jeanzay`) always the last suffix. Edit the one for the cluster you submit to. Hydra resolves `defaults:` relative to the config's own folder, so a config and its parent must share a folder.
 
 **`third_party/`** must be importable from the checkout. Entrypoints prepend the paths via `occany.utils.runtime_paths.prepend_vendored_import_paths()`, and shell wrappers use `occany_prepend_pythonpath`.
 
-DeltaTok is the active research direction. Read before proposing changes: `docs/deltatok.md`, `docs/deltatok_flow_*.md`, `docs/sigreg_*.md`, `docs/cpu_mem_metric_overcount.md`, `docs/ssh_tunnel_jz.md`, dated findings in `docs/journal/*.html`, and design docs in `docs/plans/*.md`.
+DeltaTok is the active research direction. Read `docs/README.md` first. It maps the loop hypothesis → analysis → solution → results → findings onto `docs/research/<thread>/`, where every file is `<date>_<stage>_<slug>.<ext>` with stage ∈ task · analysis · impl · report · findings, and each thread's `README.md` is its ledger. Runbooks and incidents are in `docs/infra/`, OccRAE notes in `docs/occrae/`. Drive the loop with the `research-cycle` skill.
 
 ## Conventions
 
 - **Edits:** surgical. Change only what the task requires — no drive-by refactors, renames, or reformatting. Explain each edit so a human can verify it.
 - **Comments:** terse. The fewest words that convey the *why*, not the *what*. Default to one short line, in shell and slurm and config files too.
-- **Never lengthen a comment you edit.** The replacement must be no longer than what it replaces. Cut a stale line to make room. Measurements, dated findings, and sweep history belong in `docs/journal/*.html` or `research.json`, not a script header.
+- **Never lengthen a comment you edit.** The replacement must be no longer than what it replaces. Cut a stale line to make room. Measurements, dated findings, and sweep history belong in `docs/research/<thread>/`, not a script header.
 - **Tensor code:** comment each line and annotate the resulting shape inline, e.g. `x = rearrange(x, 'b (t s) d -> (b s) t d', t=t, s=s)  # (B*S, T, D)`. Define each shape symbol where it first appears.
 - **New variant scripts:** copy the closest existing file (`cp old.py new.py`), then edit. Never rewrite from scratch — copying keeps the diff reviewable.
 - **Code search:** prefer `grep` over `rg`.
-- **Slide decks** in `docs/slide/`: see the section below.
+- **Slide decks** live beside their task file as `docs/research/<thread>/<date>_report_<slug>_slides.html`: see the section below.
 - **Dataset strings** in `configs/**/*.yaml` are `eval()`-ed by `occany.datasets.get_data_loader()`, so they must stay valid Python. Every entry states `num_timesteps` (the consecutive-window length) and names its cameras via `fixed_cams`. Cameras and view budgets are never sampled.
 - **Sharding** uses `--world` and `--pid` in `extract_occany_features.py` and `dataset_setup/waymo/preprocess_waymo.py`.
 
 ## Slide decks
 
-`docs/slide/*.html`, self-contained, light theme only, white slide background. No dark-mode variant,
+`docs/research/<thread>/<date>_report_<slug>_slides.html`, self-contained, light theme only, white slide background. No dark-mode variant,
 no `prefers-color-scheme` block. Copy the closest existing deck and edit — the chrome (1280x720
 stage, nav, print CSS, the `lineChart` helper) is shared and already works.
 

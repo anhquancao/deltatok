@@ -1,0 +1,246 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Analysis — why the whitenpos flow run doesn't work (vs VGGT-World &amp; RAE)</title>
+<style>
+  :root{
+    --bg:#ffffff; --fg:#1b1f24; --muted:#5b6570; --line:#e3e8ee;
+    --card:#f7f9fb; --accent:#2f6feb; --code:#f0f3f7;
+    --ok:#1a7f37; --warn:#9a6700; --add:#1a7f37; --del:#b42318;
+  }
+  @media (prefers-color-scheme:dark){
+    :root{ --bg:#0f1216; --fg:#e6edf3; --muted:#9aa4af; --line:#252c34;
+      --card:#161b22; --accent:#589bff; --code:#161b22;
+      --ok:#3fb950; --warn:#d29922; --add:#3fb950; --del:#f85149; }
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--fg);
+    font:15px/1.6 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;}
+  .wrap{max-width:980px;margin:0 auto;padding:32px 20px 80px;}
+  h1{font-size:26px;margin:0 0 4px;letter-spacing:-.01em}
+  h2{font-size:19px;margin:38px 0 10px;padding-bottom:6px;border-bottom:1px solid var(--line)}
+  h3{font-size:15px;margin:22px 0 6px}
+  .sub{color:var(--muted);margin:0 0 6px}
+  code,pre{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:13px}
+  code{background:var(--code);padding:1px 5px;border-radius:4px;overflow-wrap:anywhere}
+  pre{background:var(--code);border:1px solid var(--line);border-radius:8px;padding:12px 14px;overflow-x:auto}
+  pre code{background:none;padding:0}
+  table{border-collapse:collapse;width:100%;margin:10px 0;font-size:14px;display:block;overflow-x:auto}
+  th,td{border:1px solid var(--line);padding:7px 10px;text-align:left;vertical-align:top}
+  th{background:var(--card);font-weight:600;white-space:nowrap}
+  td code{white-space:nowrap}
+  .meta{display:flex;flex-wrap:wrap;gap:8px 18px;color:var(--muted);font-size:13px;margin:10px 0 0}
+  .meta b{color:var(--fg);font-weight:600}
+  .card{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:14px 16px;margin:12px 0}
+  .card.warn{border-color:var(--warn)}
+  ul,ol{margin:6px 0 6px 4px;padding-left:20px}
+  li{margin:5px 0}
+  .small{color:var(--muted);font-size:12.5px}
+  .tag{font-family:ui-monospace,monospace;font-size:12px;color:var(--muted)}
+  .pill{display:inline-block;padding:1px 8px;border-radius:999px;font-size:11.5px;font-weight:600;border:1px solid var(--line);color:var(--muted)}
+  .pill.key{color:#fff;background:var(--accent);border-color:transparent}
+  .add{color:var(--add);font-weight:600}
+  .del{color:var(--del);font-weight:600}
+  .pill.done{color:#fff;background:var(--ok);border-color:transparent}
+  .pill.run{color:#fff;background:var(--warn);border-color:transparent}
+  .card.ok{border-color:var(--ok)}
+  .num{font-variant-numeric:tabular-nums}
+  s{color:var(--muted)}
+  .arrow{color:var(--muted)}
+  .fileh{font-family:ui-monospace,monospace;font-size:13.5px}
+  .step{margin:14px 0;padding-left:12px;border-left:3px solid var(--line)}
+  .step b{display:block;margin-bottom:2px}
+  .lbl{display:inline-block;min-width:44px;font-weight:700;color:var(--accent)}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <h1>Why <code>..._50k_whitenpos</code> doesn't work — recipe audit vs VGGT-World &amp; RAE</h1>
+  <p class="sub">Per-slot whitening is correctly implemented and RAE-faithful — and it changed nothing, because
+  whitening was never the bottleneck. Auditing the run against two working flow-on-frozen-latents recipes
+  (<code>third_party/VGGT-World</code>, <code>third_party/RAE</code>) finds one structural rule both satisfy and
+  this run violates: <b>the flow ViT is narrower than the latent (1152 &lt; 1536)</b>.</p>
+  <div class="meta">
+    <span><b>Run</b> <code>deltatok_flow_waymo_dtok64_deltaCtxCross_global_fullT_wd05_raymapoff_50k_whitenpos</code></span>
+    <span><b>Job</b> Jean Zay <code>2024660</code></span>
+    <span><b>Branch</b> <code>revert</code></span>
+    <span><b>Updated</b> 2026-07-18</span>
+  </div>
+  <div class="meta">
+    <span><b>Prior</b> <a href="2026-07-17_impl_latent_whitening.html">whitening plan</a>,
+      <code>docs/research/flow/2026-06-25_analysis_mse_collapse.md</code></span>
+  </div>
+
+  <h2>TL;DR</h2>
+  <div class="card ok">
+    <ul style="margin:0">
+      <li><b>Not a bug.</b> The per-slot <code>(K, C)</code> whitening pair
+        (<code>occrae/deltatok_shared.py</code>) is shape-asserted, std-floored, exactly inverse, and
+        <code>MSEToken</code> stays in raw z-space. The failure is the <b>recipe</b>, not the wiring.</li>
+      <li><b>Root cause (primary):</b> <code>vit_size=xlarge</code> → hidden 1152 &lt; latent C=1536. The
+        <code>in_proj</code> is a lossy 0.75× compression of both signal and noise. VGGT-World sets model
+        width <b>== latent dim</b> (1024, no input projection); RAE's central claim is width <b>&gt; latent dim</b>
+        (1152 for 768-d latents + a 2048-wide DDT head). Under-width is RAE's textbook signature:
+        teacher-forced loss drops, samples stay at mean + noise.</li>
+      <li><b>Missing secondaries</b> (both references use all three): timestep shift toward noise
+        (RAE α≈6.93 @ 196k dims; ours: none at ~393k scalars), EMA for sampling
+        (<code>use_ema: false</code>), zero-init of the output projection (ours is xavier).</li>
+      <li><b>Whitening verdict:</b> not necessary (VGGT-World trains on <i>raw</i> tokens) and not sufficient
+        (this run). Keep it, but stop expecting it to move <code>MSEToken</code>.</li>
+    </ul>
+  </div>
+
+  <h2>Symptom — what "doesn't work" looks like (job 2024660)</h2>
+  <p>Training is healthy in the trivial sense: train loss 5.4 → 1.38 (whitened v-MSE), grads 0.4–1.1, no
+  instability. The generative readout is flat for 44 epochs:</p>
+  <table>
+    <thead><tr><th>Metric (eval, 128 @ WaymoSeqMultiView)</th><th>sanity</th><th>ep 0</th><th>mid-run</th><th>ep 44</th><th>reference</th></tr></thead>
+    <tbody>
+      <tr><td><code>MSEToken</code> (raw z-space, 50-step ODE)</td>
+        <td class="num">0.3242</td><td class="num"><b>0.2827</b></td><td class="num">0.30–0.35</td><td class="num"><b>0.3045</b></td>
+        <td class="num">mean floor ≈ 0.21</td></tr>
+      <tr><td><code>LossFlow</code> (whitened space)</td>
+        <td class="num">41.46</td><td class="num">5.10</td><td class="num">≈1.6</td><td class="num">1.5984</td><td class="num">—</td></tr>
+      <tr><td><code>LossDepth</code> (sampled decode)</td>
+        <td class="num">13.72</td><td class="num">11.66</td><td class="num">≈6</td><td class="num">5.91</td>
+        <td class="num">GT-token ceiling 2.44</td></tr>
+      <tr><td><code>LossPointmap</code> (sampled decode)</td>
+        <td class="num">31.12</td><td class="num">31.86</td><td class="num">≈22</td><td class="num">23.32</td>
+        <td class="num">GT-token ceiling 4.40</td></tr>
+    </tbody>
+  </table>
+  <ul>
+    <li><b><code>MSEToken</code> never improves past epoch 0</b> (0.2827 → 0.3045; it degrades). Same signature as
+      the baseline (0.2716 ep0 → 0.2816 ep39) and the pooled-whiten run (best 0.2904 ep8, drifting up after).</li>
+    <li>Decode metrics improve early then wall <b>~2.5–5× above</b> the frozen tokenizer's own GT-token ceiling.</li>
+    <li>With the mean-prediction floor at ≈0.21 (Phase-0 stats), samples sit at
+      <b>"conditional mean + noise"</b> quality: the flow denoises (teacher-forced loss keeps dropping) but the
+      ODE-from-noise samples carry little scene-specific information. This is the
+      <code>2026-06-25_analysis_mse_collapse.md</code> "denoise, not generate" wall again, now at scale — and neither
+      whitening axis moved it.</li>
+  </ul>
+  <div class="card warn">
+    <b>Comparability caveat</b> (from the slurm header): this run evals the simplified fixed cam-0 T=5 config;
+    baseline 0.2816 and pooled ~0.29–0.30 were 10-view rollouts (the constant <code>*_tok</code> ceilings differ:
+    4.4009 vs 4.3521). Cross-run <code>MSEToken</code> deltas are informal. The damning evidence is
+    <b>intra-run</b>: 44 epochs buy zero improvement over epoch 0.
+  </div>
+
+  <h2>Recipe comparison — the two repos that made it work</h2>
+  <table>
+    <thead><tr><th>Ingredient</th><th>VGGT-World (works)</th><th>RAE (works)</th><th>This run</th></tr></thead>
+    <tbody>
+      <tr><td><b>Width vs latent dim</b></td>
+        <td><b>1024 == 1024</b>. No input projection at all — raw layer-4 aggregator tokens straight into Flux
+          blocks (<code>fm.py:303</code> asserts <code>C == model_dim</code>).</td>
+        <td><b>1152 &gt; 768</b> (DiT-DH-XL), plus a <b>2048-wide × 2</b> DDT head, head_dim 128. Paper's core
+          architectural claim.</td>
+        <td class="del">1152 &lt; 1536 — compressive <code>in_proj</code>
+          (<code>abstract_trainer.py:142</code>, <code>efficient_transformer.py:256</code>)</td></tr>
+      <tr><td><b>Latent whitening</b></td>
+        <td><b>None.</b> Raw residual-stream tokens; noise drawn in that raw space.</td>
+        <td>Per-<code>(C,H,W)</code>-position mean/var over the dataset, inverted inside <code>decode</code>
+          (<code>src/stage1/rae.py:91-101</code>).</td>
+        <td class="add">Per-<code>(K,C)</code> — RAE-faithful, correctly implemented</td></tr>
+      <tr><td><b>Timestep distribution</b></td>
+        <td>Uniform over 1000 steps, no shift.</td>
+        <td>logit-normal(0,1) <b>+ shift α = √(dim/4096) ≈ 6.93</b> at 196,608 latent scalars — applied to
+          <i>train t and the sampling grid</i> (<code>transport.py:181</code>, <code>integrators.py:100</code>).</td>
+        <td class="del">logit-normal(−0.7, 1.4), <b>no shift</b> — at ~393k scalars RAE's formula (with its
+          documented ambiguity) puts mu ≈ −1.9 … −3.3</td></tr>
+      <tr><td><b>Loss</b></td>
+        <td>x-pred trained through velocity-MSE (implicit 1/σ² weight).</td>
+        <td>v-pred, plain MSE, no weighting.</td>
+        <td class="add"><code>pred_mode=x, loss_mode=v</code> ≡ both in expectation — <b>exonerated</b></td></tr>
+      <tr><td><b>EMA</b></td>
+        <td>0.9999 on the FM module, eval-with-EMA.</td>
+        <td>0.9995; EMA <i>is</i> the sampling model.</td>
+        <td class="del"><code>use_ema: false</code></td></tr>
+      <tr><td><b>Zero-init</b></td>
+        <td>AdaLN mods + <code>proj_out</code> + <code>norm_out</code> zeroed → initial prediction exactly 0.</td>
+        <td>AdaLN mods + final layer + output linear zeroed.</td>
+        <td class="del">only <code>time_embed.mlp[-1]</code> zeroed; <code>out_proj</code> xavier
+          (<code>efficient_transformer.py:271-300</code>)</td></tr>
+      <tr><td><b>Conditioning</b></td>
+        <td>Context frames as full in-context tokens, joint self-attention (dual-stream Flux); stage-2
+          scheduled sampling (GT→rollout mix ramped over training). No CFG.</td>
+        <td>Class label (n/a for video).</td>
+        <td><code>delta_ctx_cross</code>: clean context slot + frame-0 patch feats via per-camera cross-attn —
+          different but defensible</td></tr>
+    </tbody>
+  </table>
+  <p class="small">The loss parameterization — the thing <code>2026-06-25_analysis_mse_collapse.md</code> worried
+  about — is <i>identical in expectation</i> across all three
+  (<code>x</code>-pred with 1/(1−t)² weight = <code>v</code>-pred plain MSE). It is not the differentiator.</p>
+
+  <h2>Why width &lt; latent dim fits the failure signature</h2>
+  <ul>
+    <li>Teacher-forced denoising survives compression: at any t &gt; 0, <code>z_t</code> still contains an
+      x-leak, so reconstructing x through a 1152-d bottleneck stays easy — the train loss keeps falling.</li>
+    <li>Generation does not: transporting an isotropic <b>1536-d</b> Gaussian onto the latent manifold needs a
+      velocity field the 1152-d trunk cannot represent. The 384 lost input/noise dimensions are unrecoverable at
+      exactly t≈0, where the sampler starts and where <i>all</i> information must come through the network.</li>
+    <li>That is precisely "loss goes down, samples stay at mean + noise" — RAE reports a hard capability cliff
+      when DiT width drops below the token dim, and VGGT-World implicitly agrees by not even allowing themselves
+      a projection layer.</li>
+    <li>The whitening result is consistent: VGGT-World proves whitening is <b>not necessary</b> (raw tokens work
+      when width == dim); this run proves it is <b>not sufficient</b>. The Phase-0 gate already hinted at it —
+      9.2× std ratio, "ambiguous", 78.7% of the energy a single constant channel (<code>c=527</code>) that any
+      network absorbs as a bias within steps.</li>
+  </ul>
+
+  <h2>Metric note — MSEToken cannot show generative progress</h2>
+  <div class="card">
+    <code>MSEToken</code> is minimized by conditional-<i>mean</i> prediction. A <b>perfect</b> sampler drawing
+    from p(z | context) scores ≈ 2× the conditional variance — i.e. it can look <i>worse</i> than a collapsed
+    model. A flat MSEToken therefore cannot distinguish "no progress" from "more honest sampling". The readouts
+    that can move: the rescaled-<code>LossFlow</code> gate (4.70× conversion, prior journal) and the decode
+    metrics (<code>LossDepth</code>/<code>LossPointmap</code> vs their <code>*_tok</code> ceilings).
+  </div>
+
+  <h2>Recommended fixes, ranked</h2>
+  <ol>
+    <li><span class="pill key">primary</span> <b><code>model.vit_size=xxlarge</code></b> (1536 wide, 28 deep):
+      width == C, the VGGT-World configuration. The sequence is tiny (4 transitions × 64 tokens + context), so
+      the width is affordable. RAE-style alternative: keep the trunk, add a 2048-wide × 2-block DDT head.</li>
+    <li><b>Timestep shift</b> — the prior journal's "adjacent lever, not started". One config key: sweep
+      <code>model.mu</code> ∈ {−1.8, −2.3, −3.3} (σ=1.4 kept), matching the documented α ≈ 3.5–14 ambiguity.
+      RAE applies the same shift to the 50-step Euler grid — ours should too.</li>
+    <li><b>EMA on</b> (0.9995–0.9999), eval with EMA — knob #1 from the collapse doc, still off. Also removes
+      the eval bounce that makes MSEToken hard to read.</li>
+    <li><b>Zero-init <code>out_proj</code></b> — one line in <code>initialize_weights</code>
+      (<code>efficient_transformer.py:271</code>); both references zero the output path.</li>
+    <li><b>Keep whitening</b> (pooled ≈ pos ≈ baseline in the ablation; either is fine), and read progress from
+      decode metrics / rescaled LossFlow, not MSEToken.</li>
+  </ol>
+  <p>If a width-1536 run still walls at mean + noise, the next structural difference to copy from VGGT-World is
+  <b>in-context conditioning</b> (frame-0 tokens concatenated into the joint attention sequence instead of
+  cross-attn) — but wait for the width result first: it is the only hard violation of both working recipes.</p>
+
+  <h2>Evidence</h2>
+  <ul class="small">
+    <li>Run log: <code>monitor_jobs/data/logs/Jeanzay/deltatok_flow_waymo_whiten_pos_2024660.out</code>
+      (MSEToken 0.2827 ep0 → 0.3045 ep44; train loss plateau 1.38; LossDepth 5.91 vs tok 2.44).</li>
+    <li>Pooled-whiten log: <code>.../deltatok_flow_waymo_whiten_1992473.out</code> (best MSEToken 0.2904 ep8).</li>
+    <li>Run config: <code>slurm/train_deltatok_flow_waymo_whiten_pos_jz.slurm</code> +
+      <code>configs/train_deltatok_flow.yaml</code> (xlarge / mu −0.7 / no EMA) +
+      <code>configs/train_deltatok_flow_jeanzay_waymo.yaml</code> (fixed cam-0 T=5 eval).</li>
+    <li>Flow ViT: <code>occrae/abstract_trainer.py:126-153</code> (xlarge = 1152/28/16),
+      <code>occrae/network/efficient_transformer.py</code> (in_proj 1536→1152, xavier out_proj, AdaLN-zero on
+      time embed only).</li>
+    <li>VGGT-World: <code>vggt/models/fm.py</code> (no whitening, model_dim == 1024, uniform t, x-pred through
+      v-MSE, zero-init proj_out, EMA 0.9999), <code>training_fm/config/default_kitti.yaml</code>.</li>
+    <li>RAE: <code>src/stage1/rae.py:91-101</code> (per-position whitening),
+      <code>src/stage2/transport/transport.py:181</code> + <code>src/train.py:137-139</code>
+      (shift α = √(dim/4096) ≈ 6.93), DiT-DH configs (1152 trunk + 2048×2 head), EMA 0.9995, zero-init.</li>
+    <li>Prior analyses: <a href="2026-07-17_impl_latent_whitening.html">whitening plan</a> (Phase-0 stats,
+      4.70× LossFlow conversion, mean floor 0.2126), <code>docs/research/flow/2026-06-25_analysis_mse_collapse.md</code>
+      (denoise-not-generate wall on the overfit).</li>
+  </ul>
+
+</div>
+</body>
+</html>

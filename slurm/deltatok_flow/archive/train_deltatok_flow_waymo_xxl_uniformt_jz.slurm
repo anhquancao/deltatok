@@ -42,7 +42,7 @@ ulimit -n "$(ulimit -Hn)"
 
 # UNIFORM-t variant of train_deltatok_flow_waymo_xxl_incontext_jz.slurm: same model, only
 # the t schedule changes (train + sampler together). Tests the untested half of VGGT-World's
-# escape (docs/journal/deltatok_flow_wall_diagnosis.html): uniform t puts 5.0% of draws
+# escape (docs/research/flow/2026-07-19_findings_wall.html): uniform t puts 5% of draws
 # above t=0.95 vs 0.46%. Judge on LossDepth vs the *_tok ceilings, not MSEToken.
 export CONFIG_NAME=train_deltatok_flow_waymo_jeanzay
 export RESULTS_DIR="/lustre/fswork/projects/rech/trg/uyl37fq/deltatok_flow_log"

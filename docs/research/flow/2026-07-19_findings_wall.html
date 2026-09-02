@@ -1,0 +1,390 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>The DeltaTok flow wall — decoder + conditional variance, not architecture/sampler (+ in-context fix)</title>
+<style>
+  :root{
+    --bg:#ffffff; --fg:#1b1f24; --muted:#5b6570; --line:#e3e8ee;
+    --card:#f7f9fb; --accent:#2f6feb; --code:#f0f3f7;
+    --ok:#1a7f37; --warn:#9a6700; --add:#1a7f37; --del:#b42318;
+  }
+  @media (prefers-color-scheme:dark){
+    :root{ --bg:#0f1216; --fg:#e6edf3; --muted:#9aa4af; --line:#252c34;
+      --card:#161b22; --accent:#589bff; --code:#161b22;
+      --ok:#3fb950; --warn:#d29922; --add:#3fb950; --del:#f85149; }
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--fg);
+    font:15px/1.6 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;}
+  .wrap{max-width:980px;margin:0 auto;padding:32px 20px 80px;}
+  h1{font-size:26px;margin:0 0 4px;letter-spacing:-.01em}
+  h2{font-size:19px;margin:38px 0 10px;padding-bottom:6px;border-bottom:1px solid var(--line)}
+  h3{font-size:15px;margin:22px 0 6px}
+  .sub{color:var(--muted);margin:0 0 6px}
+  code,pre{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:13px}
+  code{background:var(--code);padding:1px 5px;border-radius:4px;overflow-wrap:anywhere}
+  pre{background:var(--code);border:1px solid var(--line);border-radius:8px;padding:12px 14px;overflow-x:auto}
+  pre code{background:none;padding:0}
+  table{border-collapse:collapse;width:100%;margin:10px 0;font-size:14px;display:block;overflow-x:auto}
+  th,td{border:1px solid var(--line);padding:7px 10px;text-align:left;vertical-align:top}
+  th{background:var(--card);font-weight:600;white-space:nowrap}
+  td code{white-space:nowrap}
+  .meta{display:flex;flex-wrap:wrap;gap:8px 18px;color:var(--muted);font-size:13px;margin:10px 0 0}
+  .meta b{color:var(--fg);font-weight:600}
+  .card{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:14px 16px;margin:12px 0}
+  .card.warn{border-color:var(--warn)}
+  ul,ol{margin:6px 0 6px 4px;padding-left:20px}
+  li{margin:5px 0}
+  .small{color:var(--muted);font-size:12.5px}
+  .tag{font-family:ui-monospace,monospace;font-size:12px;color:var(--muted)}
+  .pill{display:inline-block;padding:1px 8px;border-radius:999px;font-size:11.5px;font-weight:600;border:1px solid var(--line);color:var(--muted)}
+  .pill.key{color:#fff;background:var(--accent);border-color:transparent}
+  .add{color:var(--add);font-weight:600}
+  .del{color:var(--del);font-weight:600}
+  .pill.done{color:#fff;background:var(--ok);border-color:transparent}
+  .pill.run{color:#fff;background:var(--warn);border-color:transparent}
+  .card.ok{border-color:var(--ok)}
+  .num{font-variant-numeric:tabular-nums}
+  s{color:var(--muted)}
+  .arrow{color:var(--muted)}
+  .fileh{font-family:ui-monospace,monospace;font-size:13.5px}
+  .step{margin:14px 0;padding-left:12px;border-left:3px solid var(--line)}
+  .step b{display:block;margin-bottom:2px}
+  .lbl{display:inline-block;min-width:44px;font-weight:700;color:var(--accent)}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <h1>The DeltaTok flow wall — decoder + conditional variance, not architecture or sampler</h1>
+  <p class="sub">The RAE/DiT t-conditioning port (per-block AdaLN-Zero + Gaussian-Fourier t-embed, job 2066610)
+  walls at exactly the same place as the two legacy architectures — three unrelated fixes, one wall to the
+  second decimal, so the network is eliminated. The per-t error profile
+  (<code>eval_deltatok_flow_t_bins.py</code>) then localizes the failure: the model has a <b>~1% x̂-reconstruction
+  floor near t=1</b>, and the sampler's <code>v = (x̂ − z)/clamp(1−t, 0.05)</code> conversion <b>amplifies that floor
+  400× in MSE</b>, injecting ~0.12 of structureless variance into every sample. VGGT-World also predicts x̂ —
+  but its loss and its (nonstandard, damped) Euler update never amplify. <b>Same-day outcome:</b> sampler-only
+  tests (Result section) refute amplification as the dominant term — the binding constraint is the frozen
+  decoder's intolerance to latent error, with conditional variance (~0.18) second.</p>
+  <div class="meta">
+    <span><b>Runs</b> <code>..._whitenpos_xxl_dit</code> (JZ <code>2066610</code>),
+      <code>..._whitenpos_xxl_ema</code> (JZ <code>2055450</code>),
+      <code>..._50k</code> baseline (JZ <code>1908282</code>)</span>
+    <span><b>Branch</b> <code>revert</code></span>
+    <span><b>In progress</b> <code>..._deltaCtxIncontext_..._xxl_dit</code> (JZ <code>2096639</code>, queued)</span>
+    <span><b>Updated</b> 2026-07-19</span>
+  </div>
+  <div class="meta">
+    <span><b>Prior</b> <a href="2026-07-18_findings_whitenpos.html">whitenpos failure analysis</a>
+      (width fix; its "loss exonerated" verdict is corrected below)</span>
+  </div>
+
+  <h2>TL;DR</h2>
+  <div class="card ok">
+    <ul style="margin:0">
+      <li><b>DiT run outcome: negative.</b> Per-block AdaLN-Zero + Fourier t-embed (1536×20, 1214M) walls at
+        LossDepth 5.75–6.02 / MSEToken 0.29–0.30 from epoch ~6 — indistinguishable from xlarge (1152×28, shared
+        AdaLN) and xxl (1536×28 + EMA + zero-init). <b>Architecture is eliminated.</b></li>
+      <li><b>The t-bins curve kills the two remaining "conditioning" hypotheses.</b> Teacher-forced x-error falls
+        0.160 → 0.010 as t→1: the model <i>does</i> read <code>z_t</code> (not latent-blind, not
+        cross-cond-shortcut).</li>
+      <li><b>t=0 error 0.160 = the conditional variance</b> (regression optimum given frame-0 cross-cond + clean
+        first delta). The 50-step sampler scores <b>0.285 — worse than one forward pass at pure noise</b>.
+        Integration injects ~0.12 of junk variance instead of refining.</li>
+      <li><b>Mechanism:</b> near t=1 the x̂-prediction floors at ~0.010 MSE (100× worse than copying the 99%-clean
+        input — a no-skip "re-synthesize everything" parametrization cost, width/depth-independent, hence the
+        universal wall). The sampler divides this floor by <code>clamp(1−t, 0.05)</code> → v-MSE ≈ 4.4 vs true-v
+        variance ≈ 1.2 → correlated Euler steps accumulate the junk, and the model's near-identity behavior at
+        t≈1 locks it in. <span class="num">0.160 + ~0.125 ≈ 0.285</span> observed. The decoder, trained on exact
+        latents only, shatters on the junk → LossDepth ~5.9.</li>
+      <li><b>VGGT-World also predicts x̂</b> (<code>fm.py:424</code> <code>##xpred</code>) — the prior journal's
+        "loss exonerated" row compared training losses only. Their escape is (a) unclamped 1/σ² loss weight
+        (→10⁶) + uniform t (~10× our near-clean mass), and (b) a damped sampler update that divides by
+        <i>data-ness</i>, not noise-ness: it jumps to x̂ at step 1 and never amplifies model error.</li>
+      <li><b>Outcome (jobs 2093887, 2094121 — same day):</b> the sampler-only tests <b>refute amplification as the
+        dominant term</b>. Damped sampler: MSEToken 0.293 → 0.264 only, LossDepth 5.78 → 6.26 (worse). One-step
+        regression x̂(t=0): MSEToken <b>0.179</b> (= the conditional variance in z-space) yet LossDepth 6.85 —
+        even the optimal-MSE latent decodes 2.6–2.8× above the 2.44 ceiling. <b>The frozen decoder's intolerance
+        to latent error is the binding constraint</b>, with conditional variance (~0.18) second; the
+        amplification (0.179 → 0.293 along the ode path) is real but subdominant. See the Result section.</li>
+      <li><b>Current action (MSEToken direction).</b> Per the pivot to lowering <i>token</i> MSE directly
+        (decoder-agnostic), a new <code>delta_ctx_incontext</code> mode concatenates the frame-0 patch grid
+        <i>into</i> the sequence (joint global attention, per-token AdaLN, <b>zero new params</b>) to test whether
+        the static per-camera cross-attention was under-extracting. Same dit recipe, only <code>cond_mode</code>
+        changed — <b>job 2096639</b> queued. See <a href="#incontext">In-context conditioning</a>.</li>
+    </ul>
+  </div>
+
+  <h2>The DiT run — what was changed, what happened</h2>
+  <p>Following the whitenpos journal's escalation path, the flow ViT's t-conditioning was found degenerate
+  (one shared 8-chunk modulation for all 28 blocks; sinusoid t-embedding spanning &lt;1 rad over t∈[0,1]) and
+  replaced by the RAE/DiT recipe, gated behind <code>model.vit_dit_adaln</code>:</p>
+  <ul>
+    <li><code>GaussianFourierEmbedding</code> (verbatim RAE copy, per-frame <code>(B,T)</code> t) replacing the
+      fat <code>TimestepEmbedder</code> (<code>occrae/network/transformer_block.py</code>).</li>
+    <li>Per-block <code>adaLN_modulation</code> (SiLU + Linear(D → 3·branches·D), zero-init) producing own
+      (shift, scale, gate) per residual branch; affine-free final <code>RMSNorm</code> + final AdaLN
+      (<code>occrae/network/efficient_transformer.py</code>).</li>
+    <li><code>vit_size=xxlarge_d20</code> (1536×20, width == latent C kept, depth cut 28→20 to pay for the
+      per-block AdaLN): 1214.137M params vs xxl's 1168.3M.</li>
+  </ul>
+  <table>
+    <thead><tr><th>Run</th><th>Arch / t-conditioning</th><th>Wall (LossDepth)</th><th>MSEToken</th><th>Eval LossFlow trend</th></tr></thead>
+    <tbody>
+      <tr><td><code>whitenpos</code> xlarge (2024660)</td><td>1152×28, shared AdaLN</td>
+        <td class="num">5.91 (ep 44)</td><td class="num">0.3045</td><td class="num">—</td></tr>
+      <tr><td><code>whitenpos_xxl_ema</code> (2055450)</td><td>1536×28 + EMA + zero-init out_proj</td>
+        <td class="num">5.83 (ep 50, done)</td><td class="num">0.3009</td><td class="num">1.21 → 1.35 (rising)</td></tr>
+      <tr><td><code>whitenpos_xxl_dit</code> (2066610) <span class="pill run">ep 47/50</span></td>
+        <td>1536×20, per-block AdaLN-Zero + Fourier t</td>
+        <td class="num">5.75–6.02 (ep 6–46)</td><td class="num">0.289–0.300</td><td class="num">1.21 → 1.32 (rising)</td></tr>
+    </tbody>
+  </table>
+  <ul>
+    <li>Token-decode ceilings (frozen tokenizer, GT deltas): LossDepth 2.44, LossPointmap 4.40. All runs wall
+      ~2.4× above the depth ceiling, converged by epoch ~6–12, flat for 30+ epochs after.</li>
+    <li>Eval (teacher-forced) LossFlow <i>rises</i> after epoch ~9 in both 1536-wide runs while train loss falls
+      (0.91 @ ep 47) — mild memorization, but the wall predates it.</li>
+    <li>Note: the dit run trains <b>without EMA</b> (config default <code>use_ema: false</code>; the xxl slurm set
+      it explicitly, the dit slurm didn't). Irrelevant to the wall — xxl <i>with</i> EMA walls identically.</li>
+  </ul>
+  <div class="card">
+    <b>Triangulation.</b> Width (1152→1536), EMA + zero-init, and a full t-conditioning rebuild are three
+    independent interventions. All land on the same numbers to the second decimal. The wall is therefore a
+    property of something they all share: the data (conditional variance) and the sampling formula — not the
+    network.
+  </div>
+
+  <h2>The t-bins probe — where the model is good, and where it is catastrophic</h2>
+  <p>Per-noise-level teacher-forced error (<code>eval_deltatok_flow_t_bins.py</code>, val split, 50 bins,
+  on the <code>_50k</code> baseline whose own sampled MSEToken is 0.2816–0.2919 — same wall family, same space
+  as the curve). Two analytic baselines: the <b>linear (Wiener) optimum</b> for a structureless Gaussian
+  residual, <code>σ²(1−t)²/(σ²t²+(1−t)²)</code> with σ² = 0.160; and the <b>copy baseline</b>
+  <code>x̂ = z_t/t</code>, error <code>((1−t)/t)²</code>.</p>
+  <table>
+    <thead><tr><th>t</th><th>observed mse_x</th><th>linear optimum</th><th>copy baseline</th><th>verdict</th></tr></thead>
+    <tbody>
+      <tr><td class="num">0.01</td><td class="num">0.1601</td><td class="num">0.160</td><td class="num">—</td>
+        <td>= conditional variance σ² (pure-noise input; the regression optimum)</td></tr>
+      <tr><td class="num">0.51</td><td class="num">0.0994</td><td class="num">0.136</td><td class="num">—</td>
+        <td class="add">27% better than linear — some residual structure is learned</td></tr>
+      <tr><td class="num">0.71</td><td class="num">0.0566</td><td class="num">0.082</td><td class="num">—</td>
+        <td class="add">31% better than linear</td></tr>
+      <tr><td class="num">0.91</td><td class="num">0.0160</td><td class="num">0.0092</td><td class="num">0.0098</td>
+        <td class="del">74% worse than linear; worse than copying</td></tr>
+      <tr><td class="num">0.99</td><td class="num">0.0100</td><td class="num">—</td><td class="num">0.0001</td>
+        <td class="del"><b>100× worse than copying the 99%-clean input</b></td></tr>
+    </tbody>
+  </table>
+  <ul>
+    <li><b>Not latent-blind:</b> error falls 16× from t=0 to t≈1 — kills the "model ignores z_t" and the
+      "cross-cond shortcut" hypotheses in their strong forms.</li>
+    <li><b>The ~0.010 floor</b> as t→1 is the x̂-parametrization cost: with no input→output skip, the trunk must
+      re-synthesize all 768 tokens even when the answer is in its input. ~1% MSE is its reconstruction fidelity
+      ceiling — roughly invariant to width/depth/conditioning, which is why every architecture walls identically.</li>
+    <li>The v-MSE panel peaks ≈5 at t≈0.95: that is exactly the floor divided by <code>clamp(1−t,0.05)²</code> —
+      the training objective sees the amplification too, but the clamp caps the incentive at 400×, and only
+      ~0.5% of logit-normal(−0.7, 1.4) samples land at t&gt;0.95.</li>
+  </ul>
+
+  <h2>Mechanism — how a 1% floor becomes a 0.29 wall</h2>
+  <div class="step"><b><span class="lbl">1</span> Conversion.</b> <code>pred_mode=x</code>: the sampler needs a
+    velocity and computes <code>v = (x̂ − z)/clamp(1−t, 0.05)</code>
+    (<code>occrae/generation_helper.py:84</code>). Any x̂ error ε becomes ε/(1−t) in v: 2× at t=0.5, 10× at
+    t=0.9, 20× (400× MSE) at t≥0.95.</div>
+  <div class="step"><b><span class="lbl">2</span> Injection.</b> At t=0.95 the floor (0.011) becomes v-MSE ≈ 4.4
+    while the true velocity has variance ≈ 1.2 — the velocity signal drowns. Euler errors are correlated step to
+    step (same model, slowly-moving z), so they accumulate rather than average out.</div>
+  <div class="step"><b><span class="lbl">3</span> Lock-in.</b> Near t=1 the model behaves as a near-copy of its
+    input. Teacher-forced that fixes a 1% error; at sample time its input is mean + accumulated junk, and it
+    copies the junk. Final sample = conditional mean + ~0.12 structureless variance:
+    <span class="num">0.160 + 0.125 ≈ 0.285</span> observed.</div>
+  <div class="step"><b><span class="lbl">4</span> Decode.</b> The frozen DeltaTok decoder was trained on exact
+    latents only; the junk shatters it → LossDepth ~5.9 vs GT-token ceiling 2.44.</div>
+  <p>Why each earlier fix could not have worked: width, EMA, zero-init, and t-conditioning all improve the
+  <i>model</i>; the wall = σ² (a data constant) + clamp-amplified floor noise (a sampler-formula constant).
+  Whitening and mu-shift reshape the training distribution; they do not touch the amplifier either.</p>
+
+  <h2>Correction — VGGT-World predicts x̂ too, and how it escapes</h2>
+  <div class="card warn">
+    The prior journal's recipe table marked our loss "<i>x-pred through v-MSE ≡ v-pred in expectation —
+    exonerated</i>". That compared <b>training objectives</b>, where the equivalence holds. It does <b>not</b>
+    hold at <b>sampling</b>: the parametrizations differ completely in how model error propagates through the
+    Euler update. The differentiator was hiding in the sampler all along.
+  </div>
+  <p><code>third_party/VGGT-World/vggt/models/fm.py</code> (their σ = noise level = our 1−t):</p>
+  <ul>
+    <li><b>Training</b> (<code>fm.py:409-433</code>, comment <code>##xpred</code>): network outputs x̂; loss is
+      <code>‖(x̂ − x_t)/σ − (x₁ − x_t)/σ‖² = ‖x̂ − x₁‖²/σ²</code> with σ <b>unclamped down to 0.001</b> → up to
+      10⁶ weight on near-clean errors (ours clamps at 0.05 → max 400). t is <b>uniform</b>: ~5% of samples land
+      at σ&lt;0.05 vs ~0.5% for our logit-normal(−0.7, 1.4). Their recipe brute-forces the reconstruction floor
+      down exactly where ours tolerates it.</li>
+    <li><b>Sampling</b> (<code>fm.py:479-480</code>):
+      <pre><code>step_ratio = ((sigma_cur - sigma_next) / (1 - sigma_cur)).clamp(0.0, 1.0)
+x = x + step_ratio * (x_hat - x)</code></pre>
+      The denominator is <b>(1 − σ) = data-ness</b>, not σ. Consequences:</li>
+  </ul>
+  <table>
+    <thead><tr><th></th><th>update</th><th>noisy end</th><th>clean end</th></tr></thead>
+    <tbody>
+      <tr><td><b>ours</b> (textbook x-pred ODE)</td>
+        <td><code>z += Δt·(x̂−z)/max(1−t, 0.05)</code></td>
+        <td>gentle</td>
+        <td class="del">divide by 0.05 → amplifies x̂ error 20×</td></tr>
+      <tr><td><b>VGGT-World</b> (damped)</td>
+        <td><code>z += Δσ·(x̂−z)/(1−σ)</code>, ratio clamped ≤ 1</td>
+        <td class="add">ratio clamps to 1 → <b>jump straight to x̂</b> (initial noise discarded)</td>
+        <td class="add">ratio ≈ Δσ ≈ 0.02 → <b>error never amplified</b></td></tr>
+    </tbody>
+  </table>
+  <p>Theirs is <i>not</i> a faithful ODE discretization: step 1 replaces the noise with x̂, and every later step
+  gently blends in a fresh x̂ evaluation — deterministic iterative refinement of the conditional prediction,
+  with model error only ever entering scaled by ~Δσ. There is no mechanism to inject amplified junk. Side
+  effect: the sampler is mean-seeking by construction (no sample diversity) — the right behavior for
+  near-deterministic next-frame forecasting, and for our forecast benchmark too.</p>
+  <p class="small">RAE (SiT-based) genuinely trains velocity — no conversion at either end. Both references
+  therefore share the property that matters: <b>no small-denominator division of model output at sampling</b>.</p>
+
+  <h2>Result — sampler swap and regression bound <span class="pill done">jobs 2093887 / 2094121</span></h2>
+  <p>The damped update was landed as <code>flow_euler_sample(step_mode="damped")</code>
+  (<code>occrae/generation_helper.py</code>; threaded via <code>model.sampler_step_mode</code>, default
+  <code>"ode"</code>) and evaluated on the dit run's <code>current.pth</code> with the trainer's own
+  <code>eval_one_epoch</code> (<code>eval_deltatok_flow_sampler.py</code>; the <code>ode</code> pass reproduces
+  the training logs exactly = load sanity). <code>eval_num_steps=1</code> makes the ode sampler output exactly
+  x̂(noise, t=0) — the pure regression estimate.</p>
+  <table>
+    <thead><tr><th>latent fed to decoder</th><th>MSEToken</th><th>LossDepth</th><th>LossPointmap</th><th>LossRaymap</th></tr></thead>
+    <tbody>
+      <tr><td>regression x̂(t=0), 1 step (2094121)</td>
+        <td class="num"><b>0.179</b></td><td class="num">6.85</td><td class="num"><b>16.10</b></td><td class="num"><b>15.17</b></td></tr>
+      <tr><td>damped 50-step (2093887)</td>
+        <td class="num">0.264</td><td class="num">6.26</td><td class="num">24.18</td><td class="num">20.49</td></tr>
+      <tr><td>ode 50-step (2093887, = training eval)</td>
+        <td class="num">0.293</td><td class="num"><b>5.78</b></td><td class="num">23.03</td><td class="num">21.84</td></tr>
+      <tr><td>GT tokens (frozen-tokenizer ceiling)</td>
+        <td class="num">0</td><td class="num">2.44</td><td class="num">4.39</td><td class="num">2.51</td></tr>
+    </tbody>
+  </table>
+  <ul>
+    <li><b>Conditional variance in z-space ≈ 0.18</b> (matches the 50k run's 0.160 within cross-space
+      differences). The damped "refinement" <i>drifts away</i> from it (0.179 → 0.264): iterating the model on
+      its own mean-like output at higher t labels is off-distribution. One forward pass beats both 50-step
+      samplers on token MSE.</li>
+    <li><b>The decoder is the wall.</b> Even the optimal-MSE latent any method can produce (0.179 = 18% of unit
+      variance) decodes 2.6–2.8× above the ceiling; all three latent styles land in the same 5.8–6.9 depth band.
+      The amplification mechanism is real (0.179 → 0.293 along the ode path) but <b>subdominant</b> — removing it
+      entirely does not crack the decode wall.</li>
+    <li><b>Per-metric flip:</b> the clean mean latent is much better on pointmap (16.1 vs 23.0) and raymap
+      (15.2 vs 21.8) but worse on depth (6.85 vs 5.78) — a mean latent decodes to globally-consistent but
+      locally-flat geometry; noisy latents scatter local structure instead. By total decode error the regression
+      latent is clearly the best; the LossDepth headline hid this.</li>
+  </ul>
+
+  <h2>Next steps, ranked (post-result)</h2>
+  <ol>
+    <li><span class="pill key">primary</span> <b>Decoder noise-robustness finetune</b> — RAE's recipe: finetune
+      the DeltaTok decoder (frozen encoder) on noise-augmented latents (σ ≈ 0.2–0.45, the achievable band), then
+      re-decode the same eval. Attacks the measured bottleneck directly; decoder-only training. If it works, the
+      existing regression/damped latents already give a working <i>deterministic</i> forecaster.</li>
+    <li><b>Shrink MSEToken: extraction gap, then σ².</b> The 0.18 floor splits into irreducible σ² (future
+      ego-motion, dynamic objects) + an <b>extraction gap</b> from the static per-camera cross-attention.
+      <span class="pill run">launched</span> <b>In-context conditioning</b> (<a href="#incontext">§below</a>,
+      job 2096639) attacks the gap first; if the floor holds, <code>n_ctx=2</code> and
+      <code>use_trajectory_cond</code> (action-conditioning on future ego-motion) attack σ² — the trajectory
+      infra exists but raises <code>NotImplementedError</code> under <code>vit_dit_adaln</code> (small port).</li>
+    <li><b>v-pred / on-manifold sampling</b> — the path to true generative sampling (MSE ≈ 2σ² but on-manifold
+      latents that decode near ceiling). Pointless until the decoder tolerates imperfect latents; revisit after
+      (1).</li>
+  </ol>
+  <div class="card">
+    <b>Metric note.</b> MSEToken ≈ σ² ≈ 0.18 is the regression optimum, not a failure — and a <i>perfect</i>
+    generative sampler would score ≈ 2σ² ≈ 0.36 (independent draw), i.e. worse than the mean on MSE. Progress
+    must be read from decode metrics vs the <code>*_tok</code> ceilings (2.44 / 4.39 / 2.51) — which is exactly
+    where the decoder currently caps everything at 2.4–2.8×.
+  </div>
+
+  <h2 id="incontext">In-context conditioning — closing the extraction gap <span class="pill run">job 2096639 (queued)</span></h2>
+  <p>The regression floor (MSEToken ≈ 0.18) is the sum of two terms: <b>irreducible conditional variance σ²</b>
+  (future ego-motion, dynamic objects, dis-occlusions — genuinely undetermined by frame-0) and an
+  <b>extraction gap</b> — information present in frame-0 that the network fails to convert into accuracy. The
+  current conditioning is the prime suspect for the gap:</p>
+  <ul>
+    <li><b>Static, unprocessed context.</b> Frame-0 enters only as cross-attention kv — raw DA3 layer-12 feats +
+      one parameter-free LayerNorm, <i>identical</i> k/v at block 1 and block 20. Attention can refine what it
+      <i>asks</i>, but no layer ever writes back into the context, so no layer computes <i>over</i> the scene
+      (scene flow, moving-vs-static, geometry propagation must all live inside the delta stream).</li>
+    <li><b>Per-camera kv.</b> Camera <i>n</i>'s K delta slots attend only to camera <i>n</i>'s grid; cross-camera
+      structure can only pass through the narrow delta stream's self-attention.</li>
+    <li><b>Narrow working stream.</b> ~768 delta tokens carry all scene reasoning while ~2–4k tokens of frame-0
+      state sit frozen — the stream that computes is 3× narrower than the store it reads.</li>
+  </ul>
+  <p>New mode <code>cond_mode=delta_ctx_incontext</code> (VGGT-World / MMDiT-style): the frame-0 patch grid is
+  <b>concatenated into the sequence</b> and processed jointly with the delta tokens by one global self-attention
+  every block — the context is rewritten layer by layer and cross-camera information flows.</p>
+  <div class="step"><b><span class="lbl">seq</span> Layout.</b>
+    <code>[reg | frame-0 ctx (M = N·Hp·Wp) | delta (t·S)]</code>, one joint global attention. Frame-0 tokens are
+    clean (timestep 1) and produce <b>no output and no loss</b> (sliced before <code>out_proj</code>); the
+    <code>n_ctx=1</code> first delta stays clean as before, so loss is on the predicted delta frames only.</div>
+  <div class="step"><b><span class="lbl">AdaLN</span> Per-token.</b> DiT AdaLN is per-<i>frame</i> — a rectangular
+    <code>view(B,t,S,D)</code> broadcast — which can't express the ragged frame-0 block (M ≠ S). So modulation
+    switches to a per-token gather via a group index (context → group 0 @ t=1, delta frame <i>i</i> → group
+    <i>i</i>+1 @ its sampled t). Gated on the mode → every other path is bit-identical.</div>
+  <div class="step"><b><span class="lbl">cost</span> Zero new params.</b> Reuses
+    <code>cross_cond_emb</code> / <code>cross_spatial_pos</code> / <code>camera_embed</code> (shared delta↔context)
+    / <code>temporal_pos</code> (frame-0 = index 0, deltas shifted 1..t); it only <i>drops</i> the per-camera
+    cross-attn blocks. Sequence grows ~4× (adds the M frame-0 tokens) → <code>bsize</code> 16→8.</div>
+  <p>The run keeps the <b>entire</b> dit recipe (xxlarge_d20, per-block AdaLN, dtok64, whitenpos,
+  <code>n_ctx=1</code>, <code>loss_mode=v</code>, 50 ep) and changes <b>only</b> <code>cond_mode</code>,
+  isolating the conditioning variable against the walled <code>..._xxl_dit</code> run.</p>
+  <div class="card ok">
+    <b>Success signal is MSEToken, not decode.</b> This direction attacks the extraction gap in latent space;
+    decode metrics stay <b>decoder-capped</b> (the Result section's binding constraint, addressed separately by
+    the #1 finetune) — so LossDepth may not move even if extraction improves. Win = the sampled MSEToken (and a
+    1-step regression readout) falls below the dit run's <b>0.293 / 0.179</b>. A clear margin ⇒ the extraction gap
+    was real and in-context closed part of it; ≈ the dit run ⇒ the 0.18 is mostly irreducible σ² (then
+    <code>n_ctx=2</code> / trajectory conditioning are the levers). Reviewed (Fable — three findings fixed);
+    4 files <code>py_compile</code>-clean and md5-verified on JZ; <b>job 2096639</b> queued
+    (<code>cya@h100</code>, 2× H100, fresh start).
+  </div>
+
+  <h2>Evidence</h2>
+  <ul class="small">
+    <li>DiT run: <code>slurm/train_deltatok_flow_waymo_xxl_dit_jz.slurm</code>
+      (<code>vit_size=xxlarge_d20</code>, <code>vit_dit_adaln=true</code>); log
+      <code>slurm/output/jz_train_deltatok_flow_waymo_xxl_dit_2066610.out</code> (1214.137M params; LossDepth
+      5.75–6.02 ep 6–46; MSEToken 0.289–0.300; eval LossFlow 1.21→1.32).</li>
+    <li>Controls: <code>..._xxl_2055450.out</code> (ep 50: LossDepth 5.83, MSEToken 0.3009, LossFlow 1.35),
+      <code>..._whiten_pos_2024660.out</code> (ep 44: 5.91 / 0.3045),
+      <code>..._waymo_1908282.out</code> (50k baseline, ep 38–39: LossDepth 6.31–6.36, MSEToken 0.2816–0.2919).</li>
+    <li>t-bins profile: <code>results/deltatok_flow_t_bins/deltatok_flow_waymo_dtok64_deltaCtxCross_global_fullT_wd05_raymapoff_50k/t_bins_val.csv</code>
+      on Jean Zay (mse_x: 0.1601 @ t=0.01 → 0.0100 @ t=0.99; x_var 1.00; v-MSE peak ≈5 @ t≈0.95); tool
+      <code>eval_deltatok_flow_t_bins.py</code>.</li>
+    <li>Our sampler conversion: <code>occrae/generation_helper.py:84</code>; loss clamps:
+      <code>occrae/deltatok_flow_trainer.py:488-505</code>; noising convention <code>z_t = t·x + (1−t)·e</code>:
+      <code>deltatok_flow_trainer.py:457</code>.</li>
+    <li>VGGT-World: <code>third_party/VGGT-World/vggt/models/fm.py</code> — <code>##xpred</code> (line 424),
+      unclamped 1/σ² loss (409–433, σ down to 0.001), damped sampler (479–480), uniform t (411–414).</li>
+    <li>Sampler-swap evals: <code>slurm/output/jz_eval_deltatok_flow_sampler_2093887.out</code> (ode 0.2932/5.78
+      reproduces the training logs; damped 0.2641/6.26) and <code>..._2094121.out</code> (1-step regression
+      0.1793/6.85, Pointmap 16.10, Raymap 15.17); tool <code>eval_deltatok_flow_sampler.py</code> +
+      <code>flow_euler_sample(step_mode=...)</code> in <code>occrae/generation_helper.py</code>.</li>
+    <li>DiT port implementation: <code>occrae/network/transformer_block.py</code>
+      (<code>GaussianFourierEmbedding</code>), <code>occrae/network/efficient_transformer.py</code> (per-block
+      <code>adaLN_modulation</code>, final AdaLN), <code>occrae/abstract_trainer.py</code>
+      (<code>xxlarge_d20</code> = 1536/20/16).</li>
+    <li>In-context implementation (<code>cond_mode=delta_ctx_incontext</code>):
+      <code>occrae/network/efficient_transformer.py</code> (<code>in_context</code> flag; per-token AdaLN gather
+      via <code>grp</code>; concat + slice in <code>Transformer.forward</code>),
+      <code>occrae/deltatok_flow_trainer.py</code> (<code>build_frame0_ctx</code>, <code>n_ctx=1</code>);
+      run <code>slurm/train_deltatok_flow_waymo_xxl_incontext_jz.slurm</code>
+      (<code>..._deltaCtxIncontext_..._xxl_dit</code>, <code>bsize=8</code>), <b>job 2096639</b>.</li>
+    <li>Prior analysis: <a href="2026-07-18_findings_whitenpos.html">whitenpos failure analysis</a>
+      (width hypothesis — now superseded by this diagnosis; its secondary fixes EMA/zero-init were applied in
+      2055450 and are neutral).</li>
+  </ul>
+
+</div>
+</body>
+</html>

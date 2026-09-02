@@ -442,7 +442,7 @@ class DeltaTokSharedMixin:
         # One decode over all V views so they share view-0's (t0, cam0) frame, which is
         # the frame the GT pointmap uses (ref_view_strategy="first"). Decoding per-timestep
         # put each timestep in its own frame -> a constant ego-motion offset on multi-camera
-        # pointmaps (docs/journal/deltatok_multicam_pointmap_eval_bug_2026-08-04.md).
+        # pointmaps (docs/infra/2026-08-04_multicam_pointmap_eval_bug.md).
         # num_cameras is now unused (decoder infers V from tokens); kept for caller parity.
         return self.occ_rae.decode({"tokens": tokens, "H": height, "W": width})
 

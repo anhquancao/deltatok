@@ -313,7 +313,7 @@ def main():
                     help="optimizer steps discarded before timing (default 100 of 500)")
     ap.add_argument("--epoch-samples", type=int, default=EPOCH_SAMPLES,
                     help="samples per epoch used for the time-per-epoch column (default 64000)")
-    ap.add_argument("--out-stem", default="docs/journal/deltatok_scaling_jz",
+    ap.add_argument("--out-stem", default="docs/infra/scaling_jz/deltatok_scaling_jz",
                     help="path stem for the .csv / .md / .png / .svg outputs")
     ap.add_argument("--extra-csv", action="append", default=[],
                     help="CSV of points measured elsewhere, same schema (repeatable)")

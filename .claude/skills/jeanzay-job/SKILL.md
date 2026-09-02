@@ -22,7 +22,7 @@ Jean Zay is one of the two active GPU sites for DeltaTok/OccRAE (the other is BS
 
 ## The SSH route is a reverse tunnel — it may be down
 
-`ssh jean-zay` from here works through a reverse SSH tunnel that **cougar** holds open through Karolina (ProxyJump karolina → `localhost:2222`). It is reliable for **read-only inspection** (`squeue`, log tails, `ls`, `module avail`) and for `sbatch` submission. If you get `Connection refused`, the tunnel is down — see `docs/ssh_tunnel_jz.md` (cougar must re-open it with `autossh`). On cougar the alias is `jean-zay` too.
+`ssh jean-zay` from here works through a reverse SSH tunnel that **cougar** holds open through Karolina (ProxyJump karolina → `localhost:2222`). It is reliable for **read-only inspection** (`squeue`, log tails, `ls`, `module avail`) and for `sbatch` submission. If you get `Connection refused`, the tunnel is down — see `docs/infra/ssh_tunnel_jz.md` (cougar must re-open it with `autossh`). On cougar the alias is `jean-zay` too.
 
 ## One-shot remote command
 

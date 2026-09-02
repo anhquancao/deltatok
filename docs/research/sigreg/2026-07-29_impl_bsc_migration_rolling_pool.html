@@ -1,0 +1,309 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>BSC re-setup on ehpc1001, and SIGReg becomes a rolling sample pool</title>
+<style>
+  :root{
+    --bg:#ffffff; --fg:#1b1f24; --muted:#5b6570; --line:#e3e8ee;
+    --card:#f7f9fb; --accent:#2f6feb; --code:#f0f3f7;
+    --ok:#1a7f37; --warn:#9a6700; --add:#1a7f37; --del:#b42318;
+  }
+  @media (prefers-color-scheme:dark){
+    :root{ --bg:#0f1216; --fg:#e6edf3; --muted:#9aa4af; --line:#252c34;
+      --card:#161b22; --accent:#589bff; --code:#161b22;
+      --ok:#3fb950; --warn:#d29922; --add:#3fb950; --del:#f85149; }
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--fg);
+    font:15px/1.6 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;}
+  .wrap{max-width:980px;margin:0 auto;padding:32px 20px 80px;}
+  h1{font-size:26px;margin:0 0 4px;letter-spacing:-.01em}
+  h2{font-size:19px;margin:38px 0 10px;padding-bottom:6px;border-bottom:1px solid var(--line)}
+  h3{font-size:15px;margin:22px 0 6px}
+  .sub{color:var(--muted);margin:0 0 6px}
+  code,pre{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:13px}
+  code{background:var(--code);padding:1px 5px;border-radius:4px;overflow-wrap:anywhere}
+  pre{background:var(--code);border:1px solid var(--line);border-radius:8px;padding:12px 14px;overflow-x:auto}
+  pre code{background:none;padding:0}
+  table{border-collapse:collapse;width:100%;margin:10px 0;font-size:14px;display:block;overflow-x:auto}
+  th,td{border:1px solid var(--line);padding:7px 10px;text-align:left;vertical-align:top}
+  th{background:var(--card);font-weight:600;white-space:nowrap}
+  td code{white-space:nowrap}
+  .meta{display:flex;flex-wrap:wrap;gap:8px 18px;color:var(--muted);font-size:13px;margin:10px 0 0}
+  .meta b{color:var(--fg);font-weight:600}
+  .card{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:14px 16px;margin:12px 0}
+  .card.warn{border-color:var(--warn)}
+  ul,ol{margin:6px 0 6px 4px;padding-left:20px}
+  li{margin:5px 0}
+  .small{color:var(--muted);font-size:12.5px}
+  .tag{font-family:ui-monospace,monospace;font-size:12px;color:var(--muted)}
+  .pill{display:inline-block;padding:1px 8px;border-radius:999px;font-size:11.5px;font-weight:600;border:1px solid var(--line);color:var(--muted)}
+  .pill.key{color:#fff;background:var(--accent);border-color:transparent}
+  .add{color:var(--add);font-weight:600}
+  .del{color:var(--del);font-weight:600}
+  .pill.done{color:#fff;background:var(--ok);border-color:transparent}
+  .pill.run{color:#fff;background:var(--warn);border-color:transparent}
+  .card.ok{border-color:var(--ok)}
+  .num{font-variant-numeric:tabular-nums}
+  s{color:var(--muted)}
+  .arrow{color:var(--muted)}
+  .fileh{font-family:ui-monospace,monospace;font-size:13.5px}
+  .step{margin:14px 0;padding-left:12px;border-left:3px solid var(--line)}
+  .step b{display:block;margin-bottom:2px}
+  .lbl{display:inline-block;min-width:44px;font-weight:700;color:var(--accent)}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>BSC re-setup on <code>ehpc1001</code>, and SIGReg becomes a rolling sample pool</h1>
+  <p class="sub">Two independent things, both landed 2026-07-29. <b>(1)</b> DeltaTok is deployable on
+  BSC again: the old <code>ehpc793</code> allocation is <i>over budget</i> (42,778 / 40,000 GPU-h) and
+  <b>expires 2026-08-07</b>, so data, environment and configs moved to <code>ehpc1001</code>
+  (200,000 GPU-h, to 2027-07-27). <b>(2)</b> SIGReg's estimator was rebuilt: instead of pooling one
+  grad-accum window and firing once, it now carries a <b>rolling FIFO queue</b> of recent z rows and
+  fires <b>every micro-batch</b>. That is <span class="del">not</span> pressure-compatible with the
+  earlier sigreg arms — at the same <code>sigreg_weight</code> it delivers <code>grad_cum</code>× the
+  old pressure — but it no longer changes when <code>grad_cum</code> does, so arms now transfer
+  across cluster layouts.</p>
+  <div class="meta">
+    <span><b>Runs</b> <code>BSC 43929539</code> (data migration),
+      <code>BSC 43972109</code> (<code>acc_debug</code> smoke, <span class="add">passed</span>, cancelled),
+      <code>BSC 43972396</code> (full <code>acc_ehpc</code> 48h arm)</span>
+    <span><b>Branch</b> <code>revert</code></span>
+    <span><b>Updated</b> 2026-07-29</span>
+  </div>
+  <div class="meta">
+    <span><b>Prior</b> <a href="2026-07-26_findings_layernorm_geometry.html">2026-07-26_findings_layernorm_geometry.html</a>
+      — the <code>_pool</code> estimator whose firing schedule this entry replaces</span>
+  </div>
+
+  <h2>TL;DR</h2>
+  <div class="card ok">
+    <ul style="margin:0">
+      <li><b>Migration verified, not assumed.</b> <code>BSC:43929539</code> copied
+        <code>/gpfs/scratch/ehpc793</code> → <code>ehpc1001</code> in 10:33:17, exit 0. All
+        <span class="num">1435</span> work items end <code>EXIT 0</code>; the only two logs lacking a
+        final <code>EXIT 0</code> are a killed coarse-grained <code>once_processed</code> item
+        (superseded by per-scene items that all succeeded) and <code>code_OccAny</code>, which shows a
+        complete rsync stats block.</li>
+      <li><b>The venv was the real blocker.</b> <code>~/.bashrc</code> now exports
+        <code>PROJECT=/gpfs/projects/ehpc1001</code>, but <code>ehpc1001/envs/</code> was <i>empty</i> —
+        so <code>env_bsc.sh</code>, which resolves <code>$PROJECT/envs/maskgit</code>, pointed at nothing.
+        Copied (63,380 files / 7.38 GB) and path-rewritten; verified <code>torch 2.5.1+cu121</code>
+        imports on BSC.</li>
+      <li><b>SIGReg now fires every micro-batch</b> over <code>live + queue</code>. Because it then sits
+        in every backward like the recon loss, the <code>/grad_cum</code> divisor cancels on its own —
+        the old <code>×grad_cum</code> factor is gone, replaced by <code>scale = pool/live</code> which
+        undoes the estimator's <code>1/Q</code> gradient attenuation.</li>
+      <li><b>Pressure changed by <code>grad_cum</code>× (2× here).</b> Derived below and confirmed by an
+        independent review. The new definition is layout-invariant, which the old one was not — but
+        sigreg arms from before this change are <b>not weight-comparable</b>.</li>
+      <li><b class="del">Open hazard.</b> <code>slurm/train_deltatok_multitoken_mlp_sigreg_jz.slurm</code>
+        shares this trainer, sets no <code>SIGREG_POOL_SAMPLES</code>, and its RUN_NAME tag is a bare
+        <code>_pool</code> with no number — so resuming an existing JZ dir on this code silently gets 2×
+        pressure with <i>no name change to warn you</i>. Left untouched deliberately (editing it would
+        orphan in-flight runs).</li>
+    </ul>
+  </div>
+
+  <h2>Part 1 — Why the move, and what moved</h2>
+
+  <h3>Allocation state</h3>
+  <table>
+    <tr><th>Account</th><th>Budget</th><th>Used</th><th>Ends</th><th>Status</th></tr>
+    <tr><td><code>ehpc793</code></td><td class="num">40,000</td><td class="num">42,778.5</td>
+      <td>2026-08-07</td><td class="del">over budget, expiring</td></tr>
+    <tr><td><code>ehpc1001</code></td><td class="num">200,000</td><td class="num">0.0</td>
+      <td>2027-07-27</td><td class="add">active</td></tr>
+  </table>
+
+  <h3>What now lives where</h3>
+  <table>
+    <tr><th>Item</th><th>Location on <code>ehpc1001</code></th><th>Verification</th></tr>
+    <tr><td>Datasets</td><td><code>/gpfs/scratch/ehpc1001/occany_data/</code></td>
+      <td>every <code>.pkl</code> named by both configs present</td></tr>
+    <tr><td>Repo</td><td><code>/gpfs/projects/ehpc1001/code/deltatok</code></td>
+      <td>live syncer push (registered in the RAG <code>projects.json</code>)</td></tr>
+    <tr><td>venv</td><td><code>/gpfs/projects/ehpc1001/envs/maskgit</code></td>
+      <td><code>torch 2.5.1+cu121</code> imports; <code>pyvenv.cfg</code> + <code>bin/</code> rewritten</td></tr>
+    <tr><td><code>occany_plus_recon_1B.pth</code></td><td><code>deltatok/checkpoints/</code> (symlink)</td>
+      <td>→ <code>code/OccAny/checkpoints/</code>, no second 8 GB copy</td></tr>
+    <tr><td><code>occrae_img_decoder.pt</code></td><td><code>deltatok/checkpoints/</code></td>
+      <td class="num">6,895,488,531 B — byte-exact vs Karolina</td></tr>
+    <tr><td><code>..._fs1_once_5cam_all.pkl</code></td><td><code>occany_data/once_processed/</code></td>
+      <td class="num">223,827,699 B — byte-exact vs Karolina</td></tr>
+  </table>
+
+  <div class="card warn">
+    <b>Transfer gotcha worth remembering.</b> Routing Karolina→BSC rsync through
+    <code>bsc-transfer</code> (<code>transfer3.bsc.es</code>), the nominal data-transfer node,
+    <b>silently hangs</b>: the 6.9 GB copy died with <code>rsync error: error in socket IO (code 10)</code>
+    after a broken pipe, and the 224 MB one held live rsync processes that wrote <i>zero</i> bytes — no
+    temp file ever appeared at the destination. Re-routing through the plain <code>bsc</code> alias
+    (<code>glogin1</code>) worked immediately. <b>Live rsync processes are not evidence of progress;
+    check the destination.</b> Also: a killed local <code>ssh</code> does not kill the remote rsync, so a
+    retry can leave two racing the same destination.
+  </div>
+
+  <h3>Files added / changed for the BSC path</h3>
+  <table>
+    <tr><th>File</th><th>Change</th></tr>
+    <tr><td><code>configs/train_deltatok_bsc.yaml</code></td>
+      <td>new — JZ recipe, roots → <code>ehpc1001</code>, <code>num_workers</code> 12→10</td></tr>
+    <tr><td><code>configs/train_deltatok_flow_bsc.yaml</code></td>
+      <td>new — same, flow variant</td></tr>
+    <tr><td><code>slurm/train_deltatok_bsc.slurm</code></td><td>new — tokenizer arm</td></tr>
+    <tr><td><code>slurm/train_deltatok_multitoken_sigreg_bsc.slurm</code></td>
+      <td>new — the arm run here</td></tr>
+    <tr><td><code>slurm/train_deltatok_flow_bsc.slurm</code></td>
+      <td>refreshed — was stale (<code>ehpc551</code>, <code>cd ~/code/OccAny</code>)</td></tr>
+    <tr><td><code>env_bsc.sh</code></td>
+      <td><code>PYTHONPATH</code> pointed into the <i>VATIX</i> checkout; now resolves against its own repo root</td></tr>
+  </table>
+  <p class="small"><code>acc</code> gives 20 cpus/task vs Jean Zay's 24, hence
+  <code>num_workers</code> 12→10. All BSC scripts use <code>--account=ehpc1001 --partition=acc</code>,
+  <code>acc_ehpc</code> (48h) or <code>acc_debug</code> (2h).</p>
+
+  <h2>Part 2 — SIGReg: from a per-window pool to a rolling queue</h2>
+
+  <p>The prior <code>_pool</code> estimator banked the z rows of one grad-accum window and ran the
+  statistic once, on the last micro-batch, multiplying by <code>grad_cum</code> to undo the
+  <code>(loss_total/grad_cum).backward()</code> divisor. The new form keeps a FIFO queue of detached
+  rows from recent micro-batches and runs the estimator <b>every</b> micro-batch over
+  <code>live + queue</code>.</p>
+
+  <h3>Why fire every time</h3>
+  <ul>
+    <li><b>The scaling disappears.</b> A term present in every micro-batch is divided by
+      <code>grad_cum</code> and appears <code>grad_cum</code> times — the divisor cancels, exactly as it
+      does for recon. No compensation factor needed.</li>
+    <li><b>No cross-rank vote.</b> A "has the pool reached its target" test would differ across ranks
+      (N = 1..2 cameras varies per sample), and <code>sigreg.py</code> all-reduces the CF <i>inside</i>
+      its forward — a split decision would <b>deadlock</b>. Firing unconditionally keeps ranks in
+      lockstep for free.</li>
+    <li><b>No burstiness.</b> One large kick every P steps against <code>grad_clip=0.1</code> is
+      replaced by a steady push.</li>
+  </ul>
+
+  <h3>Why <code>scale = pool/live</code></h3>
+  <p>The statistic is a <i>mean</i> over pooled rows (<code>cos_mean = x_t.cos().mean(0)</code>), so a
+  single row moves it by <code>1/Q</code>:</p>
+<pre><code>∂cos_mean/∂s_i = (1/Q) · ∂cos(t_j⟨s_i,a_k⟩)/∂s_i   ⇒   ∂L/∂s_i ∝ 1/Q</code></pre>
+  <p>Only the <code>S</code> live rows carry gradient, so total pressure <code>∝ S/Q</code> — i.e. raising
+  the pool to escape the finite-sample floor would <i>quietly throttle</i> the very pressure you raised it
+  to make meaningful, confounding <code>Q</code> with <code>sigreg_weight</code>. Multiplying by
+  <code>pool/live</code> cancels it, leaving <code>Q</code> a pure estimator-quality knob.</p>
+
+  <h3>The pressure change — derived</h3>
+  <p>Let <code>S</code> = live rows/rank, <code>D</code> = per-row CF-derivative magnitude,
+  <code>w</code> = <code>sigreg_weight</code>.</p>
+<pre><code>OLD  fires once/window, coeff w·grad_cum, ÷grad_cum
+     per step = w · S·D / (grad_cum·S)          =  w·D / grad_cum
+
+NEW  fires every µbatch, coeff w·scale, ÷grad_cum,  scale = S_pool/S
+     per µbatch = (w·scale/grad_cum) · S·D/S_pool =  w·D / grad_cum
+     × grad_cum µbatches per step                =  w·D
+</code></pre>
+  <div class="card warn">
+    <b>⇒ NEW = <code>grad_cum</code> × OLD.</b> At <code>grad_cum=2</code> (both the BSC and JZ layouts),
+    the same <code>SIGREG_WEIGHT=1.0</code> is <b>2× the pressure</b> of the earlier arms. Note the old
+    form scaled as <code>1/grad_cum</code>, so SIGReg strength silently tracked the cluster layout; the
+    new form does not. Chosen deliberately — but it must not masquerade as backward-compatible, so the
+    docstring and <code>train_deltatok.yaml</code> both say so.
+  </div>
+
+  <h3>Review outcome</h3>
+  <p>An independent review confirmed the mechanism: no row double-counted or dropped
+  (<code>pooled</code> is built <i>before</i> <code>live.detach()</code> is banked), eviction terminates
+  and cannot empty the queue, autograd routes gradient only to live rows with no graph retained across
+  iterations, memory bounded (~13 MB/rank), no deadlock path, and <code>scale = pool/live</code> is the
+  right factor (exponent 1, not ½). The <code>no_sync()</code> trap noted at <code>sigreg.py:80</code>
+  does <b>not</b> apply — this trainer never uses it. Its one substantive catch was the
+  <code>grad_cum</code>× pressure claim above, which was re-derived independently before acting on it.</p>
+  <p class="small">Also simplified out of the first draft: a <code>sigreg_pool_samples=0</code>
+  "legacy depth" branch that was neither pressure- nor depth-compatible with the old code, and a
+  per-micro-batch seed term that would have made rank-synchronisation depend on <code>num_batches</code>
+  matching everywhere — <code>iter</code> alone is the one counter guaranteed equal on every rank, which
+  the CF all-reduce requires.</p>
+
+  <h2>Part 3 — The first BSC arm</h2>
+  <p>Smoke run <code>BSC 43972109</code> (<code>acc_debug</code>, node <code>as01r3b06</code>) →
+  full run <code>BSC 43972396</code> (<code>acc_ehpc</code>, 48h). Both 1 node × 4 H100.</p>
+<pre><code>RUN_NAME = deltatok_surround_layer12_bsize2_dtok64_tc1536_cos1e3_1e5_b95_gradskip_noaff_prenorm_sigreg1.0_ns3072_pool8192</code></pre>
+  <table>
+    <tr><th>Knob</th><th>Value</th><th>Why</th></tr>
+    <tr><td><code>target_channels</code></td><td class="num">1536</td>
+      <td>== <code>hidden_size</code>, so <code>deltatok_trainer.py:150</code> builds <b>no</b>
+        <code>z_proj_down/up</code> and no pre-bottleneck LN — a genuinely uncompressed z. K is the only
+        compression axis.</td></tr>
+    <tr><td><code>bottleneck_mlp</code></td><td>false</td><td>inert at tc1536; set false so name and arch agree</td></tr>
+    <tr><td><code>sigreg_num_slices</code></td><td class="num">3072</td>
+      <td><code>≥ 2·Cz</code>, and <code>Cz</code> is 1536 now, not 768 (JZ used 2048 = 2·768)</td></tr>
+    <tr><td><code>sigreg_pool_samples</code></td><td class="num">8192</td>
+      <td>global rows ⇒ 2048/rank; <code>S/C ≈ 5–6</code>, modest enough that queued rows stay a few
+        steps stale</td></tr>
+  </table>
+  <p><b>Why this arm.</b> The measured deficit on the tc768 arms was the <b>2:1 <code>Cz</code> ratio</b>,
+  not utilisation — raw participation ratio was 173.1/768 (tc768) vs 332.2/1536 (uncompressed dtok64),
+  i.e. <i>both</i> ≈22% of their channel budget. Removing the bottleneck while <b>keeping</b> SIGReg tests
+  whether the anti-collapse pressure buys real capacity once the 768-channel cap is gone.</p>
+
+  <h3>Smoke test <span class="pill done">passed</span></h3>
+  <p><code>43972109</code> reached iteration <span class="num">320/2250</span> of epoch 0 (~10 min)
+  before being cancelled. This was the first GPU exercise of everything migrated in Part 1 — all prior
+  checks were login-node only (config composition, imports).</p>
+  <table>
+    <tr><th>Check</th><th>Result</th></tr>
+    <tr><td>Migrated venv + <code>ehpc1001</code> data roots on GPU</td><td class="add">works</td></tr>
+    <tr><td>Symlinked <code>occany_plus_recon_1B.pth</code></td><td class="add">loads</td></tr>
+    <tr><td>Rolling-pool SIGReg at <code>Cz=1536</code></td><td class="add">trains, no NaN</td></tr>
+    <tr><td>Loss</td><td class="num">0.1907 (0.1744 running) — stable</td></tr>
+    <tr><td>Throughput</td><td class="num">~1.1–1.3 s/iter ⇒ ~40 min/epoch</td></tr>
+    <tr><td>GPU memory</td><td class="num">54,737 / 64,952 MB</td></tr>
+    <tr><td>Grad skips</td><td class="add">none</td></tr>
+  </table>
+  <p class="small">Cancelled rather than left to finish: it resolves to the same <code>RUN_NAME</code> as
+  the full run, so both would have written <code>current.pth</code> into one <code>ckpts/</code> dir. No
+  checkpoint had been written. Its output dir is preserved as
+  <code>..._pool8192_smoke43972109</code> (renamed, not deleted) so the full run gets a clean
+  <code>tb_logs/</code> — otherwise TensorBoard overlays two runs on identical tag names with restarting
+  step counters.</p>
+  <div class="card">
+    <b>Minor finding.</b> <code>PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True</code>, inherited from the
+    JZ scripts, logs <code>expandable_segments not supported on this platform</code> on BSC's H100 stack —
+    a no-op. Removed from all three <code>slurm/bsc_*.slurm</code>. Note <code>43972396</code> was already
+    queued, and Slurm snapshots the batch script at submit time (verified via
+    <code>scontrol write batch_script</code>: the stored copy still has the line, the on-disk file does
+    not), so the running job will still print the warning. Harmless — it was a no-op either way.
+  </div>
+
+  <h2>Watch list</h2>
+  <ol>
+    <li><s><b>Does it run at all.</b></s> <span class="add">Answered by the smoke test above.</span></li>
+    <li><b><code>Train/LossSIGReg</code></b> should sit well above its finite-sample floor and
+      <i>descend</i>. Flat ⇒ the estimator is still under-resolved, which is what sank job
+      <code>168363</code>. The smoke run was far too short to judge this; the rolling-queue estimator
+      remains <b>unproven</b>.</li>
+    <li><b>The z-spread triple, read together.</b> <code>Eval/&lt;loader&gt;/ZPartRank</code> is the
+      headline — does it clear the ≈332/1536 that uncompressed dtok64 reached <i>without</i> SIGReg? But
+      <code>ZPartRank</code> weights the strong axes, so a regularizer can flatten the leading eigenvalues
+      and lift it while the tail stays dead. <code>ZEntRank</code> (credits the weak tail) and
+      <code>ZN90</code> (literal dims for 90% of variance) are what distinguish genuine spreading from
+      redistribution inside the subspace already in use. All are computed on the <b>raw</b> covariance —
+      never quote a whitened participation ratio, per-channel rescaling nearly doubles it.</li>
+    <li><b><code>Train/LossRecon</code></b> is the cross-arm comparison metric — unaffected by SIGReg
+      weighting. <code>LossTot</code> deliberately still <i>includes</i> the weighted SIGReg term, so do
+      not compare it across arms. <code>Eval/Loss</code> is pure recon on val and is likewise unaffected.</li>
+    <li><b>Gradient skips.</b> 2× pressure against <code>grad_clip=0.1</code>: if clipping dominates or
+      <code>[warn] skipping optim step</code> appears, attribute it here first. None in the first 320
+      iters, but <code>sigreg_warmup=2000</code> means full pressure had not yet arrived.</li>
+  </ol>
+  <p class="small">At ~40 min/epoch, 48h buys roughly 70 of the config's 100 epochs, so expect to chain a
+  resume (<code>--dependency=afterany:43972396 --export=ALL,RESUME=1</code>, or the
+  <code>chain-slurm-jobs</code> skill). <code>training.exit_before_time_limit=true</code> makes that
+  safe.</p>
+</div>
+</body>
+</html>
