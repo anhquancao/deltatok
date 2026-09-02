@@ -87,6 +87,7 @@ ssh bsc "bash -lc 'cd /gpfs/projects/ehpc1001/code/deltatok && sbatch slurm/delt
 Scripts are named `<name>_<cluster>.slurm`, and the cluster tag (`_jz`, `_bsc`) is **always the last suffix**. Tokenizer arms live in `slurm/deltatok/`, flow arms in `slurm/deltatok_flow/`, eval and diagnostics at `slurm/` root. Each training folder has an `archive/` for retired arms. Paths inside the scripts are relative to the repo root, so always `sbatch slurm/deltatok[_flow]/<name>.slurm` from there.
 
 Training **always** resumes from `<RESULTS_DIR>/<RUN_NAME>/ckpts/current.pth` when that file exists. There is no `RESUME` env var and no `--resume` flag. A plain relaunch continues the run. To start an arm over, change `RUN_NAME` or delete its `ckpts/`.
+When copying a slurm script for a new arm, change `RUN_NAME`, `--job-name`, `--output` and `--error` together. A stale `RUN_NAME` silently resumes the source arm's `current.pth`, and stale log paths collide in `slurm/output/`.
 
 Use the `chain-slurm-jobs` skill for chained resume jobs. On BSC, chain at 40 h rather than the 72 h cap. The scheduler is `sched/backfill` and walltime does **not** enter the priority formula, so a shorter request only ever fits more gaps. Measured p90 queue wait was 4 min at 12 h against 8.6 h at 48 h. `training.exit_before_time_limit=true` keeps the split checkpoint-safe.
 
@@ -120,6 +121,7 @@ The repo trains **DeltaTok** (tokenizer), **DeltaTok-flow** (flow matching), and
 **OccRAE** caches DA3 tokens at **layer 12**, a pre-fusion local layer. `OccRAE.encode()` early-exits through `DA3Wrapper.encode_to_layer` and runs only blocks 0–12 of the giant's 40. That fast path holds *only* while `encode_layer < alt_start=13`. `encode_layer: 18` is post-fusion and falls back to a full 40-block forward, roughly 3× the backbone cost, so treat it as a deliberate expense. See `docs/occrae/occrae.md`. Components: `extract_occany_features.py` (dump tokens dataset-wide), `occrae/{deltatok,deltatok_flow,img_decoder}_trainer.py`, `occrae/dataset/occrae_tokens.py`, `occrae/network/` and `deltatok_shared.py` (nets), `occrae/sigreg.py` and `z_spread.py` (latent regulariser and diagnostics), `occrae/flow_matching.py` (ODE/sampler), `occrae/metric_logger.py` (scalar logging to stdout + TB).
 
 **Configs** mirror `slurm/`: `configs/deltatok/`, `configs/deltatok_flow/`, `configs/rae/`. Each wrapper's `CONFIG_DIR` points at its own folder, so `CONFIG_NAME` stays a bare name. Configs are per-cluster, with the tag (`_bsc`, `_jeanzay`) always the last suffix. Edit the one for the cluster you submit to. Hydra resolves `defaults:` relative to the config's own folder, so a config and its parent must share a folder.
+A new knob needs the yaml key **and** the trainer read. `compose()` rejects an override for an undeclared key, and `cfg.model.get(k, default)` silently defaults when the cluster trainer is stale, so print the resolved value at startup.
 
 **`third_party/`** must be importable from the checkout. Entrypoints prepend the paths via `occany.utils.runtime_paths.prepend_vendored_import_paths()`, and shell wrappers use `occany_prepend_pythonpath`.
 

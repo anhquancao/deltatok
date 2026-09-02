@@ -88,6 +88,13 @@ class DeltaTokFlowMatchingTrainer(DeltaTokSharedMixin, Trainer):
         self.num_views = self.cfg.model["num_views"]
         print(f"Number of temporal slots (max T-1): {self.num_views}")
 
+        # pointdit --force_zero_t: fraction of each train batch pinned to t=0.
+        # Printed so a schedule override that never landed is not read as a null.
+        self.force_zero_t_ratio = float(self.cfg.model.get("force_zero_t_ratio", 0.0))
+        print(f"t schedule: t_dist={self.cfg.model.get('t_dist', 'logitnormal')} "
+              f"mu={self.cfg.model.mu} sigma={self.cfg.model.sigma} "
+              f"force_zero_t_ratio={self.force_zero_t_ratio}")
+
         # Conditioning / attention modes (default to legacy cross + factorized).
         # delta_ctx: first delta token (frame 0->1) is the clean in-seq context
         # (timestep 1, no loss), no cross-attn. delta_ctx_cross: delta_ctx + frame-0
@@ -457,7 +464,7 @@ class DeltaTokFlowMatchingTrainer(DeltaTokSharedMixin, Trainer):
             self._fixed_noise_cache[key] = cached
         return cached.to(x.dtype).expand(b, c, t_dim, h, w).contiguous()  # (B, C, T-1, N, K) writable copy
 
-    def flow_noising(self, x, context=None, mu=-0.6, sigma=1):
+    def flow_noising(self, x, context=None, mu=-0.6, sigma=1, force_zero_t_ratio=0.0):
         device = x.device
         b, c, t_dim, h, w = x.shape
 
@@ -480,6 +487,11 @@ class DeltaTokFlowMatchingTrainer(DeltaTokSharedMixin, Trainer):
                 t = torch.sigmoid(s)                                                  # (b, 1|t)
             else:
                 raise ValueError(f"model.t_dist must be uniform|logitnormal, got {t_dist!r}")
+            # pointdit --force_zero_t: pin a fraction of the batch to exactly t=0
+            # (denoiser.py:76-85). Only train passes it, so eval t stays replayable.
+            if force_zero_t_ratio > 0:
+                zero_mask = torch.rand(b, n_draw, generator=g, device=device) < force_zero_t_ratio  # (b, 1|t)
+                t = t.masked_fill(zero_mask, 0.0)                                                   # (b, 1|t)
             # contiguous(): the context override below writes in place, which a
             # stride-0 expanded view cannot take.
             t = t.expand(b, t_dim).contiguous()                                       # (b, t)
@@ -594,7 +606,10 @@ class DeltaTokFlowMatchingTrainer(DeltaTokSharedMixin, Trainer):
             # clean in-sequence — see flow_noising context.
             cross_cond = self._build_cross_cond(feat0, H, W) if self.build_frame0_ctx else None  # (B, N, Hp, Wp, C) or None
 
-            z_t, e, timestep = self.flow_noising(x_spatial, context=self.n_ctx, mu=self.cfg.model.mu, sigma=self.cfg.model.sigma)
+            z_t, e, timestep = self.flow_noising(
+                x_spatial, context=self.n_ctx, mu=self.cfg.model.mu, sigma=self.cfg.model.sigma,
+                force_zero_t_ratio=self.force_zero_t_ratio,
+            )
 
             with self.autocast:
                 pred = self.vit(

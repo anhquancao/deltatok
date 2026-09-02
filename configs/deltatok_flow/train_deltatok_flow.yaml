@@ -67,6 +67,7 @@ model:
   t_dist: "logitnormal"  # train t: logitnormal(mu,sigma) | uniform (~10x more mass near t=1)
   t_shared: false  # true = one t per sample broadcast to all slots; matches sampler_alpha=0
   train_fixed_t: null  # set (e.g. 0) to train at one fixed t matching the 1-step eval; null = sample from t_dist
+  force_zero_t_ratio: 0.0  # pointdit --force_zero_t: fraction of the batch pinned to t=0 (train only)
   fixed_noise_mode: "none"  # overfit probe: none=re-sampled prior | per_slot=one cached draw, distinct per (transition,camera) | shared=one vector to every slot
   # Parameter-free layer norm on the frame-0 conditioning feats (delta tokens
   # are ~unit-scale after DeltaTok's LayerNorm; raw DA3 feats are not).
