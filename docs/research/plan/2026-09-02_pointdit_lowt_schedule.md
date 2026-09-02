@@ -3,7 +3,7 @@
 Created 2026-09-02 · thread `pointdit` · prior cycle: [`../analysis/2026-09-02_pointdit_vs_deltatok.md`](../analysis/2026-09-02_pointdit_vs_deltatok.md)
 · arm: `df_ctx3fwd2_tc128mg9s005compose_pointditT_xxl`
 · control: `deltatok_flow_waymo_consec5cam0_ctx3fwd2_tc128mg9sigreg005compose_ep100tok_xxl_dit` @ ep 100 (already measured)
-· jobs: `_pending_` · deck: `_pending_`
+· jobs: BSC:45344713, submitted 2026-09-02, `PENDING` · deck: `_pending_`
 
 Merges `2026-09-02_pointdit_schedule_scratch.md` and `2026-09-02_pointdit_schedule.md`, both deleted 2026-09-02.
 
@@ -174,3 +174,9 @@ Logs `slurm/output/` and `../monitor_jobs/data/logs/BSC/`; TB mirror
 ## 4 Outcome
 
 `_pending_`. Routing is the falsifier list in §1.
+
+**Status 2026-09-02.** BSC:45344713 submitted and `PENDING`. Pre-flight passed: the cluster copy carries the
+patch, the config key and all five slurm overrides, `$SCRATCH/deltatok_flow_log/df_ctx3fwd2_tc128mg9s005compose_pointditT_xxl`
+did not exist (fresh start, no accidental resume), and the tokenizer `epoch_100.pth` is on disk (8.2 GB,
+2026-08-22). Still to confirm at first iteration: the `t schedule:` line reads
+`t_dist=logitnormal mu=-0.8 sigma=0.8 force_zero_t_ratio=0.1`.
