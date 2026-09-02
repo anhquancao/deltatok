@@ -139,7 +139,7 @@ pressure elsewhere while this term spends all of it on the thing being measured.
 
 Two `(Cz, Cz)` Grams per micro-batch: 128 live rows and 2048 pooled rows per rank at Cz=512 →
 ~1.1 GFLOP/step, plus one 1 MB all-reduce. Against a 4-GPU H100 step this should be under 1%;
-**verify it** against the twin's measured **34.8 min/epoch** (BSC:45296347, ep 33 at 19:42:12) rather
+**verify it** against the twin's measured **35.8 min/epoch** (BSC:45296347, ep 49 at 23:21:38) rather
 than assuming it.
 
 ### Why tc512
@@ -152,103 +152,82 @@ mechanism.
 
 ## 3 Solution
 
-Five edits, all additive and default-off. The single-term path stays bit-identical at `cov_weight=0`.
+Four edits, all additive and default-off. The single-term path stays bit-identical at `cov_weight=0`.
+Reviewed 2026-09-02 against the trainer; the earlier five-edit version is cut as follows.
 
-**1 — `occrae/z_spread.py`, the diagnostic first.** In `summary()`, after `evals` is computed, and
-into the returned dict as `cov_err`:
+**No new diagnostic.** `L_cov` is an exact function of two scalars every arm already logs:
+`T²/(C·P) − 2T/C + 1` from `ZTotalVar` and `ZPartRank` (§2; the off-center energy is 0.009% of the
+trace). The twin's `L_cov` row in §2 was read exactly that way. So no `ZCovErr` in `z_spread.py` —
+compute it offline from the logs, on any arm, old or new.
+
+**Not needed, and why.**
+
+- **A `_need_z` gate refactor** for a future cov-only arm. §1 rules that arm out ("never a swap"), so
+  the existing `self.sigreg is not None` gates already produce `z_bneck`. Assert instead.
+- **A separate `cov_warmup`.** Two additive terms with their own linear ramps do not compound; a
+  second ramp is a knob nobody will sweep. Reuse `sigreg_warmup` (2000 here). `grad_clip=0.1` bounds
+  the early step anyway.
+- **A `CovPenalty(nn.Module)`.** No parameters, no buffers, no state. A function.
+- **The `no_sync()` caveat.** The trainer never calls `no_sync()`; every micro-batch backward runs
+  through DDP. Same situation as SIGReg, whose comment already carries it.
+
+**1 — new `occrae/cov_penalty.py`, one function.** Same pooling and collective contract as
+`SIGReg.forward`; `sigreg.py` is not touched.
 
 ```python
-# ||E[z z^T] - I||_F^2 / Cz: the quantity the covariance penalty minimises. Uncentered, so it
-# counts the off-center energy too. Logged with or without the penalty -- that is what keeps an
-# arm and its twin comparable.
-gram = cov + torch.outer(mean, mean)                                    # (Cz, Cz) E[z z^T]
-eye = torch.eye(Cz, dtype=gram.dtype, device=gram.device)               # (Cz, Cz)
-cov_err = float((gram - eye).square().sum() / Cz)                       # scalar, 0 iff E[z z^T]=I
+def cov_penalty(live, pool):
+    """||E[z z^T] - I||_F^2 / Cz over live + pooled rows. Third term beside SIGReg, never a swap."""
+    C = live.shape[-1]                                              # feature dim (Cz)
+    s = live.reshape(-1, C).float()                                 # (L, C) the only rows with grad
+    gram, n = s.T @ s, s.shape[0]                                   # (C, C) differentiable
+    if pool is not None and pool.numel():
+        p = pool.reshape(-1, C).float()                             # (P, C) detached FIFO rows
+        gram = gram + p.T @ p                                       # (C, C) out-of-place: keeps the live graph
+        n += p.shape[0]
+    gram = gram / n                                                 # (C, C) second-moment estimate
+    if dist.is_available() and dist.is_initialized():
+        # Equal-weight rank average, differentiable; DDP's 1/W grad average keeps the scale (as SIGReg).
+        gram = autograd_all_reduce(gram, op=dist.ReduceOp.SUM) / dist.get_world_size()   # (C, C)
+    eye = torch.eye(C, device=gram.device, dtype=gram.dtype)        # (C, C)
+    return (gram - eye).square().sum() / C                          # scalar, 0 iff E[z z^T] = I
 ```
 
-and in `deltatok_trainer._log_z_spread`, one `log_add_scalar(f'{prefix}/ZCovErr', ...)` plus the
-`ZCovErr=` field in the existing `[{prefix}]` stdout echo. This half is inert and can land alone; it
-gives `Train/ZCovErr` and `Eval/<test>/ZCovErr` on every arm, including the running ones once they
-resume.
-
-**2 — new `occrae/cov_penalty.py`.** Copy the pooling and collective conventions from
-`occrae/sigreg.py`; do not touch that file.
+**2 — `occrae/deltatok_trainer.py`.** Beside the SIGReg build (~line 617):
 
 ```python
-class CovPenalty(nn.Module):
-    """||E[z z^T] - I||_F^2 / Cz over live + pooled rows. Third arm beside SIGReg, never a swap."""
-
-    def forward(self, live, pool):
-        C = live.shape[-1]                                              # feature dim (Cz)
-        s = live.reshape(-1, C).float()                                 # (L, C) the only rows with grad
-        gram = s.T @ s                                                  # (C, C) differentiable
-        n = s.shape[0]
-        if pool is not None and pool.numel():
-            p = pool.reshape(-1, C).float()                             # (P, C) detached FIFO rows
-            with torch.no_grad():
-                pg = p.T @ p                                            # (C, C)
-            gram = gram + pg                                            # out-of-place: keeps the live graph
-            n += p.shape[0]
-        gram = gram / n                                                 # (C, C) second-moment estimate
-        if dist.is_available() and dist.is_initialized():
-            # Equal-weight rank average, same convention as SIGReg: differentiable, and DDP's 1/W
-            # grad average keeps the usual scale. Same no_sync() trap -- micro-batches accumulated
-            # under no_sync() would get a W x too large grad from this term.
-            world = dist.get_world_size()
-            gram = autograd_all_reduce(gram, op=dist.ReduceOp.SUM) / world   # (C, C)
-        eye = torch.eye(C, device=gram.device, dtype=gram.dtype)        # (C, C)
-        return (gram - eye).square().sum() / C                          # scalar
-```
-
-**3 — `occrae/deltatok_trainer.py`.** Beside the SIGReg build (~line 611):
-
-```python
-# Direct second-moment penalty on the SAME pooled rows: attacks the spectrum shape the sliced CF
-# statistic reaches only second-hand. Runs on top of sigreg_weight, never instead of it.
+# Direct second-moment penalty on the rows SIGReg pools: attacks the spectrum shape the sliced CF
+# statistic reaches only second-hand. On top of sigreg_weight, never instead -- shares its pool,
+# its warmup ramp and its `scale`.
 self._cov_weight = float(self.cfg.training.get("cov_weight", 0.0))
-self.cov = CovPenalty().to(self.device) if self._cov_weight > 0 else None
-self._need_z = self.sigreg is not None or self.cov is not None      # gates return_z on both terms
+assert self._cov_weight == 0 or self._sigreg_weight > 0, "cov_weight needs sigreg_weight > 0"
 ```
 
-Replace the three `self.sigreg is not None` gates that decide whether `z_bneck` is produced — the
-compose branch (~1055), the plain `elif` (~1084) and the compose z-stats — with `self._need_z`, so a
-cov-only arm is possible later. Then the loss block at ~1115 becomes one pooling call feeding both
-terms (`_sigreg_pooled` **banks the pool as a side effect**; calling it twice would double-bank):
+plus `cov_weight=<resolved>` in the master-rank startup print, or a stale cluster trainer reads
+0.0 and the arm is a clean null for the wrong reason. In the loss block (~1115), inside the existing
+`if self.sigreg is not None:` after the SIGReg add, reusing its `live, pool, scale, ramp`
+(`_sigreg_pooled` **banks the pool as a side effect**; it is called once):
 
 ```python
-loss_sigreg = loss_cov = None
-if self._need_z:
-    live, pool, scale = self._sigreg_pooled(z_bneck.float())        # one bank, both terms see the same rows
-    if self.sigreg is not None:
-        ...                                                          # unchanged
-    if self.cov is not None:
-        cov_warm = int(self.cfg.training.get("cov_warmup", 0))
-        cov_ramp = 1.0 if cov_warm <= 0 else min(1.0, self.cfg.training.iter / max(1, cov_warm))
-        with torch.autocast(device_type="cuda", enabled=False):
-            loss_cov = self.cov(live, pool)
-        loss_total = loss_total + (self._cov_weight * cov_ramp * scale) * loss_cov
+if self._cov_weight > 0:
+    with torch.autocast(device_type="cuda", enabled=False):
+        loss_cov = cov_penalty(live, pool)
+    loss_total = loss_total + (self._cov_weight * ramp * scale) * loss_cov
 ```
 
-Plus the bookkeeping that already exists for every other term: `cum_cov`/`n_cov`, `stats["cov"]`,
-`Train/LossCov`, and `("cov", "Cov")` in the components tuple at ~1680 so the epoch stdout line
-carries it. And a master-rank startup print of the **resolved** values —
-`cov_weight=<w> cov_warmup=<n> effective=w*scale` — or a stale cluster trainer silently reads 0.0 and
-the arm is a clean null for the wrong reason.
+with `loss_cov = None` initialised beside `loss_sigreg`, and the bookkeeping every other term has:
+`cum_cov`/`n_cov`, `stats["cov"]`, `Train/LossCov`, and `("cov", "Cov")` in the epoch-echo tuple
+(~1680) so the epoch stdout line carries it.
 
-**4 — `configs/deltatok/train_deltatok.yaml`**, beside the sigreg block (~line 130):
+**3 — `configs/deltatok/train_deltatok.yaml`**, after `sigreg_compose_z` (~line 128):
 
 ```yaml
-  # Direct second-moment penalty ||E[zz^T] - I||_F^2 / Cz on the rows SIGReg pools. Attacks the
-  # eigenvalue spectrum the sliced CF statistic reaches only second-hand. Runs on top of
-  # sigreg_weight, never instead of it. 0 = off.
-  cov_weight: 0.0
-  cov_warmup: 4000  # ramp; 2x sigreg_warmup so the two ramps do not compound
+  cov_weight: 0.0  # + ||E[zz^T]-I||_F^2/Cz on the SIGReg pool: spectrum shape directly. Needs sigreg_weight > 0
 ```
 
 The pool is shared: `sigreg_pool_samples` governs both terms and stays at 8192 (not weight-neutral,
 `../analysis/2026-07-31_sigreg_pool_not_weight_neutral.html`).
 
-**5 — the arm.** Copy the twin's script, never rewrite:
+**4 — the arm.** Copy the twin's script, never rewrite:
 
 ```bash
 cp slurm/deltatok/train_deltatok_compose_sigreg_nozn_tc512_bsc.slurm \
@@ -257,11 +236,15 @@ cp slurm/deltatok/train_deltatok_compose_sigreg_nozn_tc512_bsc.slurm \
 
 Change `--job-name`, `--output`, `--error`, `RUN_NAME` together, and add exactly one override:
 
-- `COV_WEIGHT=${COV_WEIGHT:-3e-5}` → `training.cov_weight=${COV_WEIGHT}`, `training.cov_warmup=4000`
+- `COV_WEIGHT=${COV_WEIGHT:-3e-5}` → `training.cov_weight=${COV_WEIGHT}`
 - `RUN_NAME=deltatok_l12_dtok64_tc512_nozn_maxgap9_vpt1to2_sigreg${SIGREG_WEIGHT}_ns${SIGREG_NUM_SLICES}_pool${SIGREG_POOL_SAMPLES}_compose${COMPOSE_WEIGHT}_cov${COV_WEIGHT}`
-- everything else byte-identical: tc512, compose 1.0, `SIGREG_WEIGHT=0.02`, ns1024, pool8192,
-  warmup2000, max_gap 9, bsize 2, `--time=40:00:00`, account `ehpc880` (the twin's; ehpc1001 already
-  carries BSC:45344713 and BSC:45345063).
+- `SIGREG_WEIGHT` default 0.005 → **0.02**, the twin's value, so a bare `sbatch` cannot produce a
+  0.005 arm by omission.
+- `--time=40:00:00` → **`44:00:00`**. The twin runs 35.8 min/ep (ep 49 at 29 h 15 min training clock,
+  2026-09-02 23:21), so ep 67 lands at 40.0 h — on the wall, and `exit_before_time_limit` would stop
+  it at ep 66. Backfill at 44 h fits gaps almost as well as 40 h.
+- everything else byte-identical: tc512, compose 1.0, ns1024, pool8192, warmup2000, max_gap 9,
+  bsize 2, account `ehpc880` (the twin's; ehpc1001 already carries BSC:45344713 and BSC:45345063).
 
 **Where 3e-5 comes from.** Two anchors, both from the twin at ep 33. *Loss-share parity* with SIGReg
 (`0.02 × 17.0 × 0.0039` = 1.48% of a 0.0896 total) gives `w = 0.0148 × 0.0896 / (17.0 × 6.59)` = 1.2e-5 —
@@ -279,17 +262,16 @@ ask, do not rsync):
 
 ```bash
 ssh bsc "bash -lc 'cd /gpfs/projects/ehpc1001/code/deltatok && \
-  grep -n \"cov_weight\\|CovPenalty\" occrae/deltatok_trainer.py configs/deltatok/train_deltatok.yaml && \
+  grep -n \"cov_weight\\|cov_penalty\" occrae/deltatok_trainer.py configs/deltatok/train_deltatok.yaml && \
   ls occrae/cov_penalty.py && \
-  grep -E \"RUN_NAME|cov_weight|job-name\" slurm/deltatok/train_deltatok_compose_sigreg_covpen_nozn_tc512_bsc.slurm'"
+  grep -E \"RUN_NAME|cov_weight|SIGREG_WEIGHT=|job-name|time=\" slurm/deltatok/train_deltatok_compose_sigreg_covpen_nozn_tc512_bsc.slurm'"
 
 ssh bsc "bash -lc 'cd /gpfs/projects/ehpc1001/code/deltatok && \
-  COMPOSE_WEIGHT=1.0 SIGREG_WEIGHT=0.02 sbatch --export=ALL \
-    slurm/deltatok/train_deltatok_compose_sigreg_covpen_nozn_tc512_bsc.slurm'"
+  sbatch slurm/deltatok/train_deltatok_compose_sigreg_covpen_nozn_tc512_bsc.slurm'"
 ```
 
-**Budget.** 34.8 min/ep measured on the twin → ep 67 at ~39 h, ep 69 inside a 40 h job. No resume
-needed for the read. No separate smoke job: the first epoch line lands ~35 min in and carries every
+**Budget.** 35.8 min/ep measured on the twin → ep 67 at ~40 h, ep 73 inside a 44 h job. No resume
+needed for the read. No separate smoke job: the first epoch line lands ~36 min in and carries every
 tripwire below.
 
 ## 4 Results
@@ -300,19 +282,19 @@ _Pending._
 
 **Primary: eval `LossRecon_Comp` vs BSC:45296347 at matched ep 67, per eval set, not pooled.**
 Secondary: eval `LossRecon`, the three `PredVsOrig` geometry losses, `ZPartRank`, `ZTotalVar`,
-`ZCovErr`. Rank is the *mechanism* readout, not the verdict — whether rank pays downstream is a
+and `L_cov` from them via the §2 identity. Rank is the *mechanism* readout, not the verdict — whether rank pays downstream is a
 separate open question (`../analysis/2026-07-28_sigreg_z_spread.html`, "How to apply").
 
 | read | twin BSC:45296347 | this arm must show |
 |---|---|---|
-| ep 0, first 60 s | — | startup print `cov_weight=3e-05 cov_warmup=4000`; a silent 0.0 is a stale trainer |
-| ep 0 | Train 0.2638, Eval 0.1225, 34.8 min/ep | `Cov:` in the epoch line, ~7–40; epoch time within 1% |
+| ep 0, first 60 s | — | startup print `cov_weight=3e-05`; a silent 0.0 is a stale trainer |
+| ep 0 | Train 0.2638, Eval 0.1225, 35.8 min/ep | `Cov:` in the epoch line, ~7–40; epoch time within 1% |
 | ep 4 | Train 0.1795, Eval 0.0948, PR 19.5 | recon not more than ~10% behind the twin |
 | **ep 12, tripwire** | PR 48.4, `L_cov` 12.9 | **PR ≥ 65.** Below → kill, resubmit at 1e-4. Recon >10% behind → 1e-5 |
 | ep 33 | Train 0.0896, Eval 0.0507, PR 87.6, `L_cov` 6.59 | **PR ≥ 150** (= `L_cov` 3.30 at fixed trace) |
 | ep 67 | _(twin read pending, TODO 2)_ | eval `LossRecon_Comp` below the twin, both sets |
 
-Decompose every `ZCovErr` move with `T²/(C·P) − 2T/C + 1` before calling it rank: 26.5% of the ep-33
+Decompose every `L_cov` move with `T²/(C·P) − 2T/C + 1` before calling it rank: 26.5% of the ep-33
 headroom is trace alone. `ZTotalVar` drifting to 512 with `ZPartRank` flat is the scale-only null.
 
 The raw `SIGReg:` stdout scalar stays comparable across this flag (same statistic, same rows), unlike
