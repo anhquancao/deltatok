@@ -1,8 +1,11 @@
 # <thread> — <one-line hypothesis>
 
-File: `docs/research/<thread>/<YYYY-MM-DD>_task_<slug>.md`. Other stages are separate files: `_analysis_`, `_impl_`, `_report_` (decks end `_slides.html`), `_findings_`.
+File: `docs/research/plan/<YYYY-MM-DD>_<thread>_<slug>.md`. This is the `plan`. Its numbers go in a
+`results/<date>_<thread>_<slug>.<ext>`; its verdict goes in a `analysis/<date>_<thread>_<slug>.md`. No numbers here except prior
+ones that motivate the run.
 
-Created YYYY-MM-DD · thread `<thread>` · prior cycle: `<file>` · arms: `<run_name>` · jobs: `<Cluster>:<id>` · deck: `<file>_slides.html`
+Created YYYY-MM-DD · thread `<thread>` · prior cycle: `<file>` · arms: `<run_name>` · control: `<run_name>`
+· jobs: `_pending_` · deck: `_pending_`
 
 ## 1 Hypothesis
 
@@ -12,26 +15,16 @@ One falsifiable sentence: what is predicted, on which metric, which eval set, at
 
 **Not doing.** One bullet per deliberately excluded arm, with the reason.
 
-## 2 Analysis
+## 2 Why it is worth the GPU hours
 
-Why this is worth GPU hours before spending them: prior numbers with their source file, the mechanism, the
-controls that already exist. Every number carries an epoch and an eval set.
+Prior numbers with their source file, the mechanism, and the controls that already exist. Every number carries an
+epoch and an eval set.
 
-## 3 Solution
+## 3 How it is run
 
-Design and implementation: commit hash, script, config keys, env knobs, `RUN_NAME`s. The pre-flight grep on the
-cluster copy and the exact `sbatch` line. Budget: min/ep × epochs → walltime.
+The patch, the arm and control `RUN_NAME`s, the script overrides, the pre-flight grep, the `sbatch` line, the
+budget, and the job ids once submitted.
 
-## 4 Results
+## 4 Outcome
 
-Matched-epoch table per eval set, Δ% against the control. Tracking table: job | arm | state | epoch | note.
-Deck beside this file. Log and TB-mirror paths.
-
-## 5 Findings
-
-What the numbers mean, in the order of the falsifiers. What this overturns: `supersedes: <file>#<section>`.
-Caveats: seeds, epochs, teacher ceilings.
-
-## → Next hypothesis
-
-Link to the next cycle file, or `open` plus the one-line question this leaves.
+`_pending_`, then links to the `results` and `analysis` files with the one-line verdict that decides the cycle.

@@ -123,23 +123,23 @@ The repo trains **DeltaTok** (tokenizer), **DeltaTok-flow** (flow matching), and
 
 **`third_party/`** must be importable from the checkout. Entrypoints prepend the paths via `occany.utils.runtime_paths.prepend_vendored_import_paths()`, and shell wrappers use `occany_prepend_pythonpath`.
 
-DeltaTok is the active research direction. Read `docs/README.md` first. It maps the loop hypothesis → analysis → solution → results → findings onto `docs/research/<thread>/`, where every file is `<date>_<stage>_<slug>.<ext>` with stage ∈ task · analysis · impl · report · findings, and each thread's `README.md` is its ledger. Runbooks and incidents are in `docs/infra/`, OccRAE notes in `docs/occrae/`. Drive the loop with the `research-cycle` skill.
+DeltaTok is the active research direction. Read `docs/README.md` first. Research is filed by stage: `docs/research/{plan,results,analysis}/<date>_<thread>_<slug>.<ext>`, and `docs/research/README.md` ledgers every thread. Runbooks and incidents are in `docs/infra/`, OccRAE notes in `docs/occrae/`.
 
 ## Conventions
 
 - **Edits:** surgical. Change only what the task requires — no drive-by refactors, renames, or reformatting. Explain each edit so a human can verify it.
 - **Comments:** terse. The fewest words that convey the *why*, not the *what*. Default to one short line, in shell and slurm and config files too.
-- **Never lengthen a comment you edit.** The replacement must be no longer than what it replaces. Cut a stale line to make room. Measurements, dated findings, and sweep history belong in `docs/research/<thread>/`, not a script header.
+- **Never lengthen a comment you edit.** The replacement must be no longer than what it replaces. Cut a stale line to make room. Measurements, dated findings, and sweep history belong in `docs/research/`, not a script header.
 - **Tensor code:** comment each line and annotate the resulting shape inline, e.g. `x = rearrange(x, 'b (t s) d -> (b s) t d', t=t, s=s)  # (B*S, T, D)`. Define each shape symbol where it first appears.
 - **New variant scripts:** copy the closest existing file (`cp old.py new.py`), then edit. Never rewrite from scratch — copying keeps the diff reviewable.
 - **Code search:** prefer `grep` over `rg`.
-- **Slide decks** live beside their task file as `docs/research/<thread>/<date>_report_<slug>_slides.html`: see the section below.
+- **Slide decks** go in `docs/research/results/<date>_<thread>_<slug>_slides.html`: see the section below.
 - **Dataset strings** in `configs/**/*.yaml` are `eval()`-ed by `occany.datasets.get_data_loader()`, so they must stay valid Python. Every entry states `num_timesteps` (the consecutive-window length) and names its cameras via `fixed_cams`. Cameras and view budgets are never sampled.
 - **Sharding** uses `--world` and `--pid` in `extract_occany_features.py` and `dataset_setup/waymo/preprocess_waymo.py`.
 
 ## Slide decks
 
-`docs/research/<thread>/<date>_report_<slug>_slides.html`, self-contained, light theme only, white slide background. No dark-mode variant,
+`docs/research/results/<date>_<thread>_<slug>_slides.html`, self-contained, light theme only, white slide background. No dark-mode variant,
 no `prefers-color-scheme` block. Copy the closest existing deck and edit — the chrome (1280x720
 stage, nav, print CSS, the `lineChart` helper) is shared and already works.
 
