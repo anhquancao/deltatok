@@ -66,7 +66,7 @@ The SIGReg regulariser on z: estimator, pool, weight, and the geometry it needs.
 | 2026-08-24 | [gapsig_vs_plain_slides](results/2026-08-24_sigreg_gapsig_vs_plain_slides.html) | results | Does Brownian gap-scaling (`sigreg_gap_sigma`) help? | No: 6.5–13.9% worse on all geometry losses, both eval sets |
 | 2026-08-27 | [sigreg_compose_z_plan](plan/2026-08-27_sigreg_compose_z.md) | plan | SIGReg on all three compose streams | Code `1140de1`; half the gain of doubling the weight (tc_width Q4) |
 | 2026-09-02 | [sum_at_weight_0.02](plan/2026-09-02_sigreg_sum_at_weight_0.02.md) | plan, **open** | Does the sum win survive at weight 0.02, or was it buying effective weight? | Arm BSC:45345063 vs plain twin BSC:45296347, read at ep 67 |
-| 2026-09-02 | [cov_penalty](plan/2026-09-02_sigreg_cov_penalty.md) | plan, **open** | Does a direct `‖E[zzᵀ]−I‖²_F/Cz` penalty break the ~90/512 rank ceiling the weight axis cannot? | Not submitted; one arm at `cov_weight=1e-5` on top of sigreg 0.02, twin BSC:45296347 |
+| 2026-09-02 | [cov_penalty](plan/2026-09-02_sigreg_cov_penalty.md) | plan, **open** | Does a direct `‖E[zzᵀ]−I‖²_F/Cz` penalty break the ~90/512 rank ceiling the weight axis cannot? | Not submitted; one arm at `cov_weight=3e-5` on top of sigreg 0.02, twin BSC:45296347 |
 
 **Open.** Whether `sigreg_compose_z` still beats its plain twin at weight 0.02 (`2026-09-02`), and whether a
 direct covariance penalty moves the rank ceiling the weight axis has turned over on (`2026-09-02`, TODO 6). The live

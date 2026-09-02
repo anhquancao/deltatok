@@ -1,7 +1,7 @@
 # sigreg — attack the rank ceiling with a direct covariance penalty, not more SIGReg weight
 
 Created 2026-09-02 · thread `sigreg` · prior cycle: `2026-09-02_sigreg_sum_at_weight_0.02.md`
-· arm: `..._sigreg0.02_ns1024_pool8192_compose1.0_cov1e-5` · control: BSC:45296347 (same recipe, `cov_weight=0`)
+· arm: `..._sigreg0.02_ns1024_pool8192_compose1.0_cov3e-5` · control: BSC:45296347 (same recipe, `cov_weight=0`)
 · jobs: _pending_ · deck: _pending_ · TODO 6
 
 ## 1 Hypothesis
@@ -29,7 +29,7 @@ matched ep 67, both eval sets.
   nothing else. 26.5% of the available `L_cov` drop at ep 33 is pure trace (see §2), so this outcome
   must be excluded explicitly, not read off `L_cov` alone.
 - **Training destabilises** → the weight is hot. Read `Train/ZTotalVar` and the grad-skip warnings;
-  the fallback rung is 3e-6.
+  the fallback rung is 1e-5.
 
 **Not doing.**
 
@@ -48,8 +48,8 @@ matched ep 67, both eval sets.
 - **Swapping SIGReg out.** Forfeits comparability to every arm in the ledger, including the
   no-SIGReg twins. This arm is SIGReg 0.02 **plus** the penalty; the only difference from
   BSC:45296347 is one added loss term.
-- **A weight bracket up front.** One arm at the loss-share-matched weight, with an ep-12 tripwire
-  (§4) that reroutes to 3e-5 or 3e-6 without waiting for ep 67.
+- **A weight bracket up front.** One arm at the shape-pressure-matched weight, with an ep-12 tripwire
+  (§4) that reroutes to 1e-4 or 1e-5 without waiting for ep 67.
 - **A warm-started fine-tune off the twin's `current.pth`.** `INIT_CKPT` is weights-only
   (`deltatok_trainer.py:844`), so `iter`/`global_epoch` reset and the cosine LR restarts at peak.
   That needs its own matched-compute control — two jobs to answer a weaker question than one
@@ -94,6 +94,31 @@ and the inverse map at the ep-33 trace: `L_cov` 6.59 → 3.30 **is** `ZPartRank`
 **The scale caveat.** Holding `P` at 87.6 and pulling `T` from 595.9 to 512 alone takes `L_cov` 6.59 →
 4.845. So 26.5% of the headroom is a trace correction the penalty can bank without touching rank.
 Decompose every read through the identity; never quote `ΔL_cov` as evidence of rank.
+
+### SIGReg and `L_cov` as functions of the same spectrum
+
+Same population minimizer (`z ~ N(0, I)` zeroes both); the difference is how they weight the two things
+a spectrum can be wrong about. With `m = T/C` the mean eigenvalue and `Var(λ) = (1/C)·Σ(λᵢ − m)²`:
+
+```
+L_cov  =        (m − 1)²  +      1      · Var(λ)                       (exact)
+SIGReg ≈  κ · [ (m − 1)²  +  2/(C+2)   · Var(λ) ]                     (leading order, Gaussian slices)
+```
+
+The second line: a slice `⟨z, a⟩` has variance `σₐ² = aᵀΣa`, its Epps–Pulley error is `κ·(σₐ² − 1)²` to
+second order, and for `a` uniform on the sphere `E[aᵀΣa] = m`, `Var[aᵀΣa] = 2·Var(λ)/(C+2)`. **At C = 512
+the shape term carries 1/257 of the weight of the scale term**, and no SIGReg parameter can rebalance
+them — both come out of the same per-slice error, so `sigreg_weight` multiplies both (plus the floor
+bias and the non-Gaussianity term). That is the 0.08 arm.
+
+On the twin at ep 33: `m` = 1.164, `(m−1)²` = 0.027, `Var(λ)` = 6.56. `L_cov` = 6.59, 99.6% of it the
+rank collapse. SIGReg (÷κ) = 0.027 + 0.026 — a 0.16 scale offset and 424 dead dimensions weigh the same.
+Two prior facts fall out: the measured 1.9% marginal shift at PR 748/1536 is `√(2/(C+2))·√Var(λ)`
+(concentration of measure), and shape pressure `∝ 1/C` at fixed weight predicts a usable rank roughly
+constant in *absolute* dims across Cz — the observed 37–97 band from Cz=64 to Cz=1024.
+
+Dropped by the approximation: SIGReg's higher-moment (tail) term, which `L_cov` does not have at all.
+Hence on top of SIGReg, not instead of it.
 
 ### Why the statistic is the suspect
 
@@ -232,16 +257,22 @@ cp slurm/deltatok/train_deltatok_compose_sigreg_nozn_tc512_bsc.slurm \
 
 Change `--job-name`, `--output`, `--error`, `RUN_NAME` together, and add exactly one override:
 
-- `COV_WEIGHT=${COV_WEIGHT:-1e-5}` → `training.cov_weight=${COV_WEIGHT}`, `training.cov_warmup=4000`
+- `COV_WEIGHT=${COV_WEIGHT:-3e-5}` → `training.cov_weight=${COV_WEIGHT}`, `training.cov_warmup=4000`
 - `RUN_NAME=deltatok_l12_dtok64_tc512_nozn_maxgap9_vpt1to2_sigreg${SIGREG_WEIGHT}_ns${SIGREG_NUM_SLICES}_pool${SIGREG_POOL_SAMPLES}_compose${COMPOSE_WEIGHT}_cov${COV_WEIGHT}`
 - everything else byte-identical: tc512, compose 1.0, `SIGREG_WEIGHT=0.02`, ns1024, pool8192,
   warmup2000, max_gap 9, bsize 2, `--time=40:00:00`, account `ehpc880` (the twin's; ehpc1001 already
   carries BSC:45344713 and BSC:45345063).
 
-**Where 1e-5 comes from.** Loss-share parity with SIGReg on the twin at ep 33: SIGReg contributes
-`0.02 × 17.0 × 0.0039` = 0.0013 of a 0.0896 total, i.e. 1.48%. Matching that with `L_cov` = 6.59 at
-the same `scale` = 17.0 gives `w = 0.0148 × 0.0896 / (17.0 × 6.59)` = **1.2e-5**, rounded to 1e-5.
-It is a loss-share anchor, not a gradient-norm one, which is why §4 has an ep-12 tripwire.
+**Where 3e-5 comes from.** Two anchors, both from the twin at ep 33. *Loss-share parity* with SIGReg
+(`0.02 × 17.0 × 0.0039` = 1.48% of a 0.0896 total) gives `w = 0.0148 × 0.0896 / (17.0 × 6.59)` = 1.2e-5 —
+but that is too timid to separate the hypotheses. Per §2, SIGReg's per-axis gradient is
+`∝ C(m−1) + 2(λᵢ−1)`, the covariance term's is `∝ 2(λᵢ−1)`, so at 1e-5 the added *redistribution* push is
+only ~1.3–2× what SIGReg 0.02 already delivers (κ ≈ 0.07–0.12 from the CF quadrature; the observed
+0.0039 sits below the leading-order 0.0063, hence the range) — roughly the 0.04–0.06 arm's shape push,
+and a 2× step was already flat. **At 3e-5 the added push is ~4–6× SIGReg's own: at or above what the
+0.08 arm delivered, with ~1–2% of its added scale stiffness and none of its floor or tail terms.** That
+is the comparison the arm exists to make. Loss share: 3.8% at ep 33, 11.5% at ep 4 (`L_cov` 40.6). It is a
+leading-order anchor, which is why §4 has an ep-12 tripwire in both directions.
 
 **Pre-flight, then submit** (the user syncs manually — if a grep is empty the cluster copy is stale;
 ask, do not rsync):
@@ -274,10 +305,10 @@ separate open question (`../analysis/2026-07-28_sigreg_z_spread.html`, "How to a
 
 | read | twin BSC:45296347 | this arm must show |
 |---|---|---|
-| ep 0, first 60 s | — | startup print `cov_weight=1e-05 cov_warmup=4000`; a silent 0.0 is a stale trainer |
+| ep 0, first 60 s | — | startup print `cov_weight=3e-05 cov_warmup=4000`; a silent 0.0 is a stale trainer |
 | ep 0 | Train 0.2638, Eval 0.1225, 34.8 min/ep | `Cov:` in the epoch line, ~7–40; epoch time within 1% |
 | ep 4 | Train 0.1795, Eval 0.0948, PR 19.5 | recon not more than ~10% behind the twin |
-| **ep 12, tripwire** | PR 48.4, `L_cov` 12.9 | **PR ≥ 65.** Below → kill, resubmit at 3e-5. Recon >10% behind → 3e-6 |
+| **ep 12, tripwire** | PR 48.4, `L_cov` 12.9 | **PR ≥ 65.** Below → kill, resubmit at 1e-4. Recon >10% behind → 1e-5 |
 | ep 33 | Train 0.0896, Eval 0.0507, PR 87.6, `L_cov` 6.59 | **PR ≥ 150** (= `L_cov` 3.30 at fixed trace) |
 | ep 67 | _(twin read pending, TODO 2)_ | eval `LossRecon_Comp` below the twin, both sets |
 
@@ -292,7 +323,7 @@ the `sigregsum` arm — so it doubles as a check on whether the two terms agree 
 | Job | Arm | State | Notes |
 |---|---|---|---|
 | BSC:45296347 | tc512 plain sigreg 0.02 | RUNNING ep 33 | **the twin for this read** |
-| _pending_ | tc512 sigreg 0.02 + `cov_weight=1e-5` | not submitted | this arm |
+| _pending_ | tc512 sigreg 0.02 + `cov_weight=3e-5` | not submitted | this arm |
 
 Logs: `slurm/output/train_deltatok_compose_sigreg_covpen_nozn_tc512_bsc_<jobid>.{out,err}`.
 TB mirror: `/mnt/d/tb_logs/deltatok_log/<run>/tb_logs/`.
