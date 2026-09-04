@@ -2,7 +2,8 @@
 
 Created 2026-09-02 · thread `sigreg` · prior cycle: `2026-09-02_sigreg_sum_at_weight_0.02.md`
 · arm: `..._sigreg0.02_ns1024_pool8192_compose1.0_cov3e-5` · control: BSC:45296347 (same recipe, `cov_weight=0`)
-· jobs: _pending_ · deck: _pending_ · TODO 6
+· jobs: BSC:45416718 · deck: _pending_ · TODO 6
+· twin read: `../results/2026-09-04_tc_width_tc512_sigreg_weight_axis_slides.html`
 
 ## 1 Hypothesis
 
@@ -61,16 +62,20 @@ matched ep 67, both eval sets.
 
 `Train/ZPartRank` on the twin BSC:45296347, Cz=512, from the cached stdout:
 
-| ep | 4 | 8 | 12 | 16 | 20 | 24 | 28 | 32 | 33 |
-|---|---|---|---|---|---|---|---|---|---|
-| `ZPartRank` | 19.5 | 35.2 | 48.4 | 60.6 | 71.3 | 78.0 | 83.9 | 86.8 | 87.6 |
-| Δ per 4 ep | | +15.7 | +13.2 | +12.2 | +10.7 | +6.7 | +5.9 | +2.9 | |
+| ep | 4 | 8 | 12 | 16 | 20 | 24 | 28 | 33 | 49 | 67 | 81 |
+|---|---|---|---|---|---|---|---|---|---|---|---|
+| `ZPartRank` | 19.5 | 35.2 | 48.4 | 60.6 | 71.3 | 78.0 | 83.9 | 87.6 | 97.1 | 101.8 | 101.5 |
 
-Decelerating to a stop at ~18% of the 512-dim budget, with `ZTotalVar` pinned at 594–596 the whole
-way. The other axes agree: rank stays in a 37–97 band from Cz=64 to Cz=1024 (`Cz` vs rank r = −0.10,
-`2026-08-27_tc_width_tc_sigreg_ab_slides.html`), and on the weight axis 0.005 → 0.01 → 0.02 gives
-36.7 → 97.2 → 87.6 while 0.08 *lowers* it to 38.7 · 54.3 at twice the loss (`../../todo/02-09-2026.md`, TODO 2
-note). Width does nothing and the weight has turned over. Nothing left to turn.
+Gaining +15.7 per 4 ep at the start, +2.9 by ep 33, and **flat from ep 49 on** — saturated at ~20% of
+the 512-dim budget, with `ZTotalVar` at 594–650 the whole way. The twin ran to ep 81 (48 h wall,
+`current.pth` resumable), so this tail is measured, not extrapolated.
+
+The other axes agree. Rank stays in a 37–97 band from Cz=64 to Cz=1024 (`Cz` vs rank r = −0.10,
+`2026-08-27_tc_width_tc_sigreg_ab_slides.html`). On the weight axis the completed read
+(`../results/2026-09-04_tc_width_tc512_sigreg_weight_axis_slides.html`) is a **plateau, not a
+turnover**: eval `ZPartRank` at ep 67 goes 36.7 (0.005) → 97.2 (0.01) → 89.2 (0.02) → 97.6 (0.04),
+i.e. saturated near 100/512 across a 4× weight range, then *falls* to 46.5 at 0.08 with 1.8× the loss.
+Width does nothing and the weight is spent. Nothing left to turn.
 
 ### The identity that makes `L_cov` a rank objective
 
@@ -83,9 +88,14 @@ With `T = ZTotalVar = tr Σ`, `P = ZPartRank = T²/Σλ²` and `C = Cz`:
 At fixed trace it is strictly decreasing in `P`. The penalty *is* the rank objective, where the CF
 statistic reaches rank only through a second-order effect on 1D marginals. Evaluated on the twin:
 
-| ep | 4 | 12 | 20 | 24 | 28 | 33 |
-|---|---|---|---|---|---|---|
-| `L_cov` (train rows) | 40.6 | 12.9 | 8.26 | 7.45 | 6.90 | **6.59** |
+| ep | 4 | 12 | 20 | 28 | 33 | 49 | 67 | 81 |
+|---|---|---|---|---|---|---|---|---|
+| `L_cov` (train rows) | 40.6 | 12.9 | 8.26 | 6.90 | **6.59** | **5.99** | 6.26 | 6.59 |
+
+**`L_cov` is not monotone on the twin.** It bottoms at ep 49 and climbs back to its ep-33 value by
+ep 81 — rank is flat at ~102 while `ZTotalVar` drifts 604 → 650, so the late rise is pure trace. The
+untouched objective therefore *loses* ground on the very quantity this arm adds. Compare at matched
+epochs only.
 
 and the inverse map at the ep-33 trace: `L_cov` 6.59 → 3.30 **is** `ZPartRank` 87.6 → 150; `L_cov` →
 1.0 would be `ZPartRank` ≈ 298. Uncentered vs centered is inert here — the off-center energy is
@@ -139,16 +149,20 @@ pressure elsewhere while this term spends all of it on the thing being measured.
 
 Two `(Cz, Cz)` Grams per micro-batch: 128 live rows and 2048 pooled rows per rank at Cz=512 →
 ~1.1 GFLOP/step, plus one 1 MB all-reduce. Against a 4-GPU H100 step this should be under 1%;
-**verify it** against the twin's measured **35.8 min/epoch** (BSC:45296347, ep 49 at 23:21:38) rather
+**verify it** against the twin's measured **34.9 min/epoch** (BSC:45296347, ep 81 at 47:44:23) rather
 than assuming it.
 
 ### Why tc512
 
-The twin exists, reads at ep 67, and tc512 has the most unused budget (88/512 = 17%) — at tc128 rank
-is already 90/128. The risk is that tc512 is a *stuck* arm: worst rank of all six widths from ~ep4 on,
-cause unknown (`../../todo/02-09-2026.md` history, `2026-08-27_tc_width_tc_sigreg_ab_slides.html`). If this arm
-lifts rank but not recon, re-run at tc256 (rank 96.5, healthy) before concluding anything about
-mechanism.
+The twin exists, reads at ep 67 and ep 81, and tc512 has the most unused budget (102/512 = 20%) —
+at tc128 rank is already 90/128 (73%).
+
+**The "stuck arm" caveat is resolved and no longer applies.** tc512's worst-of-six rank was the
+inherited `sigreg_weight` 0.005, not the width: at 0.01–0.04 its eval recon at ep 67 is 0.0416–0.0441
+pooled against 0.0414 for tc128 and 0.0416 for tc256, versus 0.0589 at 0.005. Width is a wash on token
+recon at the right weight, and tc512 reaches it using a fifth of its channels. Decoded geometry still
+prefers narrow on KITTI — tc128's `Pointmap_PredVsGT` sits 0.007 above the teacher floor against 0.196
+for this twin — which is a `tc_width` question, not this arm's.
 
 ## 3 Solution
 
@@ -240,9 +254,9 @@ Change `--job-name`, `--output`, `--error`, `RUN_NAME` together, and add exactly
 - `RUN_NAME=deltatok_l12_dtok64_tc512_nozn_maxgap9_vpt1to2_sigreg${SIGREG_WEIGHT}_ns${SIGREG_NUM_SLICES}_pool${SIGREG_POOL_SAMPLES}_compose${COMPOSE_WEIGHT}_cov${COV_WEIGHT}`
 - `SIGREG_WEIGHT` default 0.005 → **0.02**, the twin's value, so a bare `sbatch` cannot produce a
   0.005 arm by omission.
-- `--time=40:00:00` → **`44:00:00`**. The twin runs 35.8 min/ep (ep 49 at 29 h 15 min training clock,
-  2026-09-02 23:21), so ep 67 lands at 40.0 h — on the wall, and `exit_before_time_limit` would stop
-  it at ep 66. Backfill at 44 h fits gaps almost as well as 40 h.
+- `--time=40:00:00` → **`44:00:00`**. The twin runs 34.9 min/ep and hit ep 67 at 39 h 35 min of
+  training clock, so a 40 h job would be stopped at ep 66 by `exit_before_time_limit`. 44 h reaches
+  ~ep 75, and backfill at 44 h fits gaps almost as well as 40 h.
 - everything else byte-identical: tc512, compose 1.0, ns1024, pool8192, warmup2000, max_gap 9,
   bsize 2, account `ehpc880` (the twin's; ehpc1001 already carries BSC:45344713 and BSC:45345063).
 
@@ -288,11 +302,12 @@ separate open question (`../analysis/2026-07-28_sigreg_z_spread.html`, "How to a
 | read | twin BSC:45296347 | this arm must show |
 |---|---|---|
 | ep 0, first 60 s | — | startup print `cov_weight=3e-05`; a silent 0.0 is a stale trainer |
-| ep 0 | Train 0.2638, Eval 0.1225, 35.8 min/ep | `Cov:` in the epoch line, ~7–40; epoch time within 1% |
+| ep 0 | Train 0.2638, Eval 0.1225, 34.9 min/ep | `Cov:` in the epoch line, ~7–40; epoch time within 1% |
 | ep 4 | Train 0.1795, Eval 0.0948, PR 19.5 | recon not more than ~10% behind the twin |
 | **ep 12, tripwire** | PR 48.4, `L_cov` 12.9 | **PR ≥ 65.** Below → kill, resubmit at 1e-4. Recon >10% behind → 1e-5 |
 | ep 33 | Train 0.0896, Eval 0.0507, PR 87.6, `L_cov` 6.59 | **PR ≥ 150** (= `L_cov` 3.30 at fixed trace) |
-| ep 67 | _(twin read pending, TODO 2)_ | eval `LossRecon_Comp` below the twin, both sets |
+| **ep 67, the read** | Train 0.0765, Eval 0.0442, train PR 101.8, `L_cov` 6.26 · eval `LossRecon_Comp` **0.0561** K / **0.0401** N, `LossRecon` 0.0520 / 0.0363, eval PR 89.2 / 98.0 | eval `LossRecon_Comp` below the twin, both sets |
+| ep 75 | _(past the twin, inside the 44 h wall)_ | free tail; the twin's own ep 81 is 0.0563 K / 0.0392 N |
 
 Decompose every `L_cov` move with `T²/(C·P) − 2T/C + 1` before calling it rank: 26.5% of the ep-33
 headroom is trace alone. `ZTotalVar` drifting to 512 with `ZPartRank` flat is the scale-only null.
@@ -300,12 +315,20 @@ headroom is trace alone. `ZTotalVar` drifting to 512 with `ZPartRank` flat is th
 The raw `SIGReg:` stdout scalar stays comparable across this flag (same statistic, same rows), unlike
 the `sigregsum` arm — so it doubles as a check on whether the two terms agree about the code.
 
+**A second bar, because 0.02 is not the best point on the weight axis.** The plateau 0.01–0.04 spans
+6% of eval recon, and 0.02 is its worst arm: at ep 67 the 0.01 twin BSC:45106935 reads
+`LossRecon_Comp` 0.0528 K / 0.0370 N against 0.0561 / 0.0401 here. So beating BSC:45296347 by less
+than that is **inside the weight plateau** and does not separate "the penalty works" from "you moved
+along the weight axis". Report against both twins; only clearing 0.0528 / 0.0370 is a new best.
+0.02 is kept as the base anyway so the arm stays a one-term diff against a matched control.
+
 ### Tracking
 
 | Job | Arm | State | Notes |
 |---|---|---|---|
-| BSC:45296347 | tc512 plain sigreg 0.02 | RUNNING ep 33 | **the twin for this read** |
-| _pending_ | tc512 sigreg 0.02 + `cov_weight=3e-5` | not submitted | this arm |
+| BSC:45296347 | tc512 plain sigreg 0.02 | COMPLETED ep 81 | **the twin for this read**; 48 h wall, `current.pth` resumable |
+| BSC:45106935 | tc512 plain sigreg 0.01 | COMPLETED ep 67 | secondary bar — the axis best, see "A second bar" above |
+| BSC:45416718 | tc512 sigreg 0.02 + `cov_weight=3e-5` | submitted 2026-09-04 | **this arm**; 44 h on `ehpc880`, reaches ~ep 75 |
 
 Logs: `slurm/output/train_deltatok_compose_sigreg_covpen_nozn_tc512_bsc_<jobid>.{out,err}`.
 TB mirror: `/mnt/d/tb_logs/deltatok_log/<run>/tb_logs/`.
@@ -325,4 +348,5 @@ _Pending. Write in the order of the falsifiers._
   checkpoint vs the twin.
 - **Rank does not move** — the ceiling is not statistical. Next lever is the bottleneck itself
   (`bottleneck_mlp=true`), not another regulariser.
-- **tc512 turns out to be the confound** — repeat at tc256, where rank is healthy at 96.5.
+- **tc512 turns out to be the confound** — repeat at tc256, where rank is healthy at 96.5. Less
+  likely now that the stuck-arm caveat is resolved (§2), but tc128 still wins KITTI decoded geometry.

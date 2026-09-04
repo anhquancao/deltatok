@@ -126,6 +126,7 @@ training:
   sigreg_pool_samples: 8192
   sigreg_gap_sigma: false  # z/√gap before SIGReg (Brownian: Var ∝ gap)
   sigreg_compose_z: false  # cat all 3 compose streams into SIGReg
+  cov_weight: 0.0  # + ||E[zz^T]-I||_F^2/Cz on the SIGReg pool: spectrum shape directly. Needs sigreg_weight > 0
   # z-spread diagnostics (Eval/<test>/Z*): effective rank of the z covariance, i.e. how
   # much of the Cz budget the code uses. One measurement per eval loader, over that
   # loader's rows pooled across ranks. Runs with or without SIGReg -- that is what makes

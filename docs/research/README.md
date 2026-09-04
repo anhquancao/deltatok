@@ -49,6 +49,7 @@ question.
 | 2026-08-27 | [tc_sigreg_ab_slides](results/2026-08-27_tc_width_tc_sigreg_ab_slides.html) | results | Deck for Q2 | Halving the weight makes recon worse at tc256 and tc512 |
 | 2026-09-01 | [sigreg_weight_tc512](plan/2026-09-01_tc_width_sigreg_weight_tc512.md) | plan, **open** | Where `sigreg_weight` turns over at tc512; is it `∝ Cz`? | Arms 0.02 / 0.04 / 0.08 = BSC:45296347–49, read at ep 67 |
 | 2026-09-01 | [tc512_sigreg_weight_slides](results/2026-09-01_tc_width_tc512_sigreg_weight_slides.html) | results | Deck for Q3/Q4 | 0.005 vs 0.01 vs sigregsum at ep 67 |
+| 2026-09-04 | [tc512_sigreg_weight_axis_slides](results/2026-09-04_tc_width_tc512_sigreg_weight_axis_slides.html) | results | The whole 0.002…0.08 axis at tc512, plus the composed-sum variant at 0.005 and 0.02 | Broad plateau 0.01–0.04 (6% spread), break at 0.08; rank saturates near 100/512; the sum's 0.005 win reverses to +8% at 0.02 |
 
 ## sigreg — making the delta code spread
 

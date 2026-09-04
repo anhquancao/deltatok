@@ -34,6 +34,7 @@ from models.qk_norm import enable_dinov3_qk_norm
 
 from occrae.abstract_trainer import Trainer
 from occrae.sigreg import SIGReg  # LeJEPA anti-collapse regularizer on the z bottleneck
+from occrae.cov_penalty import cov_penalty  # direct ||E[zz^T]-I||_F^2/Cz term beside SIGReg
 from occrae.z_spread import ZSpreadStats  # eval-time effective-rank diagnostic on z
 from occrae.deltatok_shared import DeltaTokSharedMixin
 from occrae.network.rope_utils import compute_camera_rope  # shared 1xN camera-grid rope build
@@ -622,6 +623,14 @@ class DeltaTokTrainer(DeltaTokSharedMixin, Trainer):
         # Brownian scaling: target N(0, gap·I) by pre-normalizing z /= √gap
         self._sigreg_gap_sigma = bool(self.cfg.training.get("sigreg_gap_sigma", False))
 
+        # Direct second-moment penalty on the rows SIGReg pools: attacks the spectrum shape the
+        # sliced CF statistic reaches only second-hand. On top of sigreg_weight, never instead --
+        # shares its pool, its warmup ramp and its `scale`.
+        self._cov_weight = float(self.cfg.training.get("cov_weight", 0.0))
+        assert self._cov_weight == 0 or self._sigreg_weight > 0, "cov_weight needs sigreg_weight > 0"
+        if self.is_master:
+            print(f"cov_weight={self._cov_weight}")  # 0.0 on a stale trainer = a null for the wrong reason
+
         # z-spread diagnostics (Eval/<test>/Z*): how much of the Cz budget the code
         # actually uses. Measured on eval only -- a fixed val set makes it comparable
         # across epochs and runs. Runs with or without SIGReg, which is what makes a
@@ -1009,8 +1018,8 @@ class DeltaTokTrainer(DeltaTokSharedMixin, Trainer):
         self.tokenizer.train()
         cum_loss = 0.
         cum_recon = 0.                           # per-component sums for the epoch breakdown
-        cum_sigreg = cum_bneck = cum_compose = 0.
-        n_sigreg = n_bneck = n_compose = 0       # count only batches where the component fired
+        cum_sigreg = cum_bneck = cum_compose = cum_cov = 0.
+        n_sigreg = n_bneck = n_compose = n_cov = 0   # count only batches where the component fired
         num_batches = 0
         last_update_time = time.time()
         window_loss = deque(maxlen=self.grad_cum)
@@ -1112,7 +1121,7 @@ class DeltaTokTrainer(DeltaTokSharedMixin, Trainer):
             # ramps the weight in so it doesn't fight recon before the code forms. iter seeds
             # the slice draw: same on every rank, checkpointed (so a resume doesn't replay
             # seed 0) and fresh every micro-batch.
-            loss_sigreg = None
+            loss_sigreg = loss_cov = None
             if self.sigreg is not None:
                 live, pool, scale = self._sigreg_pooled(z_bneck.float())
                 warmup = int(self.cfg.training.get("sigreg_warmup", 0))
@@ -1124,6 +1133,11 @@ class DeltaTokTrainer(DeltaTokSharedMixin, Trainer):
                 with torch.autocast(device_type="cuda", enabled=False):
                     loss_sigreg = self.sigreg(live, pool, seed=int(self.cfg.training.iter))
                 loss_total = loss_total + (self._sigreg_weight * ramp * scale) * loss_sigreg
+                # Same rows, same ramp, same `scale`: one added term, nothing else moves.
+                if self._cov_weight > 0:
+                    with torch.autocast(device_type="cuda", enabled=False):
+                        loss_cov = cov_penalty(live, pool)
+                    loss_total = loss_total + (self._cov_weight * ramp * scale) * loss_cov
 
             (loss_total / self.grad_cum).backward()
 
@@ -1154,6 +1168,8 @@ class DeltaTokTrainer(DeltaTokSharedMixin, Trainer):
             cum_recon += loss.detach().item()       # recon fires every batch
             if loss_sigreg is not None:
                 cum_sigreg += loss_sigreg.detach().item(); n_sigreg += 1
+            if loss_cov is not None:
+                cum_cov += loss_cov.detach().item(); n_cov += 1
             if loss_bneck is not None:
                 cum_bneck += loss_bneck.detach().item(); n_bneck += 1
             if loss_compose is not None:
@@ -1179,6 +1195,7 @@ class DeltaTokTrainer(DeltaTokSharedMixin, Trainer):
                     self.log_add_scalar('Train/LearningRate', self.optim.param_groups[0]['lr'], self.cfg.training.iter)
                     self.log_add_scalar('Train/LossRecon', loss, self.cfg.training.iter)
                     self.log_add_scalar('Train/LossSIGReg', loss_sigreg if loss_sigreg is not None else 0.0, self.cfg.training.iter)
+                    self.log_add_scalar('Train/LossCov', loss_cov if loss_cov is not None else 0.0, self.cfg.training.iter)
                     self.log_add_scalar('Train/LossBneck', loss_bneck if loss_bneck is not None else 0.0, self.cfg.training.iter)
                     self.log_add_scalar('Train/LossCompose', loss_compose if loss_compose is not None else 0.0, self.cfg.training.iter)
                     self.log_add_scalar('Train/LossTot', mini_batch_loss, self.cfg.training.iter)
@@ -1190,6 +1207,8 @@ class DeltaTokTrainer(DeltaTokSharedMixin, Trainer):
                  "recon": cum_recon / max(1, num_batches)}
         if n_sigreg:
             stats["sigreg"] = cum_sigreg / n_sigreg
+        if n_cov:
+            stats["cov"] = cum_cov / n_cov
         if n_bneck:
             stats["bneck"] = cum_bneck / n_bneck
         if n_compose:
@@ -1678,7 +1697,8 @@ class DeltaTokTrainer(DeltaTokSharedMixin, Trainer):
                 comp_str = ", ".join(
                     f"{name}: {float(train_stats[key]):.4f}"
                     for key, name in (("recon", "Recon"), ("sigreg", "SIGReg"),
-                                      ("bneck", "Bneck"), ("compose", "Compose"))
+                                      ("bneck", "Bneck"), ("compose", "Compose"),
+                                      ("cov", "Cov"))
                     if key in train_stats
                 )
                 now = os.popen('date').read().strip()
