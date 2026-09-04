@@ -1,5 +1,5 @@
 {
- "generated": "2026-09-04T17:34:03",
+ "generated": "2026-09-04T17:35:58",
  "root": "docs/research",
  "threads": [
   {
@@ -1599,17 +1599,18 @@
   },
   {
    "num": 12,
-   "status": "plan written",
+   "status": "running",
    "item": "Decoder-only noise-augmented finetune of the tc128 compose tokenizer (RAE noise_tau), read through the unchanged flow control",
    "thread": "flow",
    "paper": "main results: tokenizer for the flow eval",
-   "note": "../research/plan/2026-09-04_flow_decoder_noise_finetune.md. Motivated by the probe ../research/results/2026-09-04_flow_decoder_noise_probe.md (BSC:45417908): decoded loss is superlinear in latent error, knee below MSE 0.30, flow at 0.67. One ~5 h BSC job + two 9-min evals; z untouched so MSEToken 0.6677 must reproduce",
-   "note_md": "`../research/plan/2026-09-04_flow_decoder_noise_finetune.md`. Motivated by the probe `../research/results/2026-09-04_flow_decoder_noise_probe.md` (`BSC:45417908`): decoded loss is superlinear in latent error, knee below MSE 0.30, flow at 0.67. One ~5 h BSC job + two 9-min evals; `z` untouched so `MSEToken` 0.6677 must reproduce",
+   "note": "../research/plan/2026-09-04_flow_decoder_noise_finetune.md. Submitted 2026-09-04 as BSC:45421190, 8 h on ehpc1001, 10 epochs warm-started weights-only from compose1.0/ckpts/epoch_100.pth, read at ep 10 (ep 5 as the backstop); still PENDING, not yet verified running. Decoder-only: model.deltatok.decode_noise_tau=0.8 + training.freeze_except_decoder=true, so the encoder is frozen, z is bit-identical, every flow checkpoint stays valid, and the flow's MSEToken 0.6677 must reproduce exactly as the built-in check. The read is two eval jobs off slurm/eval_deltatok_flow_numsteps_tc128compose_bsc.slurm with DELTATOK_CKPT at the finetuned ckpt: flow N=1/20, and the --noise_sigmas 0.0,0.32,0.55,0.82 ladder. Motivated by the probe ../research/results/2026-09-04_flow_decoder_noise_probe.md (BSC:45417908): decoded loss is superlinear in latent error, knee below MSE 0.30, flow at 0.67",
+   "note_md": "`../research/plan/2026-09-04_flow_decoder_noise_finetune.md`. **Submitted 2026-09-04 as BSC:45421190**, 8 h on `ehpc1001`, 10 epochs warm-started weights-only from `compose1.0/ckpts/epoch_100.pth`, read at ep 10 (ep 5 as the backstop); still PENDING, not yet verified running. Decoder-only: `model.deltatok.decode_noise_tau=0.8` + `training.freeze_except_decoder=true`, so the encoder is frozen, `z` is bit-identical, every flow checkpoint stays valid, and the flow's `MSEToken` 0.6677 must reproduce exactly as the built-in check. The read is two eval jobs off `slurm/eval_deltatok_flow_numsteps_tc128compose_bsc.slurm` with `DELTATOK_CKPT` at the finetuned ckpt: flow N=1/20, and the `--noise_sigmas 0.0,0.32,0.55,0.82` ladder. Motivated by the probe `../research/results/2026-09-04_flow_decoder_noise_probe.md` (`BSC:45417908`): decoded loss is superlinear in latent error, knee below MSE 0.30, flow at 0.67",
    "closed": "",
    "state": "open",
    "source": "docs/todo/02-09-2026.md",
    "order": 9,
    "jobs": [
+    "45421190",
     "45417908"
    ],
    "docs": [

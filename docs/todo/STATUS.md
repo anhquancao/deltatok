@@ -31,7 +31,6 @@ the cached `logs/BSC/*.out`. Every row says what to grep and where the number go
 | TODO | What | Plan | Needs before `sbatch` | Check when it runs |
 |---|---|---|---|---|
 | 11 | best-of-K + K-spread evals on existing ckpts (minutes each) + one 72 h `train_fixed_t=0` regressor read at `iter_100000` | `../research/plan/2026-09-04_flow_bestofk_regressor_null.md` §3 | the eval flags and the regressor knob in §3; sync, then grep the remote file | falsifiers in §1 |
-| 12 | decoder-only noise finetune of the tc128 compose tokenizer, ~5 h + two 9-min evals | `../research/plan/2026-09-04_flow_decoder_noise_finetune.md` §3 | All three patches and the arm script `slurm/deltatok/train_deltatok_compose_tc128_decnoise_ft_bsc.slurm` are in the working tree, **uncommitted and unsynced** (2026-09-04). Commit, sync to BSC, grep the remote script for `decode_noise_tau=0.8` and `epoch_100.pth`, then `sbatch` | First 60 s: `.out` prints `decode_noise_tau=0.8` and `encoder_blocks` at 0 trainable params. Eval job A (`DELTATOK_CKPT=<ft epoch_10>`, `NUM_STEPS=1,20`) must reproduce MSEToken 0.6677 / 0.8850 exactly; the read is LossRaymap 5.03 → ≤ 3.5 |
 
 ## Plans whose §4 is still `_Pending_` with data already on disk
 
