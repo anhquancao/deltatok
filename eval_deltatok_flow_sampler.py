@@ -102,6 +102,12 @@ def get_args_parser() -> argparse.ArgumentParser:
              "pass per (num_steps, step_mode). Empty = use training.eval_num_steps once.",
     )
     parser.add_argument(
+        "--noise_sigmas", type=str, default="",
+        help="Comma-separated decoder noise-probe sigmas; one full eval_one_epoch pass "
+             "each, with z_hat replaced by z + sigma*N(0,I) on the forecast slots. "
+             "Empty = use training.eval_noise_probe_sigma (null = normal sampling).",
+    )
+    parser.add_argument(
         "--viz_rgb", action="store_true",
         help="Keep the MAE image decoder loaded so the eval panels get RGB columns. "
              "Needs training.eval_num_visualizations > 0 to produce anything.",
@@ -206,19 +212,26 @@ def main() -> None:
     # Empty --num_steps keeps the single-pass behaviour at the config's eval_num_steps.
     steps = [int(s) for s in args.num_steps.split(",") if s.strip()] or \
             [int(cfg.training.get("eval_num_steps", 50))]
+    # Empty --noise_sigmas keeps the config's probe setting (null = normal sampling).
+    sigmas = [float(s) for s in args.noise_sigmas.split(",") if s.strip()] or \
+             [cfg.training.get("eval_noise_probe_sigma", None)]
     for n_steps in steps:
         cfg.training.eval_num_steps = n_steps  # re-read by eval_one_epoch each pass
         for mode in modes:
             cfg.model.sampler_step_mode = mode  # read by eval_one_epoch's flow_euler_sample call
-            with open_dict(cfg):
-                # panel filenames carry no step/mode, so one dir per pass or they overwrite
-                cfg.training.eval_viz_dir = os.path.join(output_dir, "eval_viz", f"{mode}_steps{n_steps}")
-            print(f"\n[INFO] ===== sampler_step_mode={mode} "
-                  f"(eval_num_steps={n_steps}, "
-                  f"eval_num_items={cfg.training.get('eval_num_items', 256)}) =====", flush=True)
-            loss = trainer.eval_one_epoch()  # prints the [Eval/...] metric line itself
-            print(f"[INFO] steps={n_steps} sampler_step_mode={mode}: "
-                  f"Eval loss (flow) = {float(loss):.4f}")
+            for sigma in sigmas:
+                cfg.training.eval_noise_probe_sigma = sigma  # re-read by eval_one_epoch each pass
+                with open_dict(cfg):
+                    # panel filenames carry no step/mode, so one dir per pass or they overwrite
+                    cfg.training.eval_viz_dir = os.path.join(
+                        output_dir, "eval_viz", f"{mode}_steps{n_steps}_sigma{sigma}")
+                print(f"\n[INFO] ===== sampler_step_mode={mode} "
+                      f"(eval_num_steps={n_steps}, "
+                      f"eval_noise_probe_sigma={sigma}, "
+                      f"eval_num_items={cfg.training.get('eval_num_items', 256)}) =====", flush=True)
+                loss = trainer.eval_one_epoch()  # prints the [Eval/...] metric line itself
+                print(f"[INFO] steps={n_steps} sampler_step_mode={mode} sigma={sigma}: "
+                      f"Eval loss (flow) = {float(loss):.4f}")
 
     print(f"\n[INFO] Done. Viz (if any) under {output_dir}")
 

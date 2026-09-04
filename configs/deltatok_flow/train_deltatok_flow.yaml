@@ -128,6 +128,9 @@ training:
   cache_frozen_encode: false
   eval_num_items: 256
   eval_num_steps: 50
+  # Decoder noise-tolerance probe: replace the sampled z_hat with z + sigma*N(0,I)
+  # on forecast slots. null = off (normal eval).
+  eval_noise_probe_sigma: null
   eval_num_visualizations: 8
   sanity_check_num_items: 2
   # Stop cleanly after an epoch ckpt when the SLURM wall is near (chain-resume

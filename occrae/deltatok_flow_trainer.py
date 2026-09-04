@@ -726,6 +726,13 @@ class DeltaTokFlowMatchingTrainer(DeltaTokSharedMixin, Trainer):
             eval_num_visualizations = int(self.cfg.training.get("eval_num_visualizations", 8))
         eval_num_items = max(1, eval_num_items_global // self.world_size)
         eval_num_steps = self.cfg.training.get("eval_num_steps", 50)
+        # Decoder noise-tolerance probe (None = off): swaps the flow sample for
+        # GT + isotropic noise, so decoded losses read as a function of MSEToken.
+        noise_probe_sigma = self.cfg.training.get("eval_noise_probe_sigma", None)
+        noise_probe_sigma = None if noise_probe_sigma is None else float(noise_probe_sigma)
+        if noise_probe_sigma is not None and self.is_master:
+            print(f"[INFO] eval_noise_probe_sigma={noise_probe_sigma} "
+                  f"(z_hat := z + sigma*N(0,I) on forecast slots)", flush=True)
         eval_viz_dir = str(
             self.cfg.training.get(
                 "eval_viz_dir",
@@ -814,6 +821,16 @@ class DeltaTokFlowMatchingTrainer(DeltaTokSharedMixin, Trainer):
                         autocast_ctx=self.autocast,
                     )
                     z_hat = self._flow_latent_to_z(gen)      # (B, T-1, N, K, C) sampled deltas
+
+                    if noise_probe_sigma is not None:
+                        # Probe: GT deltas + isotropic noise on forecast slots only, from the
+                        # seeded eval generator. Context slots stay GT, as in a normal sample.
+                        z_hat = z.clone()                                                        # (B, T-1, N, K, C)
+                        fc = z_hat[:, self.n_ctx:]                                               # (B, T-1-n_ctx, N, K, C) forecast view
+                        fc += noise_probe_sigma * torch.randn(
+                            fc.shape, generator=self._eval_noise_gen,
+                            device=z.device, dtype=z.dtype,
+                        )
 
                     if "gt_mask" in batch:
                         height, width = batch["output_resolution_hw"]
