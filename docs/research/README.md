@@ -11,7 +11,12 @@ the ledger for each thread is a section below.
 
 [`TEMPLATE.md`](TEMPLATE.md) is the plan template. Copy it; never start from a blank file.
 
-## Open questions (2026-09-02)
+[`viewer.html`](viewer.html) browses all of it: four date-sorted columns — todo, plan, results, analysis — with the
+links between them drawn on click. It reads [`index.json`](index.json), built from this ledger, the doc headers and
+[`../todo/`](../todo/) by `python3 tools/build_index.py`. Re-run that after adding a doc. Hand fixes go in the file's
+`overrides` block, which a rebuild keeps.
+
+## Open questions (2026-09-04)
 
 | Thread | Open |
 |---|---|
@@ -19,8 +24,8 @@ the ledger for each thread is a section below.
 | [`sigreg`](#sigreg--making-the-delta-code-spread) | Does a direct `‖E[zzᵀ]−I‖²_F` penalty break the ~90/512 rank ceiling? Plan only, no code, not submitted. The `weight ∝ Cz` question is tracked in `tc_width`. |
 | [`compose`](#compose--additive-composition-of-delta-tokens) | Composed ≠ autoregressive. Whether a short-schedule plain arm buys composability for free. |
 | [`pair_sampling`](#pair_sampling--which-frame-pairs-and-gaps-the-tokenizer-trains-on) | None. |
-| [`flow`](#flow--flow-matching-over-frozen-delta-tokens) | t≈0 starvation under `loss_mode=v`, and the compose-arm diagnostic in the 2026-09-01 numsteps analysis. |
-| [`pointdit`](#pointdit--which-of-pointdits-recipe-choices-transfer-to-our-flow-arm) | Three arms planned, none submitted. The zeros ODE init is dropped. |
+| [`flow`](#flow--flow-matching-over-frozen-delta-tokens) | Can the eval see generation at all? best-of-K, K-spread and a `train_fixed_t=0` regressor null: [`plan/2026-09-04_flow_bestofk_regressor_null.md`](plan/2026-09-04_flow_bestofk_regressor_null.md). Written, not submitted. |
+| [`pointdit`](#pointdit--which-of-pointdits-recipe-choices-transfer-to-our-flow-arm) | The low-`t` schedule lost 19 of 20 arm × step cells at matched ep 50 and was cancelled at ep 58. Memorisation or representation is the train-split t-bins job in the `flow` plan above. |
 
 ## Cross-thread
 
@@ -102,7 +107,7 @@ Timestep selection, gap range (`max_gap`), and the 1ecb17c switch to consecutive
 
 ## flow — flow matching over frozen delta tokens
 
-The world model: a DiT that denoises DeltaTok codes conditioned on context frames. Twenty-two docs, from the June
+The world model: a DiT that denoises DeltaTok codes conditioned on context frames. Twenty-three docs, from the June
 collapse through the September step-count analysis. The pointdit comparison spun out into its own thread on
 2026-09-02.
 
@@ -131,6 +136,7 @@ collapse through the September step-count analysis. The pointdit comparison spun
 | 2026-09-01 | [numsteps_tc128compose_slides](results/2026-09-01_flow_numsteps_tc128compose_slides.html) | results | 1…20 ODE steps on one checkpoint | Error rises monotonically with steps |
 | 2026-09-01 | [numsteps_why_more_steps_degrade](analysis/2026-09-01_flow_numsteps_why_more_steps_degrade.md) | analysis, **open** | Why more steps degrade | The sampler does not integrate: N steps returns x̂ at t = 1−1/N. t≈0 starvation under `loss_mode=v` is untested |
 | 2026-09-02 | [sky_in_eval_loss](analysis/2026-09-02_flow_sky_in_eval_loss.md) | analysis | How is the sky handled in the flow eval loss? | Dropped implicitly: the geometry losses are masked by `valid_mask = depth>0 & depth<50`, and sky has no LiDAR return. The flow loss keeps it at full weight |
+| 2026-09-04 | [bestofk_regressor_null](plan/2026-09-04_flow_bestofk_regressor_null.md) | plan, **open** | Can the eval see generation? best-of-8 + K-spread on existing ckpts, train/val t-bins, and a `train_fixed_t=0` regressor null | Not submitted. Decides whether the sampler generates and is punished (→ CFG) or is mean-seeking (→ weight cap), and whether the flow's 1-step readout is starved |
 
 ## pointdit — which of pointdit's recipe choices transfer to our flow arm
 
@@ -143,9 +149,11 @@ ODE steps degrade*, this one owns *what pointdit does differently and which of i
 | 2026-09-02 | [pointdit_vs_deltatok](analysis/2026-09-02_pointdit_vs_deltatok.md) | analysis | What does pointdit do differently? | Same algebra; three mitigations missing, two worth porting. Code reading only, nothing measured on our data |
 | 2026-09-02 | [lowt_recipe_finetune](plan/2026-09-02_pointdit_lowt_recipe_finetune.md) | plan, **open** | Mitigation 1 alone: does 10% forced `t=0` lift the 1-step readout? | Not submitted. Predicted near-flat — pinning 10% at weight 1 against a mean weight of 39.0 |
 | 2026-09-02 | [xloss_additive](plan/2026-09-02_pointdit_xloss_additive.md) | plan, **open** | Mitigation 2 alone: does an additive unweighted x-MSE lift it? | Not submitted. Weight 1.3, not pointdit's 0.1 — 0.1 would buy 0.28% of the gradient mass here |
-| 2026-09-02 | [lowt_schedule](plan/2026-09-02_pointdit_lowt_schedule.md) | plan, **open** | Does pointdit's low-`t` schedule beat uniform, trained from scratch? | Not submitted. `t = sigmoid(-0.8 + 0.8·ε)` + 10% at `t=0`, 100 ep from scratch (~65 h), read at matched ep 100. Merges the two 2026-09-02 `pointdit_schedule*` files |
+| 2026-09-02 | [lowt_schedule](plan/2026-09-02_pointdit_lowt_schedule.md) | plan, **closed** | Does pointdit's low-`t` schedule beat uniform, trained from scratch? | BSC:45344713, cancelled at ep 58. `t = sigmoid(-0.8 + 0.8·ε)` + 10% at `t=0`, 100 ep from scratch (~65 h), read at matched ep 100. Merges the two 2026-09-02 `pointdit_schedule*` files |
+| 2026-09-04 | [lowt_numsteps_ep50_slides](results/2026-09-04_pointdit_lowt_numsteps_ep50_slides.html) | results | Low-`t` schedule vs uniform at matched `iter_100000`, 1…20 steps | Loses 19 of 20 cells: 1-step MSEToken 0.7221 vs 0.6677 (+8.2%), LossRaymap +19.3%; only MSEToken at N=20 wins (−1.4%). The control is itself worse at ep 100 than ep 50 at N=1 |
 
 
-**Open.** Three arms planned, none submitted. All read 1-step `MSEToken` against 0.7417 and `LossDepth` against
-3.6563 (`results/2026-09-01_flow_numsteps_tc128compose_slides.html`). The zeros ODE init is **dropped** — an
-eval-time sampler knob, not important for us; its plan file was never written.
+**Open.** The from-scratch schedule arm lost at matched ep 50 and was cancelled at ep 58 (rows above). The two
+fine-tune arms are unsubmitted and gated on `plan/2026-09-04_flow_bestofk_regressor_null.md`: no more `t`-placement
+arms until the eval can see generation. The zeros ODE init is **dropped** — an eval-time sampler knob, not
+important for us; its plan file was never written.

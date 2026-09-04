@@ -3,7 +3,7 @@
 Created 2026-09-02 · thread `pointdit` · prior cycle: [`../analysis/2026-09-02_pointdit_vs_deltatok.md`](../analysis/2026-09-02_pointdit_vs_deltatok.md)
 · arm: `df_ctx3fwd2_tc128mg9s005compose_pointditT_xxl`
 · control: `deltatok_flow_waymo_consec5cam0_ctx3fwd2_tc128mg9sigreg005compose_ep100tok_xxl_dit` @ ep 100 (already measured)
-· jobs: BSC:45344713, submitted 2026-09-02, `PENDING` · deck: `_pending_`
+· jobs: BSC:45344713, cancelled 2026-09-04 at ep 58 · deck: `../results/2026-09-04_pointdit_lowt_numsteps_ep50_slides.html`
 
 Merges `2026-09-02_pointdit_schedule_scratch.md` and `2026-09-02_pointdit_schedule.md`, both deleted 2026-09-02.
 
@@ -173,7 +173,12 @@ Logs `slurm/output/` and `../monitor_jobs/data/logs/BSC/`; TB mirror
 
 ## 4 Outcome
 
-`_pending_`. Routing is the falsifier list in §1.
+Read early, at matched **ep 50** (`iter_100000`), on 2026-09-04: `../results/2026-09-04_pointdit_lowt_numsteps_ep50_slides.html`,
+BSC:45414635 (control) / 45414644 (arm). **Falsifier 3, everything degrades.** 1-step MSEToken 0.7221 vs 0.6677 (+8.2%),
+LossRaymap 6.0057 vs 5.0347 (+19.3%), worse on 19 of 20 arm × step cells; the one win is MSEToken at N=20 (−1.4%).
+BSC:45344713 cancelled at ep 58. Not the ep-100 read §3 mandates, and that read point was wrong anyway: the control is
+itself worse at ep 100 than at ep 50 at N=1 (0.7417 vs 0.6677). Routed to `2026-09-04_flow_bestofk_regressor_null.md`,
+not to `xloss_additive`: the `t=0` paradox needs the train-split t-bins before any x-loss arm.
 
 **Status 2026-09-02.** BSC:45344713 submitted and `PENDING`. Pre-flight passed: the cluster copy carries the
 patch, the config key and all five slurm overrides, `$SCRATCH/deltatok_flow_log/df_ctx3fwd2_tc128mg9s005compose_pointditT_xxl`
