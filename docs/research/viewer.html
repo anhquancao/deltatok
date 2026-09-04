@@ -1,0 +1,779 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>DeltaTok research — plan · results · analysis</title>
+<style>
+/* ---------- tokens · light only, matching the deck house style ---------- */
+:root{
+  color-scheme: light only;
+  --backdrop:#e9e9e6; --page:#f7f7f6; --surface:#ffffff;
+  --ink:#0b0b0b; --ink2:#52514e; --muted:#83817c;
+  --grid:#e4e4de; --axis:#c3c2b7; --border:rgba(11,11,11,.12);
+  --good:#0ca30c; --crit:#d03b3b; --warn:#ec835a;
+  --accent:#2a78d6;
+  --serif:"Iowan Old Style","Palatino Linotype",Palatino,Georgia,serif;
+  --sans:system-ui,-apple-system,"Segoe UI",sans-serif;
+  --mono:ui-monospace,"Cascadia Code",Menlo,Consolas,monospace;
+  --panelw:min(700px,52vw);
+  --headh:38px;
+}
+*{box-sizing:border-box;margin:0}
+html,body{height:100%}
+body{background:var(--backdrop);color:var(--ink);font:14px/1.45 var(--sans);
+  overflow:hidden;display:grid;grid-template-rows:auto 1fr}
+.mono{font-family:var(--mono)}
+.num{font-variant-numeric:tabular-nums}
+button{font:inherit;cursor:pointer}
+
+/* ---------- top bar ---------- */
+.top{display:flex;align-items:center;gap:12px;padding:9px 14px;background:var(--surface);
+  border-bottom:1px solid var(--border);flex-wrap:wrap}
+.brand{font:400 18px/1 var(--serif);letter-spacing:-.01em;white-space:nowrap}
+.brand small{font:10.5px/1 var(--mono);color:var(--muted);margin-left:9px;letter-spacing:.03em}
+.search{flex:0 1 290px;display:flex;align-items:center;gap:7px;border:1px solid var(--border);
+  border-radius:5px;padding:5px 9px;background:var(--page)}
+.search:focus-within{border-color:var(--accent)}
+.search input{border:0;background:transparent;outline:0;width:100%;font:13px var(--sans);color:var(--ink)}
+.search .cue{font:11px/1 var(--mono);color:var(--muted)}
+.search kbd{font:10px/1 var(--mono);color:var(--muted);border:1px solid var(--border);
+  border-radius:3px;padding:2px 5px;font-variant-numeric:tabular-nums}
+.chips{display:flex;gap:5px;flex-wrap:wrap;align-items:center}
+.chip{display:inline-flex;align-items:center;gap:5px;font:600 10.5px/1 var(--mono);letter-spacing:.04em;
+  padding:4px 7px;border-radius:3px;border:1px solid var(--border);background:var(--surface);
+  color:var(--ink2);white-space:nowrap}
+.chip .sw{display:inline-block;width:9px;height:9px;border-radius:2px;background:currentColor;opacity:.85}
+.chip.tf{cursor:pointer;user-select:none}
+.chip.tf[aria-pressed="true"]{border-color:currentColor;background:color-mix(in srgb,currentColor 11%,#fff)}
+.chip.tf[aria-pressed="false"]{opacity:.4}
+.chip.muted{color:var(--muted)}
+.spacer{flex:1}
+.legend{display:flex;gap:9px;align-items:center;font:10px/1 var(--mono);color:var(--muted);letter-spacing:.03em}
+.legend i{display:inline-block;width:15px;height:0;border-top:2px solid;vertical-align:middle;margin-right:4px}
+.tbtn{border:1px solid var(--border);background:var(--surface);color:var(--ink2);
+  border-radius:4px;padding:5px 9px;font:600 10.5px/1 var(--mono);letter-spacing:.04em}
+.tbtn[aria-pressed="true"]{color:var(--accent);border-color:currentColor}
+
+/* ---------- board ---------- */
+.board{position:relative;display:grid;grid-template-columns:.92fr 1fr 1fr 1fr;min-height:0;
+  background:var(--backdrop);margin-right:0;transition:margin-right .22s ease}
+body.panel-open .board{margin-right:var(--panelw)}
+.col{display:flex;flex-direction:column;min-height:0;min-width:0;border-left:1px solid var(--grid)}
+.col:first-child{border-left:0}
+.col>h2{height:var(--headh);display:flex;align-items:center;gap:8px;padding:0 12px;background:var(--page);
+  border-bottom:1px solid var(--border);font:600 10.5px/1 var(--mono);letter-spacing:.14em;
+  text-transform:uppercase;color:var(--muted);z-index:4}
+.col>h2 b{color:var(--accent);font-weight:600}
+.col>h2 .n{margin-left:auto;font-weight:400;font-variant-numeric:tabular-nums}
+.scroll{flex:1;min-height:0;overflow-y:auto;overscroll-behavior:contain;padding:9px 10px 40vh}
+.scroll::-webkit-scrollbar{width:9px}
+.scroll::-webkit-scrollbar-thumb{background:var(--axis);border-radius:5px}
+
+/* ---------- cards ---------- */
+.card{position:relative;background:var(--surface);border:1px solid var(--grid);border-radius:6px;
+  padding:9px 11px 10px;margin-bottom:7px;cursor:pointer;
+  transition:border-color .12s,box-shadow .12s,opacity .12s}
+.card:hover{border-color:var(--axis);box-shadow:0 1px 4px rgba(11,11,11,.07)}
+.card::before{content:"";position:absolute;left:0;top:8px;bottom:8px;width:3px;
+  border-radius:3px;background:var(--tc,var(--axis))}
+.card .hd{display:flex;align-items:baseline;gap:8px;margin-bottom:3px;padding-left:8px}
+.card .date{font:600 10.5px/1 var(--mono);color:var(--muted);letter-spacing:.03em;font-variant-numeric:tabular-nums}
+.card .tag{font:600 9.5px/1 var(--mono);letter-spacing:.06em;text-transform:uppercase;color:var(--tc,var(--muted))}
+.card h3{padding-left:8px;font:600 13px/1.32 var(--sans);color:var(--ink);
+  display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
+.card .q,.card .v{padding-left:8px;margin-top:4px;font-size:11.9px;line-height:1.4;color:var(--ink2);
+  display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
+.card .v{color:var(--muted)}
+.card .foot{padding-left:8px;margin-top:6px;display:flex;gap:4px;flex-wrap:wrap;align-items:center}
+.card .foot:empty{display:none}
+.pill{font:600 9.5px/1 var(--mono);letter-spacing:.04em;padding:3px 5px;border-radius:3px;
+  border:1px solid var(--border);color:var(--muted);white-space:nowrap}
+.pill.open{color:var(--accent);border-color:currentColor}
+.pill.running,.pill.done{color:var(--good);border-color:currentColor}
+.pill.started,.pill.planwritten{color:var(--warn);border-color:currentColor}
+.pill.dropped{color:var(--crit);border-color:currentColor}
+.pill.job{color:var(--ink2);background:var(--page)}
+.card.sel{border-color:var(--tc,var(--accent));
+  box-shadow:0 0 0 2px color-mix(in srgb,var(--tc,var(--accent)) 22%,transparent)}
+.card.rel{border-color:var(--tc,var(--axis))}
+body.has-sel .card:not(.sel):not(.rel):not(.kin){opacity:.26}
+body.has-sel .card.kin{opacity:.6}
+.todonum{font:600 12px/1 var(--mono);color:var(--tc,var(--ink2))}
+.empty{color:var(--muted);font-size:12px;padding:14px 10px;font-style:italic}
+
+/* ---------- wires ---------- */
+.wires{position:absolute;left:0;right:0;top:var(--headh);bottom:0;pointer-events:none;z-index:3;overflow:visible}
+.wires path{fill:none;stroke-linecap:round}
+
+/* ---------- detail panel ---------- */
+.panel{position:fixed;top:0;right:0;bottom:0;width:var(--panelw);background:var(--surface);
+  border-left:1px solid var(--border);z-index:20;display:flex;flex-direction:column;
+  transform:translateX(101%);transition:transform .22s ease;box-shadow:-8px 0 24px rgba(11,11,11,.06)}
+body.panel-open .panel{transform:none}
+.grip{position:absolute;left:-5px;top:0;bottom:0;width:10px;cursor:col-resize;z-index:2;touch-action:none}
+.grip::after{content:"";position:absolute;left:3px;top:0;bottom:0;width:3px;
+  background:transparent;transition:background .12s}
+.grip:hover::after,body.resizing .grip::after{background:color-mix(in srgb,var(--accent) 60%,transparent)}
+/* the width is being dragged: animating it would lag a frame behind the pointer */
+body.resizing{user-select:none;cursor:col-resize}
+body.resizing .panel,body.resizing .board{transition:none}
+.panel .ph{padding:13px 20px 11px;border-bottom:1px solid var(--border);background:var(--page)}
+.panel .ph .row{display:flex;align-items:center;gap:7px;margin-bottom:7px;flex-wrap:wrap}
+.panel .ph h2{font:400 20px/1.25 var(--serif);letter-spacing:-.01em;text-wrap:balance}
+.panel .ph .path{font:10.5px/1 var(--mono);color:var(--muted);letter-spacing:.03em;word-break:break-all;margin-top:5px}
+.panel .pb{flex:1;overflow-y:auto;padding:16px 20px 60px}
+.close{margin-left:auto;border:1px solid var(--border);background:var(--surface);color:var(--ink2);
+  width:26px;height:26px;border-radius:4px;line-height:1;font-size:15px}
+.close:hover{color:var(--ink)}
+.qv{border:1px solid var(--grid);border-left:3px solid var(--tc,var(--accent));border-radius:4px;
+  background:var(--page);padding:10px 13px;margin-bottom:14px;font-size:13px;line-height:1.5}
+.qv dt{font:600 9.5px/1 var(--mono);letter-spacing:.1em;text-transform:uppercase;color:var(--muted);margin-bottom:3px}
+.qv dd{color:var(--ink2);margin:0 0 9px}
+.qv dd:last-child{margin-bottom:0}
+.sechd{font:600 9.5px/1 var(--mono);letter-spacing:.12em;text-transform:uppercase;
+  color:var(--muted);margin:0 0 7px;padding-bottom:5px;border-bottom:1px solid var(--grid)}
+.rel-list{margin-bottom:18px}
+.rel-row{display:flex;align-items:baseline;gap:8px;padding:5px 0;cursor:pointer;border-bottom:1px solid var(--page)}
+.rel-row .k{font:600 9px/1 var(--mono);letter-spacing:.06em;text-transform:uppercase;width:48px;flex:0 0 48px}
+.rel-row .t{font-size:12.5px;color:var(--ink2);flex:1}
+.rel-row:hover .t{color:var(--accent)}
+.rel-row .d{font:10px/1 var(--mono);color:var(--muted);font-variant-numeric:tabular-nums;white-space:nowrap}
+.acts{display:flex;gap:7px;margin-bottom:16px;flex-wrap:wrap;align-items:center}
+.acts a,.acts button{display:inline-flex;align-items:center;gap:5px;border:1px solid var(--border);
+  background:var(--surface);color:var(--ink2);border-radius:4px;padding:6px 10px;
+  font:600 11px/1 var(--mono);letter-spacing:.04em;text-decoration:none}
+.acts a:hover,.acts button:hover{color:var(--accent);border-color:currentColor}
+.frame{width:100%;height:min(58vh,500px);border:1px solid var(--grid);border-radius:5px;background:#fff;margin-bottom:16px}
+
+/* ---------- rendered markdown ---------- */
+.md{font-size:13.5px;line-height:1.6;color:var(--ink2)}
+.md h1{font:400 21px/1.25 var(--serif);color:var(--ink);margin:22px 0 8px;letter-spacing:-.01em}
+.md h2{font:400 17.5px/1.28 var(--serif);color:var(--ink);margin:22px 0 7px;
+  padding-bottom:4px;border-bottom:1px solid var(--grid)}
+.md h3{font:600 13px/1.3 var(--sans);color:var(--ink);margin:16px 0 5px}
+.md h4,.md h5,.md h6{font:600 12px/1.3 var(--sans);color:var(--ink);margin:13px 0 4px}
+.md>*:first-child{margin-top:0}
+.md p{margin:0 0 11px}
+.md ul,.md ol{margin:0 0 11px;padding-left:20px;display:flex;flex-direction:column;gap:5px}
+.md li{padding-left:2px}
+.md strong{color:var(--ink);font-weight:600}
+.md code{font:12px/1.4 var(--mono);background:var(--page);border:1px solid var(--grid);
+  border-radius:3px;padding:1px 4px;color:var(--ink);word-break:break-word}
+.md pre{background:var(--page);border:1px solid var(--grid);border-radius:5px;padding:11px 13px;
+  overflow-x:auto;margin:0 0 12px}
+.md pre code{background:none;border:0;padding:0;font-size:11.5px;line-height:1.5;white-space:pre;word-break:normal}
+.md blockquote{border-left:3px solid var(--axis);padding-left:12px;margin:0 0 11px;color:var(--muted)}
+.md hr{border:0;border-top:1px solid var(--grid);margin:18px 0}
+.md a{color:var(--accent);text-decoration:none;border-bottom:1px solid color-mix(in srgb,var(--accent) 35%,transparent)}
+.md a:hover{border-bottom-color:currentColor}
+.md a:has(code){border-bottom:0}
+.md a code{color:var(--accent);border-color:color-mix(in srgb,var(--accent) 35%,var(--grid));
+  background:color-mix(in srgb,var(--accent) 6%,var(--page))}
+.md img{max-width:100%;border:1px solid var(--grid);border-radius:5px;margin-bottom:12px}
+.md .tw{overflow-x:auto;margin:0 0 13px}
+.md table{border-collapse:collapse;width:100%;font-size:12px}
+.md th{font:600 9.5px/1.3 var(--mono);letter-spacing:.07em;text-transform:uppercase;color:var(--muted);
+  text-align:left;padding:6px 9px;border-bottom:1px solid var(--axis);white-space:nowrap}
+.md td{padding:6px 9px;border-bottom:1px solid var(--grid);color:var(--ink2);vertical-align:top}
+.md tbody tr:hover td{background:var(--page)}
+
+.loading{display:grid;place-items:center;height:100%;color:var(--muted);font-size:13px;
+  text-align:center;padding:30px;line-height:1.7}
+.loading code{font-family:var(--mono);background:var(--surface);border:1px solid var(--grid);
+  border-radius:3px;padding:3px 7px;color:var(--ink);display:inline-block;margin-top:8px}
+@media (max-width:1150px){.board{grid-template-columns:1fr 1fr}}
+</style>
+</head>
+<body>
+
+<header class="top">
+  <div class="brand">DeltaTok research<small id="gen"></small></div>
+  <label class="search">
+    <span class="cue">/</span>
+    <input id="q" type="search" placeholder="title, question, verdict, job id, body…" autocomplete="off">
+    <kbd id="qn"></kbd>
+  </label>
+  <div class="chips" id="threadbar"></div>
+  <div class="spacer"></div>
+  <button class="tbtn" id="openonly" aria-pressed="false" title="Only rows still open">open only</button>
+  <button class="tbtn" id="showdone" aria-pressed="true" title="Include closed TODO items">closed todos</button>
+  <div class="legend" id="legend"></div>
+</header>
+
+<main class="board" id="board">
+  <div class="loading" id="boot" style="grid-column:1/-1">loading the index…</div>
+</main>
+
+<aside class="panel" id="panel">
+  <div class="grip" id="grip" title="Drag to resize · double-click to reset"></div>
+  <div class="ph">
+    <div class="row" id="pmeta"></div>
+    <h2 id="ptitle"></h2>
+    <div class="path" id="ppath"></div>
+  </div>
+  <div class="pb" id="pbody"></div>
+</aside>
+
+<script src="index.js"></script>
+<script>
+"use strict";
+/* ============================ constants ============================ */
+const STAGES = ["plan", "results", "analysis"];
+const THREAD_COLOR = {
+  tc_width: "#2a78d6", sigreg: "#1baf7a", compose: "#eda100", pair_sampling: "#4a3aa7",
+  flow: "#eb6834", pointdit: "#e87ba4", cross: "#83817c", unfiled: "#c3c2b7",
+};
+const SPARE = ["#008300", "#e34948", "#7a5c1e", "#0f7f9b"];
+// how each link kind is drawn, and how strong a relation it is (lower rank wins)
+const KIND = {
+  prior:  { label: "prior",  color: "#4a3aa7", dash: "5 4", w: 1.7, rank: 0 },
+  deck:   { label: "deck",   color: "#2a78d6", dash: "",    w: 1.9, rank: 1 },
+  todo:   { label: "todo",   color: "#1baf7a", dash: "",    w: 1.7, rank: 2 },
+  manual: { label: "manual", color: "#008300", dash: "",    w: 1.7, rank: 3 },
+  asset:  { label: "asset",  color: "#83817c", dash: "2 3", w: 1.4, rank: 4 },
+  ref:    { label: "ref",    color: "#83817c", dash: "",    w: 1.2, rank: 5 },
+  slug:   { label: "guess",  color: "#c3c2b7", dash: "2 4", w: 1.4, rank: 6 },
+};
+const CODE_MARK = "\u0000";   // sentinel for pulled-out code spans; never occurs in the source
+
+let DATA = null, BY_ID = new Map(), REL = new Map(), THREADS = [];
+let selected = null, activeThreads = new Set(), query = "", openOnly = false, showDone = true;
+
+const esc = s => String(s == null ? "" : s)
+  .replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+const cls = s => String(s || "").replace(/[^a-z]/gi, "").toLowerCase();
+function threadColor(t) {
+  if (!THREAD_COLOR[t]) THREAD_COLOR[t] = SPARE[Object.keys(THREAD_COLOR).length % SPARE.length];
+  return THREAD_COLOR[t];
+}
+// card teasers drop the file paths: on a 2-line clamp they crowd out the actual note
+const teaser = s => String(s || "")
+  .replace(/[\w./]*\b(?:plan|results|analysis)\/[\w.\-]+\.(?:md|html|csv|png)\b\.?/g, "")
+  .replace(/\s+/g, " ").replace(/^[\s.,;:·-]+/, "").trim();
+const itemThread = x => (x && x.thread) || "unfiled";
+const todoId = t => "todo/" + t.num;
+const isTodo = x => !!(x && x.state);
+
+/* ============================ markdown ============================ */
+// a doc reference in prose -> the index id it names, so it can open in the panel
+function asDocId(href) {
+  const m = String(href).match(/(plan|results|analysis)\/(\d{4}-\d{2}-\d{2}_[\w.\-]+?\.(?:md|html|csv|png))/);
+  if (m) { const id = m[1] + "/" + m[2]; if (BY_ID.has(id)) return id; }
+  return null;
+}
+// everything else resolves against docs/research/, where this viewer sits
+function outHref(href, fromId) {
+  if (/^(https?:|mailto:|#)/.test(href)) return href;
+  const dir = fromId && fromId.includes("/") ? fromId.slice(0, fromId.lastIndexOf("/")) : "";
+  const parts = (dir ? dir.split("/") : []).concat(href.split("/"));
+  const stack = [];
+  for (const p of parts) {
+    if (p === "..") stack.pop();
+    else if (p && p !== ".") stack.push(p);
+  }
+  return stack.join("/");
+}
+
+function mdInline(s, fromId) {
+  const codes = [];
+  // pull code spans out first so their contents survive the other passes untouched
+  s = String(s).replace(/`([^`]+)`/g, (m, c) => {
+    codes.push(c);
+    return CODE_MARK + (codes.length - 1) + CODE_MARK;
+  });
+  s = esc(s);
+  s = s.replace(/!\[([^\]]*)\]\(([^)\s]+)\)/g,
+    (m, a, h) => '<img alt="' + a + '" src="' + esc(outHref(h.replace(/&amp;/g, "&"), fromId)) + '">');
+  s = s.replace(/\[([^\]]*)\]\(([^)\s]+)\)/g, (m, a, h) => {
+    const raw = h.replace(/&amp;/g, "&"), id = asDocId(raw);
+    return id ? '<a href="#" data-doc="' + esc(id) + '">' + a + "</a>"
+              : '<a href="' + esc(outHref(raw, fromId)) + '" target="_blank" rel="noopener">' + a + "</a>";
+  });
+  s = s.replace(/\*\*([^*]+)\*\*/g, "<strong>$1</strong>");
+  s = s.replace(/(^|[\s([])\*([^*\n]+)\*/g, "$1<em>$2</em>");
+  // most doc references in these notes are code spans, not links — make those clickable too
+  s = s.replace(new RegExp(CODE_MARK + "(\\d+)" + CODE_MARK, "g"), (m, n) => {
+    const raw = codes[+n], id = asDocId(raw), tag = "<code>" + esc(raw) + "</code>";
+    return id ? '<a href="#" data-doc="' + esc(id) + '">' + tag + "</a>" : tag;
+  });
+  return s;
+}
+
+function mdToHtml(src, fromId) {
+  const L = String(src == null ? "" : src).replace(/\r\n/g, "\n").split("\n");
+  const out = [];
+  let i = 0;
+  const isTableSep = s => s.includes("-") && /^\s*\|[\s:|-]*\|\s*$/.test(s);
+  const row = s => s.trim().replace(/^\|/, "").replace(/\|$/, "").split("|").map(c => c.trim());
+  const isBlockStart = s => /^(#{1,6}\s|\s*```|\s*>|\s*([-*+]|\d+[.)])\s)/.test(s);
+
+  while (i < L.length) {
+    const line = L[i];
+    if (!line.trim()) { i++; continue; }
+
+    if (/^\s*```/.test(line)) {                                    // fenced code
+      const buf = [];
+      i++;
+      while (i < L.length && !/^\s*```/.test(L[i])) buf.push(L[i++]);
+      i++;
+      out.push("<pre><code>" + esc(buf.join("\n")) + "</code></pre>");
+      continue;
+    }
+    const h = line.match(/^(#{1,6})\s+(.*)$/);                     // heading
+    if (h) { out.push("<h" + h[1].length + ">" + mdInline(h[2], fromId) + "</h" + h[1].length + ">"); i++; continue; }
+
+    if (/^\s*(---+|\*\*\*+|___+)\s*$/.test(line)) { out.push("<hr>"); i++; continue; }
+
+    if (line.trim().startsWith("|") && i + 1 < L.length && isTableSep(L[i + 1])) {   // table
+      const head = row(line);
+      i += 2;
+      const body = [];
+      while (i < L.length && L[i].trim().startsWith("|")) body.push(row(L[i++]));
+      out.push('<div class="tw"><table><thead><tr>' +
+        head.map(c => "<th>" + mdInline(c, fromId) + "</th>").join("") + "</tr></thead><tbody>" +
+        body.map(r => "<tr>" + r.map(c => "<td>" + mdInline(c, fromId) + "</td>").join("") + "</tr>").join("") +
+        "</tbody></table></div>");
+      continue;
+    }
+    if (/^\s*>/.test(line)) {                                      // blockquote
+      const buf = [];
+      while (i < L.length && /^\s*>/.test(L[i])) buf.push(L[i++].replace(/^\s*>\s?/, ""));
+      out.push("<blockquote>" + mdToHtml(buf.join("\n"), fromId) + "</blockquote>");
+      continue;
+    }
+    if (/^\s*([-*+]|\d+[.)])\s+/.test(line)) {                     // list, flattened to one level
+      const ordered = /^\s*\d+[.)]\s/.test(line);
+      const items = [];
+      while (i < L.length && /^\s*([-*+]|\d+[.)])\s+/.test(L[i])) {
+        let txt = L[i].replace(/^\s*([-*+]|\d+[.)])\s+/, "");
+        i++;
+        // a wrapped continuation line belongs to the item above it
+        while (i < L.length && L[i].trim() && !isBlockStart(L[i]) && !L[i].trim().startsWith("|"))
+          txt += " " + L[i++].trim();
+        items.push("<li>" + mdInline(txt, fromId) + "</li>");
+      }
+      out.push(ordered ? "<ol>" + items.join("") + "</ol>" : "<ul>" + items.join("") + "</ul>");
+      continue;
+    }
+    const buf = [];                                                // paragraph
+    while (i < L.length && L[i].trim() && !isBlockStart(L[i]) &&
+           !(L[i].trim().startsWith("|") && i + 1 < L.length && isTableSep(L[i + 1]))) buf.push(L[i++]);
+    if (buf.length) out.push("<p>" + mdInline(buf.join(" "), fromId) + "</p>");
+    else i++;
+  }
+  return out.join("\n");
+}
+
+/* ============================ relations ============================ */
+function buildRelations() {
+  REL = new Map();
+  const push = (a, b, k) => {
+    if (!REL.has(a)) REL.set(a, new Map());
+    const cur = REL.get(a).get(b);
+    if (!cur || KIND[k].rank < KIND[cur].rank) REL.get(a).set(b, k);
+  };
+  for (const l of DATA.links) {
+    const k = KIND[l.kind] ? l.kind : "ref";
+    if (!BY_ID.has(l.from) || !BY_ID.has(l.to)) continue;
+    push(l.from, l.to, k);
+    push(l.to, l.from, k);
+  }
+}
+const relatedOf = id => REL.get(id) || new Map();
+
+// a todo row inherits the date of the newest doc attached to it
+function todoDate(t) {
+  let best = "";
+  for (const [id] of relatedOf(todoId(t))) {
+    const d = BY_ID.get(id);
+    if (d && !isTodo(d) && d.date > best) best = d.date;
+  }
+  return best;
+}
+
+function matches(x) {
+  if (activeThreads.size && !activeThreads.has(itemThread(x))) return false;
+  if (isTodo(x) && x.state === "done" && !showDone) return false;
+  if (openOnly) {
+    const open = isTodo(x) ? x.state === "open" : x.status === "open";
+    if (!open) return false;
+  }
+  return !query || (x._hay || "").includes(query);
+}
+
+/* ============================ board ============================ */
+const board = document.getElementById("board");
+
+function cardHTML(x) {
+  const th = itemThread(x), col = threadColor(th);
+  if (isTodo(x)) {
+    const jobs = (x.jobs || []).slice(0, 3).map(j => '<span class="pill job num">' + esc(j) + "</span>").join("");
+    return '<article class="card" data-id="' + esc(todoId(x)) + '" style="--tc:' + col + '">' +
+      '<div class="hd"><span class="todonum">#' + x.num + "</span>" +
+      '<span class="tag">' + esc(th) + "</span>" +
+      '<span class="pill ' + cls(x.status) + '" style="margin-left:auto">' + esc(x.status) + "</span></div>" +
+      "<h3>" + esc(x.item) + "</h3>" +
+      (x.paper ? '<div class="q">' + esc(x.paper) + "</div>" : "") +
+      '<div class="v">' + esc(teaser(x.note)) + "</div>" +
+      '<div class="foot">' + jobs +
+      (x.closed ? '<span class="pill num">closed ' + esc(x.closed) + "</span>" : "") + "</div></article>";
+  }
+  const jobs = ((x.jobs && x.jobs.length ? x.jobs : x.jobs_seen) || [])
+    .slice(0, 3).map(j => '<span class="pill job num">' + esc(j) + "</span>").join("");
+  return '<article class="card" data-id="' + esc(x.id) + '" style="--tc:' + col + '">' +
+    '<div class="hd"><span class="date">' + esc(x.date) + "</span>" +
+    '<span class="tag">' + esc(th) + "</span>" +
+    (x.status ? '<span class="pill ' + cls(x.status) + '" style="margin-left:auto">' + esc(x.status) + "</span>" : "") +
+    "</div><h3>" + esc(x.title) + "</h3>" +
+    (x.question ? '<div class="q">' + esc(x.question) + "</div>" : "") +
+    (x.verdict ? '<div class="v">' + esc(x.verdict) + "</div>" : "") +
+    '<div class="foot">' + jobs +
+    (x.ext !== "md" ? '<span class="pill">' + esc(x.ext) + "</span>" : "") + "</div></article>";
+}
+
+function render() {
+  const todos = DATA.todos.slice().sort((a, b) => {
+    if ((a.state === "open") !== (b.state === "open")) return a.state === "open" ? -1 : 1;
+    return (todoDate(b) || "").localeCompare(todoDate(a) || "") || b.num - a.num;
+  });
+  const cols = [{ key: "todo", items: todos }]
+    .concat(STAGES.map(s => ({ key: s, items: DATA.docs.filter(d => d.stage === s) })));
+
+  board.innerHTML = cols.map(c => {
+    const vis = c.items.filter(matches);
+    return '<section class="col"><h2><b>' + c.key + '</b><span class="n">' +
+      vis.length + "/" + c.items.length + '</span></h2><div class="scroll">' +
+      (vis.length ? vis.map(cardHTML).join("") : '<div class="empty">nothing matches here</div>') +
+      "</div></section>";
+  }).join("") + '<svg class="wires" id="wires"></svg>';
+
+  document.getElementById("qn").textContent =
+    DATA.docs.filter(matches).length + DATA.todos.filter(matches).length;
+  for (const s of board.querySelectorAll(".scroll")) s.addEventListener("scroll", queueWires, { passive: true });
+  applySelection();
+}
+
+/* ============================ selection + wires ============================ */
+function applySelection() {
+  const rel = selected ? relatedOf(selected) : new Map();
+  const selThread = selected ? itemThread(BY_ID.get(selected)) : null;
+  document.body.classList.toggle("has-sel", !!selected);
+  for (const el of board.querySelectorAll(".card")) {
+    const id = el.dataset.id;
+    el.classList.toggle("sel", id === selected);
+    el.classList.toggle("rel", rel.has(id));
+    // no recorded link but the same thread: a weaker tier, so a lone doc is never a dead end
+    el.classList.toggle("kin", !!selected && id !== selected && !rel.has(id) &&
+      itemThread(BY_ID.get(id)) === selThread);
+  }
+  drawWires();
+}
+
+let wireRAF = 0;
+function queueWires() {
+  if (wireRAF) return;
+  wireRAF = requestAnimationFrame(() => { wireRAF = 0; drawWires(); });
+}
+
+function drawWires() {
+  const svg = document.getElementById("wires");
+  if (!svg) return;
+  const src = selected && board.querySelector('.card[data-id="' + CSS.escape(selected) + '"]');
+  if (!src) { svg.innerHTML = ""; return; }
+  const host = svg.getBoundingClientRect();
+  // a card scrolled out of its column still gets an endpoint, pinned to the column edge and faded
+  const anchor = el => {
+    const sc = el.closest(".scroll").getBoundingClientRect();
+    const r = el.getBoundingClientRect();
+    const mid = r.top + r.height / 2;
+    return {
+      l: r.left - host.left, r: r.right - host.left,
+      y: Math.min(Math.max(mid, sc.top + 6), sc.bottom - 6) - host.top,
+      clipped: mid < sc.top || mid > sc.bottom,
+    };
+  };
+  const a = anchor(src);
+  const parts = [];
+  for (const [id, kind] of relatedOf(selected)) {
+    const el = board.querySelector('.card[data-id="' + CSS.escape(id) + '"]');
+    if (!el) continue;
+    const b = anchor(el), k = KIND[kind];
+    const rightward = b.l > a.l;
+    const x1 = rightward ? a.r + 2 : a.l - 2;
+    const x2 = rightward ? b.l - 2 : b.r + 2;
+    const dx = Math.max(26, Math.abs(x2 - x1) * 0.42) * (rightward ? 1 : -1);
+    const op = b.clipped ? 0.35 : 0.85;
+    parts.push('<path d="M' + x1 + " " + a.y + " C" + (x1 + dx) + " " + a.y + " " +
+      (x2 - dx) + " " + b.y + " " + x2 + " " + b.y + '" stroke="' + k.color +
+      '" stroke-width="' + k.w + '" stroke-dasharray="' + k.dash + '" opacity="' + op + '"/>' +
+      '<circle cx="' + x2 + '" cy="' + b.y + '" r="' + (b.clipped ? 2.4 : 3.1) +
+      '" fill="' + k.color + '" opacity="' + op + '"/>');
+  }
+  svg.innerHTML = parts.join("");
+}
+
+// scroll each other column to its first related card, so the wires land on something visible
+function revealRelated(id) {
+  const rel = relatedOf(id);
+  const home = board.querySelector('.card[data-id="' + CSS.escape(id) + '"]');
+  for (const col of board.querySelectorAll(".col")) {
+    if (home && col.contains(home)) continue;
+    const sc = col.querySelector(".scroll");
+    const hit = [...col.querySelectorAll(".card")].find(el => rel.has(el.dataset.id));
+    if (!sc || !hit) continue;
+    const r = hit.getBoundingClientRect(), s = sc.getBoundingClientRect();
+    if (r.top < s.top + 4 || r.bottom > s.bottom - 4)
+      sc.scrollTo({ top: sc.scrollTop + (r.top - s.top) - 14, behavior: "smooth" });
+  }
+  setTimeout(drawWires, 420);
+}
+
+/* ============================ detail panel ============================ */
+const panel = document.getElementById("panel");
+
+function relListHTML(id) {
+  const rel = [...relatedOf(id)].map(([rid, kind]) => {
+    const d = BY_ID.get(rid);
+    if (!d) return null;
+    return {
+      rid, kind, rank: KIND[kind].rank,
+      date: isTodo(d) ? todoDate(d) : d.date,
+      label: isTodo(d) ? "#" + d.num + " " + d.item : d.title,
+      where: isTodo(d) ? "todo" : d.stage,
+    };
+  }).filter(Boolean).sort((a, b) => a.rank - b.rank || b.date.localeCompare(a.date));
+
+  if (!rel.length) return '<div class="rel-list"><h4 class="sechd">linked</h4>' +
+    '<div class="empty" style="padding:6px 0">nothing links here yet — filter by thread to find its neighbours</div></div>';
+  return '<div class="rel-list"><h4 class="sechd">linked · ' + rel.length + "</h4>" + rel.map(r =>
+    '<div class="rel-row" data-doc="' + esc(r.rid) + '">' +
+    '<span class="k" style="color:' + KIND[r.kind].color + '">' + KIND[r.kind].label + "</span>" +
+    '<span class="t">' + esc(r.label) + "</span>" +
+    '<span class="d">' + esc(r.where) + (r.date ? " · " + esc(r.date) : "") + "</span></div>").join("") + "</div>";
+}
+
+function openPanel(id) {
+  const x = BY_ID.get(id);
+  if (!x) return;
+  const th = itemThread(x), col = threadColor(th), todo = isTodo(x);
+  panel.style.setProperty("--tc", col);
+  document.body.classList.add("panel-open");
+
+  document.getElementById("pmeta").innerHTML =
+    '<span class="chip" style="color:' + col + '"><span class="sw"></span>' + esc(th) + "</span>" +
+    '<span class="chip muted">' + (todo ? "todo #" + x.num : esc(x.stage) + " · " + esc(x.date)) + "</span>" +
+    (x.status ? '<span class="pill ' + cls(x.status) + '">' + esc(x.status) + "</span>" : "") +
+    ((x.jobs || []).map(j => '<span class="pill job num">' + esc(j) + "</span>").join("")) +
+    '<button class="close" id="pclose" title="Close (Esc)">&times;</button>';
+  document.getElementById("ptitle").textContent = todo ? x.item : x.title;
+  document.getElementById("ppath").textContent = todo ? x.source : "docs/research/" + x.id;
+
+  const body = document.getElementById("pbody");
+  let html = "";
+  if (todo) {
+    html += '<dl class="qv">' + (x.paper ? "<dt>paper</dt><dd>" + esc(x.paper) + "</dd>" : "") +
+      '<dt>note</dt><dd class="md">' + mdToHtml(x.note_md, "todo/x.md") + "</dd></dl>";
+    html += relListHTML(id);
+    for (const u of x.updates || [])
+      html += '<h4 class="sechd">status ' + esc(u.date) + '</h4><div class="md">' +
+        mdToHtml(u.text, "todo/x.md") + "</div>";
+  } else {
+    if (x.question || x.verdict)
+      html += '<dl class="qv">' + (x.question ? "<dt>question</dt><dd>" + esc(x.question) + "</dd>" : "") +
+        (x.verdict ? "<dt>verdict</dt><dd>" + esc(x.verdict) + "</dd>" : "") + "</dl>";
+    const m = x.meta || {};
+    if (m.arms || m.control || m.deck_raw)
+      html += '<dl class="qv" style="border-left-color:var(--axis)">' +
+        (m.arms ? '<dt>arms</dt><dd class="mono" style="font-size:11.5px">' + esc(m.arms) + "</dd>" : "") +
+        (m.control ? '<dt>control</dt><dd class="mono" style="font-size:11.5px">' + esc(m.control) + "</dd>" : "") +
+        (m.deck_raw ? '<dt>deck</dt><dd class="mono" style="font-size:11.5px">' + esc(m.deck_raw) + "</dd>" : "") +
+        "</dl>";
+    html += '<div class="acts"><a href="' + esc(x.id) + '" target="_blank" rel="noopener">open file &#8599;</a>' +
+      (x.ext === "html" ? '<button id="preview">preview here</button>' : "") +
+      '<span class="pill">' + esc(x.ext) + " · " + Math.round(x.bytes / 1024) + " KB</span></div>";
+    html += relListHTML(id);
+    if (x.ext === "md")
+      // the doc's own H1 is already the panel title, so it is dropped here
+      html += '<h4 class="sechd">document</h4><div class="md">' +
+        mdToHtml(String(x.body || "").replace(/^\s*#\s+.*\n/, ""), x.id) + "</div>";
+    else if (x.ext === "csv")
+      html += '<h4 class="sechd">csv</h4><div class="md"><pre><code>' + esc(x.body) + "</code></pre></div>";
+    else if (x.ext === "png")
+      html += '<div class="md"><img src="' + esc(x.id) + '" alt=""></div>';
+    else
+      html += '<div class="empty">A deck — open it in a tab, or preview it above.</div>';
+  }
+  body.innerHTML = html;
+  body.scrollTop = 0;
+
+  document.getElementById("pclose").onclick = () => { selected = null; applySelection(); closePanel(); };
+  const pv = document.getElementById("preview");
+  if (pv) pv.onclick = () => {
+    const acts = body.querySelector(".acts");
+    pv.remove();
+    const f = document.createElement("iframe");
+    f.className = "frame";
+    f.src = x.id;
+    acts.after(f);
+  };
+  setTimeout(drawWires, 260);
+}
+
+function closePanel() {
+  document.body.classList.remove("panel-open");
+  setTimeout(drawWires, 260);
+}
+
+/* ============================ events ============================ */
+function select(id) {
+  if (selected === id) { selected = null; applySelection(); closePanel(); return; }
+  selected = id;
+  applySelection();
+  revealRelated(id);
+  openPanel(id);
+}
+
+board.addEventListener("click", e => {
+  const card = e.target.closest(".card");
+  if (card) select(card.dataset.id);
+});
+panel.addEventListener("click", e => {
+  const row = e.target.closest("[data-doc]");
+  if (!row) return;
+  e.preventDefault();
+  const id = row.dataset.doc;
+  if (!BY_ID.has(id)) return;
+  selected = id;
+  applySelection();
+  revealRelated(id);
+  openPanel(id);
+  const el = board.querySelector('.card[data-id="' + CSS.escape(id) + '"]');
+  if (el) el.scrollIntoView({ block: "center", behavior: "smooth" });
+});
+
+document.getElementById("q").addEventListener("input", e => {
+  query = e.target.value.trim().toLowerCase();
+  render();
+});
+document.getElementById("openonly").addEventListener("click", e => {
+  openOnly = !openOnly;
+  e.currentTarget.setAttribute("aria-pressed", String(openOnly));
+  render();
+});
+document.getElementById("showdone").addEventListener("click", e => {
+  showDone = !showDone;
+  e.currentTarget.setAttribute("aria-pressed", String(showDone));
+  render();
+});
+document.addEventListener("keydown", e => {
+  if (e.key === "Escape") {
+    if (selected) { selected = null; applySelection(); }
+    closePanel();
+  } else if (e.key === "/" && document.activeElement.id !== "q") {
+    e.preventDefault();
+    document.getElementById("q").focus();
+  }
+});
+addEventListener("resize", queueWires);
+
+/* ============================ panel resize ============================ */
+const PANEL_W_KEY = "dtv.panelw";
+const grip = document.getElementById("grip");
+
+function setPanelWidth(px) {
+  // keep at least three board columns readable on the left, and the panel usable on the right
+  const w = Math.round(Math.min(Math.max(px, 340), Math.max(380, innerWidth - 420)));
+  document.documentElement.style.setProperty("--panelw", w + "px");
+  return w;
+}
+grip.addEventListener("pointerdown", e => {
+  e.preventDefault();
+  grip.setPointerCapture(e.pointerId);
+  document.body.classList.add("resizing");
+  const move = ev => { setPanelWidth(innerWidth - ev.clientX); queueWires(); };
+  const up = ev => {
+    grip.releasePointerCapture(ev.pointerId);
+    grip.removeEventListener("pointermove", move);
+    grip.removeEventListener("pointerup", up);
+    document.body.classList.remove("resizing");
+    try { localStorage.setItem(PANEL_W_KEY, setPanelWidth(innerWidth - ev.clientX)); } catch (_) {}
+    queueWires();
+  };
+  grip.addEventListener("pointermove", move);
+  grip.addEventListener("pointerup", up);
+});
+grip.addEventListener("dblclick", () => {
+  document.documentElement.style.removeProperty("--panelw");
+  try { localStorage.removeItem(PANEL_W_KEY); } catch (_) {}
+  queueWires();
+});
+try {
+  const saved = parseInt(localStorage.getItem(PANEL_W_KEY), 10);
+  if (saved > 0) setPanelWidth(saved);
+} catch (_) {}
+
+/* ============================ boot ============================ */
+function boot(data) {
+  DATA = data;
+  BY_ID = new Map();
+  for (const d of DATA.docs) {
+    d._hay = [d.title, d.slug, d.thread, d.question, d.verdict, d.id,
+      (d.jobs || []).join(" "), (d.jobs_seen || []).join(" "), d.body || ""].join(" ").toLowerCase();
+    BY_ID.set(d.id, d);
+  }
+  for (const t of DATA.todos) {
+    t._hay = ["#" + t.num, t.item, t.thread, t.paper, t.note, t.status,
+      (t.jobs || []).join(" "), (t.updates || []).map(u => u.text).join(" ")].join(" ").toLowerCase();
+    BY_ID.set(todoId(t), t);
+  }
+  buildRelations();
+
+  THREADS = DATA.threads.map(t => t.id);
+  for (const d of DATA.docs) if (!THREADS.includes(itemThread(d))) THREADS.push(itemThread(d));
+
+  document.getElementById("gen").textContent = DATA.docs.length + " docs · " + DATA.todos.length +
+    " todos · built " + String(DATA.generated).slice(0, 16).replace("T", " ");
+
+  const bar = document.getElementById("threadbar");
+  bar.innerHTML = THREADS.map(t => {
+    const meta = DATA.threads.find(x => x.id === t);
+    const n = DATA.docs.filter(d => itemThread(d) === t).length;
+    return '<button class="chip tf" data-thread="' + esc(t) + '" aria-pressed="true" style="color:' +
+      threadColor(t) + '" title="' + esc(meta ? meta.title : "") + '"><span class="sw"></span>' +
+      esc(t) + ' <span class="num" style="opacity:.6">' + n + "</span></button>";
+  }).join("");
+  bar.addEventListener("click", e => {
+    const b = e.target.closest(".tf");
+    if (!b) return;
+    // the first click solos a thread; clicking the last active one clears the filter
+    const t = b.dataset.thread;
+    if (!activeThreads.size) activeThreads = new Set([t]);
+    else if (activeThreads.has(t)) activeThreads.delete(t);
+    else activeThreads.add(t);
+    if (activeThreads.size === THREADS.length) activeThreads.clear();
+    for (const el of bar.querySelectorAll(".tf"))
+      el.setAttribute("aria-pressed", String(!activeThreads.size || activeThreads.has(el.dataset.thread)));
+    render();
+  });
+
+  document.getElementById("legend").innerHTML = Object.entries(KIND)
+    .filter(([k]) => k !== "manual" && k !== "asset")
+    .map(([, v]) => '<span><i style="border-color:' + v.color + ";border-top-style:" +
+      (v.dash ? "dashed" : "solid") + '"></i>' + v.label + "</span>").join("");
+
+  render();
+}
+
+fetch("index.json", { cache: "no-store" })
+  .then(r => r.ok ? r.json() : Promise.reject(new Error(r.status)))
+  .then(boot)
+  .catch(() => {
+    // opened straight off disk: fetch is blocked, but index.js loaded as a plain script
+    if (window.RESEARCH_INDEX) boot(window.RESEARCH_INDEX);
+    else document.getElementById("boot").innerHTML =
+      "Could not load the index. Build it, then reload:<br><code>python3 docs/research/tools/build_index.py</code>";
+  });
+</script>
+</body>
+</html>

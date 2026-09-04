@@ -127,6 +127,8 @@ A new knob needs the yaml key **and** the trainer read. `compose()` rejects an o
 
 DeltaTok is the active research direction. Read `docs/README.md` first. Research is filed by stage: `docs/research/{plan,results,analysis}/<date>_<thread>_<slug>.<ext>`, and `docs/research/README.md` ledgers every thread. Runbooks and incidents are in `docs/infra/`, OccRAE notes in `docs/occrae/`.
 
+**Rebuild the research index after adding, renaming or deleting a `docs/research/` doc:** `python3 docs/research/tools/build_index.py`. It rescans the ledger, the doc headers and `docs/todo/`, then rewrites `index.json` + `index.js` behind `docs/research/viewer.html`; a doc is invisible in the viewer until it runs. It prints `· not in the README ledger: <file>` for anything you forgot to ledger. Hand fixes go in the `overrides` block of `index.json` and survive a rebuild. Links are read from what you already write — the `prior cycle:` and `deck:` header fields, paths in a `docs/todo/` note, and any `stage/file` mention in prose — so fill those in rather than editing `index.json`.
+
 ## Conventions
 
 - **Edits:** surgical. Change only what the task requires — no drive-by refactors, renames, or reformatting. Explain each edit so a human can verify it.
