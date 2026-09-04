@@ -76,6 +76,7 @@ class DeltaTokModule(nn.Module):
         z_norm: bool = True,
         target_channels: int = 0,
         bottleneck_mlp: bool = False,
+        decode_noise_tau: float = 0.0,
     ):
         super().__init__()
         # Delta tokens per camera per transition (1 = max compression). K query
@@ -184,6 +185,10 @@ class DeltaTokModule(nn.Module):
             nn.LayerNorm(self.z_dim, cfg.layer_norm_eps, elementwise_affine=norm_affine)
             if z_norm else nn.Identity()
         )
+        # RAE noise-robustness finetune (third_party/RAE/src/stage1/rae.py:74-86): the
+        # decoder trains on z + σ·N(0,I), σ ~ U(0, τ) per sample, so it maps a ball around
+        # each code back to x. Train-mode only; 0 = off, and z itself never changes.
+        self._decode_noise_tau = float(decode_noise_tau)
         self._rope_cache: dict = {}
 
     def train(self, mode: bool = True):
@@ -473,7 +478,15 @@ class DeltaTokModule(nn.Module):
             z_rec = self.z_proj_up(z)                        # (M, N, K, C) round-trip of z_pre
         else:
             z = self.encode(x_prev, x, rope_local, rope_global)  # (M, N, K, Cz) flow-facing latent
-        x_hat = self.decode(z, x_prev, rope_local, rope_global)
+
+        # Noise only the decoder's copy: return_z / return_bneck keep the clean z, so SIGReg,
+        # the round-trip loss and the compose sum all see the untouched code.
+        z_dec = z
+        if self.training and self._decode_noise_tau > 0:
+            sigma = self._decode_noise_tau * torch.rand(
+                z.shape[0], 1, 1, 1, device=z.device, dtype=z.dtype)  # (M,1,1,1) per-sample σ ~ U(0, τ)
+            z_dec = z + sigma * torch.randn_like(z)                   # (M, N, K, Cz) noised decoder input
+        x_hat = self.decode(z_dec, x_prev, rope_local, rope_global)
 
         if squeeze:
             x_hat = x_hat.squeeze(1)
@@ -784,7 +797,21 @@ class DeltaTokTrainer(DeltaTokSharedMixin, Trainer):
                 if mod is not None:
                     mod.requires_grad_(True)
 
+        # Noise-robustness finetune: only the z -> x half moves. Everything encode() touches
+        # stays frozen, so z is bit-identical and the flow trained on it stays valid.
+        if bool(self.cfg.training.get("freeze_except_decoder", False)):
+            assert not bool(self.cfg.training.get("freeze_except_bottleneck", False)), (
+                "freeze_except_decoder and freeze_except_bottleneck are mutually exclusive"
+            )
+            model.requires_grad_(False)
+            # z_proj_up is None without a channel bottleneck.
+            for mod in (model.decoder_blocks, model.z_proj_up):
+                if mod is not None:
+                    mod.requires_grad_(True)
+
         if self.is_master:
+            # A silently-unset knob otherwise reads as a null result.
+            print(f"decode_noise_tau={model._decode_noise_tau}")
             _print_param_breakdown(model, archi)
 
         model = model.to(self.device)

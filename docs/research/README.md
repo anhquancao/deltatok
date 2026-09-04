@@ -24,7 +24,7 @@ links between them drawn on click. It reads [`index.json`](index.json), built fr
 | [`sigreg`](#sigreg--making-the-delta-code-spread) | Does a direct `‖E[zzᵀ]−I‖²_F` penalty break the ~90/512 rank ceiling? Plan only, no code, not submitted. The `weight ∝ Cz` question is tracked in `tc_width`. |
 | [`compose`](#compose--additive-composition-of-delta-tokens) | Composed ≠ autoregressive. Whether a short-schedule plain arm buys composability for free. |
 | [`pair_sampling`](#pair_sampling--which-frame-pairs-and-gaps-the-tokenizer-trains-on) | None. |
-| [`flow`](#flow--flow-matching-over-frozen-delta-tokens) | Can the eval see generation at all? best-of-K, K-spread and a `train_fixed_t=0` regressor null: [`plan/2026-09-04_flow_bestofk_regressor_null.md`](plan/2026-09-04_flow_bestofk_regressor_null.md). Written, not submitted. |
+| [`flow`](#flow--flow-matching-over-frozen-delta-tokens) | Does a noise-tolerant decoder lift the flow's decoded metrics without touching `z`? [`plan/2026-09-04_flow_decoder_noise_finetune.md`](plan/2026-09-04_flow_decoder_noise_finetune.md), running as `BSC:45421190`. The probe behind it: decoded loss is superlinear in latent error, knee below MSE 0.30, and the flow sits at 0.67 ([`results/2026-09-04_flow_decoder_noise_probe.md`](results/2026-09-04_flow_decoder_noise_probe.md)). Can the eval see generation at all? [`plan/2026-09-04_flow_bestofk_regressor_null.md`](plan/2026-09-04_flow_bestofk_regressor_null.md), written, not submitted. |
 | [`pointdit`](#pointdit--which-of-pointdits-recipe-choices-transfer-to-our-flow-arm) | The low-`t` schedule lost 19 of 20 arm × step cells at matched ep 50 and was cancelled at ep 58. Memorisation or representation is the train-split t-bins job in the `flow` plan above. |
 
 ## Cross-thread
@@ -107,7 +107,7 @@ Timestep selection, gap range (`max_gap`), and the 1ecb17c switch to consecutive
 
 ## flow — flow matching over frozen delta tokens
 
-The world model: a DiT that denoises DeltaTok codes conditioned on context frames. Twenty-three docs, from the June
+The world model: a DiT that denoises DeltaTok codes conditioned on context frames. Twenty-five docs, from the June
 collapse through the September step-count analysis. The pointdit comparison spun out into its own thread on
 2026-09-02.
 
@@ -137,6 +137,8 @@ collapse through the September step-count analysis. The pointdit comparison spun
 | 2026-09-01 | [numsteps_why_more_steps_degrade](analysis/2026-09-01_flow_numsteps_why_more_steps_degrade.md) | analysis, **open** | Why more steps degrade | The sampler does not integrate: N steps returns x̂ at t = 1−1/N. t≈0 starvation under `loss_mode=v` is untested |
 | 2026-09-02 | [sky_in_eval_loss](analysis/2026-09-02_flow_sky_in_eval_loss.md) | analysis | How is the sky handled in the flow eval loss? | Dropped implicitly: the geometry losses are masked by `valid_mask = depth>0 & depth<50`, and sky has no LiDAR return. The flow loss keeps it at full weight |
 | 2026-09-04 | [bestofk_regressor_null](plan/2026-09-04_flow_bestofk_regressor_null.md) | plan, **open** | Can the eval see generation? best-of-8 + K-spread on existing ckpts, train/val t-bins, and a `train_fixed_t=0` regressor null | Not submitted. Decides whether the sampler generates and is punished (→ CFG) or is mean-seeking (→ weight cap), and whether the flow's 1-step readout is starved |
+| 2026-09-04 | [decoder_noise_probe](results/2026-09-04_flow_decoder_noise_probe.md) | results | How much of the flow's decoded error is the frozen decoder's intolerance to latent error of that size? | GT `z` + isotropic noise at the flow's MSE 0.67 decodes 2–4× *worse* than the flow (raymap 19.09 vs 5.03), so the flow's error is benign; decoded loss is superlinear with the knee below MSE 0.30. `BSC:45417908` |
+| 2026-09-04 | [decoder_noise_finetune](plan/2026-09-04_flow_decoder_noise_finetune.md) | plan, **open** | Does a decoder-only finetune on `z + σ·N(0,I)`, σ ~ U(0, 0.8), encoder frozen, lift the flow's 1-step decoded metrics with `MSEToken` unchanged? | `BSC:45421190` submitted, 10 ep, 8 h wall. RAE's `noise_tau` recipe, ~5 h; predicts raymap 5.03 → ≤ 3.5 at `iter_100000`. Every flow checkpoint stays valid |
 
 ## pointdit — which of pointdit's recipe choices transfer to our flow arm
 

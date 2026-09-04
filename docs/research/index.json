@@ -1,5 +1,5 @@
 {
- "generated": "2026-09-04T16:16:01",
+ "generated": "2026-09-04T17:34:03",
  "root": "docs/research",
  "threads": [
   {
@@ -29,8 +29,8 @@
   {
    "id": "flow",
    "title": "flow matching over frozen delta tokens",
-   "blurb": "The world model: a DiT that denoises DeltaTok codes conditioned on context frames. Twenty-three docs, from the June collapse through the September step-count analysis. The pointdit comparison spun out into its own thread on 2026-09-02.",
-   "open": "Can the eval see generation at all? best-of-K, K-spread and a train_fixed_t=0 regressor null: plan/2026-09-04_flow_bestofk_regressor_null.md. Written, not submitted."
+   "blurb": "The world model: a DiT that denoises DeltaTok codes conditioned on context frames. Twenty-five docs, from the June collapse through the September step-count analysis. The pointdit comparison spun out into its own thread on 2026-09-02.",
+   "open": "Does a noise-tolerant decoder lift the flow's decoded metrics without touching z? plan/2026-09-04_flow_decoder_noise_finetune.md, running as BSC:45421190. The probe behind it: decoded loss is superlinear in latent error, knee below MSE 0.30, and the flow sits at 0.67 (results/2026-09-04_flow_decoder_noise_probe.md). Can the eval see generation at all? plan/2026-09-04_flow_bestofk_regressor_null.md, written, not submitted."
   },
   {
    "id": "pointdit",
@@ -91,6 +91,58 @@
    "meta": {},
    "in_ledger": true,
    "body": null
+  },
+  {
+   "id": "results/2026-09-04_flow_decoder_noise_probe.md",
+   "stage": "results",
+   "ext": "md",
+   "date": "2026-09-04",
+   "thread": "flow",
+   "slug": "decoder_noise_probe",
+   "title": "flow — decoder noise-tolerance probe: GT delta + isotropic noise, decoded",
+   "bytes": 2790,
+   "question": "How much of the flow's decoded error is the frozen decoder's intolerance to latent error of that size?",
+   "verdict": "GT z + isotropic noise at the flow's MSE 0.67 decodes 2–4× *worse* than the flow (raymap 19.09 vs 5.03), so the flow's error is benign; decoded loss is superlinear with the knee below MSE 0.30. BSC:45417908",
+   "status": "",
+   "jobs": [],
+   "jobs_seen": [
+    "45417908"
+   ],
+   "todos": [],
+   "meta": {
+    "thread": "flow"
+   },
+   "in_ledger": true,
+   "body": "# flow — decoder noise-tolerance probe: GT delta + isotropic noise, decoded\n\n2026-09-04 · thread `flow` · job `BSC:45417908` (`acc_debug`, 9 min) · code `1ae449b` · asks the question left open\nby [`../analysis/2026-07-19_flow_wall.html`](../analysis/2026-07-19_flow_wall.html): how much of the flow's decoded\nerror is the frozen decoder's intolerance to *any* latent error of that size.\n\n**Setup.** `eval_deltatok_flow_sampler.py --noise_sigmas 0.0,0.32,0.55,0.82`, 1-step `ode`, the same 128 Waymo val\nsequences and the same frozen tokenizer (tc128 · sigreg 0.005 · compose 1.0 · `epoch_100`) as every flow read this\nweek. On the forecast slots `z_hat := z + σ·N(0, I)` from the seeded eval generator (`deltatok_flow_trainer.py:825`);\ncontext slots stay GT; rollout, decode and losses are the normal eval path. The flow checkpoint (control\n`iter_100000`) only supplies the tokenizer reference.\n\n| σ | MSEToken | LossDepth | LossPointmap | LossRaymap |\n|---|---|---|---|---|\n| 0 (sanity) | 0.0000 | 2.7923 | 4.0557 | 1.6763 |\n| 0.32 | 0.1025 | 3.0104 | 4.3611 | 1.8129 |\n| 0.55 | 0.3027 | 3.3617 | 9.2042 | 7.7481 |\n| 0.82 | 0.6729 | 4.7519 | 18.4995 | 19.0861 |\n| *GT round-trip (`*_tok`)* | 0 | 2.7923 | 4.0557 | 1.6763 |\n| *flow 1-step, control `iter_100000`* | 0.6677 | 3.6325 | 8.13 (ep 100 value) | 5.0347 |\n\nSanity: σ=0 reproduces the round-trip to 4 decimals and MSEToken = σ² within 0.1%, so `z` is unit-scale and the\nsubstitution is exact.\n\n**Reading.**\n\n- **The flow's error is already far better structured than isotropic noise.** At matched MSEToken 0.67, isotropic\n  noise decodes 3.8× worse on raymap (19.09 vs 5.03), 2.3× on pointmap, 1.3× on depth. The flow's 0.67 costs what\n  isotropic σ ≈ 0.50–0.61 costs. Reweighting the flow loss toward pose-carrying dims has nothing to remove.\n- **Decoded loss is steeply superlinear in latent error, with the knee below MSE 0.30.** At MSE 0.10 every metric\n  is within 8% of the round-trip floor; at 0.30 raymap is 4.6× the floor. A flow that stays near MSEToken 0.67 is\n  invisible on the decoded metrics whatever else it does.\n- **Two levers survive.** MSEToken ≲ 0.1 (far: every code so far captures 25–33% of the delta variance from\n  context), or a decoder that tolerates latent error — the RAE recipe the wall analysis proposed and never ran.\n  That is [`../plan/2026-09-04_flow_decoder_noise_finetune.md`](../plan/2026-09-04_flow_decoder_noise_finetune.md).\n\nSource: `/gpfs/projects/ehpc1001/code/deltatok/slurm/output/flow_noise_probe_bsc_45417908.out` on BSC (`results/` is\nrsync-excluded, no csv is written). Not re-measured: the control's pointmap 8.13 is the `iter_200000` value from\n[`2026-09-01_flow_numsteps_tc128compose_slides.html`](2026-09-01_flow_numsteps_tc128compose_slides.html).\n"
+  },
+  {
+   "id": "plan/2026-09-04_flow_decoder_noise_finetune.md",
+   "stage": "plan",
+   "ext": "md",
+   "date": "2026-09-04",
+   "thread": "flow",
+   "slug": "decoder_noise_finetune",
+   "title": "flow — a noise-tolerant decoder lifts the flow's decoded metrics without touching z",
+   "bytes": 13099,
+   "question": "Does a decoder-only finetune on z + σ·N(0,I), σ ~ U(0, 0.8), encoder frozen, lift the flow's 1-step decoded metrics with MSEToken unchanged?",
+   "verdict": "BSC:45421190 submitted, 10 ep, 8 h wall. RAE's noise_tau recipe, ~5 h; predicts raymap 5.03 → ≤ 3.5 at iter_100000. Every flow checkpoint stays valid",
+   "status": "open",
+   "jobs": [
+    "45421190"
+   ],
+   "jobs_seen": [
+    "45417908"
+   ],
+   "todos": [],
+   "meta": {
+    "created": "2026-09-04",
+    "thread": "flow",
+    "arms": "deltatok_l12_dtok64_tc128_nozn_maxgap9_vpt1to2_sigreg0.005_ns256_pool8192_compose1.0_decnoise0.8_ft10",
+    "control": "the source tokenizer .../compose1.0/ckpts/epoch_100.pth, read through the unchanged flow control",
+    "jobs_raw": "BSC:45421190"
+   },
+   "in_ledger": true,
+   "body": "# flow — a noise-tolerant decoder lifts the flow's decoded metrics without touching `z`\n\nCreated 2026-09-04 · thread `flow` · prior cycle:\n[`../results/2026-09-04_flow_decoder_noise_probe.md`](../results/2026-09-04_flow_decoder_noise_probe.md)\n· arm: `deltatok_l12_dtok64_tc128_nozn_maxgap9_vpt1to2_sigreg0.005_ns256_pool8192_compose1.0_decnoise0.8_ft10`\n· control: the source tokenizer `.../compose1.0/ckpts/epoch_100.pth`, read through the unchanged flow control\n`deltatok_flow_waymo_consec5cam0_ctx3fwd2_tc128mg9sigreg005compose_ep100tok_xxl_dit` at `iter_100000`\n· jobs: `BSC:45421190` · deck: `_pending_`\n\nThe RAE recipe the wall analysis proposed on 2026-07-19 (`../analysis/2026-07-19_flow_wall.html`, \"primary:\ndecoder noise-robustness finetune\") and never ran. The probe above made it the only cheap lever left.\n\n## 1 Hypothesis\n\n**Fine-tuning only the decoder half of the tc128 compose tokenizer on `z + σ·N(0, I)`, σ ~ U(0, 0.8) per sample,\nencoder frozen, then dropping that decoder into the unchanged flow control, cuts the flow's 1-step `LossRaymap` from\n5.03 to ≤ 3.5 (−30%) and moves `LossPointmap` from ~8.1 toward the 4.06 round-trip**, on the 128 Waymo val\nsequences at `iter_100000`, N=1, while the σ=0 round-trip stays within 5% of 2.79 / 4.06 / 1.68 and `MSEToken`\nstays 0.6677 to the digit (`z` and the flow are untouched).\n\nThe noise-ladder re-read on the new decoder is the independent check that the finetune did anything: σ=0.82 must\ndecode far below 4.75 / 18.50 / 19.09.\n\n**Falsifiers.** Each bullet is the routing for §4.\n\n- **Ladder flattens and the flow moves ≥ 30% on raymap.** Decoder intolerance was binding. The finetuned decoder\n  becomes the tokenizer every flow read uses; re-read the 1…20-step sweep and run\n  [`2026-09-04_flow_bestofk_regressor_null.md`](2026-09-04_flow_bestofk_regressor_null.md) on it — the N=20\n  penalty may shrink with the decoder.\n- **Ladder flattens, flow N=1 flat.** The flow's error is not what isotropic noise covers: either it sits in the\n  rollout (`_rollout_from_z`, `deltatok_shared.py:374`, feeds each decode's output as the next `x_prev`, which the\n  finetune never noises) or it is structured. Next: a decoder finetune on *flow samples* rather than Gaussian\n  noise, or `x_prev` noise. Not this cycle.\n- **Ladder does not flatten (σ=0.82 raymap stays > 10).** Ten epochs of decoder-only training cannot make the\n  `z → x` map tolerant at this Cz. Then the pair needs a from-scratch noisy tokenizer, which changes `z` and is a\n  `tc_width`/`sigreg` question, not a flow one.\n- **σ=0 round-trip degrades > 10%.** τ = 0.8 is too wide for a decoder this size; run τ = 0.4.\n\n**Not doing.**\n\n- **No from-scratch noise-augmented tokenizer.** It changes `z` and invalidates every flow checkpoint; 40 h against\n  ~5 h, and the from-scratch question is only reached through falsifier 3.\n- **No τ sweep, no encoder unfreeze, no joint finetune.** Anything that moves the encoder moves `z`, and the whole\n  point of the design is that `MSEToken` 0.6677 reproduces exactly so the decoder is the only variable.\n- **No `x_prev` noise.** The AR rollout's second mismatch. `LossRecon_AR` in the tokenizer eval reads it; a\n  separate cycle if falsifier 2 fires.\n- **No flow retrain.** Nothing changes for the flow; the decoder swap is an eval-time `model.deltatok_ckpt` path.\n\n## 2 Why it is worth the GPU hours\n\n**The probe** ([`../results/2026-09-04_flow_decoder_noise_probe.md`](../results/2026-09-04_flow_decoder_noise_probe.md),\n`BSC:45417908`, 128 Waymo val seqs, tokenizer `epoch_100`, 1-step):\n\n| σ | MSEToken | LossDepth | LossPointmap | LossRaymap |\n|---|---|---|---|---|\n| 0 | 0 | 2.7923 | 4.0557 | 1.6763 |\n| 0.32 | 0.1025 | 3.0104 | 4.3611 | 1.8129 |\n| 0.55 | 0.3027 | 3.3617 | 9.2042 | 7.7481 |\n| 0.82 | 0.6729 | 4.7519 | 18.4995 | 19.0861 |\n| flow 1-step, `iter_100000` | 0.6677 | 3.6325 | ~8.13 | 5.0347 |\n\nDecoded loss is superlinear in latent error with the knee below MSE 0.30, and the flow sits at 0.67. The flow's\nerror is already 2–4× more benign than isotropic noise of the same size, so nothing on the flow side (loss\nweighting, `t` placement, sampler) can show on the decoded metrics until `MSEToken` drops below ~0.1. Every code\nso far captures 25–33% of the delta variance from context (`2026-09-04_flow_bestofk_regressor_null.md` §2), so\nthat route is far. The decoder is the near lever.\n\n**The recipe is RAE's, verbatim.** `third_party/RAE/src/stage1/rae.py:74-86`: during training the encoder output\ngets `σ = noise_tau · U(0,1)` per sample times `randn_like`, `noise_tau = 0.8`, applied before the decoder and\nnowhere else. Their decoder learns to project a ball around each code back to the image; ours has only ever seen\nexact codes (`DeltaTokModule.decode`, `deltatok_trainer.py:372`). The 2026-07-19 wall analysis measured the same\nintolerance on dtok64 — even the MMSE latent decoded 2.6–2.8× above the ceiling — and proposed exactly this.\n\n**Why the encoder must stay frozen.** The flow was trained on this tokenizer's `z`. With `encoder_blocks`,\n`pre_bottleneck_norm`, `z_proj_down`, `z_embed`, `xy_embed`, `norm` frozen and SIGReg off, `encode()` is\nbit-identical, so the finetuned checkpoint drops into the flow eval through `model.deltatok_ckpt` and\n`MSEToken` 0.6677 must reproduce exactly — the built-in check that only the decoder changed. Same design as the\nstage-2 bottleneck freeze (`training.freeze_except_bottleneck`, `deltatok_trainer.py:775`), mirrored.\n\n**Compose is covered for free.** The noise hook sits in `DeltaTokModule.forward` after `z` is fixed, so the\n`z_input` branch the compose path uses (`_compose_forward`, `deltatok_trainer.py:935`) is noised too, and the\ndecoder learns tolerance on composed codes as well as single hops.\n\n**Cost against the prize.** One ~5 h decoder-only job plus two 9-minute evals decide whether the flow thread has\nbeen reading a decoder artifact for three months. Every flow checkpoint stays valid.\n\n## 3 How it is run\n\n### Patch 1 — the noise hook, `occrae/deltatok_trainer.py`\n\n`DeltaTokModule.__init__` takes `decode_noise_tau: float = 0.0`. In `forward` (`:431`), after `z` is set in all\nthree branches (`z_input`, `return_bneck`, plain), and before `self.decode(...)`:\n\n```python\nz_dec = z\nif self.training and self._decode_noise_tau > 0:\n    sigma = self._decode_noise_tau * torch.rand(z.shape[0], 1, 1, 1, device=z.device, dtype=z.dtype)  # (M,1,1,1) per-sample σ ~ U(0, τ)\n    z_dec = z + sigma * torch.randn_like(z)                                                          # (M, N, K, Cz) noised code, decoder input only\nx_hat = self.decode(z_dec, x_prev, rope_local, rope_global)\n```\n\n`return_z` / `return_bneck` keep returning the clean `z`. `self.training` is False in the flow trainer\n(`deltatok_flow_trainer.py:200`), so every flow eval is unaffected. Read the knob in `_make_deltatok_module`\n(`deltatok_shared.py:475`) as `deltatok_cfg.get(\"decode_noise_tau\", 0.0)` — the flow's yaml needs no key. Yaml key\n`model.deltatok.decode_noise_tau: 0.0` in `configs/deltatok/train_deltatok.yaml`, and print the resolved value next\nto the parameter breakdown in `get_network` so a silently-unset knob is not read as a null.\n\n### Patch 2 — the freeze, `occrae/deltatok_trainer.py:775`\n\n`training.freeze_except_decoder: false` beside `freeze_except_bottleneck` in the yaml. In `get_network`, mirror\nthe stage-2 block: `model.requires_grad_(False)`, then `decoder_blocks` and `z_proj_up` back to trainable. Assert\nthe two freezes are not both set. `_print_param_breakdown` already prints the trainable count per component; the\nexpected line is `encoder_blocks trainable=0.000M`.\n\n### Patch 3 — the eval launcher takes the tokenizer from the environment\n\n`slurm/eval_deltatok_flow_numsteps_tc128compose_bsc.slurm:44`:\n`model.deltatok_ckpt=\"${DELTATOK_CKPT:-$SCRATCH/deltatok_log/.../compose1.0/ckpts/epoch_100.pth}\"`, and echo it.\n`EXTRA_ARGS=\"--cfg ...\"` is not an option: `--cfg` is `nargs=\"*\"`, a second one replaces the whole arch-flag array.\n\n### The arm — copy the tc128 sigreg 0.005 script, then edit\n\nThe slurm script is a copy-paste of the script that trained the tokenizer being finetuned:\n`slurm/deltatok/train_deltatok_compose_sigreg_nozn_tc128_bsc.slurm` (tc128 · `SIGREG_WEIGHT` 0.005 ·\n`COMPOSE_WEIGHT` 1.0, the `..._sigreg0.005_ns256_pool8192_compose1.0` run). Never rewrite from scratch — the copy\nkeeps the diff to the lines below.\n\n```bash\ncp slurm/deltatok/train_deltatok_compose_sigreg_nozn_tc128_bsc.slurm \\\n   slurm/deltatok/train_deltatok_compose_tc128_decnoise_ft_bsc.slurm\n```\n\nChange only these, and nothing else in the copy:\n\n- `--job-name`, `--output`, `--error` together; `--time=08:00:00` (backfills in minutes at this length).\n- `RUN_NAME=deltatok_l12_dtok64_tc128_nozn_maxgap9_vpt1to2_sigreg0.005_ns256_pool8192_compose1.0_decnoise0.8_ft10`,\n  hardcoded. A fresh name, so no `current.pth` exists and the warm start below is honoured.\n- `INIT_CKPT=\"$SCRATCH/deltatok_log/deltatok_l12_dtok64_tc128_nozn_maxgap9_vpt1to2_sigreg0.005_ns256_pool8192_compose1.0/ckpts/epoch_100.pth\"`\n  — weights-only load via `--ckpt` (`sh/train_deltatok.sh:35`), `iter` restarts at 0, so the LR schedule below is\n  the finetune's own.\n- Overrides: `model.deltatok.decode_noise_tau=0.8` · `training.freeze_except_decoder=true` ·\n  `training.sigreg_weight=0` (`z` is frozen; the pool would only cost) · `training.compose_weight=1.0` (unchanged) ·\n  `training.lr=1e-4` · `training.min_lr_ratio=0.1` · `training.warm_up=500` · `training.epoch=10` ·\n  `training.max_iter=11250` (1125 updates/epoch: 18 000 samples at `effective_bsize` 16; `epoch_100` = iter\n  112 500) · `training.save_ckpt_every_n_epochs=5`. Everything else — bsize 2, grad_clip 0.1, max_gap 9,\n  `train_deltatok_nt10_bsc` — stays as the source arm trained.\n\nBudget: the source recipe runs ~32 min/epoch on BSC with the full backward; without the encoder backward expect\n≤ 30. Ten epochs ≤ 5.5 h inside an 8 h `acc_ehpc` wall.\n\n### Pre-flight, then submit\n\nThe user syncs manually. An empty grep means the cluster copy is stale: ask, never `rsync`.\n\n```bash\nssh bsc \"bash -lc 'cd /gpfs/projects/ehpc1001/code/deltatok && grep -n decode_noise_tau occrae/deltatok_trainer.py occrae/deltatok_shared.py configs/deltatok/train_deltatok.yaml && grep -n freeze_except_decoder occrae/deltatok_trainer.py configs/deltatok/train_deltatok.yaml && grep -n DELTATOK_CKPT slurm/eval_deltatok_flow_numsteps_tc128compose_bsc.slurm && grep -E \\\"RUN_NAME=|INIT_CKPT|decode_noise_tau|freeze_except_decoder|--time\\\" slurm/deltatok/train_deltatok_compose_tc128_decnoise_ft_bsc.slurm'\"\nssh bsc \"bash -lc 'cd /gpfs/projects/ehpc1001/code/deltatok && sbatch slurm/deltatok/train_deltatok_compose_tc128_decnoise_ft_bsc.slurm'\"\n```\n\nA job id is not a launch. Watch until the first loss line; grep the `.out` for `encoder_blocks ... trainable=\n0.000M`, `decode_noise_tau=0.8`, and `Load ckpt from: .../epoch_100.pth`. `LossRecon` at iter 0 should sit near\nthe source arm's terminal value, not at a fresh-init value.\n\n### The read — two eval jobs per checkpoint, `acc_debug`, ~9 min each\n\n`epoch_10` first; `epoch_5` only if `epoch_10` moves, to see whether it was still moving.\n\n```bash\n# A: the flow through the new decoder. MSEToken must read 0.6677 (N=1) / 0.8850 (N=20) exactly.\nssh bsc \"bash -lc 'cd /gpfs/projects/ehpc1001/code/deltatok && \\\n  DELTATOK_CKPT=\\$SCRATCH/deltatok_log/deltatok_l12_dtok64_tc128_nozn_maxgap9_vpt1to2_sigreg0.005_ns256_pool8192_compose1.0_decnoise0.8_ft10/ckpts/epoch_10.pth \\\n  CKPT=/gpfs/scratch/ehpc1001/deltatok_flow_log/deltatok_flow_waymo_consec5cam0_ctx3fwd2_tc128mg9sigreg005compose_ep100tok_xxl_dit/ckpts/iter_100000.pth \\\n  OUTPUT_DIR=results/deltatok_flow_decnoise/flow_ep10 NUM_STEPS=1,20 STEP_MODES=ode \\\n  sbatch slurm/eval_deltatok_flow_numsteps_tc128compose_bsc.slurm'\"\n# B: the noise ladder on the new decoder. σ=0 is the round-trip cost of the finetune.\nssh bsc \"bash -lc 'cd /gpfs/projects/ehpc1001/code/deltatok && DELTATOK_CKPT=<same> CKPT=<same> \\\n  OUTPUT_DIR=results/deltatok_flow_decnoise/ladder_ep10 NUM_STEPS=1 STEP_MODES=ode \\\n  EXTRA_ARGS=\\\"--noise_sigmas 0.0,0.32,0.55,0.82\\\" sbatch slurm/eval_deltatok_flow_numsteps_tc128compose_bsc.slurm'\"\n```\n\n`acc_debug` takes one job per user; run B on `--qos=acc_ehpc --time=01:00:00`.\n\n| readout | source decoder (`epoch_100`) | finetuned `epoch_10` | finetuned `epoch_5` |\n|---|---|---|---|\n| σ=0 `LossDepth` / `LossPointmap` / `LossRaymap` | 2.7923 / 4.0557 / 1.6763 | | |\n| σ=0.55 same | 3.3617 / 9.2042 / 7.7481 | | |\n| σ=0.82 same | 4.7519 / 18.4995 / 19.0861 | | |\n| flow N=1 `MSEToken` (must match) | 0.6677 | | |\n| flow N=1 `LossDepth` / `LossPointmap` / `LossRaymap` | 3.6325 / ~8.13 / 5.0347 | | |\n| flow N=20 `LossRaymap` | 5.8777 | | |\n| tokenizer eval `LossRecon` / `LossRecon_AR` / `LossRecon_Comp` (KITTI) | source `.out`, ep 100 | | |\n\nInto `results/2026-09-xx_flow_decoder_noise_finetune_slides.html`; verdict in `analysis/`.\n\n## 4 Outcome\n\n`_pending_`. Routing is the falsifier list in §1.\n"
   },
   {
    "id": "plan/2026-09-04_flow_bestofk_regressor_null.md",
@@ -1392,12 +1444,12 @@
  "todos": [
   {
    "num": 2,
-   "status": "running",
+   "status": "read landed",
    "item": "tc512 + sigreg 0.02 / 0.04 / 0.08",
    "thread": "tc_width",
    "paper": "ablation: SIGReg weight",
-   "note": "BSC:45296347 (0.02) ep 33 · BSC:45297731 (0.04) ep 0 · BSC:45296349 (0.08) cancelled ep 33, read at ep 67: ../research/plan/2026-09-01_tc_width_sigreg_weight_tc512.md. Sweep is broken up — see the note below",
-   "note_md": "`BSC:45296347 (0.02) ep 33 · BSC:45297731 (0.04) ep 0 · BSC:45296349 (0.08) cancelled ep 33, read at ep 67: ../research/plan/2026-09-01_tc_width_sigreg_weight_tc512.md`. Sweep is broken up — see the note below",
+   "note": "BSC:45296347 (0.02) and BSC:45297731 (0.04) stopped at ep 81 on the wall, BSC:45296349 (0.08) cancelled at ep 32. Read at ep 67 and 81: ../research/results/2026-09-04_tc_width_tc512_sigreg_weight_axis_slides.html — plateau 0.01–0.04 (6% spread), break at 0.08. Plan ../research/plan/2026-09-01_tc_width_sigreg_weight_tc512.md, §4 still pending",
+   "note_md": "`BSC:45296347 (0.02)` and `BSC:45297731 (0.04)` stopped at ep 81 on the wall, `BSC:45296349 (0.08)` cancelled at ep 32. Read at ep 67 and 81: `../research/results/2026-09-04_tc_width_tc512_sigreg_weight_axis_slides.html` — plateau 0.01–0.04 (6% spread), break at 0.08. Plan `../research/plan/2026-09-01_tc_width_sigreg_weight_tc512.md`, §4 still pending",
    "closed": "",
    "state": "open",
    "source": "docs/todo/02-09-2026.md",
@@ -1408,14 +1460,10 @@
     "45296349"
    ],
    "docs": [
-    "plan/2026-09-01_tc_width_sigreg_weight_tc512.md"
+    "plan/2026-09-01_tc_width_sigreg_weight_tc512.md",
+    "results/2026-09-04_tc_width_tc512_sigreg_weight_axis_slides.html"
    ],
-   "updates": [
-    {
-     "date": "2026-09-02",
-     "text": "The three arms are no longer comparable at a matched epoch, and none has reached the ep-67 read point.\n\n- **0.02 · BSC:45296347 · RUNNING, ep 33.** The healthy arm. Train 0.0896 (Recon 0.0430, raw `SIGReg:` 0.0039), Eval 0.0507, nuScenes `ZPartRank` 86.1. ~28 h of walltime left, enough to pass ep 67.\n- **0.04 · BSC:45296348 FAILED, resubmitted as BSC:45297731 · RUNNING, ep 0.** The failure was infrastructural, not the objective: `torch.cuda.set_device` raised `CUDA error: out of memory` at startup on node `as06r3b02`, 1 m 17 s in. The resubmit queued ~19 h and started 2026-09-02 ~13:10, so it is 33 epochs behind the others in wall-clock.\n- **0.08 · BSC:45296349 · CANCELLED 2026-09-02 13:40 at ep 33.** A `current.pth` exists, so it is resumable.\n\n**Progress note on 0.08, not the read.** At matched ep 32 it sits at roughly twice the 0.02 arm's loss on every term — Train 0.1777 vs 0.0900, Recon 0.0813 vs 0.0432, Eval 0.0932 vs 0.0511 — and its rank is *lower*, not higher (`ZPartRank` 38.7 KITTI / 54.3 nuScenes vs 86.1 nuScenes at 0.02). That is the shape of over-regularisation, and it points at a turnover below 0.08. It is **not** the pool-32768 warmup blow-up: the raw `SIGReg:` term goes 0.0116 → 0.0141 → 0.0107 across the end of the 2000-iter warmup, a bump, not the 39× spike from `../research/analysis/2026-07-31_sigreg_pool_not_weight_neutral.html`. One seed, ep 33 of a read fixed at 67; do not conclude the turnover from this."
-    }
-   ]
+   "updates": []
   },
   {
    "num": 3,
@@ -1470,16 +1518,7 @@
     "plan/2026-09-02_pointdit_xloss_additive.md",
     "results/2026-09-04_pointdit_lowt_numsteps_ep50_slides.html"
    ],
-   "updates": [
-    {
-     "date": "2026-09-02",
-     "text": "`df_ctx3fwd2_tc128mg9s005compose_pointditT_xxl`, BSC:45344713, `PENDING (Priority)` since ~15:40. One 72 h `acc_ehpc` job against ~65 h of training, so evals may push it past the wall; resume is automatic and a plain relaunch finishes it. The control is already measured at ep 100 (`../research/results/2026-09-01_flow_numsteps_tc128compose_slides.html`, N=1 MSEToken 0.7417 / LossDepth 3.6563), so nothing else has to run for the head-to-head.\n\n- **Read at ep 100 only**, through `slurm/eval_deltatok_flow_numsteps_tc128compose_bsc.slurm` at `NUM_STEPS=1,2,3,4,20`. The live TB curve is `eval_num_steps=20`, the metric this arm is *predicted to lose* — a worsening N=20 curve is the hypothesis working, not a reason to kill the run.\n- **First check when it starts:** grep the `.out` for `t schedule: t_dist=logitnormal mu=-0.8 sigma=0.8 force_zero_t_ratio=0.1`. A schedule that silently stayed `uniform` reads as a clean null.\n- **`Train/Loss` is not comparable across the two arms.** `logitnormal` and `uniform` weight `t` differently under `loss_mode=v`, mean weight 2.77 vs 39.0. Read only the decoded metrics."
-    },
-    {
-     "date": "2026-09-04",
-     "text": "Read early at matched ep 50 after the user chose not to wait: falsifier 3, everything\ndegrades (deck above; jobs BSC:45414635 / 45414644). Cancelled at ep 58. The control is worse at ep 100 than at ep 50\nat N=1 (MSEToken 0.7417 vs 0.6677), so the plan's ep-100 read point was itself wrong. Routed to TODO 11, not to the\nx-loss arm."
-    }
-   ]
+   "updates": []
   },
   {
    "num": 6,
@@ -1505,32 +1544,24 @@
   },
   {
    "num": 8,
-   "status": "running",
+   "status": "read landed",
    "item": "Sum is actually better → run again with 0.02 tc512 (0.01 undecided); compare with 512 plain",
    "thread": "sigreg",
    "paper": "ablation: SIGReg on the composed sum",
-   "note": "BSC:45345063, read at ep 67: ../research/plan/2026-09-02_sigreg_sum_at_weight_0.02.md. Twin is the TODO 2 arm BSC:45296347 at the same 0.02. The one sum arm measured is BSC:45122721 at weight 0.005 (../research/plan/2026-08-27_sigreg_compose_z.md, ep 99; re-read in ../research/results/2026-09-01_tc_width_tc512_sigreg_weight_slides.html). Its effective pressure is ~1/3 the twin's — 3× live rows drops scale 17.0 → 6.33 — so 0.005 with the sum is not 0.005 without it",
-   "note_md": "`BSC:45345063, read at ep 67: ../research/plan/2026-09-02_sigreg_sum_at_weight_0.02.md`. Twin is the TODO 2 arm BSC:45296347 at the same 0.02. The one sum arm measured is BSC:45122721 at weight **0.005** (`../research/plan/2026-08-27_sigreg_compose_z.md`, ep 99; re-read in `../research/results/2026-09-01_tc_width_tc512_sigreg_weight_slides.html`). Its effective pressure is ~1/3 the twin's — 3× live rows drops `scale` 17.0 → 6.33 — so 0.005 with the sum is not 0.005 without it",
+   "note": "BSC:45345063 cancelled 2026-09-04 mid-ep 67. Read at ep 65 against the twin BSC:45296347 in the same deck as TODO 2, slide 6: the sum's 0.005 win reverses to +8.0% eval LossRecon at 0.02 — a low-weight rescue, not a better objective. Plan ../research/plan/2026-09-02_sigreg_sum_at_weight_0.02.md, §4 still pending",
+   "note_md": "`BSC:45345063` cancelled 2026-09-04 mid-ep 67. Read at ep 65 against the twin BSC:45296347 in the same deck as TODO 2, slide 6: the sum's 0.005 win reverses to +8.0% eval `LossRecon` at 0.02 — a low-weight rescue, not a better objective. Plan `../research/plan/2026-09-02_sigreg_sum_at_weight_0.02.md`, §4 still pending",
    "closed": "",
    "state": "open",
    "source": "docs/todo/02-09-2026.md",
    "order": 6,
    "jobs": [
     "45345063",
-    "45296347",
-    "45122721"
+    "45296347"
    ],
    "docs": [
-    "plan/2026-08-27_sigreg_compose_z.md",
-    "plan/2026-09-02_sigreg_sum_at_weight_0.02.md",
-    "results/2026-09-01_tc_width_tc512_sigreg_weight_slides.html"
+    "plan/2026-09-02_sigreg_sum_at_weight_0.02.md"
    ],
-   "updates": [
-    {
-     "date": "2026-09-02",
-     "text": "`..._sigreg0.02_ns1024_pool8192_compose1.0_sigregsum`, BSC:45345063, `PENDING\n(Priority)` since 17:28. 48 h on `ehpc1001` at ~35 min/ep (the 0.005 sum arm's rate) reaches ~ep 82, so the ep-67\nread needs no resume; the twin BSC:45296347 runs 41 min/ep and lands ~ep 70.\n\n- **Judge on eval `LossRecon_Comp` against BSC:45296347 at ep 67**, per eval set. At their shared 0.005 the sum arm\n  won by 10.9% recon / 13.5% comp with rank 60.1·67.7 vs 36.7·42.5 — at ~1/3 the effective pressure.\n- **The raw `SIGReg:` scalar is not comparable across the flag.** A third of the rows are exact linear combinations\n  of the other two thirds, so its finite-sample floor sits higher.\n- **The question is whether the win is the streams or the pressure.** If plain 0.02 catches up, the 0.005 result was\n  effective weight and the flag can be dropped."
-    }
-   ]
+   "updates": []
   },
   {
    "num": 10,
@@ -1563,6 +1594,27 @@
    "jobs": [],
    "docs": [
     "plan/2026-09-04_flow_bestofk_regressor_null.md"
+   ],
+   "updates": []
+  },
+  {
+   "num": 12,
+   "status": "plan written",
+   "item": "Decoder-only noise-augmented finetune of the tc128 compose tokenizer (RAE noise_tau), read through the unchanged flow control",
+   "thread": "flow",
+   "paper": "main results: tokenizer for the flow eval",
+   "note": "../research/plan/2026-09-04_flow_decoder_noise_finetune.md. Motivated by the probe ../research/results/2026-09-04_flow_decoder_noise_probe.md (BSC:45417908): decoded loss is superlinear in latent error, knee below MSE 0.30, flow at 0.67. One ~5 h BSC job + two 9-min evals; z untouched so MSEToken 0.6677 must reproduce",
+   "note_md": "`../research/plan/2026-09-04_flow_decoder_noise_finetune.md`. Motivated by the probe `../research/results/2026-09-04_flow_decoder_noise_probe.md` (`BSC:45417908`): decoded loss is superlinear in latent error, knee below MSE 0.30, flow at 0.67. One ~5 h BSC job + two 9-min evals; `z` untouched so `MSEToken` 0.6677 must reproduce",
+   "closed": "",
+   "state": "open",
+   "source": "docs/todo/02-09-2026.md",
+   "order": 9,
+   "jobs": [
+    "45417908"
+   ],
+   "docs": [
+    "plan/2026-09-04_flow_decoder_noise_finetune.md",
+    "results/2026-09-04_flow_decoder_noise_probe.md"
    ],
    "updates": []
   },
@@ -1861,6 +1913,21 @@
    "kind": "ref"
   },
   {
+   "from": "plan/2026-09-04_flow_decoder_noise_finetune.md",
+   "to": "results/2026-09-04_flow_decoder_noise_probe.md",
+   "kind": "prior"
+  },
+  {
+   "from": "plan/2026-09-04_flow_decoder_noise_finetune.md",
+   "to": "results/2026-09-04_flow_decoder_noise_probe.md",
+   "kind": "ref"
+  },
+  {
+   "from": "plan/2026-09-04_flow_decoder_noise_finetune.md",
+   "to": "analysis/2026-07-19_flow_wall.html",
+   "kind": "ref"
+  },
+  {
    "from": "results/2026-07-07_tc_width_num_delta_tokens_ablation.html",
    "to": "plan/2026-07-03_tc_width_num_delta_tokens_sweep.html",
    "kind": "ref"
@@ -1926,6 +1993,16 @@
    "kind": "ref"
   },
   {
+   "from": "results/2026-09-04_flow_decoder_noise_probe.md",
+   "to": "analysis/2026-07-19_flow_wall.html",
+   "kind": "ref"
+  },
+  {
+   "from": "results/2026-09-04_flow_decoder_noise_probe.md",
+   "to": "plan/2026-09-04_flow_decoder_noise_finetune.md",
+   "kind": "ref"
+  },
+  {
    "from": "results/2026-09-04_tc_width_tc512_sigreg_weight_axis_slides.html",
    "to": "plan/2026-09-02_sigreg_sum_at_weight_0.02.md",
    "kind": "ref"
@@ -1982,7 +2059,7 @@
   },
   {
    "from": "todo/2",
-   "to": "analysis/2026-07-31_sigreg_pool_not_weight_neutral.html",
+   "to": "results/2026-09-04_tc_width_tc512_sigreg_weight_axis_slides.html",
    "kind": "todo"
   },
   {
@@ -2006,18 +2083,8 @@
    "kind": "todo"
   },
   {
-   "from": "todo/7",
-   "to": "results/2026-09-01_flow_numsteps_tc128compose_slides.html",
-   "kind": "todo"
-  },
-  {
    "from": "todo/6",
    "to": "plan/2026-09-02_sigreg_cov_penalty.md",
-   "kind": "todo"
-  },
-  {
-   "from": "todo/8",
-   "to": "plan/2026-08-27_sigreg_compose_z.md",
    "kind": "todo"
   },
   {
@@ -2026,13 +2093,18 @@
    "kind": "todo"
   },
   {
-   "from": "todo/8",
-   "to": "results/2026-09-01_tc_width_tc512_sigreg_weight_slides.html",
+   "from": "todo/11",
+   "to": "plan/2026-09-04_flow_bestofk_regressor_null.md",
    "kind": "todo"
   },
   {
-   "from": "todo/11",
-   "to": "plan/2026-09-04_flow_bestofk_regressor_null.md",
+   "from": "todo/12",
+   "to": "plan/2026-09-04_flow_decoder_noise_finetune.md",
+   "kind": "todo"
+  },
+  {
+   "from": "todo/12",
+   "to": "results/2026-09-04_flow_decoder_noise_probe.md",
    "kind": "todo"
   },
   {
@@ -2103,6 +2175,16 @@
   {
    "from": "plan/2026-09-02_pointdit_xloss_additive.md",
    "to": "analysis/2026-09-02_pointdit_vs_deltatok.md",
+   "kind": "slug"
+  },
+  {
+   "from": "plan/2026-09-04_flow_bestofk_regressor_null.md",
+   "to": "results/2026-09-04_flow_decoder_noise_probe.md",
+   "kind": "slug"
+  },
+  {
+   "from": "plan/2026-09-04_flow_decoder_noise_finetune.md",
+   "to": "results/2026-09-04_flow_decoder_noise_probe.md",
    "kind": "slug"
   },
   {

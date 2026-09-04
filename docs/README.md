@@ -11,6 +11,7 @@ question it belongs to — is the tag in its filename.
 
 **Start at [`ROADMAP.md`](ROADMAP.md)**: the CVPR paper skeleton with contributions, method, main results and
 ablations. The work queue is [`todo/02-09-2026.md`](todo/02-09-2026.md); closed items move to [`DONE.md`](DONE.md).
+Live jobs, epochs reached and what to check next are on [`todo/STATUS.md`](todo/STATUS.md).
 
 ## Layout
 
@@ -24,6 +25,7 @@ ablations. The work queue is [`todo/02-09-2026.md`](todo/02-09-2026.md); closed 
 | `proposals/` | EuroHPC access proposals (docx/pdf). |
 | `ROADMAP.md` | The paper skeleton: contributions, method, main results, ablations. Each section says what is measured and what is missing. |
 | `todo/02-09-2026.md` | The work queue: one row per item with its thread, the paper section it fills, and its status. |
+| `todo/STATUS.md` | The jobs board: one row per queued, running or unread job with its state, read point and the check to run. |
 | `DONE.md` | Items closed out of `todo/02-09-2026.md`, newest first. A row keeps its original `#`, so old references still resolve. |
 | `deltatok.md` | Eval-only launch note. |
 

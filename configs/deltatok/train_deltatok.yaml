@@ -74,6 +74,7 @@ model:
     use_camera_rope: false
     norm_affine: true  # learnable z-norm; slurm may override to false for fixed unit-var/zero-mean latent
     z_norm: true  # false removes the z-norm entirely (SIGReg then regularizes a free z, not one pinned to a sphere)
+    decode_noise_tau: 0.0  # RAE noise finetune: decoder trains on z + σ·N(0,I), σ ~ U(0, tau). 0 = off
     mlp_ratio: 4
     layer_scale_init: 1.0e-5
     initializer_range: 0.02
@@ -100,6 +101,9 @@ training:
   feature_loss_weight: 0.0
   # Stage 2: freeze everything but the channel bottleneck (needs target_channels != hidden_size).
   freeze_except_bottleneck: false
+  # Decoder-only finetune (decoder_blocks + z_proj_up): encode() stays bit-identical, so z and
+  # every flow checkpoint trained on it remain valid. Mutually exclusive with the line above.
+  freeze_except_decoder: false
   # Auxiliary log-cosh loss making z_proj_up(z_proj_down(z)) reconstruct the full 1536-d z:
   # a direct linear-autoencoder signal on the bottleneck, not routed through the decoder.
   # 0 = off; only meaningful with target_channels > 0.

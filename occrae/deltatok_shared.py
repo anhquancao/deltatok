@@ -501,6 +501,8 @@ class DeltaTokSharedMixin:
             z_norm=bool(deltatok_cfg.get("z_norm", True)),
             target_channels=int(deltatok_cfg.get("target_channels", 0)),
             bottleneck_mlp=bool(deltatok_cfg.get("bottleneck_mlp", False)),
+            # Decoder-only noise finetune; absent from the flow yaml, which never trains.
+            decode_noise_tau=float(deltatok_cfg.get("decode_noise_tau", 0.0)),
         )
 
     def _build_occ_rae(self):
