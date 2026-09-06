@@ -5,7 +5,7 @@ Created 2026-09-04 · thread `flow` · prior cycle:
 · arm: `deltatok_l12_dtok64_tc128_nozn_maxgap9_vpt1to2_sigreg0.005_ns256_pool8192_compose1.0_decnoise0.8_ft10`
 · control: the source tokenizer `.../compose1.0/ckpts/epoch_100.pth`, read through the unchanged flow control
 `deltatok_flow_waymo_consec5cam0_ctx3fwd2_tc128mg9sigreg005compose_ep100tok_xxl_dit` at `iter_100000`
-· jobs: `BSC:45421190` · deck: `_pending_`
+· jobs: `BSC:45421190` · deck: [`../results/2026-09-06_flow_decoder_noise_finetune_slides.html`](../results/2026-09-06_flow_decoder_noise_finetune_slides.html)
 
 The RAE recipe the wall analysis proposed on 2026-07-19 (`../analysis/2026-07-19_flow_wall.html`, "primary:
 decoder noise-robustness finetune") and never ran. The probe above made it the only cheap lever left.
@@ -194,4 +194,77 @@ Into `results/2026-09-xx_flow_decoder_noise_finetune_slides.html`; verdict in `a
 
 ## 4 Outcome
 
-`_pending_`. Routing is the falsifier list in §1.
+**Read 2026-09-06. `BSC:45497311` (flow N=1,20) and `BSC:45497319` (σ ladder) on `epoch_10`;
+`BSC:45497830` / `BSC:45497831` on `epoch_5`; `BSC:45498382` fills in N = 2, 3, 4, 8, 12 on `epoch_10`. The source-decoder control is `BSC:45414635` — the same flow
+`iter_100000` read through `epoch_100`; its N=1 `LossPointmap` is **7.5305**, not the §2 probe's approximate ~8.13.**
+
+**Both falsifiers fire, at different step counts. Falsifier 1 at N=20; falsifier 2 at N=1.**
+
+**The flow gains, and the gain is large.** Best-achievable against best-achievable over the measured sweep:
+`LossRaymap` **4.6035 → 3.7936 (−17.6%)** and `LossPointmap` **7.2704 → 6.6117 (−9.1%)**, with the optimum moving
+from N=2 to N=20; `LossDepth` is the exception at +1.2%. At matched N=20 the raymap move is **−35.5%**, which clears
+falsifier 1's ≥30% bar outright — so decoder intolerance *was* binding there, and falsifier 1's prescribed action
+(adopt the finetuned decoder, re-read the 1…20-step sweep) is the right routing.
+
+**What failed is the N=1 prediction the hypothesis actually pinned**, and it failed in the wrong direction: raymap
+5.0347 → 5.9274 (+17.7%) against a predicted ≤ 3.5. There, isotropic noise at the flow's own latent error decodes
+3.5× *better* than the flow does, so the 1-step error is structured, not Gaussian, and a decoder taught to invert a
+ball around each code does not cover it.
+
+| readout | source decoder (`epoch_100`) | finetuned `epoch_10` | |
+|---|---|---|---|
+| σ=0 `LossDepth` / `LossPointmap` / `LossRaymap` | 2.7923 / 4.0557 / 1.6763 | **2.7548 / 3.9912 / 1.6484** | −1.3% / −1.6% / −1.7% |
+| σ=0.32 same | 3.0104 / 4.3611 / 1.8129 | **2.8244 / 4.0606 / 1.6506** | −6.2% / −6.9% / −9.0% |
+| σ=0.55 same | 3.3617 / 9.2042 / 7.7481 | **2.8892 / 4.1256 / 1.6533** | −14.1% / −55.2% / −78.7% |
+| σ=0.82 same | 4.7519 / 18.4995 / 19.0861 | **3.0095 / 4.2507 / 1.6715** | −36.7% / −77.0% / **−91.2%** |
+| flow N=1 `MSEToken` (must match) | 0.6677 | **0.6677** | exact |
+| flow N=1 `LossDepth` / `LossPointmap` / `LossRaymap` | 3.6325 / 7.5305 / 5.0347 | **3.6765 / 8.2932 / 5.9274** | +1.2% / **+10.1%** / **+17.7%** |
+| flow N=20 `MSEToken` | 0.8850 | **0.8850** | exact |
+| flow N=20 `LossDepth` / `LossPointmap` / `LossRaymap` | 3.8819 / 8.6347 / 5.8777 | **3.7915 / 6.6117 / 3.7936** | −2.3% / **−23.4%** / **−35.5%** |
+| tokenizer eval `LossRecon` / `_AR` / `_Comp` (KITTI) | 0.0472 / 0.0509 / 0.0505 | 0.0484 / 0.0530 / 0.0515 | +2.5% / +4.1% / +2.0% |
+| tokenizer eval `PredVsOrig` depth / pmap / raymap (KITTI) | 0.4248 / 0.6214 / 0.3933 | 0.4238 / 0.6165 / 0.3908 | −0.2% / −0.8% / −0.6% |
+
+**Every design check held.** `MSEToken` reproduces to the digit at both N, so `encode()` is bit-identical and the
+decoder is the only thing that changed. The σ=0 round-trip did not degrade — it *improved* 1.3–1.7%, well inside
+the 5% band, so falsifier 4 (τ too wide) does not fire. The tokenizer's own eval pays 2.0–4.1% in token space and
+nothing in decoded geometry.
+
+**The ladder is the headline.** At σ=0.82 raymap goes 19.09 → 1.67, i.e. the decoder is now essentially flat in
+latent error across the whole range the flow lives in — the superlinear knee below MSE 0.30 is gone. The 2026-07-19
+wall analysis was right that the decoder was intolerant, and ten epochs of RAE's recipe fixed it outright.
+
+**The N=1 cell is the one loss.** The prediction was raymap 5.03 → ≤ 3.5. It went the other way,
+to 5.93. Set the two σ=0.82 rows against the flow's N=1 row on the *same* decoder: MSE 0.6729 of isotropic noise
+decodes to 3.01 / 4.25 / 1.67, while MSE 0.6677 of flow error decodes to 3.68 / 8.29 / 5.93. **Same latent-error
+magnitude, 3.5× the raymap.** The probe's framing inverts: before the finetune the flow's error looked 2–4× *more*
+benign than isotropic noise; after it, isotropic noise is 3.5× more benign than the flow's.
+
+**The full sweep, `BSC:45498382`, N = 1, 2, 3, 4, 8, 12, 20 on `epoch_10`:**
+
+| N | 1 | 2 | 3 | 4 | 8 | 12 | 20 |
+|---|---|---|---|---|---|---|---|
+| `MSEToken` | 0.6677 | 0.7109 | 0.7554 | 0.7826 | 0.8398 | 0.8638 | 0.8850 |
+| `LossDepth` | **3.6765** | 3.7324 | 3.7423 | 3.7581 | 3.7802 | 3.7894 | 3.7915 |
+| `LossPointmap` | 8.2932 | 7.6756 | 7.3669 | 7.1248 | 6.7778 | 6.6715 | **6.6117** |
+| `LossRaymap` | 5.9274 | 5.1114 | 4.7003 | 4.4063 | 3.9965 | 3.8630 | **3.7936** |
+
+The finetuned curve is **monotone in N** for pointmap and raymap and has not plateaued at 20; the source decoder
+instead has an interior optimum at **N=2** (raymap 4.6035, pointmap 7.2704) and degrades after it. Depth is
+monotonically worse with N for both, so depth wants N=1 and the other two want N=20.
+
+**Best achievable against best achievable** — the comparison that matters when N is free:
+raymap **3.7936** (ft, N=20) vs 4.6035 (source, N=2) = **−17.6%**; pointmap **6.6117** vs 7.2704 = **−9.1%**;
+depth 3.6765 vs 3.6325 = **+1.2%**, the source. Two of three to the finetuned decoder — and it clears the source's
+best on both at **N=4** (raymap 4.4063, pointmap 7.1248), so the gain does not require twenty steps.
+
+**N=20 is the largest single gain: raymap 5.8777 → 3.7936 (−35.5%).** The step-count ordering flips with it — the source
+decoder read N=1 better than N=20 on raymap (5.03 vs 5.88), the finetuned decoder reads N=20 better (5.93 vs 3.79).
+The N=20 sample carries *more* token error (`MSEToken` 0.8850 vs 0.6677) and still decodes better, which is the
+same statement as above from the other side: what matters is the shape of the error, not its size. The
+`2026-09-04_flow_bestofk_regressor_null.md` N=20 penalty is a decoder artifact at least in part, and should be
+re-read on this checkpoint.
+
+**Routing.** Falsifier 2's own text: *"either it sits in the rollout (`_rollout_from_z`, `deltatok_shared.py:374`)
+or it is structured. Next: a decoder finetune on flow samples rather than Gaussian noise, or `x_prev` noise."*
+That is the next cycle. The finetuned decoder is strictly better than the source at every σ and at N=20, so it
+**replaces `epoch_100` as the tokenizer every flow read uses**, and the 1…20-step sweep is re-read on it first.

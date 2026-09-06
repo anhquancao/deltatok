@@ -37,6 +37,8 @@ ulimit -n "$(ulimit -Hn)"
 : "${OUTPUT_DIR:=results/deltatok_flow_numsteps_tc128compose}"
 : "${NUM_STEPS:=1,2,3,4,20}"
 : "${STEP_MODES:=ode}"
+# >0 writes decoded frame panels under $OUTPUT_DIR/eval_viz; pair with EXTRA_ARGS="--viz_rgb"
+: "${NUM_VIZ:=0}"
 # epoch_100 = iter 112500: the exact tokenizer the flow arm trained against. Override to read
 # the same flow through a decoder-only finetune of it (encoder frozen -> same z).
 : "${DELTATOK_CKPT:=$SCRATCH/deltatok_log/deltatok_l12_dtok64_tc128_nozn_maxgap9_vpt1to2_sigreg0.005_ns256_pool8192_compose1.0/ckpts/epoch_100.pth}"
@@ -61,7 +63,7 @@ CFG_ARGS=(
     model.sampler_scheduler_mode=linear        # uniform-in-t grid, matching the train prior
     model.sampler_alpha=0                      # no per-frame stagger
     training.val_bsize=4                       # BSC eval OOM at bsize 16
-    training.eval_num_visualizations=0         # scalars only; 5 passes of images is wasted I/O
+    training.eval_num_visualizations=${NUM_VIZ}  # 0 = scalars only; >0 also writes decoded panels
 )
 
 echo "CKPT=$CKPT"

@@ -2,7 +2,7 @@
 
 Created 2026-09-02 · thread `sigreg` · prior cycle: `2026-09-02_sigreg_sum_at_weight_0.02.md`
 · arm: `..._sigreg0.02_ns1024_pool8192_compose1.0_cov3e-5` · control: BSC:45296347 (same recipe, `cov_weight=0`)
-· jobs: BSC:45416718 · deck: _pending_ · TODO 6
+· jobs: BSC:45416718 · deck: [`../results/2026-09-06_sigreg_cov_penalty_tc512_slides.html`](../results/2026-09-06_sigreg_cov_penalty_tc512_slides.html) · TODO 6
 · twin read: `../results/2026-09-04_tc_width_tc512_sigreg_weight_axis_slides.html`
 
 ## 1 Hypothesis
@@ -126,6 +126,12 @@ rank collapse. SIGReg (÷κ) = 0.027 + 0.026 — a 0.16 scale offset and 424 dea
 Two prior facts fall out: the measured 1.9% marginal shift at PR 748/1536 is `√(2/(C+2))·√Var(λ)`
 (concentration of measure), and shape pressure `∝ 1/C` at fixed weight predicts a usable rank roughly
 constant in *absolute* dims across Cz — the observed 37–97 band from Cz=64 to Cz=1024.
+
+**Fit κ on a high-anisotropy state, not a low one.** `SIGReg_measured = κ·(model term) + floor`, and the floor is
+~26% of the statistic and does not shrink as the anisotropy does. Dividing the raw scalar by the model term
+therefore over-estimates κ exactly where `Var(λ)` is small — i.e. on the cov arms. Measured: twin ep 33 → **0.074**,
+twin ep 67 → 0.046, cov arm ep 67 → **0.172**. Use the twin's ep-33 fit; the cov arm's is inflated by the floor,
+not by a real change in the constant.
 
 Dropped by the approximation: SIGReg's higher-moment (tail) term, which `L_cov` does not have at all.
 Hence on top of SIGReg, not instead of it.
@@ -260,6 +266,12 @@ Change `--job-name`, `--output`, `--error`, `RUN_NAME` together, and add exactly
 - everything else byte-identical: tc512, compose 1.0, ns1024, pool8192, warmup2000, max_gap 9,
   bsize 2, account `ehpc880` (the twin's; ehpc1001 already carries BSC:45344713 and BSC:45345063).
 
+**The `17.0` factor applies to `L_cov` identically.** Both terms are added as `(weight * ramp * scale) * loss` with
+the same `scale` out of one `_sigreg_pooled` call (`deltatok_trainer.py:1163` and `:1167`), and it is exactly
+`(live 512 + pool 8192) / live 512` = 17.0. Anchored on the twin, the cov term's share of the training loss is
+3.8% / 12.5% / 37.5% at ep 33 and 11.5% / 38.5% / 115% at ep 4 for `cov_weight` 3e-5 / 1e-4 / 3e-4. `1e-3` is
+excluded on this alone: 385% of the loss at ep 4.
+
 **Where 3e-5 comes from.** Two anchors, both from the twin at ep 33. *Loss-share parity* with SIGReg
 (`0.02 × 17.0 × 0.0039` = 1.48% of a 0.0896 total) gives `w = 0.0148 × 0.0896 / (17.0 × 6.59)` = 1.2e-5 —
 but that is too timid to separate the hypotheses. Per §2, SIGReg's per-axis gradient is
@@ -290,7 +302,51 @@ tripwire below.
 
 ## 4 Results
 
-_Pending._
+**Read 2026-09-06 from `logs/BSC/deltatok_covpen_bsc_45416718.out`, ep 67 matched. The arm stopped itself at
+ep 72/100 on the 44 h wall (`exit_before_time_limit`), `current.pth` resumable. `cov_weight=3e-05` printed at
+startup and `Cov:` carried the epoch line throughout, so the knob was live.**
+
+**Verdict: the primary read passes and the secondary bar is cleared, but the rank threshold fails.**
+Recon improved on both eval sets against both twins; `ZPartRank` rose +28% at ep 33 where the hypothesis
+demanded +71%. That is falsifier 1's direction without its magnitude.
+
+| ep 67, eval | twin 45296347 (cov 0) | axis-best 45106935 (0.01) | **this arm (cov 3e-5)** |
+|---|---|---|---|
+| `LossRecon_Comp` KITTI | 0.0561 | 0.0528 | **0.0511** (−8.9% / −3.2%) |
+| `LossRecon_Comp` nuScenes | 0.0401 | 0.0370 | **0.0367** (−8.5% / −0.8%) |
+| `LossRecon` KITTI / nuScenes | 0.0520 / 0.0363 | 0.0493 / 0.0340 | **0.0480 / 0.0336** |
+| eval `ZPartRank` K / N | 89.2 / 98.0 | 97.2 / 113.0 | **104.1 / 114.6** |
+| train `ZPartRank` / `ZTotalVar` | 101.8 / 635.0 | 114.8 / 621.7 | **120.2 / 536.7** |
+| train `L_cov` (via §2 identity) | 6.26 | 5.15 | **3.58** |
+| epoch-line Train / Eval | 0.0765 / 0.0442 | — | **0.0715 / 0.0408** |
+
+Every tripwire in "How to read it" passed except the ep-33 rank bar: ep 4 recon 0.1171 K vs the twin's 0.1209
+(ahead, not 10% behind); ep 12 train PR **80.2** against the ≥ 65 kill line; ep 33 train PR **111.9** against
+the **≥ 150** bar, `L_cov` 3.69 against 3.30.
+
+**The rank ceiling moved but did not lift.** Train `ZPartRank` by epoch, arm vs twin:
+
+| ep | 0 | 4 | 8 | 12 | 20 | 28 | 33 | 49 | 67 | 72 |
+|---|---|---|---|---|---|---|---|---|---|---|
+| cov 3e-5 | 66.8 | 50.5 | 66.4 | 80.2 | 99.6 | 108.1 | 111.9 | 117.3 | 120.2 | 121.1 |
+| twin | 55.4 | 19.5 | 35.2 | 48.4 | 71.3 | 83.9 | 87.6 | 97.1 | 101.8 | 102.2 |
+
+The arm reaches the twin's *terminal* rank by ep 20 and is +18% at ep 67 — but it saturates on the same shape,
++3.8 over the last 23 epochs. A new plateau at ~121/512 (24%), not an escape.
+
+**`L_cov` decomposition, the check §2 demands.** Using `T²/(C·P) − 2T/C + 1` at ep 67, twin (635.0, 101.8)
+`L_cov` 6.26 → arm (536.7, 120.2) 3.58:
+
+- holding rank at the twin's 101.8 and moving trace alone → 4.43, i.e. **68% of the drop is trace**;
+- holding trace and moving rank alone → 5.24, **32% is rank**.
+
+At ep 33 the split is 55% trace / 45% rank. So the penalty banked more of the cheap scale win than §2's 26.5%
+estimate — `ZTotalVar` runs 505–540 against the twin's 590–640, near the 512 target. **This is not the
+scale-only null**: rank rose materially at every epoch. But `L_cov` alone overstates the rank effect by ~2×.
+
+**Cost: +2.1%, above the 1% budget.** Ep 67 at 40:25:17 against the twin's 39:35:27 — 35.7 vs 34.9 min/epoch.
+**Stability: clean.** No grad-skip or NaN warnings in 72 epochs; `SIGReg:` tracks the twin (0.0028 vs 0.0038 at
+ep 67), so the two terms agree about the code.
 
 ### How to read it
 
@@ -328,18 +384,60 @@ along the weight axis". Report against both twins; only clearing 0.0528 / 0.0370
 |---|---|---|---|
 | BSC:45296347 | tc512 plain sigreg 0.02 | COMPLETED ep 81 | **the twin for this read**; 48 h wall, `current.pth` resumable |
 | BSC:45106935 | tc512 plain sigreg 0.01 | COMPLETED ep 67 | secondary bar — the axis best, see "A second bar" above |
-| BSC:45416718 | tc512 sigreg 0.02 + `cov_weight=3e-5` | submitted 2026-09-04 | **this arm**; 44 h on `ehpc880`, reaches ~ep 75 |
+| BSC:45416718 | tc512 sigreg 0.02 + `cov_weight=3e-5` | COMPLETED ep 72, wall | **this arm**; read at ep 67 above, `current.pth` resumable to ep 100 |
+| BSC:45498520 | tc512 sigreg 0.02 + `cov_weight=1e-4` | PENDING, 44 h, `ehpc1001` | dose-response, from scratch. Cov loss share 12.5% at ep 33 |
+| BSC:45498521 | tc512 sigreg 0.02 + `cov_weight=3e-4` | PENDING, 44 h, `ehpc1001` | dose-response, from scratch. 37.5% at ep 33; the hot rung |
 
 Logs: `slurm/output/train_deltatok_compose_sigreg_covpen_nozn_tc512_bsc_<jobid>.{out,err}`.
 TB mirror: `/mnt/d/tb_logs/deltatok_log/<run>/tb_logs/`.
 
 ## 5 Findings
 
-_Pending. Write in the order of the falsifiers._
+**Falsifier 1, partially.** Rank rose and recon followed, but not past 150. `ZPartRank` 101.8 → 120.2 at ep 67
+(+18%) with eval `LossRecon_Comp` −8.9% KITTI / −8.5% nuScenes against the matched control. The direction the
+thread predicted is real and the term is cheap, so **`cov_weight` becomes the default third loss** — but the
+ceiling it buys is ~121/512, not the ~300 an `L_cov` → 1.0 would imply. The estimator was *part* of the ceiling,
+not all of it.
+
+**It is a new best on the weight axis, narrowly.** The plan's second bar was 0.0528 K / 0.0370 N (the 0.01 arm).
+The arm reads 0.0511 / 0.0367, so it clears both — but the nuScenes margin is **0.8%**, well inside the 6% weight
+plateau. The KITTI margin (3.2%) is the one carrying the claim. The follow-on is a **dose-response at fixed `sigreg 0.02`**
+(`BSC:45498520` at 1e-4, `BSC:45498521` at 3e-4), not a second base. A `sigreg 0.01 + cov` arm was dropped: the
+weight axis is fully mapped at ep 67 (0.01 → 0.0528 K / 0.0370 N, 0.04 → 0.0544 / 0.0392, 0.02 → 0.0561 / 0.0401),
+so a higher dose landing materially below **0.0528 / 0.0370** kills "cov only moves you along the weight axis"
+without spending an arm on a second base — no `sigreg_weight` ever reached there.
+
+**Falsifier 4, the scale-only null, is excluded but it is closer than §2 predicted.** 68% of the ep-67 `L_cov`
+drop is trace, not 26.5%. Rank still moved at every epoch, so the null does not hold — but any future arm must
+quote the decomposition, never `ΔL_cov`.
+
+**`ZPartRank` survives as a target, provisionally.** The r = −0.999 correlation was not a pure time confound:
+here rank and recon moved together across two arms at *matched* epochs and matched compute. That is one A/B, not
+a causal proof, and the ~121 plateau says rank is not the only thing recon wants.
+
+**The arm is at its equilibrium, not out of wall time.** At ep 72 `ZTotalVar` is 540.7 against the 512 target with
+`ZPartRank` flat at 121.1 (120.2 at ep 67 — +0.9 in five epochs). Put `T = 512` into the §2 identity and the floor is
+`512/P − 1` = **3.26** against the arm's actual 3.58, so only **9%** of the remaining `L_cov` is trace and any further
+drop would have to be rank almost by construction. **The penalty never pulled trace down at all:** `ZTotalVar` rises
+essentially monotonically from its global minimum of 457.6 at ep 0, crosses 512 upward at ep 17 (513.5), never returns
+below it, and ends 5.6% *above* the target still climbing. The largest single-epoch decrease anywhere after ep 3 is
+−0.85. So the arm started under-scaled and grew through the target; the scale term is now being slowly lost, and
+further `L_cov` reduction cannot come from trace in either direction. Resuming to ep 100 would buy recon, not rank.
+More weight moves this; more epochs will not. That is the argument for the dose-response.
+
+**Cost is 2.1%, not the <1% claimed.** Two `(Cz, Cz)` Grams plus a 1 MB all-reduce cost 0.8 min/epoch at tc512.
+Acceptable, but it scales as `Cz²` — re-measure before turning this on at tc1024.
 
 ## → Next hypothesis
 
-`open`. Four branches, decided by §5:
+**Running: the `cov_weight` dose-response at fixed `sigreg 0.02`** — `BSC:45498520` (1e-4) and `BSC:45498521` (3e-4),
+44 h each on `ehpc1001`, both from scratch. The added shape push over `sigreg 0.02` alone is ~5× at 3e-5, ~17× at
+1e-4 and ~52× at 3e-4, while scale stiffness rises only +2.0% / +6.8% / +20% — a ratio no `sigreg_weight` reaches
+(matching 52× would need weight ~1.0, and 0.08 already broke). Read at matched ep 67 against **0.0528 K / 0.0370 N**,
+the axis best: clearing it kills the plateau confound outright. Watch the ep-12 tripwire (`ZPartRank` ≥ 65) on
+3e-4 especially — its loss share is 115% at ep 4.
+
+The four branches below still frame the read:
 
 - **Rank and recon both move** — re-read the `sigreg_weight` axis with the penalty on, and re-test at
   tc128 / tc1024 to see whether the 37–97 dim band was ever about width.

@@ -6,14 +6,21 @@ but not yet read into a `results/` doc. [`02-09-2026.md`](02-09-2026.md) keeps t
 Job states come from `../../monitor_jobs/data/monitor_jobs.json` (read the file, never the server); epochs come from
 the cached `logs/BSC/*.out`. Every row says what to grep and where the number goes.
 
-**As of 2026-09-04 17:04 (monitor refresh).**
+**As of 2026-09-06 23:32.**
 
 ## Queued and running
 
-| Job | Arm | TODO | State | Read at | Check | Result goes to |
-|---|---|---|---|---|---|---|
-| BSC:45421190 | tc128 compose · decoder-only noise finetune, `decode_noise_tau=0.8`, encoder frozen | 12 | PENDING on `ehpc1001`, 8 h, 10 ep from `epoch_100` | ep 10 (~5.5 h after start), ep 5 as the backstop | First 60 s: `.out` must print `decode_noise_tau=0.8`, `encoder_blocks ... trainable=   0.000M` and `Load ckpt from: .../compose1.0/ckpts/epoch_100.pth`; `LossRecon` at iter 0 near the source arm's terminal value, not a fresh-init one. Then two `slurm/eval_deltatok_flow_numsteps_tc128compose_bsc.slurm` reads with `DELTATOK_CKPT` pointed at the finetuned ckpt — flow N=1/20 (`MSEToken` must stay 0.6677) and the `--noise_sigmas 0.0,0.32,0.55,0.82` ladder | `../research/plan/2026-09-04_flow_decoder_noise_finetune.md` §4, then a `results/` deck |
-| BSC:45416718 | tc512 · sigreg 0.02 · compose 1.0 · `cov_weight=3e-5` | 6 | PENDING on `ehpc880`, 44 h, est. start 2026-09-04 18:10 | ep 67 (~45 h after start) | First 60 s: `.out` must print `cov_weight=3e-05`; a silent `0.0` is a stale trainer. Then eval `LossRecon_Comp` per eval set vs twin BSC:45296347 at ep 67, and vs the 0.01 arm BSC:45106935 (a win under ~6% is inside the weight plateau) | `../research/plan/2026-09-02_sigreg_cov_penalty.md` §4, then a `results/` deck |
+| Job | Arm | TODO | State | Check when it runs |
+|---|---|---|---|---|
+| BSC:45498520 | tc512 · sigreg 0.02 · compose 1.0 · `cov_weight=1e-4` | 6 | PENDING (Priority) since 23:28, 44 h, `ehpc1001` | startup print `cov_weight=0.0001` — a silent `0.0` is a stale trainer — and `Cov:` on the epoch line. ep-12 tripwire: train `ZPartRank` ≥ 65 and recon within 10% of BSC:45416718, else kill |
+| BSC:45498521 | same, `cov_weight=3e-4` | 6 | PENDING (Priority) since 23:28, 44 h, `ehpc1001` | same, print `cov_weight=0.0003`. The hot rung: ~115% of the total loss at ep 4, so this is the one likely to trip the ep-12 wire |
+
+Both are the `cov_weight` dose-response above BSC:45416718, which saturated `ZPartRank` at 121/512 with
+`ZTotalVar` **5.6% past the 512 target and still rising** (540.7 at ep 72, up monotonically from 457.6 at ep 0,
+crossing 512 at ep 17) — so any further `L_cov` drop is rank, not the trace correction that took 68% of
+the first arm's. Added shape push over SIGReg 0.02 alone is ~17× at 1e-4 and ~52× at 3e-4, against ~5× at 3e-5
+(κ ≈ 0.074 from `../research/plan/2026-09-02_sigreg_cov_penalty.md` §2, both terms sharing the trainer's
+`scale` = 17.0). Scripts `slurm/deltatok/train_deltatok_compose_sigreg_covpen{1e-4,3e-4}_nozn_tc512_bsc.slurm`.
 
 ## Finished, read landed, TODO row still open
 
@@ -25,6 +32,8 @@ the cached `logs/BSC/*.out`. Every row says what to grep and where the number go
 | BSC:45345063 | tc512 · sigreg 0.02 · `sigreg_compose_z` (sum) | 8 | CANCELLED 2026-09-04 15:46 mid-ep 67; last eval ep 66 | ep 65 in the same deck: the sum's 0.005 win reverses to +8.0% eval `LossRecon` at 0.02 | Fill §4 of `../research/plan/2026-09-02_sigreg_sum_at_weight_0.02.md`; close TODO 8 |
 | BSC:45344713 | flow · pointditT (`logitnormal(-0.8,0.8)` + 10% `t=0`) from scratch | 7 | CANCELLED 2026-09-04 at ep 58 | ep 50 via evals BSC:45414635 / 45414644: `../research/results/2026-09-04_pointdit_lowt_numsteps_ep50_slides.html`, loses 19/20 cells | Remaining pointdit arms gated on TODO 11 |
 | BSC:45417908 | flow · decoder noise probe (σ 0/0.32/0.55/0.82 on iter_100000, N=1) | 12 | COMPLETED 2026-09-04 16:20 | `../research/results/2026-09-04_flow_decoder_noise_probe.md` | none; it motivates TODO 12 |
+| BSC:45416718 | tc512 · sigreg 0.02 · compose 1.0 · `cov_weight=3e-5` | 6 | COMPLETED at ep 72/100 on the 44 h wall, `current.pth` resumable | ep 67 in `../research/results/2026-09-06_sigreg_cov_penalty_tc512_slides.html`; plan §4–5 filled | Close TODO 6. Follow-on decided 2026-09-06: the cov dose-response BSC:45498520 / 45498521 above. **`sigreg 0.01 + cov 3e-5` is dropped, not deferred** — trace headroom is spent, so more `cov_weight` buys rank directly, and clearing the 0.0528 K / 0.0370 N axis best by a real margin settles the plateau confound without a second base. Keep `current.pth` for the optional ep-100 resume |
+| BSC:45421190 + 45497311/19 + 45497830/31 | tc128 compose · decoder-only noise finetune `decode_noise_tau=0.8` | 12 | all COMPLETED; finetune reached ep 10/10, `epoch_5` and `epoch_10` both read | plan §4 filled and `../research/results/2026-09-06_flow_decoder_noise_finetune_slides.html` | Close TODO 12. Falsifier 1 fired at N=20 (best raymap −17.6%, matched −35.5%), falsifier 2 at N=1 (+17.7%, structured error). Adopt the finetuned `epoch_10` as the tokenizer for flow reads; re-read `2026-09-04_flow_bestofk_regressor_null.md` on it |
 
 ## Planned, not submitted
 
