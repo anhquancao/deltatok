@@ -104,6 +104,8 @@ body.panel-open .board{margin-right:var(--panelw)}
 body.has-sel .card:not(.sel):not(.rel):not(.kin){opacity:.26}
 body.has-sel .card.kin{opacity:.6}
 .todonum{font:600 12px/1 var(--mono);color:var(--tc,var(--ink2))}
+.card.note{background:var(--page);border-style:dashed}
+.card.note::before{background:var(--axis)}
 .empty{color:var(--muted);font-size:12px;padding:14px 10px;font-style:italic}
 
 /* ---------- wires ---------- */
@@ -201,7 +203,7 @@ body.resizing .panel,body.resizing .board{transition:none}
   <div class="chips" id="threadbar"></div>
   <div class="spacer"></div>
   <button class="tbtn" id="openonly" aria-pressed="false" title="Only rows still open">open only</button>
-  <button class="tbtn" id="showdone" aria-pressed="true" title="Include closed TODO items">closed todos</button>
+  <button class="tbtn" id="showdone" aria-pressed="false" title="Include closed TODO items">closed todos</button>
   <div class="legend" id="legend"></div>
 </header>
 
@@ -242,7 +244,7 @@ const KIND = {
 const CODE_MARK = "\u0000";   // sentinel for pulled-out code spans; never occurs in the source
 
 let DATA = null, BY_ID = new Map(), REL = new Map(), THREADS = [];
-let selected = null, activeThreads = new Set(), query = "", openOnly = false, showDone = true;
+let selected = null, activeThreads = new Set(), query = "", openOnly = false, showDone = false;
 
 const esc = s => String(s == null ? "" : s)
   .replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
@@ -258,12 +260,21 @@ const teaser = s => String(s || "")
 const itemThread = x => (x && x.thread) || "unfiled";
 const todoId = t => "todo/" + t.num;
 const isTodo = x => !!(x && x.state);
+const proseId = p => "note/" + p.key;
+const isProse = x => !!(x && x.kind === "prose");
+// the first prose lines, minus any table, as a card teaser
+const proseTeaser = md => String(md || "").split("\n")
+  .filter(l => l.trim() && !l.trim().startsWith("|") && !l.trim().startsWith("#"))
+  .slice(0, 2).join(" ").replace(/[*`\[\]]/g, "");
 
 /* ============================ markdown ============================ */
 // a doc reference in prose -> the index id it names, so it can open in the panel
 function asDocId(href) {
   const m = String(href).match(/(plan|results|analysis)\/(\d{4}-\d{2}-\d{2}_[\w.\-]+?\.(?:md|html|csv|png))/);
   if (m) { const id = m[1] + "/" + m[2]; if (BY_ID.has(id)) return id; }
+  // `todo/13` in prose -> the row's own card
+  const t = String(href).match(/\btodo\/(\d+)\b/);
+  if (t && BY_ID.has("todo/" + t[1])) return "todo/" + t[1];
   return null;
 }
 // everything else resolves against docs/research/, where this viewer sits
@@ -273,7 +284,8 @@ function outHref(href, fromId) {
   const parts = (dir ? dir.split("/") : []).concat(href.split("/"));
   const stack = [];
   for (const p of parts) {
-    if (p === "..") stack.pop();
+    // a leading ".." has nothing to pop and must survive: todos.json links out of docs/research/
+    if (p === "..") { if (stack.length && stack[stack.length - 1] !== "..") stack.pop(); else stack.push(p); }
     else if (p && p !== ".") stack.push(p);
   }
   return stack.join("/");
@@ -397,6 +409,8 @@ function todoDate(t) {
 }
 
 function matches(x) {
+  // a note is not a todo: the open/closed toggles and thread chips do not apply to it
+  if (isProse(x)) return !query || (x._hay || "").includes(query);
   if (activeThreads.size && !activeThreads.has(itemThread(x))) return false;
   if (isTodo(x) && x.state === "done" && !showDone) return false;
   if (openOnly) {
@@ -411,6 +425,11 @@ const board = document.getElementById("board");
 
 function cardHTML(x) {
   const th = itemThread(x), col = threadColor(th);
+  if (isProse(x)) {
+    return '<article class="card note" data-id="' + esc(proseId(x)) + '">' +
+      '<div class="hd"><span class="tag">note</span></div><h3>' + esc(x.title) + "</h3>" +
+      '<div class="v">' + esc(proseTeaser(x.md)) + "</div></article>";
+  }
   if (isTodo(x)) {
     const jobs = (x.jobs || []).slice(0, 3).map(j => '<span class="pill job num">' + esc(j) + "</span>").join("");
     return '<article class="card" data-id="' + esc(todoId(x)) + '" style="--tc:' + col + '">' +
@@ -441,7 +460,8 @@ function render() {
     if ((a.state === "open") !== (b.state === "open")) return a.state === "open" ? -1 : 1;
     return (todoDate(b) || "").localeCompare(todoDate(a) || "") || b.num - a.num;
   });
-  const cols = [{ key: "todo", items: todos }]
+  const notes = (DATA.prose || []).slice().sort((a, b) => (a.order || 0) - (b.order || 0));
+  const cols = [{ key: "todo", items: notes.concat(todos) }]
     .concat(STAGES.map(s => ({ key: s, items: DATA.docs.filter(d => d.stage === s) })));
 
   board.innerHTML = cols.map(c => {
@@ -453,7 +473,8 @@ function render() {
   }).join("") + '<svg class="wires" id="wires"></svg>';
 
   document.getElementById("qn").textContent =
-    DATA.docs.filter(matches).length + DATA.todos.filter(matches).length;
+    DATA.docs.filter(matches).length + DATA.todos.filter(matches).length +
+    (DATA.prose || []).filter(matches).length;
   for (const s of board.querySelectorAll(".scroll")) s.addEventListener("scroll", queueWires, { passive: true });
   applySelection();
 }
@@ -560,22 +581,27 @@ function relListHTML(id) {
 function openPanel(id) {
   const x = BY_ID.get(id);
   if (!x) return;
-  const th = itemThread(x), col = threadColor(th), todo = isTodo(x);
-  panel.style.setProperty("--tc", col);
+  const th = itemThread(x), col = threadColor(th), todo = isTodo(x), note = isProse(x);
+  panel.style.setProperty("--tc", note ? "var(--axis)" : col);
   document.body.classList.add("panel-open");
 
   document.getElementById("pmeta").innerHTML =
-    '<span class="chip" style="color:' + col + '"><span class="sw"></span>' + esc(th) + "</span>" +
-    '<span class="chip muted">' + (todo ? "todo #" + x.num : esc(x.stage) + " · " + esc(x.date)) + "</span>" +
+    (note ? '<span class="chip muted">note</span>'
+          : '<span class="chip" style="color:' + col + '"><span class="sw"></span>' + esc(th) + "</span>") +
+    (note ? "" : '<span class="chip muted">' + (todo ? "todo #" + x.num : esc(x.stage) + " · " + esc(x.date)) + "</span>") +
     (x.status ? '<span class="pill ' + cls(x.status) + '">' + esc(x.status) + "</span>" : "") +
     ((x.jobs || []).map(j => '<span class="pill job num">' + esc(j) + "</span>").join("")) +
     '<button class="close" id="pclose" title="Close (Esc)">&times;</button>';
   document.getElementById("ptitle").textContent = todo ? x.item : x.title;
-  document.getElementById("ppath").textContent = todo ? x.source : "docs/research/" + x.id;
+  document.getElementById("ppath").textContent =
+    note ? "docs/research/todos.json · prose/" + x.key
+         : todo ? x.source : "docs/research/" + x.id;
 
   const body = document.getElementById("pbody");
   let html = "";
-  if (todo) {
+  if (note) {
+    html += '<div class="md">' + mdToHtml(x.md, "") + "</div>";
+  } else if (todo) {
     html += '<dl class="qv">' + (x.paper ? "<dt>paper</dt><dd>" + esc(x.paper) + "</dd>" : "") +
       '<dt>note</dt><dd class="md">' + mdToHtml(x.note_md, "todo/x.md") + "</dd></dl>";
     html += relListHTML(id);
@@ -725,6 +751,10 @@ function boot(data) {
     d._hay = [d.title, d.slug, d.thread, d.question, d.verdict, d.id,
       (d.jobs || []).join(" "), (d.jobs_seen || []).join(" "), d.body || ""].join(" ").toLowerCase();
     BY_ID.set(d.id, d);
+  }
+  for (const p of DATA.prose || []) {
+    p._hay = [p.title, p.md].join(" ").toLowerCase();
+    BY_ID.set(proseId(p), p);
   }
   for (const t of DATA.todos) {
     t._hay = ["#" + t.num, t.item, t.thread, t.paper, t.note, t.status,

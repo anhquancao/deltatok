@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
 """Build docs/research/index.json — the database docs/research/viewer.html reads.
 
-Scans plan/ results/ analysis/, the README ledger and the todo/ + DONE queues, and emits
+Scans plan/ results/ analysis/, the README ledger and todos.json (the queue, the jobs
+board and the closed list), and emits
 one record per doc with its thread, stage, question, verdict, jobs and links to sibling
 docs. Hand edits belong in the "overrides" block of index.json; a rebuild preserves it.
 
@@ -22,6 +23,7 @@ DOCS = RESEARCH.parent
 REPO = DOCS.parent
 OUT_JSON = RESEARCH / "index.json"
 OUT_JS = RESEARCH / "index.js"
+TODOS_JSON = RESEARCH / "todos.json"
 STAGES = ("plan", "results", "analysis")
 DOC_EXT = ("md", "html", "csv", "png")
 SKIP = {"README.md", "TEMPLATE.md"}
@@ -233,52 +235,6 @@ def scan_docs(known_threads):
 
 
 # ---------------------------------------------------------------- todo queues
-def parse_queue(path, kind):
-    """Rows of todo/<date>.md (`Status|#|Item|Thread|Paper|Note`) or DONE.md
-    (`#|Item|Thread|Paper|Closed|Status`)."""
-    text = read(path)
-    rows, order = [], 0
-    for line in text.splitlines():
-        if not line.startswith("|") or set(line) <= set("|- "):
-            continue
-        cells = split_row(line)
-        if len(cells) < 5 or cells[1].lower() in ("#", "item"):
-            continue
-        if kind == "open":
-            status, num, item, thread, paper, note = (cells + [""] * 6)[:6]
-        else:
-            num, item, thread, paper, closed, note = (cells + [""] * 6)[:6]
-            sm = re.match(r"`?(done|dropped)", strip_md(note))
-            status = sm.group(1) if sm else "closed"
-        if not re.fullmatch(r"\d+", num.strip()):
-            continue
-        order += 1
-        rows.append({
-            "num": int(num),
-            "status": status.strip(),
-            "item": strip_md(item),
-            "thread": strip_md(thread),
-            "paper": strip_md(paper),
-            "note": strip_md(note),
-            "note_md": note.strip(),
-            "closed": strip_md(closed) if kind == "done" else "",
-            "state": kind,
-            "source": str(path.relative_to(REPO)),
-            "order": order,
-            "jobs": jobs_in(note),
-            "docs": sorted({f"{a}/{b}" for a, b in RE_PATHREF.findall(note)}),
-            "updates": [],
-        })
-
-    # trailing `**TODO 7 status, 2026-09-04.** …` paragraphs
-    for m in re.finditer(r"\*\*TODO (\d+) status,\s*([\d-]+)\.\*\*(.*?)(?=\n\*\*TODO \d+ status|\Z)", text, re.S):
-        num, when, body = int(m.group(1)), m.group(2), m.group(3)
-        for r in rows:
-            if r["num"] == num:
-                r["updates"].append({"date": when, "text": body.strip()})
-    return rows
-
-
 # ---------------------------------------------------------------- links
 def add_link(links, seen, a, b, kind):
     if a == b or not a or not b:
@@ -398,8 +354,8 @@ def main():
         if rec["thread"] == "unfiled":
             rec["thread"] = entry["thread"]
 
-    todos = parse_queue(DOCS / "todo" / "02-09-2026.md", "open")
-    todos += parse_queue(DOCS / "DONE.md", "done")
+    queue = json.loads(read(TODOS_JSON))
+    todos, prose = queue["todos"], queue.get("prose", [])
 
     links = build_links(docs, todos, ledger)
 
@@ -440,12 +396,14 @@ def main():
         "threads": [threads[t] for t in known_threads if t in threads],
         "docs": sorted(docs.values(), key=lambda r: (r["date"], r["stage"], r["slug"]), reverse=True),
         "todos": todos,
+        "prose": prose,
         "links": links,
         "overrides": overrides,
     }
     OUT_JSON.write_text(json.dumps(payload, indent=1, ensure_ascii=False) + "\n", encoding="utf-8")
     OUT_JS.write_text("window.RESEARCH_INDEX=" + json.dumps(payload, ensure_ascii=False) + ";\n", encoding="utf-8")
-    print(f"{len(payload['docs'])} docs · {len(payload['todos'])} todos · {len(links)} links "
+    print(f"{len(payload['docs'])} docs · {len(payload['todos'])} todos · "
+          f"{len(prose)} prose · {len(links)} links "
           f"-> {OUT_JSON.relative_to(REPO)} ({OUT_JSON.stat().st_size // 1024} KB)")
 
 

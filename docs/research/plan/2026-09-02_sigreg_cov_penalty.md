@@ -22,7 +22,7 @@ matched ep 67, both eval sets.
   recon. The covariance term becomes the default third loss and the SIGReg weight axis is re-read on
   top of it.
 - **Rank rises and recon is flat or worse** → rank is not causal for recon, and the r = −0.999
-  correlation across the 5 A/B arms (`../../todo/02-09-2026.md` → `2026-08-26_tc_width_compose_convergence_sigreg_tc.md`)
+  correlation across the 5 A/B arms (`../viewer.html` · the queue → `2026-08-26_tc_width_compose_convergence_sigreg_tc.md`)
   was a time confound. This is the most informative outcome and it kills the thread's central claim.
 - **Rank flat** → the ceiling is not statistical leverage. It is either an equilibrium with recon or
   the linear bottleneck's own limit, and the next lever is `bottleneck_mlp`, not a regulariser.
