@@ -70,26 +70,27 @@ body.panel-open .board{margin-right:var(--panelw)}
   text-transform:uppercase;color:var(--muted);z-index:4}
 .col>h2 b{color:var(--accent);font-weight:600}
 .col>h2 .n{margin-left:auto;font-weight:400;font-variant-numeric:tabular-nums}
-.scroll{flex:1;min-height:0;overflow-y:auto;overscroll-behavior:contain;padding:9px 10px 40vh}
+.scroll{flex:1;min-height:0;overflow-y:auto;overscroll-behavior:contain;padding:11px 12px 40vh}
 .scroll::-webkit-scrollbar{width:9px}
 .scroll::-webkit-scrollbar-thumb{background:var(--axis);border-radius:5px}
 
 /* ---------- cards ---------- */
-.card{position:relative;background:var(--surface);border:1px solid var(--grid);border-radius:6px;
-  padding:9px 11px 10px;margin-bottom:7px;cursor:pointer;
+.card{position:relative;background:var(--surface);border:1px solid var(--grid);border-radius:7px;
+  padding:12px 14px 13px;margin-bottom:10px;cursor:pointer;
   transition:border-color .12s,box-shadow .12s,opacity .12s}
 .card:hover{border-color:var(--axis);box-shadow:0 1px 4px rgba(11,11,11,.07)}
-.card::before{content:"";position:absolute;left:0;top:8px;bottom:8px;width:3px;
+.card::before{content:"";position:absolute;left:0;top:11px;bottom:11px;width:3px;
   border-radius:3px;background:var(--tc,var(--axis))}
-.card .hd{display:flex;align-items:baseline;gap:8px;margin-bottom:3px;padding-left:8px}
+.card .hd{display:flex;align-items:baseline;gap:9px;margin-bottom:7px;padding-left:10px}
 .card .date{font:700 12px/1 var(--mono);color:var(--ink);letter-spacing:.02em;font-variant-numeric:tabular-nums}
 .card .tag{font:600 9.5px/1 var(--mono);letter-spacing:.06em;text-transform:uppercase;color:var(--tc,var(--muted))}
-.card h3{padding-left:8px;font:600 13px/1.32 var(--sans);color:var(--ink);
+.card h3{padding-left:10px;font:600 13px/1.42 var(--sans);color:var(--ink);
   display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
-.card .q,.card .v{padding-left:8px;margin-top:4px;font-size:11.9px;line-height:1.4;color:var(--ink2);
+.card .q{padding-left:10px;margin-top:7px;font-size:11.9px;line-height:1.5;color:var(--ink2);
   display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
-.card .v{color:var(--muted)}
-.card .foot{padding-left:8px;margin-top:6px;display:flex;gap:4px;flex-wrap:wrap;align-items:center}
+/* a todo's `paper` slot is a short label, not prose: one line, and styled as metadata */
+.card .q.meta{font:600 10px/1.5 var(--mono);letter-spacing:.04em;color:var(--muted);-webkit-line-clamp:1}
+.card .foot{padding-left:10px;margin-top:10px;display:flex;gap:5px;flex-wrap:wrap;align-items:center}
 .card .foot:empty{display:none}
 .pill{font:600 9.5px/1 var(--mono);letter-spacing:.04em;padding:3px 5px;border-radius:3px;
   border:1px solid var(--border);color:var(--muted);white-space:nowrap}
@@ -203,7 +204,7 @@ body.resizing .panel,body.resizing .board{transition:none}
   <div class="chips" id="threadbar"></div>
   <div class="spacer"></div>
   <button class="tbtn" id="openonly" aria-pressed="false" title="Only rows still open">open only</button>
-  <button class="tbtn" id="showdone" aria-pressed="false" title="Include closed TODO items">closed todos</button>
+  <button class="tbtn" id="showdone" aria-pressed="true" title="Include closed TODO items">closed todos</button>
   <div class="legend" id="legend"></div>
 </header>
 
@@ -244,7 +245,7 @@ const KIND = {
 const CODE_MARK = "\u0000";   // sentinel for pulled-out code spans; never occurs in the source
 
 let DATA = null, BY_ID = new Map(), REL = new Map(), THREADS = [];
-let selected = null, activeThreads = new Set(), query = "", openOnly = false, showDone = false;
+let selected = null, activeThreads = new Set(), query = "", openOnly = false, showDone = true;
 
 const esc = s => String(s == null ? "" : s)
   .replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
@@ -253,19 +254,11 @@ function threadColor(t) {
   if (!THREAD_COLOR[t]) THREAD_COLOR[t] = SPARE[Object.keys(THREAD_COLOR).length % SPARE.length];
   return THREAD_COLOR[t];
 }
-// card teasers drop the file paths: on a 2-line clamp they crowd out the actual note
-const teaser = s => String(s || "")
-  .replace(/[\w./]*\b(?:plan|results|analysis)\/[\w.\-]+\.(?:md|html|csv|png)\b\.?/g, "")
-  .replace(/\s+/g, " ").replace(/^[\s.,;:·-]+/, "").trim();
 const itemThread = x => (x && x.thread) || "unfiled";
 const todoId = t => "todo/" + t.num;
 const isTodo = x => !!(x && x.state);
 const proseId = p => "note/" + p.key;
 const isProse = x => !!(x && x.kind === "prose");
-// the first prose lines, minus any table, as a card teaser
-const proseTeaser = md => String(md || "").split("\n")
-  .filter(l => l.trim() && !l.trim().startsWith("|") && !l.trim().startsWith("#"))
-  .slice(0, 2).join(" ").replace(/[*`\[\]]/g, "");
 
 /* ============================ markdown ============================ */
 // a doc reference in prose -> the index id it names, so it can open in the panel
@@ -427,8 +420,7 @@ function cardHTML(x) {
   const th = itemThread(x), col = threadColor(th);
   if (isProse(x)) {
     return '<article class="card note" data-id="' + esc(proseId(x)) + '">' +
-      '<div class="hd"><span class="tag">note</span></div><h3>' + esc(x.title) + "</h3>" +
-      '<div class="v">' + esc(proseTeaser(x.md)) + "</div></article>";
+      '<div class="hd"><span class="tag">note</span></div><h3>' + esc(x.title) + "</h3></article>";
   }
   if (isTodo(x)) {
     const jobs = (x.jobs || []).slice(0, 3).map(j => '<span class="pill job num">' + esc(j) + "</span>").join("");
@@ -437,8 +429,7 @@ function cardHTML(x) {
       '<span class="tag">' + esc(th) + "</span>" +
       '<span class="pill ' + cls(x.status) + '" style="margin-left:auto">' + esc(x.status) + "</span></div>" +
       "<h3>" + esc(x.item) + "</h3>" +
-      (x.paper ? '<div class="q">' + esc(x.paper) + "</div>" : "") +
-      '<div class="v">' + esc(teaser(x.note)) + "</div>" +
+      (x.paper ? '<div class="q meta">' + esc(x.paper) + "</div>" : "") +
       '<div class="foot">' + jobs +
       (x.closed ? '<span class="pill num">closed ' + esc(x.closed) + "</span>" : "") + "</div></article>";
   }
@@ -450,7 +441,6 @@ function cardHTML(x) {
     (x.status ? '<span class="pill ' + cls(x.status) + '" style="margin-left:auto">' + esc(x.status) + "</span>" : "") +
     "</div><h3>" + esc(x.title) + "</h3>" +
     (x.question ? '<div class="q">' + esc(x.question) + "</div>" : "") +
-    (x.verdict ? '<div class="v">' + esc(x.verdict) + "</div>" : "") +
     '<div class="foot">' + jobs +
     (x.ext !== "md" ? '<span class="pill">' + esc(x.ext) + "</span>" : "") + "</div></article>";
 }

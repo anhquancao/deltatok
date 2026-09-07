@@ -6,7 +6,7 @@
    "key": "status",
    "title": "STATUS — queued, running, next",
    "order": 1,
-   "md": "**As of 2026-09-07 17:45.** Only what is queued, running or next. Finished jobs live on their `todo` row.\n\n## Running\n\n| Job | Arm | TODO | Now | Next |\n|---|---|---|---|---|\n| BSC:45529827 | tc512 · decnoise e2e τ0.8 | `todo/13` | ep 3/100 · 0.59 h/ep · 37 h left | wall 09-09 06:45 → ep ~67, then one chained resume for ep 100. Tripwire at ep 12; control BSC:45296347 at ep 40 / 72 / 80 |\n| BSC:45498520 | tc512 · cov 1e-4 | `todo/6` | ep 17/100 · 0.61 h/ep · 26 h left | wall 09-08 19:50 → ep ~72 |\n| BSC:45498521 | tc512 · cov 3e-4 | `todo/6` | ep 17/100 · 26 h left | same wall, same read |\n\nBoth cov arms read at ep 17 in slide 11 of `results/2026-09-06_sigreg_cov_penalty_tc512_slides.html`: rank climbs monotonically with dose (62.8 → 141.0) and none of it reaches recon. Interim — re-test at ep 72 before quoting, and fold slides 1–10 in once it settles.\n\n## Next\n\n| Do | TODO | Gate |\n|---|---|---|\n| Submit the OpenScene arm — code implemented, md5-matched on BSC | `todo/13` | the BSC:45529827 read, its no-OpenScene control |\n| Close out `todo/6` and `todo/12`; adopt the finetuned `epoch_10` as the flow tokenizer | `todo/6` `todo/12` | none |"
+   "md": "**As of 2026-09-07 19:00.** Only what is queued, running or next. Finished jobs live on their `todo` row.\n\n## Running\n\n| Job | Arm | TODO | Now | Next |\n|---|---|---|---|---|\n| BSC:45529827 | tc512 · decnoise e2e τ0.8 | `todo/13` | ep 4/100 · 0.59 h/ep · 36.9 h left | wall 09-09 06:45 → ep ~67, then one chained resume for ep 100. Tripwire at ep 12; control BSC:45296347 at ep 40 / 72 / 80 |\n\nBoth cov arms **cancelled 2026-09-07 at ep 29/100** — the dose-response is answered, so the remaining 26 h buys nothing. Read in slide 11 of `results/2026-09-06_sigreg_cov_penalty_tc512_slides.html`: rank climbs monotonically with dose (84.8 → 109.1 → 115.8 → **163.3**) and none of it reaches recon. 3e-5 stays the best arm (−10.6% token vs control); 1e-4 fell **behind** the control (+8.0% K / +5.3% N); 3e-4 beats the control but not 3e-5 (+5.0% / +6.4%). Both `current.pth` are resumable at ep 29. Fold slides 1–10 in and close `todo/6`.\n\n## Next\n\n| Do | TODO | Gate |\n|---|---|---|\n| Submit the OpenScene arm — code implemented, md5-matched on BSC | `todo/13` | the BSC:45529827 read, its no-OpenScene control |\n| Close out `todo/6` and `todo/12`; adopt the finetuned `epoch_10` as the flow tokenizer | `todo/6` `todo/12` | none |"
   }
  ],
  "todos": [
@@ -67,23 +67,26 @@
   },
   {
    "num": 6,
-   "status": "running",
+   "status": "read landed",
    "item": "Attack the rank ceiling directly instead of via the weight",
    "thread": "sigreg",
    "paper": "contribution: SIGReg",
-   "note": "../research/plan/2026-09-02_sigreg_cov_penalty.md. Submitted 2026-09-04 as BSC:45416718, 44 h on ehpc880, read at ep 67 against the twin. One arm: training.cov_weight=3e-5 (a direct ‖E[zzᵀ]−I‖²_F/Cz term on the rows SIGReg already pools) on top of the twin's recipe, tc512 · compose 1.0 · sigreg 0.02, twin BSC:45296347 at matched ep 67. Whitening and per-channel rescale are ruled out in §1 — both are gauge changes that remove the very anisotropy signal they would be applied to. Never a swap: SIGReg stays on. Base confirmed 2026-09-04 as sigreg 0.02 (the twin) even though 0.01 is the axis best — see the plan's \"A second bar\": a win under ~6% is inside the weight plateau, so report against BSC:45106935 (0.01) too",
-   "note_md": "`../research/plan/2026-09-02_sigreg_cov_penalty.md`. **Submitted 2026-09-04 as BSC:45416718**, 44 h on `ehpc880`, read at ep 67 against the twin. One arm: `training.cov_weight=3e-5` (a direct `‖E[zzᵀ]−I‖²_F/Cz` term on the rows SIGReg already pools) on top of the twin's recipe, tc512 · compose 1.0 · sigreg 0.02, twin BSC:45296347 at matched ep 67. Whitening and per-channel rescale are ruled out in §1 — both are gauge changes that remove the very anisotropy signal they would be applied to. Never a swap: SIGReg stays on. Base confirmed 2026-09-04 as **sigreg 0.02** (the twin) even though 0.01 is the axis best — see the plan's \"A second bar\": a win under ~6% is inside the weight plateau, so report against BSC:45106935 (0.01) too",
+   "note": "../research/plan/2026-09-02_sigreg_cov_penalty.md. Submitted 2026-09-04 as BSC:45416718, 44 h on ehpc880, read at ep 67 against the twin. One arm: training.cov_weight=3e-5 (a direct ‖E[zzᵀ]−I‖²_F/Cz term on the rows SIGReg already pools) on top of the twin's recipe, tc512 · compose 1.0 · sigreg 0.02, twin BSC:45296347 at matched ep 67. Whitening and per-channel rescale are ruled out in §1 — both are gauge changes that remove the very anisotropy signal they would be applied to. Never a swap: SIGReg stays on. Base confirmed 2026-09-04 as sigreg 0.02 (the twin) even though 0.01 is the axis best — see the plan's \"A second bar\": a win under ~6% is inside the weight plateau, so report against BSC:45106935 (0.01) too\n\nDose-response cancelled 2026-09-07 at ep 29/100 (BSC:45498520 cov 1e-4, BSC:45498521 cov 3e-4, both from scratch on the same base, 18 h of a 44 h wall). More L_cov buys more rank and the rank does not turn into recon: train ZPartRank 84.8 (cov 0) → 109.1 (3e-5) → 115.8 (1e-4) → 163.3 (3e-4), monotone with no ceiling, while eval LossRecon on the ep 24–29 mean puts 3e-5 alone ahead of the control (−10.6% K / −10.6% N); 1e-4 is +8.0% / +5.3% behind it and 3e-4 clears the control (−6.1% / −4.9%) but not 3e-5 (+5.0% / +6.4%) with 1.5× the rank. So cov_weight=3e-5 stays the setting and the plateau confound is not settled — no dose reached the 0.0528 K / 0.0370 N axis best. Both current.pth resumable at ep 29. Slide 11 of results/2026-09-06_sigreg_cov_penalty_tc512_slides.html; slides 1–10 still carry the ep-67 3e-5 verdict.",
+   "note_md": "`../research/plan/2026-09-02_sigreg_cov_penalty.md`. **Submitted 2026-09-04 as BSC:45416718**, 44 h on `ehpc880`, read at ep 67 against the twin. One arm: `training.cov_weight=3e-5` (a direct `‖E[zzᵀ]−I‖²_F/Cz` term on the rows SIGReg already pools) on top of the twin's recipe, tc512 · compose 1.0 · sigreg 0.02, twin BSC:45296347 at matched ep 67. Whitening and per-channel rescale are ruled out in §1 — both are gauge changes that remove the very anisotropy signal they would be applied to. Never a swap: SIGReg stays on. Base confirmed 2026-09-04 as **sigreg 0.02** (the twin) even though 0.01 is the axis best — see the plan's \"A second bar\": a win under ~6% is inside the weight plateau, so report against BSC:45106935 (0.01) too\n\n**Dose-response cancelled 2026-09-07 at ep 29/100** (`BSC:45498520` cov 1e-4, `BSC:45498521` cov 3e-4, both from scratch on the same base, 18 h of a 44 h wall). More `L_cov` buys more rank and the rank does not turn into recon: train `ZPartRank` 84.8 (cov 0) → 109.1 (3e-5) → 115.8 (1e-4) → **163.3** (3e-4), monotone with no ceiling, while eval `LossRecon` on the ep 24–29 mean puts **3e-5 alone ahead of the control** (−10.6% K / −10.6% N); 1e-4 is +8.0% / +5.3% *behind* it and 3e-4 clears the control (−6.1% / −4.9%) but not 3e-5 (+5.0% / +6.4%) with 1.5× the rank. So `cov_weight=3e-5` stays the setting and the plateau confound is **not** settled — no dose reached the 0.0528 K / 0.0370 N axis best. Both `current.pth` resumable at ep 29. Slide 11 of `results/2026-09-06_sigreg_cov_penalty_tc512_slides.html`; slides 1–10 still carry the ep-67 3e-5 verdict.",
    "closed": "",
    "state": "open",
    "source": "docs/research/todos.json",
    "order": 4,
    "jobs": [
     "45416718",
+    "45498520",
+    "45498521",
     "45296347",
     "45106935"
    ],
    "docs": [
-    "plan/2026-09-02_sigreg_cov_penalty.md"
+    "plan/2026-09-02_sigreg_cov_penalty.md",
+    "results/2026-09-06_sigreg_cov_penalty_tc512_slides.html"
    ],
    "updates": []
   },
