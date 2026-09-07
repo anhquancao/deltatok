@@ -393,6 +393,15 @@ TB mirror: `/mnt/d/tb_logs/deltatok_log/<run>/tb_logs/`.
 
 ## 5 Findings
 
+> **Reversed 2026-09-07 by the dose-response, at matched ep 29.** Everything below was written from the single `3e-5` arm at
+> ep 67 and reads the +18% rank / −8.9% recon pair as causal. It is not. Train `ZPartRank` is monotone in dose with no ceiling —
+> 84.8 (cov 0) → 109.1 (3e-5) → 115.8 (1e-4) → **163.3** (3e-4), a 1.9× spread — while eval `LossRecon` moves a few percent and
+> out of dose order: only 3e-5 beats the control, 1e-4 is +8.0% K / +5.3% N *behind* it, 3e-4 clears the control but not 3e-5.
+> **`cov_weight` is not adopted, and `ZPartRank` is a diagnostic, not a target.** The r = −0.999 correlation below compares arms
+> that differ in convergence; it breaks as soon as rank is pushed directly at a fixed recipe. Slide 11 of
+> `../results/2026-09-06_sigreg_cov_penalty_tc512_slides.html` carries the axis; slides 1–10 still show the ep-67 reading.
+
+
 **Falsifier 1, partially.** Rank rose and recon followed, but not past 150. `ZPartRank` 101.8 → 120.2 at ep 67
 (+18%) with eval `LossRecon_Comp` −8.9% KITTI / −8.5% nuScenes against the matched control. The direction the
 thread predicted is real and the term is cheap, so **`cov_weight` becomes the default third loss** — but the
