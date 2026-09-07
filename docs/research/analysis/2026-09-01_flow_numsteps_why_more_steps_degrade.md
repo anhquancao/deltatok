@@ -115,10 +115,55 @@ now cycles in the `pointdit` thread: `../plan/2026-09-02_pointdit_zeroinit_ode.m
    `training.seed`. Spread ≈ 0.14 MSEToken at N=20 = the rise is sample variance and the sampler works;
    much smaller = systematic drift. The edge F1 is the one realism number next to the distortion metrics;
    pointdit has the same probe (`2026-09-02_pointdit_vs_deltatok.md`). Without it cause 1
-   stays unmeasured.
+   stays unmeasured. **Dropped 2026-09-07** — it became TODO 11 and was closed `not needed`, so cause 1
+   is still unmeasured.
 2. **Only if step 1 says the sampler works:** the wall is the frozen decoder and the tokenizer needs
    noise-augmented decoder training. No such option exists in `occrae/deltatok_trainer.py` today.
+   **Done 2026-09-06** without waiting on step 1 — see the resolution below.
 
 Most relevant paper: [PMRF, ICLR 2025 (arXiv 2410.00418)](https://arxiv.org/abs/2410.00418) — the min-MSE
 estimator with perfect perceptual quality is an optimal-transport map applied on top of the MMSE
 prediction, i.e. regress first, flow second.
+
+## Resolved 2026-09-06 — it was the frozen decoder
+
+Step 2 of the to-do above was run as `../plan/2026-09-04_flow_decoder_noise_finetune.md`: ten epochs of
+decoder-only noise finetuning at `decode_noise_tau=0.8`, encoder frozen and `encode()` bit-identical.
+Re-reading the step sweep through that decoder **reverses the sign** for two of the three geometry metrics.
+
+**Through the noise-tolerant decoder, 20 steps is much better than 1** — `LossRaymap` **−36.0%**
+(5.9274 → 3.7936) and `LossPointmap` **−20.3%** (8.2932 → 6.6117). `LossDepth` is the lone exception at +3.1%.
+The premise of this doc's title is gone: extra ODE steps do not degrade the arm, they buy most of its
+decoded geometry.
+
+| N | 1 | 2 | 4 | 8 | 12 | 20 |
+|---|---|---|---|---|---|---|
+| `MSEToken`, both decoders | 0.6677 | 0.7109 | 0.7826 | 0.8398 | 0.8638 | 0.8850 |
+| `LossRaymap`, source `epoch_100` | 5.0347 | **4.6035** | — | — | — | 5.8777 |
+| `LossRaymap`, finetuned `epoch_10` | 5.9274 | 5.1114 | 4.4063 | 3.9965 | 3.8630 | **3.7936** |
+| `LossPointmap`, source `epoch_100` | 7.5305 | **7.2704** | — | — | — | 8.6347 |
+| `LossPointmap`, finetuned `epoch_10` | 8.2932 | 7.6756 | 7.1248 | 6.7778 | 6.6715 | **6.6117** |
+
+The source decoder has an interior optimum at N=2 and degrades after it — the observation this doc opened on.
+The finetuned decoder is monotone in N for both metrics, best at 20, and has not plateaued. At matched N=20
+raymap moves **−35.5%**. The mechanism is the one the 2026-07-19 wall analysis named: the decoder's response to
+latent error was superlinear past MSE 0.30 and the flow sits at 0.67, so every extra step climbed further up
+the cliff. At σ=0.82 the finetuned decoder takes raymap 19.09 → 1.67, i.e. flat across the whole range the flow
+occupies. **"More steps degrade" was a property of the decoder, not of the sampler or the flow.**
+
+**Three things this does not settle.**
+
+- **Token space is unchanged.** `MSEToken` still climbs monotonically with N and is byte-identical across the
+  two decoders, since only the decoder was retrained. Extra steps still move *away* from the GT token; the
+  decoder only changes what that costs downstream.
+- **Depth still wants N=1** on both decoders — 3.6765 → 3.7915 finetuned. Only pointmap and raymap reverse.
+- **Cause 1 vs cause 3 is still open.** Separating the perception/distortion variance penalty from exposure
+  bias needed the seed spread in step 1, which was dropped.
+
+**Caveat on the comparison.** This doc's table is flow `iter_200000`; the re-read is `iter_100000`. Same arm,
+different checkpoint, so this is not a byte-matched re-read. The source-decoder control at `iter_100000` does
+reproduce the N=2 interior optimum, so the mechanism carries across the two.
+
+Cause 2 (t≈0 starvation) survives untouched and is now sharper: at N=1 the flow's own error decodes **3.5×
+worse than isotropic noise of the same magnitude** through the same decoder, so the 1-step error is structured,
+not Gaussian. A decoder taught to invert a ball around each code cannot cover it.

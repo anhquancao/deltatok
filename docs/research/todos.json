@@ -6,7 +6,7 @@
    "key": "status",
    "title": "STATUS — queued, running, next",
    "order": 1,
-   "md": "**As of 2026-09-07 19:10.** Only what is queued, running or next. Finished jobs live on their `todo` row.\n\n## Running\n\n| Job | Arm | TODO | Now | Next |\n|---|---|---|---|---|\n| BSC:45529827 | tc512 · decnoise e2e τ0.8 | `todo/13` | ep 4/100 · 0.59 h/ep · 36.9 h left | wall 09-09 06:45 → ep ~67, then one chained resume for ep 100. Tripwire at ep 12; control BSC:45296347 at ep 40 / 72 / 80 |\n\n## Next\n\n| Do | TODO | Gate |\n|---|---|---|\n| Submit the OpenScene arm — code implemented, md5-matched on BSC | `todo/13` | the BSC:45529827 read, its no-OpenScene control |\n| Close out `todo/12`; adopt the finetuned `epoch_10` as the flow tokenizer | `todo/12` | none |"
+   "md": "**As of 2026-09-07 19:30.** Only what is queued, running or next. Finished jobs live on their `todo` row.\n\n## Running\n\n| Job | Arm | TODO | Now | Next |\n|---|---|---|---|---|\n| BSC:45529827 | tc512 · decnoise e2e τ0.8 | `todo/13` | ep 4/100 · 0.59 h/ep · 36.9 h left | wall 09-09 06:45 → ep ~67, then one chained resume for ep 100. Tripwire at ep 12; control BSC:45296347 at ep 40 / 72 / 80 |\n\n## Next\n\n| Do | TODO | Gate |\n|---|---|---|\n| Submit the OpenScene arm — code implemented, md5-matched on BSC | `todo/13` | the BSC:45529827 read, its no-OpenScene control |\n| Nothing queued in `flow` — `todo/11` is dropped and `todo/12` closed. `epoch_10` is the tokenizer any future flow read uses | — | — |"
   }
  ],
  "todos": [
@@ -82,28 +82,6 @@
    "updates": []
   },
   {
-   "num": 12,
-   "status": "running",
-   "item": "Decoder-only noise-augmented finetune of the tc128 compose tokenizer (RAE noise_tau), read through the unchanged flow control",
-   "thread": "flow",
-   "paper": "main results: tokenizer for the flow eval",
-   "note": "../research/plan/2026-09-04_flow_decoder_noise_finetune.md. Submitted 2026-09-04 as BSC:45421190, 8 h on ehpc1001, 10 epochs warm-started weights-only from compose1.0/ckpts/epoch_100.pth, read at ep 10 (ep 5 as the backstop); still PENDING, not yet verified running. Decoder-only: model.deltatok.decode_noise_tau=0.8 + training.freeze_except_decoder=true, so the encoder is frozen, z is bit-identical, every flow checkpoint stays valid, and the flow's MSEToken 0.6677 must reproduce exactly as the built-in check. The read is two eval jobs off slurm/eval_deltatok_flow_numsteps_tc128compose_bsc.slurm with DELTATOK_CKPT at the finetuned ckpt: flow N=1/20, and the --noise_sigmas 0.0,0.32,0.55,0.82 ladder. Motivated by the probe ../research/results/2026-09-04_flow_decoder_noise_probe.md (BSC:45417908): decoded loss is superlinear in latent error, knee below MSE 0.30, flow at 0.67",
-   "note_md": "`../research/plan/2026-09-04_flow_decoder_noise_finetune.md`. **Submitted 2026-09-04 as BSC:45421190**, 8 h on `ehpc1001`, 10 epochs warm-started weights-only from `compose1.0/ckpts/epoch_100.pth`, read at ep 10 (ep 5 as the backstop); still PENDING, not yet verified running. Decoder-only: `model.deltatok.decode_noise_tau=0.8` + `training.freeze_except_decoder=true`, so the encoder is frozen, `z` is bit-identical, every flow checkpoint stays valid, and the flow's `MSEToken` 0.6677 must reproduce exactly as the built-in check. The read is two eval jobs off `slurm/eval_deltatok_flow_numsteps_tc128compose_bsc.slurm` with `DELTATOK_CKPT` at the finetuned ckpt: flow N=1/20, and the `--noise_sigmas 0.0,0.32,0.55,0.82` ladder. Motivated by the probe `../research/results/2026-09-04_flow_decoder_noise_probe.md` (`BSC:45417908`): decoded loss is superlinear in latent error, knee below MSE 0.30, flow at 0.67",
-   "closed": "",
-   "state": "open",
-   "source": "docs/research/todos.json",
-   "order": 5,
-   "jobs": [
-    "45421190",
-    "45417908"
-   ],
-   "docs": [
-    "plan/2026-09-04_flow_decoder_noise_finetune.md",
-    "results/2026-09-04_flow_decoder_noise_probe.md"
-   ],
-   "updates": []
-  },
-  {
    "num": 13,
    "status": "running",
    "item": "End-to-end noisy-channel tokenizer at tc512: fold z + σ·ε into training with the encoder in the graph",
@@ -114,7 +92,7 @@
    "closed": "",
    "state": "open",
    "source": "docs/research/todos.json",
-   "order": 6,
+   "order": 5,
    "jobs": [
     "45529827",
     "45296347"
@@ -207,6 +185,33 @@
    "updates": []
   },
   {
+   "num": 12,
+   "status": "done",
+   "item": "Decoder-only noise-augmented finetune of the tc128 compose tokenizer (RAE noise_tau), read through the unchanged flow control",
+   "thread": "flow",
+   "paper": "main results: tokenizer for the flow eval",
+   "note": "done: results/2026-09-06_flow_decoder_noise_finetune_slides.html. BSC:45421190 (10-epoch decoder-only finetune of the tc128 compose tokenizer, decode_noise_tau=0.8 + freeze_except_decoder=true, warm-started weights-only from compose1.0/ckpts/epoch_100.pth) plus the eval jobs BSC:45497311/19, 45497830/31 and the N-sweep BSC:45498382. Every design check held: MSEToken reproduces 0.6677 / 0.8850 to the digit, so encode() is bit-identical and only the decoder moved; the σ=0 round trip improved 1.3–1.7%. The ladder flattens outright — σ=0.82 raymap 19.09 → 1.67, so the superlinear knee below MSE 0.30 is gone. Best achievable against best achievable: raymap −17.6%, pointmap −9.1%, with the sampler optimum moving N=2 → N=20 and −35.5% raymap at matched N=20. The one loss is N=1 (+17.7% raymap): at the same latent error magnitude, isotropic noise now decodes 3.5× better than the flow's own error, so the 1-step error is structured, not isotropic — the probe's framing inverts. epoch_10 replaces epoch_100 as the tokenizer every flow read uses. Leads to TODO 13, in tc_width: end-to-end decoder-noise training of the tc512 compose tokenizer (plan/2026-09-07_tc_width_decnoise_e2e_tc512.md, BSC:45529827). Falsifier 3 routed it out of flow: fixing the decoder alone cannot change a code it is not allowed to touch, so the pair needs a from-scratch noisy tokenizer with the encoder in the graph — which changes z and is a tc_width/sigreg question. Left open, but not queued: the N=20 penalty in plan/2026-09-04_flow_bestofk_regressor_null.md is at least partly a decoder artifact and was never re-read on epoch_10 — TODO 11 was dropped 2026-09-07 as not needed.",
+   "note_md": "`done: results/2026-09-06_flow_decoder_noise_finetune_slides.html`. `BSC:45421190` (10-epoch decoder-only finetune of the tc128 compose tokenizer, `decode_noise_tau=0.8` + `freeze_except_decoder=true`, warm-started weights-only from `compose1.0/ckpts/epoch_100.pth`) plus the eval jobs `BSC:45497311/19`, `45497830/31` and the N-sweep `BSC:45498382`. Every design check held: `MSEToken` reproduces 0.6677 / 0.8850 to the digit, so `encode()` is bit-identical and only the decoder moved; the σ=0 round trip *improved* 1.3–1.7%. **The ladder flattens outright** — σ=0.82 raymap 19.09 → **1.67**, so the superlinear knee below MSE 0.30 is gone. **Best achievable against best achievable: raymap −17.6%, pointmap −9.1%**, with the sampler optimum moving N=2 → N=20 and −35.5% raymap at matched N=20. **The one loss is N=1** (+17.7% raymap): at the same latent error magnitude, isotropic noise now decodes 3.5× better than the flow's own error, so the 1-step error is **structured, not isotropic** — the probe's framing inverts. `epoch_10` replaces `epoch_100` as the tokenizer every flow read uses. **Leads to TODO 13, in `tc_width`: end-to-end decoder-noise training of the tc512 compose tokenizer** (`plan/2026-09-07_tc_width_decnoise_e2e_tc512.md`, `BSC:45529827`). Falsifier 3 routed it out of `flow`: fixing the decoder alone cannot change a code it is not allowed to touch, so the pair needs a from-scratch noisy tokenizer with the encoder in the graph — which changes `z` and is a `tc_width`/`sigreg` question. Left open, but not queued: the N=20 penalty in `plan/2026-09-04_flow_bestofk_regressor_null.md` is at least partly a decoder artifact and was never re-read on `epoch_10` — TODO 11 was dropped 2026-09-07 as `not needed`.",
+   "closed": "2026-09-07",
+   "state": "done",
+   "source": "docs/research/todos.json",
+   "order": 5,
+   "jobs": [
+    "45421190",
+    "45417908",
+    "45497311",
+    "45497830",
+    "45498382"
+   ],
+   "docs": [
+    "plan/2026-09-04_flow_decoder_noise_finetune.md",
+    "results/2026-09-04_flow_decoder_noise_probe.md",
+    "results/2026-09-06_flow_decoder_noise_finetune_slides.html",
+    "plan/2026-09-07_tc_width_decnoise_e2e_tc512.md"
+   ],
+   "updates": []
+  },
+  {
    "num": 2,
    "status": "done",
    "item": "tc512 + sigreg 0.02 / 0.04 / 0.08",
@@ -217,7 +222,7 @@
    "closed": "2026-09-07",
    "state": "done",
    "source": "docs/research/todos.json",
-   "order": 5,
+   "order": 6,
    "jobs": [
     "45296347",
     "45297731",
@@ -240,7 +245,7 @@
    "closed": "2026-09-07",
    "state": "done",
    "source": "docs/research/todos.json",
-   "order": 6,
+   "order": 7,
    "jobs": [
     "45345063",
     "45296347"
@@ -262,7 +267,7 @@
    "closed": "2026-09-07",
    "state": "done",
    "source": "docs/research/todos.json",
-   "order": 7,
+   "order": 8,
    "jobs": [],
    "docs": [
     "plan/2026-09-04_flow_bestofk_regressor_null.md"

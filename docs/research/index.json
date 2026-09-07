@@ -1,5 +1,5 @@
 {
- "generated": "2026-09-07T18:00:38",
+ "generated": "2026-09-07T18:12:37",
  "root": "docs/research",
  "threads": [
   {
@@ -30,7 +30,7 @@
    "id": "flow",
    "title": "flow matching over frozen delta tokens",
    "blurb": "The world model: a DiT that denoises DeltaTok codes conditioned on context frames. Twenty-five docs, from the June collapse through the September step-count analysis. The pointdit comparison spun out into its own thread on 2026-09-02.",
-   "open": "Answered 2026-09-06: a noise-tolerant decoder lifts the flow's best achievable read by −17.6% raymap / −9.1% pointmap, moving the sampler optimum from N=2 to N=20 (plan/2026-09-04_flow_decoder_noise_finetune.md §4). It does not help at N=1, where the error is structured rather than isotropic — so the open question is *what shape* the 1-step error has. The probe behind it: decoded loss is superlinear in latent error, knee below MSE 0.30, and the flow sits at 0.67 (results/2026-09-04_flow_decoder_noise_probe.md). Can the eval see generation at all? plan/2026-09-04_flow_bestofk_regressor_null.md, written, not submitted."
+   "open": "Answered 2026-09-06: a noise-tolerant decoder lifts the flow's best achievable read by −17.6% raymap / −9.1% pointmap, moving the sampler optimum from N=2 to N=20 (plan/2026-09-04_flow_decoder_noise_finetune.md §4). It does not help at N=1, where the error is structured rather than isotropic — so the open question is *what shape* the 1-step error has. The probe behind it: decoded loss is superlinear in latent error, knee below MSE 0.30, and the flow sits at 0.67 (results/2026-09-04_flow_decoder_noise_probe.md). The follow-on left flow: fixing the decoder cannot change a code it may not touch, so the noise moves into end-to-end tc512 tokenizer training — plan/2026-09-07_tc_width_decnoise_e2e_tc512.md, BSC:45529827, tracked in tc_width. Nothing else queued here: plan/2026-09-04_flow_bestofk_regressor_null.md was dropped 2026-09-07 as not needed."
   },
   {
    "id": "pointdit",
@@ -231,8 +231,8 @@
    "title": "flow — a noise-tolerant decoder lifts the flow's decoded metrics without touching z",
    "bytes": 19369,
    "question": "Does a decoder-only finetune on z + σ·N(0,I), σ ~ U(0, 0.8), encoder frozen, lift the flow's 1-step decoded metrics with MSEToken unchanged?",
-   "verdict": "No. Falsifier 2: the ladder flattens (σ=0.82 raymap 19.09 → 1.67) but flow N=1 raymap goes +17.7%. N=20 is −35.5%. §4 filled",
-   "status": "",
+   "verdict": "No. Falsifier 2: the ladder flattens (σ=0.82 raymap 19.09 → 1.67) but flow N=1 raymap goes +17.7%. N=20 is −35.5%. epoch_10 becomes the flow tokenizer. Falsifier 3 routes the follow-on out of flow → plan/2026-09-07_tc_width_decnoise_e2e_tc512.md. §4 filled",
+   "status": "closed",
    "jobs": [
     "45421190"
    ],
@@ -593,10 +593,10 @@
    "thread": "flow",
    "slug": "numsteps_why_more_steps_degrade",
    "title": "Why extra ODE steps degrade the tc128compose flow arm",
-   "bytes": 7381,
+   "bytes": 10643,
    "question": "Why more steps degrade",
-   "verdict": "The sampler does not integrate: N steps returns x̂ at t = 1−1/N. t≈0 starvation under loss_mode=v is untested",
-   "status": "open",
+   "verdict": "Answered 2026-09-06: the frozen decoder. The sampler does not integrate — N steps returns x̂ at t = 1−1/N — but the decoded degradation was the decoder's superlinear response to latent error. Through the noise-tolerant epoch_10 the sweep is monotone in N and 20 steps beats 1 by −36.0% raymap / −20.3% pointmap (−35.5% raymap against the source decoder at matched N=20); MSEToken is unchanged and depth still wants N=1. Cause 1 vs 3 still unmeasured — the seed spread was dropped with TODO 11",
+   "status": "closed",
    "jobs": [],
    "jobs_seen": [
     "45296762",
@@ -607,7 +607,7 @@
     "created": "2026-09-01"
    },
    "in_ledger": true,
-   "body": "# Why extra ODE steps degrade the tc128compose flow arm\n\n**Date:** 2026-09-01 · **Arm:** `deltatok_flow_waymo_consec5cam0_ctx3fwd2_tc128mg9sigreg005compose_ep100tok_xxl_dit`\n(ckpt iter 200000) · **Sweep:** BSC job 45296762, `eval_deltatok_flow_sampler.py --step_modes ode --num_steps 1,2,3,4,20`\n· **Panels:** BSC job 45306856 · **Deck:** `../results/2026-09-01_flow_numsteps_tc128compose_slides.html`\n\n## The observation\n\n| steps | MSEToken | LossPointmap | LossDepth | LossRaymap |\n|---|---|---|---|---|\n| 1 | **0.7417** | 8.1345 | **3.6563** | 5.6041 |\n| 2 | 0.7699 | **7.9687** | 3.7226 | **5.2918** |\n| 3 | 0.7986 | 8.1355 | 3.7721 | 5.4819 |\n| 4 | 0.8166 | 8.3646 | 3.8001 | 5.7242 |\n| 20 | 0.8837 | 9.4117 | 3.8796 | 6.7993 |\n\nEvery decoded metric worsens with step count. 20 steps is the arm's own training-time eval setting and is the\nworst of the five. The `_tok` teacher ceilings are byte-identical across rows, so only the sampler varied.\n\n## The mechanism\n\n**The sampler does not integrate. Extra steps only move the readout point in `t`.**\n\nThe live sampler is `flow_euler_sample` in `occrae/generation_helper.py`, imported at\n`occrae/deltatok_flow_trainer.py:28`. (`occrae/flow_matching.py` also defines a sampler but is reached only\nfrom `occrae/trainer.py` and `occrae/loss.py` — it is not on this path. CLAUDE.md's architecture section\npoints at the wrong file.)\n\nWith `pred_mode=x`, `sampler_scheduler_mode=linear` and `sampler_alpha=0`, the update at\n`generation_helper.py:107-116` reduces to a convex blend:\n\n```\nz_{i+1} = (1 - 1/(N-i)) * z_i + (1/(N-i)) * x̂_i\n```\n\nAt the final step `i = N-1` the mixing weight is exactly 1. So **an N-step run returns exactly `x̂` evaluated\nat `t = 1 - 1/N`**, for every `N <= 20`. The `clamp(1-t, min=0.05)` guard only binds at `N >= 21`.\n\n- `N=1` returns `x̂(noise, t=0)` — the pure regression baseline.\n- `N=20` returns `x̂` at `t=0.95`, on a state that is 95% the model's own earlier outputs.\n\nThere is no error amplification in the sampler: the `1/(1-t)` v-conversion factor cancels against `Δt`.\nDiscretisation error shrinks with `N` and cannot produce monotone worsening. `t_shared` and the context-slot\npinning match between train and eval. All four of those are ruled out.\n\n### Cause 1 — perception/distortion (explains the sign)\n\nMSEToken, LossDepth, LossPointmap and LossRaymap all measure distance to one ground truth. The minimiser is\nthe conditional mean. A sampler that draws a plausible sample instead pays a variance penalty by\nconstruction, up to 2x the MMSE. **\"More steps = higher MSE\" is the expected direction for any working\ngenerative sampler**, not evidence of a bug. The fact that the rise is not flat also refutes strict mean\ncollapse: the network does read `z_t`.\n\n### Cause 2 — t≈0 starvation (explains why even 1 step is weak)\n\nThe arm trains with `pred_mode: \"x\"` (`configs/deltatok_flow/train_deltatok_flow.yaml:60`) and\n`model.loss_mode=v` (set only in the arm's slurm). In `flow_loss`\n(`occrae/deltatok_flow_trainer.py:536-544`) that becomes an x-MSE weighted by `1/clamp(1-t, 0.05)^2`.\nUnder this arm's `t_dist=uniform` the gradient mass is extremely lopsided: **0.28%** of it lands below\n`t=0.1`, 2.6% below `t=0.5`, and 51.3% above `t=0.95`; median `t` is 0.50 (4M Monte-Carlo draws under that\nweight). Side by side with the deltatok and pointdit schedules:\n`2026-09-02_pointdit_vs_deltatok.md` §1.\n\nThe 1-step \"regression baseline\" is the **least-trained regime in the whole model**. Its 0.7417 MSEToken is\nalmost certainly well above the true conditional-mean error, so the 1-vs-20 gap understates how much a\nproperly trained low-`t` regime would win by.\n\n### Cause 3 — exposure bias (explains the magnitude)\n\nTraining only ever shows the net `z_t` built from ground truth plus noise. Sampling shows it `z_t` built\nfrom its own predictions, so errors compound along the trajectory. Standard diffusion failure mode:\n[Input Perturbation, arXiv 2301.11706](https://arxiv.org/abs/2301.11706),\n[Epsilon Scaling, arXiv 2308.15321](https://arxiv.org/abs/2308.15321).\n\n## Comparison with pointdit\n\nMoved to its own thread on 2026-09-02: `2026-09-02_pointdit_vs_deltatok.md`.\n\nThe one-line version: the mechanism is **identical** — same Euler update, same `1/(1-t)^2`-weighted x-MSE,\nsame `t_eps` — and pointdit already ships three mitigations this arm lacks (10% of samples forced to `t=0`,\nan additive unweighted x-MSE at weight 0.1, and a zeros ODE init). It never runs 20 steps; its released\ndefault is 3 and every 256-px eval uses 1. Nothing there was measured on our data.\n\n## Measurement bug found while checking this\n\n`flow_noising` drew its timestep `t` from the **global** RNG (`occrae/deltatok_flow_trainer.py:474-478`),\nwhile `_eval_noise_gen` seeded only the noise `e` (`:439-443`). The five sweep passes ran in one process\nwithout reseeding, so **each pass evaluated `LossFlow` at different `t` values**. The LossFlow column\n(1.2564 / 1.2145 / 1.2665 / 1.3280 / 1.2462) is not comparable across rows, and its non-monotonicity is\nRNG, not a property of the sampler.\n\nFixed by drawing `t` from a dedicated `_eval_t_gen`, seeded alongside `_eval_noise_gen`. A separate\ngenerator (rather than reusing `_eval_noise_gen`) keeps the existing ODE-init and `e` draw streams\nbyte-identical, so previously logged MSEToken / LossDepth / LossPointmap numbers still reproduce.\n\n## Per-frame visual check\n\nPanels at the last forecast frame (t4) for 4 val sequences do **not** generally reproduce the aggregate\nordering: only `s2_suburb` is monotone; `s4_lot` has 3 steps best; the night scene has 20 best. The\naggregate trend is real over 128 sequences but is not visible frame by frame. Deck slides 5-6 show one\nconfirming and one dissenting sequence.\n\nNoise floor of the L1 pipeline, measured on the byte-identical GT-z column across two passes:\ndepth 0.004 m mean (p99 0.20 m), RGB 0.04 levels. Deck error maps use one fixed scale, vmax = pooled p99\n(depth 12.35 m, RGB 117.7 levels).\n\n## Diagnostic to-do (2026-09-02), compose arm only\n\nOlder arms (whitenpos, logitnorm, vpred) are stale and are not used. Each step gates the next. The two\npointdit-derived mitigations that used to sit here (zeros ODE init; forced `t=0` plus an additive x-MSE) are\nnow cycles in the `pointdit` thread: `../plan/2026-09-02_pointdit_zeroinit_ode.md` (dropped) and `../plan/2026-09-02_pointdit_lowt_recipe_finetune.md`.\n\n1. **Seed spread at N=1 vs N=20, 8 seeds, plus a decoded depth-edge F1.** One `acc_debug` job on\n   `slurm/eval_deltatok_flow_numsteps_tc128compose_bsc.slurm`, `NUM_STEPS=1,20`, 8 values of\n   `training.seed`. Spread ≈ 0.14 MSEToken at N=20 = the rise is sample variance and the sampler works;\n   much smaller = systematic drift. The edge F1 is the one realism number next to the distortion metrics;\n   pointdit has the same probe (`2026-09-02_pointdit_vs_deltatok.md`). Without it cause 1\n   stays unmeasured.\n2. **Only if step 1 says the sampler works:** the wall is the frozen decoder and the tokenizer needs\n   noise-augmented decoder training. No such option exists in `occrae/deltatok_trainer.py` today.\n\nMost relevant paper: [PMRF, ICLR 2025 (arXiv 2410.00418)](https://arxiv.org/abs/2410.00418) — the min-MSE\nestimator with perfect perceptual quality is an optimal-transport map applied on top of the MMSE\nprediction, i.e. regress first, flow second.\n"
+   "body": "# Why extra ODE steps degrade the tc128compose flow arm\n\n**Date:** 2026-09-01 · **Arm:** `deltatok_flow_waymo_consec5cam0_ctx3fwd2_tc128mg9sigreg005compose_ep100tok_xxl_dit`\n(ckpt iter 200000) · **Sweep:** BSC job 45296762, `eval_deltatok_flow_sampler.py --step_modes ode --num_steps 1,2,3,4,20`\n· **Panels:** BSC job 45306856 · **Deck:** `../results/2026-09-01_flow_numsteps_tc128compose_slides.html`\n\n## The observation\n\n| steps | MSEToken | LossPointmap | LossDepth | LossRaymap |\n|---|---|---|---|---|\n| 1 | **0.7417** | 8.1345 | **3.6563** | 5.6041 |\n| 2 | 0.7699 | **7.9687** | 3.7226 | **5.2918** |\n| 3 | 0.7986 | 8.1355 | 3.7721 | 5.4819 |\n| 4 | 0.8166 | 8.3646 | 3.8001 | 5.7242 |\n| 20 | 0.8837 | 9.4117 | 3.8796 | 6.7993 |\n\nEvery decoded metric worsens with step count. 20 steps is the arm's own training-time eval setting and is the\nworst of the five. The `_tok` teacher ceilings are byte-identical across rows, so only the sampler varied.\n\n## The mechanism\n\n**The sampler does not integrate. Extra steps only move the readout point in `t`.**\n\nThe live sampler is `flow_euler_sample` in `occrae/generation_helper.py`, imported at\n`occrae/deltatok_flow_trainer.py:28`. (`occrae/flow_matching.py` also defines a sampler but is reached only\nfrom `occrae/trainer.py` and `occrae/loss.py` — it is not on this path. CLAUDE.md's architecture section\npoints at the wrong file.)\n\nWith `pred_mode=x`, `sampler_scheduler_mode=linear` and `sampler_alpha=0`, the update at\n`generation_helper.py:107-116` reduces to a convex blend:\n\n```\nz_{i+1} = (1 - 1/(N-i)) * z_i + (1/(N-i)) * x̂_i\n```\n\nAt the final step `i = N-1` the mixing weight is exactly 1. So **an N-step run returns exactly `x̂` evaluated\nat `t = 1 - 1/N`**, for every `N <= 20`. The `clamp(1-t, min=0.05)` guard only binds at `N >= 21`.\n\n- `N=1` returns `x̂(noise, t=0)` — the pure regression baseline.\n- `N=20` returns `x̂` at `t=0.95`, on a state that is 95% the model's own earlier outputs.\n\nThere is no error amplification in the sampler: the `1/(1-t)` v-conversion factor cancels against `Δt`.\nDiscretisation error shrinks with `N` and cannot produce monotone worsening. `t_shared` and the context-slot\npinning match between train and eval. All four of those are ruled out.\n\n### Cause 1 — perception/distortion (explains the sign)\n\nMSEToken, LossDepth, LossPointmap and LossRaymap all measure distance to one ground truth. The minimiser is\nthe conditional mean. A sampler that draws a plausible sample instead pays a variance penalty by\nconstruction, up to 2x the MMSE. **\"More steps = higher MSE\" is the expected direction for any working\ngenerative sampler**, not evidence of a bug. The fact that the rise is not flat also refutes strict mean\ncollapse: the network does read `z_t`.\n\n### Cause 2 — t≈0 starvation (explains why even 1 step is weak)\n\nThe arm trains with `pred_mode: \"x\"` (`configs/deltatok_flow/train_deltatok_flow.yaml:60`) and\n`model.loss_mode=v` (set only in the arm's slurm). In `flow_loss`\n(`occrae/deltatok_flow_trainer.py:536-544`) that becomes an x-MSE weighted by `1/clamp(1-t, 0.05)^2`.\nUnder this arm's `t_dist=uniform` the gradient mass is extremely lopsided: **0.28%** of it lands below\n`t=0.1`, 2.6% below `t=0.5`, and 51.3% above `t=0.95`; median `t` is 0.50 (4M Monte-Carlo draws under that\nweight). Side by side with the deltatok and pointdit schedules:\n`2026-09-02_pointdit_vs_deltatok.md` §1.\n\nThe 1-step \"regression baseline\" is the **least-trained regime in the whole model**. Its 0.7417 MSEToken is\nalmost certainly well above the true conditional-mean error, so the 1-vs-20 gap understates how much a\nproperly trained low-`t` regime would win by.\n\n### Cause 3 — exposure bias (explains the magnitude)\n\nTraining only ever shows the net `z_t` built from ground truth plus noise. Sampling shows it `z_t` built\nfrom its own predictions, so errors compound along the trajectory. Standard diffusion failure mode:\n[Input Perturbation, arXiv 2301.11706](https://arxiv.org/abs/2301.11706),\n[Epsilon Scaling, arXiv 2308.15321](https://arxiv.org/abs/2308.15321).\n\n## Comparison with pointdit\n\nMoved to its own thread on 2026-09-02: `2026-09-02_pointdit_vs_deltatok.md`.\n\nThe one-line version: the mechanism is **identical** — same Euler update, same `1/(1-t)^2`-weighted x-MSE,\nsame `t_eps` — and pointdit already ships three mitigations this arm lacks (10% of samples forced to `t=0`,\nan additive unweighted x-MSE at weight 0.1, and a zeros ODE init). It never runs 20 steps; its released\ndefault is 3 and every 256-px eval uses 1. Nothing there was measured on our data.\n\n## Measurement bug found while checking this\n\n`flow_noising` drew its timestep `t` from the **global** RNG (`occrae/deltatok_flow_trainer.py:474-478`),\nwhile `_eval_noise_gen` seeded only the noise `e` (`:439-443`). The five sweep passes ran in one process\nwithout reseeding, so **each pass evaluated `LossFlow` at different `t` values**. The LossFlow column\n(1.2564 / 1.2145 / 1.2665 / 1.3280 / 1.2462) is not comparable across rows, and its non-monotonicity is\nRNG, not a property of the sampler.\n\nFixed by drawing `t` from a dedicated `_eval_t_gen`, seeded alongside `_eval_noise_gen`. A separate\ngenerator (rather than reusing `_eval_noise_gen`) keeps the existing ODE-init and `e` draw streams\nbyte-identical, so previously logged MSEToken / LossDepth / LossPointmap numbers still reproduce.\n\n## Per-frame visual check\n\nPanels at the last forecast frame (t4) for 4 val sequences do **not** generally reproduce the aggregate\nordering: only `s2_suburb` is monotone; `s4_lot` has 3 steps best; the night scene has 20 best. The\naggregate trend is real over 128 sequences but is not visible frame by frame. Deck slides 5-6 show one\nconfirming and one dissenting sequence.\n\nNoise floor of the L1 pipeline, measured on the byte-identical GT-z column across two passes:\ndepth 0.004 m mean (p99 0.20 m), RGB 0.04 levels. Deck error maps use one fixed scale, vmax = pooled p99\n(depth 12.35 m, RGB 117.7 levels).\n\n## Diagnostic to-do (2026-09-02), compose arm only\n\nOlder arms (whitenpos, logitnorm, vpred) are stale and are not used. Each step gates the next. The two\npointdit-derived mitigations that used to sit here (zeros ODE init; forced `t=0` plus an additive x-MSE) are\nnow cycles in the `pointdit` thread: `../plan/2026-09-02_pointdit_zeroinit_ode.md` (dropped) and `../plan/2026-09-02_pointdit_lowt_recipe_finetune.md`.\n\n1. **Seed spread at N=1 vs N=20, 8 seeds, plus a decoded depth-edge F1.** One `acc_debug` job on\n   `slurm/eval_deltatok_flow_numsteps_tc128compose_bsc.slurm`, `NUM_STEPS=1,20`, 8 values of\n   `training.seed`. Spread ≈ 0.14 MSEToken at N=20 = the rise is sample variance and the sampler works;\n   much smaller = systematic drift. The edge F1 is the one realism number next to the distortion metrics;\n   pointdit has the same probe (`2026-09-02_pointdit_vs_deltatok.md`). Without it cause 1\n   stays unmeasured. **Dropped 2026-09-07** — it became TODO 11 and was closed `not needed`, so cause 1\n   is still unmeasured.\n2. **Only if step 1 says the sampler works:** the wall is the frozen decoder and the tokenizer needs\n   noise-augmented decoder training. No such option exists in `occrae/deltatok_trainer.py` today.\n   **Done 2026-09-06** without waiting on step 1 — see the resolution below.\n\nMost relevant paper: [PMRF, ICLR 2025 (arXiv 2410.00418)](https://arxiv.org/abs/2410.00418) — the min-MSE\nestimator with perfect perceptual quality is an optimal-transport map applied on top of the MMSE\nprediction, i.e. regress first, flow second.\n\n## Resolved 2026-09-06 — it was the frozen decoder\n\nStep 2 of the to-do above was run as `../plan/2026-09-04_flow_decoder_noise_finetune.md`: ten epochs of\ndecoder-only noise finetuning at `decode_noise_tau=0.8`, encoder frozen and `encode()` bit-identical.\nRe-reading the step sweep through that decoder **reverses the sign** for two of the three geometry metrics.\n\n**Through the noise-tolerant decoder, 20 steps is much better than 1** — `LossRaymap` **−36.0%**\n(5.9274 → 3.7936) and `LossPointmap` **−20.3%** (8.2932 → 6.6117). `LossDepth` is the lone exception at +3.1%.\nThe premise of this doc's title is gone: extra ODE steps do not degrade the arm, they buy most of its\ndecoded geometry.\n\n| N | 1 | 2 | 4 | 8 | 12 | 20 |\n|---|---|---|---|---|---|---|\n| `MSEToken`, both decoders | 0.6677 | 0.7109 | 0.7826 | 0.8398 | 0.8638 | 0.8850 |\n| `LossRaymap`, source `epoch_100` | 5.0347 | **4.6035** | — | — | — | 5.8777 |\n| `LossRaymap`, finetuned `epoch_10` | 5.9274 | 5.1114 | 4.4063 | 3.9965 | 3.8630 | **3.7936** |\n| `LossPointmap`, source `epoch_100` | 7.5305 | **7.2704** | — | — | — | 8.6347 |\n| `LossPointmap`, finetuned `epoch_10` | 8.2932 | 7.6756 | 7.1248 | 6.7778 | 6.6715 | **6.6117** |\n\nThe source decoder has an interior optimum at N=2 and degrades after it — the observation this doc opened on.\nThe finetuned decoder is monotone in N for both metrics, best at 20, and has not plateaued. At matched N=20\nraymap moves **−35.5%**. The mechanism is the one the 2026-07-19 wall analysis named: the decoder's response to\nlatent error was superlinear past MSE 0.30 and the flow sits at 0.67, so every extra step climbed further up\nthe cliff. At σ=0.82 the finetuned decoder takes raymap 19.09 → 1.67, i.e. flat across the whole range the flow\noccupies. **\"More steps degrade\" was a property of the decoder, not of the sampler or the flow.**\n\n**Three things this does not settle.**\n\n- **Token space is unchanged.** `MSEToken` still climbs monotonically with N and is byte-identical across the\n  two decoders, since only the decoder was retrained. Extra steps still move *away* from the GT token; the\n  decoder only changes what that costs downstream.\n- **Depth still wants N=1** on both decoders — 3.6765 → 3.7915 finetuned. Only pointmap and raymap reverse.\n- **Cause 1 vs cause 3 is still open.** Separating the perception/distortion variance penalty from exposure\n  bias needed the seed spread in step 1, which was dropped.\n\n**Caveat on the comparison.** This doc's table is flow `iter_200000`; the re-read is `iter_100000`. Same arm,\ndifferent checkpoint, so this is not a byte-matched re-read. The source-decoder control at `iter_100000` does\nreproduce the N=2 interior optimum, so the mechanism carries across the two.\n\nCause 2 (t≈0 starvation) survives untouched and is now sharper: at N=1 the flow's own error decodes **3.5×\nworse than isotropic noise of the same magnitude** through the same decoder, so the 1-step error is structured,\nnot Gaussian. A decoder taught to invert a ball around each code cannot cover it.\n"
   },
   {
    "id": "results/2026-08-27_tc_width_tc_sigreg_ab_slides.html",
@@ -1630,28 +1630,6 @@
    "updates": []
   },
   {
-   "num": 12,
-   "status": "running",
-   "item": "Decoder-only noise-augmented finetune of the tc128 compose tokenizer (RAE noise_tau), read through the unchanged flow control",
-   "thread": "flow",
-   "paper": "main results: tokenizer for the flow eval",
-   "note": "../research/plan/2026-09-04_flow_decoder_noise_finetune.md. Submitted 2026-09-04 as BSC:45421190, 8 h on ehpc1001, 10 epochs warm-started weights-only from compose1.0/ckpts/epoch_100.pth, read at ep 10 (ep 5 as the backstop); still PENDING, not yet verified running. Decoder-only: model.deltatok.decode_noise_tau=0.8 + training.freeze_except_decoder=true, so the encoder is frozen, z is bit-identical, every flow checkpoint stays valid, and the flow's MSEToken 0.6677 must reproduce exactly as the built-in check. The read is two eval jobs off slurm/eval_deltatok_flow_numsteps_tc128compose_bsc.slurm with DELTATOK_CKPT at the finetuned ckpt: flow N=1/20, and the --noise_sigmas 0.0,0.32,0.55,0.82 ladder. Motivated by the probe ../research/results/2026-09-04_flow_decoder_noise_probe.md (BSC:45417908): decoded loss is superlinear in latent error, knee below MSE 0.30, flow at 0.67",
-   "note_md": "`../research/plan/2026-09-04_flow_decoder_noise_finetune.md`. **Submitted 2026-09-04 as BSC:45421190**, 8 h on `ehpc1001`, 10 epochs warm-started weights-only from `compose1.0/ckpts/epoch_100.pth`, read at ep 10 (ep 5 as the backstop); still PENDING, not yet verified running. Decoder-only: `model.deltatok.decode_noise_tau=0.8` + `training.freeze_except_decoder=true`, so the encoder is frozen, `z` is bit-identical, every flow checkpoint stays valid, and the flow's `MSEToken` 0.6677 must reproduce exactly as the built-in check. The read is two eval jobs off `slurm/eval_deltatok_flow_numsteps_tc128compose_bsc.slurm` with `DELTATOK_CKPT` at the finetuned ckpt: flow N=1/20, and the `--noise_sigmas 0.0,0.32,0.55,0.82` ladder. Motivated by the probe `../research/results/2026-09-04_flow_decoder_noise_probe.md` (`BSC:45417908`): decoded loss is superlinear in latent error, knee below MSE 0.30, flow at 0.67",
-   "closed": "",
-   "state": "open",
-   "source": "docs/research/todos.json",
-   "order": 5,
-   "jobs": [
-    "45421190",
-    "45417908"
-   ],
-   "docs": [
-    "plan/2026-09-04_flow_decoder_noise_finetune.md",
-    "results/2026-09-04_flow_decoder_noise_probe.md"
-   ],
-   "updates": []
-  },
-  {
    "num": 13,
    "status": "running",
    "item": "End-to-end noisy-channel tokenizer at tc512: fold z + σ·ε into training with the encoder in the graph",
@@ -1662,7 +1640,7 @@
    "closed": "",
    "state": "open",
    "source": "docs/research/todos.json",
-   "order": 6,
+   "order": 5,
    "jobs": [
     "45529827",
     "45296347"
@@ -1755,6 +1733,33 @@
    "updates": []
   },
   {
+   "num": 12,
+   "status": "done",
+   "item": "Decoder-only noise-augmented finetune of the tc128 compose tokenizer (RAE noise_tau), read through the unchanged flow control",
+   "thread": "flow",
+   "paper": "main results: tokenizer for the flow eval",
+   "note": "done: results/2026-09-06_flow_decoder_noise_finetune_slides.html. BSC:45421190 (10-epoch decoder-only finetune of the tc128 compose tokenizer, decode_noise_tau=0.8 + freeze_except_decoder=true, warm-started weights-only from compose1.0/ckpts/epoch_100.pth) plus the eval jobs BSC:45497311/19, 45497830/31 and the N-sweep BSC:45498382. Every design check held: MSEToken reproduces 0.6677 / 0.8850 to the digit, so encode() is bit-identical and only the decoder moved; the σ=0 round trip improved 1.3–1.7%. The ladder flattens outright — σ=0.82 raymap 19.09 → 1.67, so the superlinear knee below MSE 0.30 is gone. Best achievable against best achievable: raymap −17.6%, pointmap −9.1%, with the sampler optimum moving N=2 → N=20 and −35.5% raymap at matched N=20. The one loss is N=1 (+17.7% raymap): at the same latent error magnitude, isotropic noise now decodes 3.5× better than the flow's own error, so the 1-step error is structured, not isotropic — the probe's framing inverts. epoch_10 replaces epoch_100 as the tokenizer every flow read uses. Leads to TODO 13, in tc_width: end-to-end decoder-noise training of the tc512 compose tokenizer (plan/2026-09-07_tc_width_decnoise_e2e_tc512.md, BSC:45529827). Falsifier 3 routed it out of flow: fixing the decoder alone cannot change a code it is not allowed to touch, so the pair needs a from-scratch noisy tokenizer with the encoder in the graph — which changes z and is a tc_width/sigreg question. Left open, but not queued: the N=20 penalty in plan/2026-09-04_flow_bestofk_regressor_null.md is at least partly a decoder artifact and was never re-read on epoch_10 — TODO 11 was dropped 2026-09-07 as not needed.",
+   "note_md": "`done: results/2026-09-06_flow_decoder_noise_finetune_slides.html`. `BSC:45421190` (10-epoch decoder-only finetune of the tc128 compose tokenizer, `decode_noise_tau=0.8` + `freeze_except_decoder=true`, warm-started weights-only from `compose1.0/ckpts/epoch_100.pth`) plus the eval jobs `BSC:45497311/19`, `45497830/31` and the N-sweep `BSC:45498382`. Every design check held: `MSEToken` reproduces 0.6677 / 0.8850 to the digit, so `encode()` is bit-identical and only the decoder moved; the σ=0 round trip *improved* 1.3–1.7%. **The ladder flattens outright** — σ=0.82 raymap 19.09 → **1.67**, so the superlinear knee below MSE 0.30 is gone. **Best achievable against best achievable: raymap −17.6%, pointmap −9.1%**, with the sampler optimum moving N=2 → N=20 and −35.5% raymap at matched N=20. **The one loss is N=1** (+17.7% raymap): at the same latent error magnitude, isotropic noise now decodes 3.5× better than the flow's own error, so the 1-step error is **structured, not isotropic** — the probe's framing inverts. `epoch_10` replaces `epoch_100` as the tokenizer every flow read uses. **Leads to TODO 13, in `tc_width`: end-to-end decoder-noise training of the tc512 compose tokenizer** (`plan/2026-09-07_tc_width_decnoise_e2e_tc512.md`, `BSC:45529827`). Falsifier 3 routed it out of `flow`: fixing the decoder alone cannot change a code it is not allowed to touch, so the pair needs a from-scratch noisy tokenizer with the encoder in the graph — which changes `z` and is a `tc_width`/`sigreg` question. Left open, but not queued: the N=20 penalty in `plan/2026-09-04_flow_bestofk_regressor_null.md` is at least partly a decoder artifact and was never re-read on `epoch_10` — TODO 11 was dropped 2026-09-07 as `not needed`.",
+   "closed": "2026-09-07",
+   "state": "done",
+   "source": "docs/research/todos.json",
+   "order": 5,
+   "jobs": [
+    "45421190",
+    "45417908",
+    "45497311",
+    "45497830",
+    "45498382"
+   ],
+   "docs": [
+    "plan/2026-09-04_flow_decoder_noise_finetune.md",
+    "results/2026-09-04_flow_decoder_noise_probe.md",
+    "results/2026-09-06_flow_decoder_noise_finetune_slides.html",
+    "plan/2026-09-07_tc_width_decnoise_e2e_tc512.md"
+   ],
+   "updates": []
+  },
+  {
    "num": 2,
    "status": "done",
    "item": "tc512 + sigreg 0.02 / 0.04 / 0.08",
@@ -1765,7 +1770,7 @@
    "closed": "2026-09-07",
    "state": "done",
    "source": "docs/research/todos.json",
-   "order": 5,
+   "order": 6,
    "jobs": [
     "45296347",
     "45297731",
@@ -1788,7 +1793,7 @@
    "closed": "2026-09-07",
    "state": "done",
    "source": "docs/research/todos.json",
-   "order": 6,
+   "order": 7,
    "jobs": [
     "45345063",
     "45296347"
@@ -1810,7 +1815,7 @@
    "closed": "2026-09-07",
    "state": "done",
    "source": "docs/research/todos.json",
-   "order": 7,
+   "order": 8,
    "jobs": [],
    "docs": [
     "plan/2026-09-04_flow_bestofk_regressor_null.md"
@@ -1824,7 +1829,7 @@
    "key": "status",
    "title": "STATUS — queued, running, next",
    "order": 1,
-   "md": "**As of 2026-09-07 19:10.** Only what is queued, running or next. Finished jobs live on their `todo` row.\n\n## Running\n\n| Job | Arm | TODO | Now | Next |\n|---|---|---|---|---|\n| BSC:45529827 | tc512 · decnoise e2e τ0.8 | `todo/13` | ep 4/100 · 0.59 h/ep · 36.9 h left | wall 09-09 06:45 → ep ~67, then one chained resume for ep 100. Tripwire at ep 12; control BSC:45296347 at ep 40 / 72 / 80 |\n\n## Next\n\n| Do | TODO | Gate |\n|---|---|---|\n| Submit the OpenScene arm — code implemented, md5-matched on BSC | `todo/13` | the BSC:45529827 read, its no-OpenScene control |\n| Close out `todo/12`; adopt the finetuned `epoch_10` as the flow tokenizer | `todo/12` | none |"
+   "md": "**As of 2026-09-07 19:30.** Only what is queued, running or next. Finished jobs live on their `todo` row.\n\n## Running\n\n| Job | Arm | TODO | Now | Next |\n|---|---|---|---|---|\n| BSC:45529827 | tc512 · decnoise e2e τ0.8 | `todo/13` | ep 4/100 · 0.59 h/ep · 36.9 h left | wall 09-09 06:45 → ep ~67, then one chained resume for ep 100. Tripwire at ep 12; control BSC:45296347 at ep 40 / 72 / 80 |\n\n## Next\n\n| Do | TODO | Gate |\n|---|---|---|\n| Submit the OpenScene arm — code implemented, md5-matched on BSC | `todo/13` | the BSC:45529827 read, its no-OpenScene control |\n| Nothing queued in `flow` — `todo/11` is dropped and `todo/12` closed. `epoch_10` is the tokenizer any future flow read uses | — | — |"
   }
  ],
  "links": [
@@ -1836,6 +1841,11 @@
   {
    "from": "plan/2026-09-07_tc_width_decnoise_e2e_tc512.md",
    "to": "plan/2026-09-04_flow_decoder_noise_finetune.md",
+   "kind": "ref"
+  },
+  {
+   "from": "plan/2026-09-04_flow_decoder_noise_finetune.md",
+   "to": "plan/2026-09-07_tc_width_decnoise_e2e_tc512.md",
    "kind": "ref"
   },
   {
@@ -2239,6 +2249,11 @@
    "kind": "ref"
   },
   {
+   "from": "analysis/2026-09-01_flow_numsteps_why_more_steps_degrade.md",
+   "to": "plan/2026-09-04_flow_decoder_noise_finetune.md",
+   "kind": "ref"
+  },
+  {
    "from": "analysis/2026-09-02_pointdit_vs_deltatok.md",
    "to": "analysis/2026-09-01_flow_numsteps_why_more_steps_degrade.md",
    "kind": "prior"
@@ -2274,16 +2289,6 @@
    "kind": "todo"
   },
   {
-   "from": "todo/12",
-   "to": "plan/2026-09-04_flow_decoder_noise_finetune.md",
-   "kind": "todo"
-  },
-  {
-   "from": "todo/12",
-   "to": "results/2026-09-04_flow_decoder_noise_probe.md",
-   "kind": "todo"
-  },
-  {
    "from": "todo/13",
    "to": "plan/2026-09-07_tc_width_decnoise_e2e_tc512.md",
    "kind": "todo"
@@ -2316,6 +2321,26 @@
   {
    "from": "todo/6",
    "to": "results/2026-09-06_sigreg_cov_penalty_tc512_slides.html",
+   "kind": "todo"
+  },
+  {
+   "from": "todo/12",
+   "to": "plan/2026-09-04_flow_decoder_noise_finetune.md",
+   "kind": "todo"
+  },
+  {
+   "from": "todo/12",
+   "to": "results/2026-09-04_flow_decoder_noise_probe.md",
+   "kind": "todo"
+  },
+  {
+   "from": "todo/12",
+   "to": "results/2026-09-06_flow_decoder_noise_finetune_slides.html",
+   "kind": "todo"
+  },
+  {
+   "from": "todo/12",
+   "to": "plan/2026-09-07_tc_width_decnoise_e2e_tc512.md",
    "kind": "todo"
   },
   {
