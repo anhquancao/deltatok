@@ -32,6 +32,10 @@ button{font:inherit;cursor:pointer}
   border-bottom:1px solid var(--border);flex-wrap:wrap}
 .brand{font:400 18px/1 var(--serif);letter-spacing:-.01em;white-space:nowrap}
 .brand small{font:10.5px/1 var(--mono);color:var(--muted);margin-left:9px;letter-spacing:.03em}
+.brand small .built{font:600 12px/1 var(--mono);color:var(--ink);background:var(--page);
+  border:1px solid var(--axis);border-radius:3px;padding:4px 7px;margin-left:9px;letter-spacing:.02em}
+.brand small .built .lbl{color:var(--muted);font-weight:400;margin-right:5px}
+.brand small .built.stale{color:var(--warn);border-color:currentColor}
 .search{flex:0 1 290px;display:flex;align-items:center;gap:7px;border:1px solid var(--border);
   border-radius:5px;padding:5px 9px;background:var(--page)}
 .search:focus-within{border-color:var(--accent)}
@@ -732,8 +736,12 @@ function boot(data) {
   THREADS = DATA.threads.map(t => t.id);
   for (const d of DATA.docs) if (!THREADS.includes(itemThread(d))) THREADS.push(itemThread(d));
 
-  document.getElementById("gen").textContent = DATA.docs.length + " docs · " + DATA.todos.length +
-    " todos · built " + String(DATA.generated).slice(0, 16).replace("T", " ");
+  // the build time is the one thing that goes stale, so it gets a badge, not the fine print
+  const ageH = (Date.now() - Date.parse(DATA.generated)) / 3.6e6;
+  document.getElementById("gen").innerHTML = DATA.docs.length + " docs · " + DATA.todos.length + " todos" +
+    '<span class="built num' + (ageH > 24 ? " stale" : "") + '" title="index built ' + esc(DATA.generated) +
+    (ageH > 24 ? " — rebuild: python3 docs/research/tools/build_index.py" : "") + '">' +
+    '<span class="lbl">built</span>' + esc(String(DATA.generated).slice(0, 16).replace("T", " ")) + "</span>";
 
   const bar = document.getElementById("threadbar");
   bar.innerHTML = THREADS.map(t => {

@@ -6,21 +6,39 @@ but not yet read into a `results/` doc. [`02-09-2026.md`](02-09-2026.md) keeps t
 Job states come from `../../monitor_jobs/data/monitor_jobs.json` (read the file, never the server); epochs come from
 the cached `logs/BSC/*.out`. Every row says what to grep and where the number goes.
 
-**As of 2026-09-06 23:32.**
+**As of 2026-09-07 10:51.**
 
 ## Queued and running
 
 | Job | Arm | TODO | State | Check when it runs |
 |---|---|---|---|---|
-| BSC:45498520 | tc512 · sigreg 0.02 · compose 1.0 · `cov_weight=1e-4` | 6 | PENDING (Priority) since 23:28, 44 h, `ehpc1001` | startup print `cov_weight=0.0001` — a silent `0.0` is a stale trainer — and `Cov:` on the epoch line. ep-12 tripwire: train `ZPartRank` ≥ 65 and recon within 10% of BSC:45416718, else kill |
-| BSC:45498521 | same, `cov_weight=3e-4` | 6 | PENDING (Priority) since 23:28, 44 h, `ehpc1001` | same, print `cov_weight=0.0003`. The hot rung: ~115% of the total loss at ep 4, so this is the one likely to trip the ep-12 wire |
+| BSC:45498520 | tc512 · sigreg 0.02 · compose 1.0 · `cov_weight=1e-4` | 6 | RUNNING on `as02r3b26` since 2026-09-07 00:00, ep **17**/100 at 10:22, 44 h | ep-12 tripwire **passed on rank, failed on recon**: train `ZPartRank` 95.4 (bar 65) but `LossRecon` is +0.0% K / −0.9% N against the cov 0 control on an ep 12–17 mean, i.e. outside the "within 10% of BSC:45416718" clause the other way — it is 11% *worse* than 45416718. Not killed: it is the middle rung of the dose axis and the null is the finding. **Next read at the wall, ep ~72** |
+| BSC:45498521 | same, `cov_weight=3e-4` | 6 | RUNNING on `as03r2b27` since 2026-09-07 00:00, ep **17**/100 at 10:22, 44 h | ep-12 tripwire passed: `ZPartRank` 129.1, `LossRecon` −8.9% K / −7.4% N vs control on the same mean. The hot rung did **not** trip the wire. **Next read at the wall, ep ~72** |
 
-Both are the `cov_weight` dose-response above BSC:45416718, which saturated `ZPartRank` at 121/512 with
-`ZTotalVar` **5.6% past the 512 target and still rising** (540.7 at ep 72, up monotonically from 457.6 at ep 0,
-crossing 512 at ep 17) — so any further `L_cov` drop is rank, not the trace correction that took 68% of
-the first arm's. Added shape push over SIGReg 0.02 alone is ~17× at 1e-4 and ~52× at 3e-4, against ~5× at 3e-5
-(κ ≈ 0.074 from `../research/plan/2026-09-02_sigreg_cov_penalty.md` §2, both terms sharing the trainer's
-`scale` = 17.0). Scripts `slurm/deltatok/train_deltatok_compose_sigreg_covpen{1e-4,3e-4}_nozn_tc512_bsc.slurm`.
+Both are the `cov_weight` dose-response above BSC:45416718. **First read landed 2026-09-07, ep 17, in slide 11 of
+[`../research/results/2026-09-06_sigreg_cov_penalty_tc512_slides.html`](../research/results/2026-09-06_sigreg_cov_penalty_tc512_slides.html).**
+**Read: more `L_cov` buys more rank, and the rank does not turn into performance.** Train `ZPartRank` is monotone in dose with no
+ceiling — 62.8 (cov 0) → 93.1 (3e-5) → 104.2 (1e-4) → **141.0** (3e-4) — which kills the "~121/512 ceiling" in finding 1 of that deck.
+None of it transfers. What the term moves is convergence *speed*, not the value converged to: the 3e-5 lead over cov 0 peaks at
+−11.5% (ep 25) and decays to −7.7% (ep 70), still shrinking when that arm stopped. Above 3e-5 there is no return — 1e-4 lands on the
+cov 0 control (+0.0% K / −0.9% N token, +5 to +11% worse under AR rollout) and 3e-4 fails to clear 3e-5 with 1.5× the rank.
+One seed. Resolved configs differ only in `training.cov_weight`; no NaN and no grad-skip in either arm.
+
+**Both jobs end on the 44 h wall at ~2026-09-08 19:50 CEST** (11h01m elapsed / 32h59m left at 10:51). At the observed
+0.61 h/epoch they reach **ep ~71–72**, not ep 100, and `exit_before_time_limit=true` stops them cleanly. That is a matched
+read: BSC:45416718 (`cov 3e-5`) also stopped at ep 72 on its own 44 h wall, and the cov 0 control BSC:45296347 has data
+through ep 81. **The ep-17 conclusion above is interim — re-check all three claims at ep 72 before it is quoted anywhere else:**
+
+| # | Claim to re-test at ep 72 | Holds if | Dies if |
+|---|---|---|---|
+| 1 | `L_cov` moves convergence *speed*, not the endpoint | the 3e-5 lead over cov 0 keeps decaying past −7.7% (it went −11.5% at ep 25 → −7.7% at ep 70) | the gap stops shrinking and settles at a stable non-zero margin |
+| 2 | Nothing above 3e-5 pays | 1e-4 is still level with the cov 0 control on `LossRecon` and still worse under AR rollout | 1e-4 crosses below the control and closes on 3e-5 |
+| 3 | Rank does not buy recon | 3e-4 still fails to clear 3e-5 despite 1.5× the `ZPartRank` | 3e-4 crosses below 3e-5 late, which revives the rank story |
+
+Reads go in slide 11 of the deck (currently written as an ep-17 interim, and it says both arms are still running).
+Grep the four `slurm/output/*.out` logs, not TB — every scalar needed is on the `[KEpoch …]`, `[Train]` and `[Eval/…]` lines.
+Slides 1–10 of that deck still carry the original "cov 3e-5 wins token recon" verdict and now disagree with slide 11;
+fold them in once the ep-72 numbers settle which reading is right. Scripts `slurm/deltatok/train_deltatok_compose_sigreg_covpen{1e-4,3e-4}_nozn_tc512_bsc.slurm`.
 
 ## Finished, read landed, TODO row still open
 

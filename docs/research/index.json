@@ -1,5 +1,5 @@
 {
- "generated": "2026-09-07T00:11:04",
+ "generated": "2026-09-07T10:40:28",
  "root": "docs/research",
  "threads": [
   {
@@ -82,7 +82,7 @@
    "thread": "sigreg",
    "slug": "cov_penalty_tc512_slides",
    "title": "DeltaTok — a covariance penalty on the SIGReg pool",
-   "bytes": 2160410,
+   "bytes": 2172436,
    "question": "The cov_weight=3e-5 arm against its cov 0 twin and the axis-best sigreg 0.01 at matched ep 67 — token recon, depth / pointmap / raymap, the no-bottleneck tc1536 reference, and decoded frames with L1 error maps",
    "verdict": "Token recon wins on both sets and it is a new best, narrowly (nuScenes margin 0.8%). Round-trip geometry −3 to −18%, but against GT the win is ≤2.2% on KITTI and slightly negative on nuScenes. 68% of the L_cov drop is trace",
    "status": "",
@@ -99,6 +99,75 @@
    "meta": {},
    "in_ledger": true,
    "body": null
+  },
+  {
+   "id": "results/2026-09-04_tc_width_tc512_sigreg_weight_axis_slides.html",
+   "stage": "results",
+   "ext": "html",
+   "date": "2026-09-04",
+   "thread": "tc_width",
+   "slug": "tc512_sigreg_weight_axis_slides",
+   "title": "DeltaTok — the SIGReg weight axis at tc512",
+   "bytes": 129983,
+   "question": "The whole 0.002…0.08 axis at tc512, plus the composed-sum variant at 0.005 and 0.02",
+   "verdict": "Broad plateau 0.01–0.04 (6% spread), break at 0.08; rank saturates near 100/512; the sum's 0.005 win reverses to +8% at 0.02",
+   "status": "",
+   "jobs": [],
+   "jobs_seen": [
+    "45296347",
+    "45297731",
+    "45296349",
+    "45345063"
+   ],
+   "todos": [],
+   "meta": {},
+   "in_ledger": true,
+   "body": null
+  },
+  {
+   "id": "results/2026-09-04_pointdit_lowt_numsteps_ep50_slides.html",
+   "stage": "results",
+   "ext": "html",
+   "date": "2026-09-04",
+   "thread": "pointdit",
+   "slug": "lowt_numsteps_ep50_slides",
+   "title": "pointdit low-t schedule vs uniform — few-step sweep at matched ep50",
+   "bytes": 31458,
+   "question": "Low-t schedule vs uniform at matched iter_100000, 1…20 steps",
+   "verdict": "Loses 19 of 20 cells: 1-step MSEToken 0.7221 vs 0.6677 (+8.2%), LossRaymap +19.3%; only MSEToken at N=20 wins (−1.4%). The control is itself worse at ep 100 than ep 50 at N=1",
+   "status": "",
+   "jobs": [],
+   "jobs_seen": [
+    "45414635",
+    "45414644"
+   ],
+   "todos": [],
+   "meta": {},
+   "in_ledger": true,
+   "body": null
+  },
+  {
+   "id": "results/2026-09-04_flow_decoder_noise_probe.md",
+   "stage": "results",
+   "ext": "md",
+   "date": "2026-09-04",
+   "thread": "flow",
+   "slug": "decoder_noise_probe",
+   "title": "flow — decoder noise-tolerance probe: GT delta + isotropic noise, decoded",
+   "bytes": 2790,
+   "question": "How much of the flow's decoded error is the frozen decoder's intolerance to latent error of that size?",
+   "verdict": "GT z + isotropic noise at the flow's MSE 0.67 decodes 2–4× *worse* than the flow (raymap 19.09 vs 5.03), so the flow's error is benign; decoded loss is superlinear with the knee below MSE 0.30. BSC:45417908",
+   "status": "",
+   "jobs": [],
+   "jobs_seen": [
+    "45417908"
+   ],
+   "todos": [],
+   "meta": {
+    "thread": "flow"
+   },
+   "in_ledger": true,
+   "body": "# flow — decoder noise-tolerance probe: GT delta + isotropic noise, decoded\n\n2026-09-04 · thread `flow` · job `BSC:45417908` (`acc_debug`, 9 min) · code `1ae449b` · asks the question left open\nby [`../analysis/2026-07-19_flow_wall.html`](../analysis/2026-07-19_flow_wall.html): how much of the flow's decoded\nerror is the frozen decoder's intolerance to *any* latent error of that size.\n\n**Setup.** `eval_deltatok_flow_sampler.py --noise_sigmas 0.0,0.32,0.55,0.82`, 1-step `ode`, the same 128 Waymo val\nsequences and the same frozen tokenizer (tc128 · sigreg 0.005 · compose 1.0 · `epoch_100`) as every flow read this\nweek. On the forecast slots `z_hat := z + σ·N(0, I)` from the seeded eval generator (`deltatok_flow_trainer.py:825`);\ncontext slots stay GT; rollout, decode and losses are the normal eval path. The flow checkpoint (control\n`iter_100000`) only supplies the tokenizer reference.\n\n| σ | MSEToken | LossDepth | LossPointmap | LossRaymap |\n|---|---|---|---|---|\n| 0 (sanity) | 0.0000 | 2.7923 | 4.0557 | 1.6763 |\n| 0.32 | 0.1025 | 3.0104 | 4.3611 | 1.8129 |\n| 0.55 | 0.3027 | 3.3617 | 9.2042 | 7.7481 |\n| 0.82 | 0.6729 | 4.7519 | 18.4995 | 19.0861 |\n| *GT round-trip (`*_tok`)* | 0 | 2.7923 | 4.0557 | 1.6763 |\n| *flow 1-step, control `iter_100000`* | 0.6677 | 3.6325 | 8.13 (ep 100 value) | 5.0347 |\n\nSanity: σ=0 reproduces the round-trip to 4 decimals and MSEToken = σ² within 0.1%, so `z` is unit-scale and the\nsubstitution is exact.\n\n**Reading.**\n\n- **The flow's error is already far better structured than isotropic noise.** At matched MSEToken 0.67, isotropic\n  noise decodes 3.8× worse on raymap (19.09 vs 5.03), 2.3× on pointmap, 1.3× on depth. The flow's 0.67 costs what\n  isotropic σ ≈ 0.50–0.61 costs. Reweighting the flow loss toward pose-carrying dims has nothing to remove.\n- **Decoded loss is steeply superlinear in latent error, with the knee below MSE 0.30.** At MSE 0.10 every metric\n  is within 8% of the round-trip floor; at 0.30 raymap is 4.6× the floor. A flow that stays near MSEToken 0.67 is\n  invisible on the decoded metrics whatever else it does.\n- **Two levers survive.** MSEToken ≲ 0.1 (far: every code so far captures 25–33% of the delta variance from\n  context), or a decoder that tolerates latent error — the RAE recipe the wall analysis proposed and never ran.\n  That is [`../plan/2026-09-04_flow_decoder_noise_finetune.md`](../plan/2026-09-04_flow_decoder_noise_finetune.md).\n\nSource: `/gpfs/projects/ehpc1001/code/deltatok/slurm/output/flow_noise_probe_bsc_45417908.out` on BSC (`results/` is\nrsync-excluded, no csv is written). Not re-measured: the control's pointmap 8.13 is the `iter_200000` value from\n[`2026-09-01_flow_numsteps_tc128compose_slides.html`](2026-09-01_flow_numsteps_tc128compose_slides.html).\n"
   },
   {
    "id": "plan/2026-09-04_flow_decoder_noise_finetune.md",
@@ -1790,7 +1859,17 @@
   },
   {
    "from": "plan/2026-09-02_pointdit_lowt_schedule.md",
+   "to": "results/2026-09-04_pointdit_lowt_numsteps_ep50_slides.html",
+   "kind": "deck"
+  },
+  {
+   "from": "plan/2026-09-02_pointdit_lowt_schedule.md",
    "to": "analysis/2026-09-02_pointdit_vs_deltatok.md",
+   "kind": "ref"
+  },
+  {
+   "from": "plan/2026-09-02_pointdit_lowt_schedule.md",
+   "to": "results/2026-09-04_pointdit_lowt_numsteps_ep50_slides.html",
    "kind": "ref"
   },
   {
@@ -1855,6 +1934,11 @@
   },
   {
    "from": "plan/2026-09-02_sigreg_cov_penalty.md",
+   "to": "results/2026-09-04_tc_width_tc512_sigreg_weight_axis_slides.html",
+   "kind": "ref"
+  },
+  {
+   "from": "plan/2026-09-02_sigreg_cov_penalty.md",
    "to": "analysis/2026-07-28_sigreg_z_spread.html",
    "kind": "ref"
   },
@@ -1880,6 +1964,11 @@
   },
   {
    "from": "plan/2026-09-04_flow_bestofk_regressor_null.md",
+   "to": "results/2026-09-04_pointdit_lowt_numsteps_ep50_slides.html",
+   "kind": "ref"
+  },
+  {
+   "from": "plan/2026-09-04_flow_bestofk_regressor_null.md",
    "to": "analysis/2026-07-19_flow_wall.html",
    "kind": "ref"
   },
@@ -1900,8 +1989,18 @@
   },
   {
    "from": "plan/2026-09-04_flow_decoder_noise_finetune.md",
+   "to": "results/2026-09-04_flow_decoder_noise_probe.md",
+   "kind": "prior"
+  },
+  {
+   "from": "plan/2026-09-04_flow_decoder_noise_finetune.md",
    "to": "results/2026-09-06_flow_decoder_noise_finetune_slides.html",
    "kind": "deck"
+  },
+  {
+   "from": "plan/2026-09-04_flow_decoder_noise_finetune.md",
+   "to": "results/2026-09-04_flow_decoder_noise_probe.md",
+   "kind": "ref"
   },
   {
    "from": "plan/2026-09-04_flow_decoder_noise_finetune.md",
@@ -1979,6 +2078,31 @@
    "kind": "ref"
   },
   {
+   "from": "results/2026-09-04_flow_decoder_noise_probe.md",
+   "to": "analysis/2026-07-19_flow_wall.html",
+   "kind": "ref"
+  },
+  {
+   "from": "results/2026-09-04_flow_decoder_noise_probe.md",
+   "to": "plan/2026-09-04_flow_decoder_noise_finetune.md",
+   "kind": "ref"
+  },
+  {
+   "from": "results/2026-09-04_tc_width_tc512_sigreg_weight_axis_slides.html",
+   "to": "plan/2026-09-02_sigreg_sum_at_weight_0.02.md",
+   "kind": "ref"
+  },
+  {
+   "from": "results/2026-09-04_tc_width_tc512_sigreg_weight_axis_slides.html",
+   "to": "analysis/2026-07-31_sigreg_pool_not_weight_neutral.html",
+   "kind": "ref"
+  },
+  {
+   "from": "results/2026-09-04_tc_width_tc512_sigreg_weight_axis_slides.html",
+   "to": "plan/2026-09-01_tc_width_sigreg_weight_tc512.md",
+   "kind": "ref"
+  },
+  {
    "from": "results/2026-09-06_flow_decoder_noise_finetune_slides.html",
    "to": "plan/2026-09-04_flow_decoder_noise_finetune.md",
    "kind": "ref"
@@ -2029,6 +2153,11 @@
    "kind": "todo"
   },
   {
+   "from": "todo/2",
+   "to": "results/2026-09-04_tc_width_tc512_sigreg_weight_axis_slides.html",
+   "kind": "todo"
+  },
+  {
    "from": "todo/7",
    "to": "analysis/2026-09-02_pointdit_vs_deltatok.md",
    "kind": "todo"
@@ -2041,6 +2170,11 @@
   {
    "from": "todo/7",
    "to": "plan/2026-09-02_pointdit_xloss_additive.md",
+   "kind": "todo"
+  },
+  {
+   "from": "todo/7",
+   "to": "results/2026-09-04_pointdit_lowt_numsteps_ep50_slides.html",
    "kind": "todo"
   },
   {
@@ -2061,6 +2195,11 @@
   {
    "from": "todo/12",
    "to": "plan/2026-09-04_flow_decoder_noise_finetune.md",
+   "kind": "todo"
+  },
+  {
+   "from": "todo/12",
+   "to": "results/2026-09-04_flow_decoder_noise_probe.md",
    "kind": "todo"
   },
   {
@@ -2114,6 +2253,11 @@
    "kind": "slug"
   },
   {
+   "from": "plan/2026-09-01_tc_width_sigreg_weight_tc512.md",
+   "to": "results/2026-09-04_tc_width_tc512_sigreg_weight_axis_slides.html",
+   "kind": "slug"
+  },
+  {
    "from": "plan/2026-09-02_pointdit_lowt_recipe_finetune.md",
    "to": "analysis/2026-09-02_pointdit_vs_deltatok.md",
    "kind": "slug"
@@ -2131,6 +2275,16 @@
   {
    "from": "plan/2026-09-02_sigreg_cov_penalty.md",
    "to": "results/2026-09-06_sigreg_cov_penalty_tc512_slides.html",
+   "kind": "slug"
+  },
+  {
+   "from": "plan/2026-09-04_flow_bestofk_regressor_null.md",
+   "to": "results/2026-09-04_flow_decoder_noise_probe.md",
+   "kind": "slug"
+  },
+  {
+   "from": "plan/2026-09-04_flow_decoder_noise_finetune.md",
+   "to": "results/2026-09-04_flow_decoder_noise_probe.md",
    "kind": "slug"
   },
   {

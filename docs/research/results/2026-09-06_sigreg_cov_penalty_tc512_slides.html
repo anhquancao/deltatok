@@ -109,6 +109,7 @@ svg .barval{font:11px var(--mono);fill:var(--ink2)}
 .g2{display:grid;grid-template-columns:1fr 1fr;gap:6px 22px;height:100%}
 .g4{display:grid;grid-template-columns:1fr 1fr;grid-template-rows:1fr 1fr;gap:8px 22px;height:100%}
 .g6{display:grid;grid-template-columns:repeat(3,1fr);grid-template-rows:1fr 1fr;gap:8px 16px;height:100%}
+.g8{display:grid;grid-template-columns:repeat(4,1fr);grid-template-rows:1fr 1fr;gap:8px 14px;height:100%}
 .pan{display:flex;flex-direction:column;min-height:0;min-width:0}
 .pan .plot{flex:1;min-height:0}
 .chartwrap svg,.pan .plot svg{display:block}
@@ -169,7 +170,7 @@ svg .pt{font:600 9px var(--mono)}
       </div>
     </div>
   </div>
-  <div class="foot"><span>both sets held out · single seed · arm stopped at ep 72/100 on the 44 h wall, resumable</span><span class="pageno">01 / 11</span></div>
+  <div class="foot"><span>both sets held out · single seed · arm stopped at ep 72/100 on the 44 h wall, resumable</span><span class="pageno">01 / 12</span></div>
 </section>
 
 <section class="slide">
@@ -179,7 +180,7 @@ svg .pt{font:600 9px var(--mono)}
   the best arm on the weight axis and the bar a new best has to clear. Read at ep <b>67</b>, where all three have data.</p>
   <div class="body"><div style="display:flex;flex-direction:column;height:100%;gap:6px"><div class="legend top"><span><i class="sw" style="border-color:var(--s1)"></i>cov 3e-5 <b>this arm</b></span><span><i class="sw" style="border-color:var(--s2);opacity:.5"></i>cov 0 · the matched control (BSC:45296347)</span><span><i class="sw" style="border-color:var(--s3);opacity:.5"></i>sigreg 0.01 · the axis best (BSC:45106935)</span></div>
     <div style="flex:1;min-height:0"><div class="g4"><div class="pan"><div class="ptitle">LossRecon <span style="color:var(--accent)">· KITTI</span> <span>· token space</span></div><div class="plot" id="p2a"></div></div><div class="pan"><div class="ptitle">LossRecon <span style="color:var(--accent)">· nuScenes</span> <span>· token space</span></div><div class="plot" id="p2b"></div></div><div class="pan"><div class="ptitle">LossRecon_Comp <span style="color:var(--accent)">· KITTI</span> <span>· the primary read</span></div><div class="plot" id="p2c"></div></div><div class="pan"><div class="ptitle">LossRecon_Comp <span style="color:var(--accent)">· nuScenes</span> <span>· the primary read</span></div><div class="plot" id="p2d"></div></div></div></div></div></div>
-  <div class="foot"><span>eval sets are held out · 206 seqs each · ep 12 onward, the earlier transient is 3× the plotted range</span><span class="pageno">02 / 11</span></div>
+  <div class="foot"><span>eval sets are held out · 206 seqs each · ep 12 onward, the earlier transient is 3× the plotted range</span><span class="pageno">02 / 12</span></div>
 </section>
 
 <section class="slide">
@@ -194,7 +195,7 @@ svg .pt{font:600 9px var(--mono)}
       i.e. the penalty banked the cheap scale win first. It is <b>not</b> the scale-only null: rank is higher at every epoch. But <span class="mono">ΔL_cov</span> overstates the rank effect ~2×.</div>
     </div>
   </div>
-  <div class="foot"><span>train rows, 1.66 M per epoch · dashed red = the ep-33 rank bar (150) and the trace target (512)</span><span class="pageno">03 / 11</span></div>
+  <div class="foot"><span>train rows, 1.66 M per epoch · dashed red = the ep-33 rank bar (150) and the trace target (512)</span><span class="pageno">03 / 12</span></div>
 </section>
 
 <section class="slide">
@@ -203,7 +204,7 @@ svg .pt{font:600 9px var(--mono)}
   <p class="sub">The tokenizer's own added error: prediction against the frozen DA3 teacher's own output, so the teacher's error cancels. Lower is better. At ep 67 — KITTI −10.8% depth, −12.5% pointmap, −3.6% raymap; nuScenes −3.9%, −3.4%, <b>+1.0%</b>.</p>
   <div class="body"><div style="display:flex;flex-direction:column;height:100%;gap:6px"><div class="legend top"><span><i class="sw" style="border-color:var(--s1)"></i>cov 3e-5 <b>this arm</b></span><span><i class="sw" style="border-color:var(--s2);opacity:.5"></i>cov 0 · the matched control (BSC:45296347)</span><span><i class="sw" style="border-color:var(--s3);opacity:.5"></i>sigreg 0.01 · the axis best (BSC:45106935)</span></div>
     <div style="flex:1;min-height:0"><div class="g6"><div class="pan"><div class="ptitle">Depth <span style="color:var(--accent)">· KITTI</span> <span></span></div><div class="plot" id="p4a"></div></div><div class="pan"><div class="ptitle">Pointmap <span style="color:var(--accent)">· KITTI</span> <span></span></div><div class="plot" id="p4b"></div></div><div class="pan"><div class="ptitle">Raymap <span style="color:var(--accent)">· KITTI</span> <span></span></div><div class="plot" id="p4c"></div></div><div class="pan"><div class="ptitle">Depth <span style="color:var(--accent)">· nuScenes</span> <span></span></div><div class="plot" id="p4d"></div></div><div class="pan"><div class="ptitle">Pointmap <span style="color:var(--accent)">· nuScenes</span> <span></span></div><div class="plot" id="p4e"></div></div><div class="pan"><div class="ptitle">Raymap <span style="color:var(--accent)">· nuScenes</span> <span></span></div><div class="plot" id="p4f"></div></div></div></div></div></div>
-  <div class="foot"><span>PredVsOrig · one forward pass per timestep, ground-truth history</span><span class="pageno">04 / 11</span></div>
+  <div class="foot"><span>PredVsOrig · one forward pass per timestep, ground-truth history</span><span class="pageno">04 / 12</span></div>
 </section>
 
 <section class="slide">
@@ -212,7 +213,7 @@ svg .pt{font:600 9px var(--mono)}
   <p class="sub">Same losses under AR rollout: each decode feeds the next step's <span class="mono">x_prev</span>. At ep 67 — KITTI −9.5% depth, −17.7% pointmap, −9.7% raymap; nuScenes −6.6%, −4.7%, <b>+5.0% raymap</b>. Raymap on nuScenes is the one metric that is consistently worse, TF and AR.</p>
   <div class="body"><div style="display:flex;flex-direction:column;height:100%;gap:6px"><div class="legend top"><span><i class="sw" style="border-color:var(--s1)"></i>cov 3e-5 <b>this arm</b></span><span><i class="sw" style="border-color:var(--s2);opacity:.5"></i>cov 0 · the matched control (BSC:45296347)</span><span><i class="sw" style="border-color:var(--s3);opacity:.5"></i>sigreg 0.01 · the axis best (BSC:45106935)</span></div>
     <div style="flex:1;min-height:0"><div class="g6"><div class="pan"><div class="ptitle">Depth <span style="color:var(--accent)">· KITTI</span> <span></span></div><div class="plot" id="p5a"></div></div><div class="pan"><div class="ptitle">Pointmap <span style="color:var(--accent)">· KITTI</span> <span></span></div><div class="plot" id="p5b"></div></div><div class="pan"><div class="ptitle">Raymap <span style="color:var(--accent)">· KITTI</span> <span></span></div><div class="plot" id="p5c"></div></div><div class="pan"><div class="ptitle">Depth <span style="color:var(--accent)">· nuScenes</span> <span></span></div><div class="plot" id="p5d"></div></div><div class="pan"><div class="ptitle">Pointmap <span style="color:var(--accent)">· nuScenes</span> <span></span></div><div class="plot" id="p5e"></div></div><div class="pan"><div class="ptitle">Raymap <span style="color:var(--accent)">· nuScenes</span> <span></span></div><div class="plot" id="p5f"></div></div></div></div></div></div>
-  <div class="foot"><span>PredVsOrig_AR · rollout from context, 5 timesteps</span><span class="pageno">05 / 11</span></div>
+  <div class="foot"><span>PredVsOrig_AR · rollout from context, 5 timesteps</span><span class="pageno">05 / 12</span></div>
 </section>
 
 <section class="slide">
@@ -221,7 +222,7 @@ svg .pt{font:600 9px var(--mono)}
   <p class="sub">Same predictions, scored against the LiDAR ground truth instead of the teacher. The grey dashed line is <span class="mono">OrigVsGT</span> — the frozen DA3 teacher's own error, which no tokenizer change can cross. At ep 67 — KITTI −2.2% / −1.9% / −0.3%; nuScenes <b>+0.4% / +0.7% / +1.4%</b>.</p>
   <div class="body"><div style="display:flex;flex-direction:column;height:100%;gap:6px"><div class="legend top"><span><i class="sw" style="border-color:var(--s1)"></i>cov 3e-5 <b>this arm</b></span><span><i class="sw" style="border-color:var(--s2);opacity:.5"></i>cov 0 · the matched control (BSC:45296347)</span><span><i class="sw" style="border-color:var(--s3);opacity:.5"></i>sigreg 0.01 · the axis best (BSC:45106935)</span></div>
     <div style="flex:1;min-height:0"><div class="g6"><div class="pan"><div class="ptitle">Depth <span style="color:var(--accent)">· KITTI</span> <span></span></div><div class="plot" id="p6a"></div></div><div class="pan"><div class="ptitle">Pointmap <span style="color:var(--accent)">· KITTI</span> <span></span></div><div class="plot" id="p6b"></div></div><div class="pan"><div class="ptitle">Raymap <span style="color:var(--accent)">· KITTI</span> <span></span></div><div class="plot" id="p6c"></div></div><div class="pan"><div class="ptitle">Depth <span style="color:var(--accent)">· nuScenes</span> <span></span></div><div class="plot" id="p6d"></div></div><div class="pan"><div class="ptitle">Pointmap <span style="color:var(--accent)">· nuScenes</span> <span></span></div><div class="plot" id="p6e"></div></div><div class="pan"><div class="ptitle">Raymap <span style="color:var(--accent)">· nuScenes</span> <span></span></div><div class="plot" id="p6f"></div></div></div></div></div></div>
-  <div class="foot"><span>PredVsGT · grey dashed = frozen-teacher floor (OrigVsGT), identical for every arm</span><span class="pageno">06 / 11</span></div>
+  <div class="foot"><span>PredVsGT · grey dashed = frozen-teacher floor (OrigVsGT), identical for every arm</span><span class="pageno">06 / 12</span></div>
 </section>
 <section class="slide">
   <div class="eyebrow">Two width references <span class="dim">— tc1536, no bottleneck at all; tc128, the flow thread's tokenizer</span></div>
@@ -235,7 +236,7 @@ svg .pt{font:600 9px var(--mono)}
       <b>Caveats:</b> neither reference is a one-term diff (both <span class="mono">sigreg 0.005</span>); tc128 ran to ep 99, capped at 82 here.</div>
     </div>
   </div>
-  <div class="foot"><span>tc1536 stops at ep 43, tc128 capped at ep 82 · BSC:44590128, 44587238, 44635509, 44846726 · log y on the loss panels</span><span class="pageno">07 / 11</span></div>
+  <div class="foot"><span>tc1536 stops at ep 43, tc128 capped at ep 82 · BSC:44590128, 44587238, 44635509, 44846726 · log y on the loss panels</span><span class="pageno">07 / 12</span></div>
 </section>
 
 <section class="slide">
@@ -251,7 +252,7 @@ svg .pt{font:600 9px var(--mono)}
       <div style="font:11.5px var(--mono);color:var(--ink2);white-space:nowrap">mean L1 &#183; <b>cov 3e-5</b> 0.826 m / 12.6 &#183; <b>cov 0</b> 0.814 m / 13.4 &#183; <b>sigreg 0.01</b> 0.790 m / 12.4</div>
     </div>
   </div>
-  <div class="foot"><span>AR rollout, last forecast frame only &#183; ep 67 (step 76500) &#183; one scene, not the 206-sequence aggregate &#183; GT column is a black error=0 tile</span><span class="pageno">08 / 11</span></div>
+  <div class="foot"><span>AR rollout, last forecast frame only &#183; ep 67 (step 76500) &#183; one scene, not the 206-sequence aggregate &#183; GT column is a black error=0 tile</span><span class="pageno">08 / 12</span></div>
 </section>
 
 <section class="slide">
@@ -267,7 +268,7 @@ svg .pt{font:600 9px var(--mono)}
       <div style="font:11.5px var(--mono);color:var(--ink2);white-space:nowrap">mean L1 &#183; <b>cov 3e-5</b> 0.617 m / 4.7 &#183; <b>cov 0</b> 0.668 m / 4.9 &#183; <b>sigreg 0.01</b> 0.624 m / 5.2</div>
     </div>
   </div>
-  <div class="foot"><span>AR rollout, last forecast frame only &#183; ep 67 (step 76500) &#183; one scene, not the 206-sequence aggregate &#183; GT column is a black error=0 tile</span><span class="pageno">09 / 11</span></div>
+  <div class="foot"><span>AR rollout, last forecast frame only &#183; ep 67 (step 76500) &#183; one scene, not the 206-sequence aggregate &#183; GT column is a black error=0 tile</span><span class="pageno">09 / 12</span></div>
 </section>
 
 <section class="slide">
@@ -282,7 +283,16 @@ svg .pt{font:600 9px var(--mono)}
     <div class="rulebar" style="font-size:12.5px"><b>Cost +2.1%, above the 1% budget.</b> Ep 67 at 40:25:17 against the control's 39:35:27 — 35.7 vs 34.9 min/epoch for two (512,512) Grams and a 1 MB all-reduce.
     <b>Stability clean:</b> no grad-skip or NaN in 72 epochs, and <span class="mono">SIGReg:</span> tracks the control (0.0028 vs 0.0038), so the two terms agree about the code.</div>
   </div>
-  <div class="foot"><span>green = better than the cov=0 control by &gt;0.5% · red = worse by &gt;0.5%</span><span class="pageno">10 / 11</span></div>
+  <div class="foot"><span>green = better than the cov=0 control by &gt;0.5% · red = worse by &gt;0.5%</span><span class="pageno">10 / 12</span></div>
+</section>
+
+<section class="slide">
+  <div class="eyebrow">Dose-response <span class="dim">&#8212; cov_weight 3e-5 / 1e-4 / 3e-4 at one base &#183; BSC 45416718 / 45498520 / 45498521 &#183; both still running</span></div>
+  <h2>More <span class="mono">L_cov</span> buys more rank &#8212; and the rank <span style="color:var(--crit)">does not turn into performance</span>.</h2>
+  <p class="sub">Three doses over the same base, one-term diffs (only <span class="mono">training.cov_weight</span> differs in the resolved config). Raising <span class="mono">cov_weight</span> raises <span class="mono">ZPartRank</span> exactly as intended &#8212; 62.8 &#8594; 93.1 &#8594; 104.2 &#8594; <b>141.0</b> at ep 17, monotone in dose and with no ceiling in range. <b>None of that transfers.</b> What the term buys is <b>convergence speed, not a better optimum</b>: the arms separate early and then come back together. The stronger doses are no better than <span class="mono">3e-5</span> &#8212; <span class="mono">1e-4</span> lands on top of the <span class="mono">cov 0</span> control (+0.0% / &#8722;0.9% token, and +5 to +11% worse under AR rollout), and <span class="mono">3e-4</span> does not clear <span class="mono">3e-5</span> despite 1.5&#215; its rank.</p>
+  <div class="body"><div style="display:flex;flex-direction:column;height:100%;gap:6px"><div class="legend top"><span><i class="sw" style="border-color:var(--s2);opacity:.5"></i>cov 0 &#183; control (BSC:45296347)</span><span><i class="sw" style="border-color:var(--s1)"></i>cov 3e-5 (BSC:45416718)</span><span><i class="sw" style="border-color:var(--s6)"></i><b>cov 1e-4</b> (BSC:45498520)</span><span><i class="sw" style="border-color:var(--s5)"></i>cov 3e-4 (BSC:45498521)</span></div>
+    <div style="flex:1;min-height:0"><div class="g8"><div class="pan"><div class="ptitle">TRAIN ZPartRank <span style="color:var(--accent)">&#183; of 512</span></div><div class="plot" id="p8a"></div></div><div class="pan"><div class="ptitle">TRAIN ZTotalVar <span style="color:var(--accent)">&#183; tr &#931;</span> <span>&#183; dashed 512</span></div><div class="plot" id="p8b"></div></div><div class="pan"><div class="ptitle">LossRecon <span style="color:var(--accent)">&#183; KITTI</span> <span>&#183; token, log y</span></div><div class="plot" id="p8d"></div></div><div class="pan"><div class="ptitle">LossRecon <span style="color:var(--accent)">&#183; nuScenes</span> <span>&#183; token, log y</span></div><div class="plot" id="p8e"></div></div><div class="pan"><div class="ptitle">Depth AR <span style="color:var(--accent)">&#183; KITTI</span> <span>&#183; rollout, log y</span></div><div class="plot" id="p8f"></div></div><div class="pan"><div class="ptitle">Raymap AR <span style="color:var(--accent)">&#183; KITTI</span> <span>&#183; rollout, log y</span></div><div class="plot" id="p8g"></div></div><div class="pan"><div class="ptitle">Depth AR <span style="color:var(--accent)">&#183; nuScenes</span> <span>&#183; rollout, log y</span></div><div class="plot" id="p8h"></div></div><div class="pan"><div class="ptitle">Raymap AR <span style="color:var(--accent)">&#183; nuScenes</span> <span>&#183; rollout, log y</span></div><div class="plot" id="p8i"></div></div></div></div></div></div>
+  <div class="foot"><span>AR panels ep 4&#8211;17 &#183; seed 0, all from scratch &#183; % are ep 12&#8211;17 means &#183; long run: the 3e-5 lead peaks &#8722;11.5% (ep 25), decays to &#8722;7.7% (ep 70)</span><span class="pageno">11 / 12</span></div>
 </section>
 
 <section class="slide">
@@ -306,13 +316,11 @@ svg .pt{font:600 9px var(--mono)}
           The frozen teacher's own error is 2.53 / 3.22 / 1.14 on nuScenes against a 0.35 / 0.48 / 0.24 round-trip, so the tokenizer is 7–13% of what a user sees there. Token-space wins at tc512 are near the point of not mattering downstream.</div></div>
         <div class="takeaway"><div class="n">5</div><div class="tx"><b>nuScenes raymap is the one consistent regression.</b>
           +1.0% TF, +5.0% AR, +1.4% vs GT. Isotropy pressure appears to cost the rotational part of the code on the multi-camera set. Worth one look before this goes on by default.</div></div>
-        <div class="rulebar" style="font-size:13px"><b>Next &#8212; queued.</b> A <span class="mono">cov_weight</span> dose-response at the same base: <span class="mono">BSC:45498520</span> (1e-4) and <span class="mono">BSC:45498521</span> (3e-4), 44 h each, from scratch.
-        <b>This arm is at its equilibrium, not out of wall time:</b> at ep 72 trace is 540.7 against the 512 target with rank flat at 121.1, and the <span class="mono">T=512</span> floor of <span class="mono">L_cov</span> is 3.26 against its actual 3.58 &#8212; only <b>9%</b> of what remains is trace. More weight moves it; more epochs will not.
-        <span class="mono">ZPartRank</span> survives as a target provisionally — rank and recon moved together at matched epochs and matched compute, which is one A/B, not a causal proof.</div>
+        <div class="rulebar" style="font-size:13px"><b>Read on &#8212; the dose-response lands, and it withdraws the case for the term.</b> <span class="mono">BSC:45498520</span> (1e-4) and <span class="mono">BSC:45498521</span> (3e-4), ep 17 of 100, running. <b>More <span class="mono">L_cov</span> reliably buys more <span class="mono">ZPartRank</span></b> &#8212; 62.8 &#8594; 93.1 &#8594; 104.2 &#8594; 141.0, no ceiling &#8212; <b>and none of it turns into performance.</b> The term moves <i>convergence speed</i>, not the value converged to: the 3e-5 gap over <span class="mono">cov 0</span> peaks at &#8722;11.5% around ep 25 and decays to &#8722;7.7% by ep 70, still shrinking when the arm stopped. Above 3e-5 there is no return at all &#8212; 1e-4 sits on the control and is worse under rollout, and 3e-4 fails to clear 3e-5 with 1.5&#215; the rank. <b>Findings 1 and 2 above do not survive this:</b> the ~121 ceiling is gone, and "a new best on the weight axis" reads as an early-epoch lead, not a better endpoint.</div>
       </div>
     </div>
   </div>
-  <div class="foot"><span>plan · docs/research/plan/2026-09-02_sigreg_cov_penalty.md §4–5 · TODO 6</span><span class="pageno">11 / 11</span></div>
+  <div class="foot"><span>plan · docs/research/plan/2026-09-02_sigreg_cov_penalty.md §4–5 · TODO 6</span><span class="pageno">12 / 12</span></div>
 </section>
 
 </div>
@@ -585,6 +593,61 @@ lineChart(document.getElementById("p7c"),{W:400,H:250,L:48,R:36,T:8,B:24,xmin:X0
 lineChart(document.getElementById("p7d"),{W:400,H:250,L:48,R:36,T:8,B:24,xmin:X0,xmax:82,xticks:[20,40,60,80],ymin:0.32,ymax:1.6,yticks:[0.35,0.55,0.9,1.5],log:true,fmt:v=>v.toFixed(2),series:[{data:Pointmap_PredVsOrig_K_t1536,color:'--s5',tag:'1536',width:2.1},{data:Pointmap_PredVsOrig_K_t128,color:'--s6',tag:'128',width:2.1},{data:Pointmap_PredVsOrig_K_cov,color:'--s1',faint:true,width:1.4},{data:Pointmap_PredVsOrig_K_tw,color:'--s2',faint:true,width:1.4},{data:Pointmap_PredVsOrig_K_s01,color:'--s3',faint:true,width:1.4}]});
 lineChart(document.getElementById("p7e"),{W:400,H:250,L:48,R:36,T:8,B:24,xmin:X0,xmax:82,xticks:[20,40,60,80],ymin:30,ymax:340,yticks:[50,130,220,320],fmt:v=>v.toFixed(0),series:[{data:PRE_K_t1536,color:'--s5',tag:'1536',width:2.1},{data:PRE_K_t128,color:'--s6',tag:'128',width:2.1},{data:PRE_K_cov,color:'--s1',faint:true,width:1.4},{data:PRE_K_tw,color:'--s2',faint:true,width:1.4},{data:PRE_K_s01,color:'--s3',faint:true,width:1.4}]});
 lineChart(document.getElementById("p7f"),{W:400,H:250,L:48,R:36,T:8,B:24,xmin:X0,xmax:82,xticks:[20,40,60,80],ymin:5,ymax:78,yticks:[15,32,50,70],fmt:v=>v.toFixed(0)+"%",series:[{data:PCT_K_t1536,color:'--s5',tag:'1536',width:2.1},{data:PCT_K_t128,color:'--s6',tag:'128',width:2.1},{data:PCT_K_cov,color:'--s1',faint:true,width:1.4},{data:PCT_K_tw,color:'--s2',faint:true,width:1.4},{data:PCT_K_s01,color:'--s3',faint:true,width:1.4}]});
+
+/* ===== DATA · the cov_weight dose-response (slide 11) =====
+   Grepped from the live BSC stdout of the two new arms plus the two references:
+   slurm/output/train_deltatok_compose_sigreg_covpen{1e-4,3e-4}_nozn_tc512_bsc_{45498520,45498521}.out,
+   ..._covpen_nozn_tc512_bsc_45416718.out, ..._sigreg_nozn_tc512_bsc_45296347.out.
+   Epochs 0-17, the deepest the two new arms have reached. L_cov here is the trainer's own
+   `Cov:` term on the KEpoch line, not the offline T^2/(C*P)-2T/C+1 estimate used on slide 3;
+   the cov 0 control predates the key, so it has no L_cov series. */
+const X8=0;
+const D_PR_c0=[55.4,29.5,29.4,12.0,19.5,24.8,28.3,32.2,35.2,38.8,43.0,45.7,48.4,50.9,54.9,58.3,60.6,62.8];
+const D_PR_c35=[66.8,66.4,59.0,45.7,50.5,54.4,57.7,61.8,66.4,70.6,74.6,78.0,80.2,82.4,85.0,87.5,90.1,93.1];
+const D_PR_c1e4=[69.6,80.6,68.1,59.6,64.5,70.7,76.5,82.1,86.1,89.0,91.6,93.8,95.4,97.8,100.1,102.1,103.2,104.2];
+const D_PR_c3e4=[73.8,87.6,73.2,79.1,88.8,96.5,102.9,108.3,113.6,117.7,120.2,124.3,129.1,132.6,135.0,136.5,138.4,141.0];
+const D_TV_c0=[494.0539,531.3886,546.5911,646.4751,648.419,640.617,632.0126,622.6896,614.7491,608.7058,600.2058,595.4311,593.3514,589.4996,588.2578,586.7204,584.6177,586.0569];
+const D_TV_c35=[457.6458,468.5431,477.1413,472.5503,482.2138,483.7016,485.608,487.4874,492.8931,497.4328,500.3506,504.8862,505.8094,507.0213,509.2626,510.1804,511.7234,513.5162];
+const D_TV_c1e4=[408.0802,414.9957,417.7491,418.2164,422.9803,431.8639,438.4475,443.5583,447.7084,451.3551,454.1395,455.344,456.9461,458.5108,460.1353,461.5432,461.3593,461.9851];
+const D_TV_c3e4=[335.5879,340.8565,346.0808,357.2389,370.731,379.3582,386.5626,391.4859,396.8003,400.6399,402.6526,405.7262,409.4458,411.5697,413.2254,414.29,415.4461,417.2431];
+const D_RK_c0=[0.1406,0.1383,0.1284,0.1195,0.1119,0.105,0.1003,0.0955,0.0928,0.0886,0.0857,0.0834,0.0815,0.0797,0.0783,0.0757,0.0741,0.0726];
+const D_RK_c35=[0.1407,0.1378,0.1265,0.1161,0.1078,0.1016,0.0966,0.0914,0.0868,0.083,0.0784,0.0753,0.0735,0.0716,0.0698,0.0679,0.0663,0.0643];
+const D_RK_c1e4=[0.1404,0.1377,0.1301,0.1219,0.1124,0.1043,0.0988,0.0944,0.0904,0.087,0.0839,0.0821,0.0801,0.0786,0.0774,0.076,0.0753,0.0745];
+const D_RK_c3e4=[0.1402,0.134,0.1238,0.1119,0.103,0.0945,0.0893,0.0851,0.0823,0.0802,0.0781,0.0755,0.0735,0.0715,0.0705,0.0705,0.0678,0.0671];
+const D_RN_c0=[0.1044,0.0982,0.0902,0.0829,0.0778,0.0729,0.0692,0.0665,0.0646,0.0621,0.0599,0.0584,0.0571,0.0556,0.054,0.0529,0.0518,0.0506];
+const D_RN_c35=[0.102,0.0991,0.0898,0.081,0.0751,0.0708,0.0673,0.0641,0.0609,0.0584,0.0557,0.0533,0.0519,0.0504,0.0491,0.0478,0.0461,0.0449];
+const D_RN_c1e4=[0.1042,0.1011,0.0941,0.0847,0.0782,0.0725,0.0687,0.0658,0.0631,0.0606,0.0589,0.0572,0.0557,0.0547,0.0535,0.0523,0.0518,0.0512];
+const D_RN_c3e4=[0.1039,0.0982,0.0865,0.0781,0.072,0.0664,0.0631,0.0602,0.058,0.057,0.0553,0.0535,0.0521,0.0509,0.05,0.0493,0.0483,0.0475];
+const D_DK_c0=[3.2013,2.7897,2.4147,1.7977,1.5242,1.1833,1.2263,1.147,0.8756,0.7831,0.8215,0.7219,0.7046,0.6632,0.7018,0.6378,0.637,0.5618];
+const D_DK_c35=[3.3318,3.7996,2.2696,1.5821,1.2355,1.2368,1.0302,1.0049,0.8263,0.7681,0.7209,0.6751,0.6993,0.5795,0.6267,0.5881,0.5783,0.5697];
+const D_DK_c1e4=[3.7445,3.4425,2.6521,1.946,1.5577,1.3412,1.1941,1.0036,0.872,0.8945,0.7926,0.7104,0.7654,0.6849,0.7285,0.6745,0.7398,0.7343];
+const D_DK_c3e4=[3.4441,2.6765,1.9359,1.4292,1.4014,1.0989,0.9397,0.8282,0.7111,0.7196,0.7117,0.6174,0.6347,0.6181,0.6311,0.6301,0.5377,0.576];
+
+lineChart(document.getElementById("p8a"),{W:400,H:250,L:46,R:34,T:8,B:24,xmin:X8,xmax:17,xticks:[0,5,10,15],ymin:10,ymax:150,yticks:[10,50,90,130,150],fmt:v=>v.toFixed(0),series:[{data:D_PR_c3e4,color:'--s5',tag:'3e-4',width:2.1},{data:D_PR_c1e4,color:'--s6',tag:'1e-4',width:2.1},{data:D_PR_c35,color:'--s1',tag:'3e-5',width:1.9},{data:D_PR_c0,color:'--s2',faint:true,width:1.5}]});
+lineChart(document.getElementById("p8b"),{W:400,H:250,L:46,R:34,T:8,B:24,xmin:X8,xmax:17,xticks:[0,5,10,15],ymin:320,ymax:660,yticks:[330,440,550,650],fmt:v=>v.toFixed(0),series:[{data:D_TV_c3e4,color:'--s5',tag:'3e-4',width:2.1},{data:D_TV_c1e4,color:'--s6',tag:'1e-4',width:2.1},{data:D_TV_c35,color:'--s1',tag:'3e-5',width:1.9},{data:D_TV_c0,color:'--s2',faint:true,width:1.5},{data:new Array(18).fill(512),color:'--crit',faint:true,dash:'4 4',width:1.2}]});
+lineChart(document.getElementById("p8d"),{W:400,H:250,L:46,R:34,T:8,B:24,xmin:X8,xmax:17,xticks:[0,5,10,15],ymin:0.062,ymax:0.143,yticks:[0.065,0.085,0.11,0.14],log:true,fmt:v=>v.toFixed(3),series:[{data:D_RK_c3e4,color:'--s5',tag:'3e-4',width:2.1},{data:D_RK_c1e4,color:'--s6',tag:'1e-4',width:2.1},{data:D_RK_c35,color:'--s1',tag:'3e-5',width:1.9},{data:D_RK_c0,color:'--s2',faint:true,width:1.5}]});
+lineChart(document.getElementById("p8e"),{W:400,H:250,L:46,R:34,T:8,B:24,xmin:X8,xmax:17,xticks:[0,5,10,15],ymin:0.043,ymax:0.107,yticks:[0.045,0.06,0.08,0.105],log:true,fmt:v=>v.toFixed(3),series:[{data:D_RN_c3e4,color:'--s5',tag:'3e-4',width:2.1},{data:D_RN_c1e4,color:'--s6',tag:'1e-4',width:2.1},{data:D_RN_c35,color:'--s1',tag:'3e-5',width:1.9},{data:D_RN_c0,color:'--s2',faint:true,width:1.5}]});
+const D_DAK_c0=[2.1995,1.8847,2.1502,1.8134,1.4129,1.2812,1.3725,1.1788,1.0936,0.9937,1.0588,0.9981,1.0819,0.8715];
+const D_DAK_c35=[1.8054,2.2109,1.5153,1.4072,1.2334,1.1916,1.1405,1.0601,1.1627,0.9176,1.0392,0.7757,0.8616,0.8003];
+const D_DAK_c1e4=[2.636,2.2017,2.0864,1.3869,1.2445,1.36,1.1241,1.0359,1.1172,1.0701,1.0871,1.0348,1.1554,1.2247];
+const D_DAK_c3e4=[1.9531,1.6962,1.3664,1.1257,0.9726,1.0515,0.969,0.8282,0.9608,0.8778,0.9325,0.94,0.7761,0.8706];
+const D_RAK_c0=[3.6159,2.081,2.1205,1.7352,1.2964,1.3127,1.3929,1.1061,1.0312,0.9498,1.102,0.9851,1.0973,0.7885];
+const D_RAK_c35=[2.3971,2.4344,1.5734,1.541,1.158,1.1722,1.1266,1.1037,1.1025,0.8777,1.0727,0.7584,0.8814,0.7708];
+const D_RAK_c1e4=[4.8436,2.3745,2.0722,1.2709,1.2583,1.2962,1.0744,1.0314,1.152,1.0202,1.0084,1.011,1.1467,1.2006];
+const D_RAK_c3e4=[1.9967,1.6589,1.4202,1.0906,0.8902,0.9738,0.9412,0.7484,0.991,0.8419,0.8716,0.9572,0.7163,0.8442];
+const D_DAN_c0=[2.4608,1.7607,1.7265,1.6553,1.5067,1.3381,1.2267,1.2159,1.0173,1.0197,0.9613,0.8998,0.9502,0.7816];
+const D_DAN_c35=[1.971,1.7066,1.6546,1.4124,1.192,1.2061,0.9672,0.9332,0.7717,0.8792,0.8494,0.6942,0.6801,0.7645];
+const D_DAN_c1e4=[2.3407,1.8339,1.5681,1.5267,1.3872,1.1514,1.3231,1.107,1.0091,1.1129,1.106,0.9019,0.905,0.8881];
+const D_DAN_c3e4=[1.822,1.3805,1.3136,1.2029,1.1582,1.0732,1.0452,0.929,0.8707,0.8525,0.79,0.8977,0.8025,0.8149];
+const D_RAN_c0=[5.508,2.6294,1.639,1.443,1.2605,1.1114,0.9931,0.9327,0.7797,0.7124,0.7339,0.6634,0.7034,0.5719];
+const D_RAN_c35=[3.9219,2.0106,1.4892,1.2012,1.0056,0.9992,0.7297,0.6425,0.5988,0.6157,0.6066,0.4861,0.4794,0.488];
+const D_RAN_c1e4=[5.9064,2.5766,1.7429,1.3875,1.2706,1.016,0.9759,0.8457,0.8243,0.8209,0.844,0.7381,0.712,0.6984];
+const D_RAN_c3e4=[2.1846,1.1227,1.013,0.9388,0.8761,0.7838,0.7321,0.6046,0.6019,0.5557,0.564,0.5633,0.5182,0.5371];
+const X8A=4;
+lineChart(document.getElementById("p8f"),{W:400,H:250,L:44,R:32,T:8,B:24,xmin:X8A,xmax:17,xticks:[5,9,13,17],ymin:0.75,ymax:2.7,yticks:[0.8,1.1,1.6,2.6],log:true,fmt:v=>v.toFixed(2),series:[{data:D_DAK_c3e4,color:'--s5',width:2.1},{data:D_DAK_c1e4,color:'--s6',tag:'1e-4',width:2.1},{data:D_DAK_c35,color:'--s1',tag:'3e-5',width:1.9},{data:D_DAK_c0,color:'--s2',faint:true,width:1.5}]});
+lineChart(document.getElementById("p8g"),{W:400,H:250,L:44,R:32,T:8,B:24,xmin:X8A,xmax:17,xticks:[5,9,13,17],ymin:0.69,ymax:5.0,yticks:[0.75,1.2,2.2,4.8],log:true,fmt:v=>v.toFixed(2),series:[{data:D_RAK_c3e4,color:'--s5',width:2.1},{data:D_RAK_c1e4,color:'--s6',tag:'1e-4',width:2.1},{data:D_RAK_c35,color:'--s1',tag:'3e-5',width:1.9},{data:D_RAK_c0,color:'--s2',faint:true,width:1.5}]});
+lineChart(document.getElementById("p8h"),{W:400,H:250,L:44,R:32,T:8,B:24,xmin:X8A,xmax:17,xticks:[5,9,13,17],ymin:0.65,ymax:2.55,yticks:[0.7,1.0,1.5,2.5],log:true,fmt:v=>v.toFixed(2),series:[{data:D_DAN_c3e4,color:'--s5',width:2.1},{data:D_DAN_c1e4,color:'--s6',tag:'1e-4',width:2.1},{data:D_DAN_c35,color:'--s1',tag:'3e-5',width:1.9},{data:D_DAN_c0,color:'--s2',faint:true,width:1.5}]});
+lineChart(document.getElementById("p8i"),{W:400,H:250,L:44,R:32,T:8,B:24,xmin:X8A,xmax:17,xticks:[5,9,13,17],ymin:0.46,ymax:6.1,yticks:[0.5,0.9,2.0,5.9],log:true,fmt:v=>v.toFixed(2),series:[{data:D_RAN_c3e4,color:'--s5',width:2.1},{data:D_RAN_c1e4,color:'--s6',tag:'1e-4',width:2.1},{data:D_RAN_c35,color:'--s1',tag:'3e-5',width:1.9},{data:D_RAN_c0,color:'--s2',faint:true,width:1.5}]});
 </script>
 </body>
 </html>
