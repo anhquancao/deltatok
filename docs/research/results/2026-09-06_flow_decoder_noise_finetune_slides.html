@@ -28,6 +28,8 @@ body{background:var(--backdrop);color:var(--ink);font:15px/1.45 var(--sans);over
 .slide.on{display:flex}
 .eyebrow{font:600 12px/1 var(--mono);letter-spacing:.14em;text-transform:uppercase;color:var(--accent);margin-bottom:12px}
 .eyebrow .dim{color:var(--muted)}
+.eyebrow .when{color:var(--ink);font-variant-numeric:tabular-nums;border-right:1px solid var(--axis);
+  padding-right:9px;margin-right:9px}
 h1{font:400 42px/1.14 var(--serif);letter-spacing:-.01em;text-wrap:balance}
 h2{font:400 29px/1.2 var(--serif);letter-spacing:-.005em;text-wrap:balance;margin-bottom:4px}
 .sub{color:var(--ink2);font-size:14.5px;max-width:80ch;margin-top:9px}
@@ -144,7 +146,7 @@ svg .pt{font:600 9px var(--mono)}
 <div class="stage" id="stage">
 
 <section class="slide on">
-  <div class="eyebrow">DeltaTok flow <span class="dim">— tc128 compose tokenizer · decoder-only finetune on z + sigma&#183;N(0,I), sigma ~ U(0, 0.8) · encoder frozen · BSC 45421190</span></div>
+  <div class="eyebrow"><span class="when">2026-09-06</span>DeltaTok flow <span class="dim">— tc128 compose tokenizer · decoder-only finetune on z + sigma&#183;N(0,I), sigma ~ U(0, 0.8) · encoder frozen · BSC 45421190</span></div>
   <h1 style="font-size:32px">A noise-tolerant decoder buys the flow <span style="color:var(--good)">&#8722;17.6% raymap</span> &#8212; by turning the sampler's step count from a <span style="color:var(--s4)">liability into an asset</span>.</h1>
   <p class="sub">Ten epochs of RAE's recipe (<span class="mono">third_party/RAE/src/stage1/rae.py:74-86</span>) on the decoder half only. <span class="mono">MSEToken</span> reproduces to the digit at every step count,
   so <span class="mono">encode()</span> is bit-identical, the flow is untouched and the decoder is the only thing that changed. Best-achievable against best-achievable over the measured 1&#8230;20-step sweep &#8212;

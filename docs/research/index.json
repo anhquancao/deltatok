@@ -1,12 +1,12 @@
 {
- "generated": "2026-09-07T10:40:28",
+ "generated": "2026-09-07T14:39:19",
  "root": "docs/research",
  "threads": [
   {
    "id": "tc_width",
    "title": "channel and token budget of the delta token",
    "blurb": "How many channels (target_channels, Cz) and tokens (num_delta_tokens, K) the delta code needs, and what sets its usable rank. Rank turned out to be set by SIGReg weight, not width, so this thread and sigreg share their open question.",
-   "open": "Where sigreg_weight turns over at tc512 and whether the optimum scales with Cz. Arms BSC:45296347–49 pending, read at ep 67."
+   "open": "Where sigreg_weight turns over at tc512 and whether the optimum scales with Cz. Arms BSC:45296347–49 pending, read at ep 67. New 2026-09-07: does a noisy channel the encoder must survive raise usable rank off the ~92–105/512 shelf, where the cov_weight axis raised rank without raising recon? plan/2026-09-07_tc_width_decnoise_e2e_tc512.md, BSC:45529827 running."
   },
   {
    "id": "sigreg",
@@ -47,6 +47,35 @@
  ],
  "docs": [
   {
+   "id": "plan/2026-09-07_tc_width_decnoise_e2e_tc512.md",
+   "stage": "plan",
+   "ext": "md",
+   "date": "2026-09-07",
+   "thread": "tc_width",
+   "slug": "decnoise_e2e_tc512",
+   "title": "tc_width — end-to-end decoder-noise training of the tc512 compose tokenizer",
+   "bytes": 5804,
+   "question": "Fold the RAE decoder noise into end-to-end tokenizer training at tc512 — encoder and decoder joint, gradient through z + σ·ε, SIGReg and compose still on the clean z. Does the ladder flatten without paying clean recon, and does a noisy channel raise ZPartRank off the 92–105/512 shelf?",
+   "verdict": "BSC:45529827. One arm ..._compose1.0_decnoise0.8 against the twin BSC:45296347, 100 ep read at ep 40 / 72 / 80; 40 h a job, so ~61 h of training needs a chain. Routed here by falsifier 3 of plan/2026-09-04_flow_decoder_noise_finetune.md",
+   "status": "open",
+   "jobs": [
+    "45529827"
+   ],
+   "jobs_seen": [
+    "45296347"
+   ],
+   "todos": [],
+   "meta": {
+    "created": "2026-09-07",
+    "thread": "tc_width",
+    "arms": "deltatok_l12_dtok64_tc512_nozn_maxgap9_vpt1to2_sigreg0.02_ns1024_pool8192_compose1.0_decnoise0.8",
+    "control": "deltatok_l12_dtok64_tc512_nozn_maxgap9_vpt1to2_sigreg0.02_ns1024_pool8192_compose1.0 (BSC:45296347)",
+    "jobs_raw": "BSC:45529827"
+   },
+   "in_ledger": true,
+   "body": "# tc_width — end-to-end decoder-noise training of the tc512 compose tokenizer\n\nCreated 2026-09-07 · thread `tc_width` · prior cycle:\n[`../plan/2026-09-04_flow_decoder_noise_finetune.md`](../plan/2026-09-04_flow_decoder_noise_finetune.md)\n· arm: `deltatok_l12_dtok64_tc512_nozn_maxgap9_vpt1to2_sigreg0.02_ns1024_pool8192_compose1.0_decnoise0.8`\n· control: `deltatok_l12_dtok64_tc512_nozn_maxgap9_vpt1to2_sigreg0.02_ns1024_pool8192_compose1.0` (`BSC:45296347`)\n· jobs: `BSC:45529827`\n\nEncoder + decoder trained jointly from scratch with `decode_noise_tau=0.8`. The add `z_dec = z + σ·ε`\n(`occrae/deltatok_trainer.py:470-497`) is differentiable, so the encoder trains through the noised decode.\nSIGReg, cov and the compose sum keep reading the clean `z`. Four files, one new script.\n\n## 1 `configs/deltatok/train_deltatok.yaml`\n\nTwo keys, default-off.\n\n```yaml\n  sigreg_warmup: 0\n  decode_noise_warmup: 0  # linear ramp of decode_noise_tau over N iters (0 = constant)\n  ...\n  eval_z_spread: true\n  eval_noise_sigmas: []  # eval decodes z + σ·N(0,I) per σ, logged as LossRecon_noise<σ>\n```\n\n## 2 `occrae/deltatok_trainer.py`\n\n### 2a Tau ramp — `get_network`, beside the startup print (`:812-815`)\n\n```python\nself._decode_noise_tau_cfg = float(model._decode_noise_tau)\nself._decode_noise_warmup = int(self.cfg.training.get(\"decode_noise_warmup\", 0))\nprint(f\"decode_noise_tau={self._decode_noise_tau_cfg} decode_noise_warmup={self._decode_noise_warmup}\")\n```\n\n### 2b Tau ramp — `train_one_epoch`, top of each micro-batch (after `:1045`, before the forward)\n\nSame ramp form as SIGReg at `:1155`, written onto the real module via `_unwrapped_tokenizer()` (`:844`).\n\n```python\nw = self._decode_noise_warmup\nramp = 1.0 if w <= 0 else min(1.0, self.cfg.training.iter / max(1, w))\nself._unwrapped_tokenizer()._decode_noise_tau = self._decode_noise_tau_cfg * ramp\n```\n\nOne line beside `Train/LossSIGReg` at `:1224`: `self.log_add_scalar('Train/DecodeNoiseTau', ..., self.cfg.training.iter)`.\n\n### 2c Eval ladder — eval loop (`:1340-1386`)\n\nThe single-pair call always uses `return_z=True` (the `z_spread` branch is unchanged; the other branch discards\n`z`). After `loss_recon`:\n\n```python\nfor s in self._eval_noise_sigmas:                                   # tuple of floats from cfg\n    eps = torch.randn(z_bneck.shape, generator=self._eval_noise_gen,\n                      device=z_bneck.device, dtype=z_bneck.dtype)   # (M, N, K, Cz) seeded draw\n    with self.autocast:\n        x_hat_n = self.tokenizer(x_prev, None, H, W, num_cameras=num_cameras,\n                                 z_input=z_bneck + s * eps)         # (M, N, P, C) same path as Comp at :1374\n    batch_losses[f\"LossRecon_noise{s:g}\"] = _log_cosh(x_hat_n.float(), x.float()).mean().item()\n```\n\n`self._eval_noise_gen = torch.Generator(device).manual_seed(training.seed)` at the start of every\n`eval_one_epoch` (`:1251`), as in `deltatok_flow_trainer.py:770`. The module is in eval mode there, so the\ntrain-time hook cannot double-noise.\n\n## 3 `occrae/metric.py`\n\n`_EVAL_LOSS_KEYS` is a fixed tuple and `compute()` iterates it (`:35`, `:46`). `DeltaTokEvalMetric.__init__`\ngains `extra_keys=()`; the state loop and `compute()` iterate `_EVAL_LOSS_KEYS + extra_keys`; the state attr\nstrips the `.` (`sum_LossRecon_noise0_32`). Both construction sites (`deltatok_trainer.py:1675`, `:1769`) pass\n`extra_keys=tuple(f\"LossRecon_noise{s:g}\" for s in sigmas)`. The `[Eval/…]` stdout line at `:1414` and TB pick\nthe keys up unchanged.\n\n## 4 `slurm/deltatok/train_deltatok_compose_sigreg_decnoise_nozn_tc512_bsc.slurm`\n\n```bash\ncp slurm/deltatok/train_deltatok_compose_sigreg_nozn_tc512_bsc.slurm \\\n   slurm/deltatok/train_deltatok_compose_sigreg_decnoise_nozn_tc512_bsc.slurm\n```\n\nChange only:\n\n```\n--job-name=deltatok_decnoise_bsc   --account=ehpc1001   --time=40:00:00\n--output/--error = slurm/output/train_deltatok_compose_sigreg_decnoise_nozn_tc512_bsc_%j.{out,err}\nexport SIGREG_WEIGHT=${SIGREG_WEIGHT:-0.02}      # twin BSC:45296347\nexport DECNOISE_TAU=${DECNOISE_TAU:-0.8}\nexport DECNOISE_WARMUP=${DECNOISE_WARMUP:-2000}  # = SIGREG_WARMUP\nRUN_NAME=...sigreg${SIGREG_WEIGHT}_ns${SIGREG_NUM_SLICES}_pool${SIGREG_POOL_SAMPLES}_compose${COMPOSE_WEIGHT}_decnoise${DECNOISE_TAU}\n+ model.deltatok.decode_noise_tau=${DECNOISE_TAU}\n+ training.decode_noise_warmup=${DECNOISE_WARMUP}\n+ training.eval_noise_sigmas=[0.32,0.55,0.82]\n```\n\n## 5 Control ladder — no code\n\n`sh/train_deltatok.sh:26` maps `EVAL_ONLY=1` to `--eval-only`; `train_deltatok.py:136` runs one eval with\n`test_only` set. Same script, env overrides, fresh `RUN_NAME` so it does not resume the twin:\n\n```bash\nEVAL_ONLY=1 DECNOISE_TAU=0 RUN_NAME=<fresh> \\\nINIT_CKPT=$SCRATCH/deltatok_log/deltatok_l12_dtok64_tc512_nozn_maxgap9_vpt1to2_sigreg0.02_ns1024_pool8192_compose1.0/ckpts/epoch_80.pth \\\nsbatch --qos=acc_debug --time=01:00:00 slurm/deltatok/train_deltatok_compose_sigreg_decnoise_nozn_tc512_bsc.slurm\n```\n\n## 6 Pre-flight on BSC (user syncs), then submit\n\n```bash\nssh bsc \"bash -lc 'cd /gpfs/projects/ehpc1001/code/deltatok && grep -n decode_noise_warmup occrae/deltatok_trainer.py configs/deltatok/train_deltatok.yaml && grep -n eval_noise_sigmas occrae/deltatok_trainer.py configs/deltatok/train_deltatok.yaml && grep -n extra_keys occrae/metric.py && grep -E \\\"RUN_NAME=|decode_noise|eval_noise_sigmas|--time|--account\\\" slurm/deltatok/train_deltatok_compose_sigreg_decnoise_nozn_tc512_bsc.slurm'\"\nssh bsc \"bash -lc 'cd /gpfs/projects/ehpc1001/code/deltatok && sbatch slurm/deltatok/train_deltatok_compose_sigreg_decnoise_nozn_tc512_bsc.slurm'\"\n```\n\nWatch until the first `[KEpoch` line; the `.out` must show `decode_noise_tau=0.8 decode_noise_warmup=2000`,\n`encoder_blocks … trainable= 340.465M` (not `0.000M`), and `DecodeNoiseTau` reaching 0.8 by iter 2000.\n"
+  },
+  {
    "id": "results/2026-09-06_flow_decoder_noise_finetune_slides.html",
    "stage": "results",
    "ext": "html",
@@ -54,7 +83,7 @@
    "thread": "flow",
    "slug": "decoder_noise_finetune_slides",
    "title": "DeltaTok — a noise-tolerant decoder",
-   "bytes": 3375150,
+   "bytes": 3374718,
    "question": "The finetuned decoder against the source at every σ and at N=1…20, the checks that had to hold, and decoded frames with L1 error maps",
    "verdict": "Best achievable raymap −17.6%, pointmap −9.1%, optimum moving N=2 → N=20; −35.5% raymap at matched N=20. N=1 is the one loss (+17.7%): the 1-step error is structured, not isotropic. Adopt epoch_10 as the flow's tokenizer",
    "status": "",
@@ -82,7 +111,7 @@
    "thread": "sigreg",
    "slug": "cov_penalty_tc512_slides",
    "title": "DeltaTok — a covariance penalty on the SIGReg pool",
-   "bytes": 2172436,
+   "bytes": 2172765,
    "question": "The cov_weight=3e-5 arm against its cov 0 twin and the axis-best sigreg 0.01 at matched ep 67 — token recon, depth / pointmap / raymap, the no-bottleneck tc1536 reference, and decoded frames with L1 error maps",
    "verdict": "Token recon wins on both sets and it is a new best, narrowly (nuScenes margin 0.8%). Round-trip geometry −3 to −18%, but against GT the win is ≤2.2% on KITTI and slightly negative on nuScenes. 68% of the L_cov drop is trace",
    "status": "",
@@ -1684,6 +1713,27 @@
    "updates": []
   },
   {
+   "num": 13,
+   "status": "running",
+   "item": "End-to-end noisy-channel tokenizer at tc512: fold z + σ·ε into training with the encoder in the graph",
+   "thread": "tc_width",
+   "paper": "ablation: noise in the latent",
+   "note": "../research/plan/2026-09-07_tc_width_decnoise_e2e_tc512.md. Submitted 2026-09-07 as BSC:45529827. Routed here by falsifier 3 of TODO 12's plan: *\"the pair needs a from-scratch noisy tokenizer, which changes z and is a tc_width/sigreg question, not a flow one.\"* One arm — copy of slurm/deltatok/train_deltatok_compose_sigreg_nozn_tc512_bsc.slurm with model.deltatok.decode_noise_tau=0.8 · training.decode_noise_warmup=2000 · training.eval_noise_sigmas=[0.32,0.55,0.82], RUN_NAME=..._compose1.0_decnoise0.8, 100 ep at 0.61 h/ep measured on the twin → ~61 h; shipped at 40 h a job per the BSC backfill convention, so it needs one chained resume. Unlike TODO 12 the encoder is not frozen: the add is differentiable, so the encoder optimises a code that must survive the channel, while SIGReg and the compose sum keep reading the clean z. Two new knobs (the τ ramp, and the tokenizer's own noise ladder as an [Eval/…] scalar — no tc512 flow checkpoint exists, so the ladder cannot be read the way TODO 12 read it) plus an eval-only job on the twin's epoch_80.pth for the \"before\" ladder. Control BSC:45296347 at matched ep 40 / 72 / 80. Tripwire at ep 12. Motivation: the cov_weight dose-response (TODO 6) shows train ZPartRank monotone in dose to 141.0 with none of it transferring to recon, so a term that pushes E[zzᵀ]→I is answered; a noisy channel applies the pressure through the reconstruction loss instead",
+   "note_md": "`../research/plan/2026-09-07_tc_width_decnoise_e2e_tc512.md`. **Submitted 2026-09-07 as BSC:45529827.** Routed here by falsifier 3 of TODO 12's plan: *\"the pair needs a from-scratch noisy tokenizer, which changes `z` and is a `tc_width`/`sigreg` question, not a flow one.\"* One arm — copy of `slurm/deltatok/train_deltatok_compose_sigreg_nozn_tc512_bsc.slurm` with `model.deltatok.decode_noise_tau=0.8` · `training.decode_noise_warmup=2000` · `training.eval_noise_sigmas=[0.32,0.55,0.82]`, `RUN_NAME=..._compose1.0_decnoise0.8`, 100 ep at 0.61 h/ep measured on the twin → ~61 h; shipped at 40 h a job per the BSC backfill convention, so it needs one chained resume. Unlike TODO 12 the encoder is **not** frozen: the add is differentiable, so the encoder optimises a code that must survive the channel, while SIGReg and the compose sum keep reading the clean `z`. Two new knobs (the τ ramp, and the tokenizer's own noise ladder as an `[Eval/…]` scalar — no tc512 flow checkpoint exists, so the ladder cannot be read the way TODO 12 read it) plus an eval-only job on the twin's `epoch_80.pth` for the \"before\" ladder. Control `BSC:45296347` at matched ep 40 / 72 / 80. Tripwire at ep 12. Motivation: the `cov_weight` dose-response (TODO 6) shows train `ZPartRank` monotone in dose to 141.0 with **none of it transferring** to recon, so a term that pushes `E[zzᵀ]→I` is answered; a noisy channel applies the pressure through the reconstruction loss instead",
+   "closed": "",
+   "state": "open",
+   "source": "docs/todo/02-09-2026.md",
+   "order": 10,
+   "jobs": [
+    "45529827",
+    "45296347"
+   ],
+   "docs": [
+    "plan/2026-09-07_tc_width_decnoise_e2e_tc512.md"
+   ],
+   "updates": []
+  },
+  {
    "num": 5,
    "status": "dropped",
    "item": "Re-read the width sweep at the calibrated weight",
@@ -1745,6 +1795,11 @@
   {
    "from": "results/2026-07-07_tc_width_num_delta_tokens_ablation.html",
    "to": "results/2026-07-07_tc_width_pointmap_predvsorig_losses.csv",
+   "kind": "ref"
+  },
+  {
+   "from": "plan/2026-09-07_tc_width_decnoise_e2e_tc512.md",
+   "to": "plan/2026-09-04_flow_decoder_noise_finetune.md",
    "kind": "ref"
   },
   {
@@ -2013,6 +2068,11 @@
    "kind": "ref"
   },
   {
+   "from": "plan/2026-09-07_tc_width_decnoise_e2e_tc512.md",
+   "to": "plan/2026-09-04_flow_decoder_noise_finetune.md",
+   "kind": "prior"
+  },
+  {
    "from": "results/2026-07-07_tc_width_num_delta_tokens_ablation.html",
    "to": "plan/2026-07-03_tc_width_num_delta_tokens_sweep.html",
    "kind": "ref"
@@ -2200,6 +2260,11 @@
   {
    "from": "todo/12",
    "to": "results/2026-09-04_flow_decoder_noise_probe.md",
+   "kind": "todo"
+  },
+  {
+   "from": "todo/13",
+   "to": "plan/2026-09-07_tc_width_decnoise_e2e_tc512.md",
    "kind": "todo"
   },
   {

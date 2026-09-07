@@ -650,6 +650,10 @@ class DeltaTokTrainer(DeltaTokSharedMixin, Trainer):
         # sigreg arm and its plain twin comparable.
         self._z_spread_eval = bool(self.cfg.training.get("eval_z_spread", True))
 
+        # Eval-only noise ladder: decode z + sigma*N(0,I) per sigma. [] = off, nothing changes.
+        self._eval_noise_sigmas = tuple(float(x) for x in self.cfg.training.get("eval_noise_sigmas", []))
+        self._eval_noise_keys = tuple(f"LossRecon_noise{x:g}" for x in self._eval_noise_sigmas)
+
         # Additive composition: sample 3 timesteps, encode both hops, add z_a + z_b,
         # decode the sum. 0 = off (single-pair path is bit-identical).
         self._compose_weight = float(self.cfg.training.get("compose_weight", 0.0))
@@ -809,9 +813,14 @@ class DeltaTokTrainer(DeltaTokSharedMixin, Trainer):
                 if mod is not None:
                     mod.requires_grad_(True)
 
+        # The module's attribute is the live tau; train_one_epoch ramps it toward this target.
+        self._decode_noise_tau_cfg = float(model._decode_noise_tau)
+        self._decode_noise_warmup = int(self.cfg.training.get("decode_noise_warmup", 0))
+
         if self.is_master:
             # A silently-unset knob otherwise reads as a null result.
-            print(f"decode_noise_tau={model._decode_noise_tau}")
+            print(f"decode_noise_tau={self._decode_noise_tau_cfg} "
+                  f"decode_noise_warmup={self._decode_noise_warmup}")
             _print_param_breakdown(model, archi)
 
         model = model.to(self.device)
@@ -1078,6 +1087,13 @@ class DeltaTokTrainer(DeltaTokSharedMixin, Trainer):
 
             self.adapt_learning_rate()
 
+            # Same ramp form as SIGReg below: full noise from step 0 fights the code
+            # before it forms. Written on the real module, so DDP/compile see it.
+            if self._decode_noise_tau_cfg > 0:
+                w = self._decode_noise_warmup
+                ramp = 1.0 if w <= 0 else min(1.0, self.cfg.training.iter / w)
+                self._unwrapped_tokenizer()._decode_noise_tau = self._decode_noise_tau_cfg * ramp
+
             imgs = batch["imgs"].to(self.device, non_blocking=True)
             num_cameras = batch.get("num_cameras", 1)
 
@@ -1222,6 +1238,7 @@ class DeltaTokTrainer(DeltaTokSharedMixin, Trainer):
                     self.log_add_scalar('Train/LearningRate', self.optim.param_groups[0]['lr'], self.cfg.training.iter)
                     self.log_add_scalar('Train/LossRecon', loss, self.cfg.training.iter)
                     self.log_add_scalar('Train/LossSIGReg', loss_sigreg if loss_sigreg is not None else 0.0, self.cfg.training.iter)
+                    self.log_add_scalar('Train/DecodeNoiseTau', self._unwrapped_tokenizer()._decode_noise_tau, self.cfg.training.iter)
                     self.log_add_scalar('Train/LossCov', loss_cov if loss_cov is not None else 0.0, self.cfg.training.iter)
                     self.log_add_scalar('Train/LossBneck', loss_bneck if loss_bneck is not None else 0.0, self.cfg.training.iter)
                     self.log_add_scalar('Train/LossCompose', loss_compose if loss_compose is not None else 0.0, self.cfg.training.iter)
@@ -1253,6 +1270,10 @@ class DeltaTokTrainer(DeltaTokSharedMixin, Trainer):
             return torch.tensor(0.0, device=self.device)
 
         self.tokenizer.eval()
+
+        # Re-seed so the noise ladder replays the same eps at every eval; offset per rank.
+        self._eval_noise_gen = torch.Generator(device=self.device).manual_seed(
+            int(self.cfg.training.seed) + 10007 * self.rank)
 
         if sanity_check:
             eval_num_items_global = int(self.cfg.training.get("sanity_check_num_items", 4))
@@ -1338,11 +1359,11 @@ class DeltaTokTrainer(DeltaTokSharedMixin, Trainer):
             num_cameras = batch.get("num_cameras", 1)
             tokens, feats, x_prev, x, H, W = self._extract_pair_feats(imgs, num_cameras=num_cameras)
             with self.autocast:
+                # Always keep z: the noise ladder decodes it a second time, and the
+                # module is in eval mode so the train-time noise hook cannot fire.
+                x_hat, z_bneck = self.tokenizer(x_prev, x, H, W, num_cameras=num_cameras, return_z=True)
                 if z_spread is not None:
-                    x_hat, z_bneck = self.tokenizer(x_prev, x, H, W, num_cameras=num_cameras, return_z=True)
                     z_spread.update(z_bneck)
-                else:
-                    x_hat = self.tokenizer(x_prev, x, H, W, num_cameras=num_cameras)
 
             with torch.autocast(device_type="cuda", enabled=False):
                 loss_recon = _log_cosh(x_hat.float(), x.float()).mean()
@@ -1384,6 +1405,18 @@ class DeltaTokTrainer(DeltaTokSharedMixin, Trainer):
                 "LossRecon_AR": loss_recon_ar.detach().float().item(),
                 "LossRecon_Comp": loss_recon_comp.detach().float().item(),
             }
+
+            # Noise ladder: same decode path as Comp above, fed z + sigma*eps at each fixed
+            # sigma. Measures how far the decoder tolerates a wrong code, not how good z is.
+            for sig in self._eval_noise_sigmas:
+                eps = torch.randn(z_bneck.shape, generator=self._eval_noise_gen,
+                                  device=z_bneck.device, dtype=z_bneck.dtype)  # (M, N, K, Cz) seeded draw
+                with self.autocast:
+                    x_hat_n = self.tokenizer(x_prev, None, H, W, num_cameras=num_cameras,
+                                             z_input=z_bneck + sig * eps)      # (M, N, P, C)
+                with torch.autocast(device_type="cuda", enabled=False):
+                    batch_losses[f"LossRecon_noise{sig:g}"] = _log_cosh(
+                        x_hat_n.float(), x.float()).mean().item()
 
             if "gt_mask" in batch:
                 geom_losses, num_vis = self._eval_batch_geometry(
@@ -1672,7 +1705,8 @@ class DeltaTokTrainer(DeltaTokSharedMixin, Trainer):
                         drop_last=False,
                     )
                     self.test_loaders[test_name] = loader
-                    self.eval_metrics[test_name] = DeltaTokEvalMetric().to(self.device)
+                    self.eval_metrics[test_name] = DeltaTokEvalMetric(
+                        extra_keys=self._eval_noise_keys).to(self.device)
                     if self.is_master:
                         print(f"  - {test_name}: {len(loader)} batches")
                 except Exception as e:
@@ -1766,7 +1800,8 @@ class DeltaTokTrainer(DeltaTokSharedMixin, Trainer):
                 drop_last=False,
             )
             self.test_loaders[test_name] = loader
-            self.eval_metrics[test_name] = DeltaTokEvalMetric().to(self.device)
+            self.eval_metrics[test_name] = DeltaTokEvalMetric(
+                extra_keys=self._eval_noise_keys).to(self.device)
             if self.is_master:
                 print(f"  - {test_name}: {len(loader)} batches")
 

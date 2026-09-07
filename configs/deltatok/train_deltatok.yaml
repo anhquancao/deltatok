@@ -120,6 +120,7 @@ training:
   sigreg_weight: 0.0
   sigreg_num_slices: 256  # random 1D projections per step (more = lower-variance estimate)
   sigreg_warmup: 0  # linear ramp of sigreg_weight over N iters (0 = constant from step 0)
+  decode_noise_warmup: 0  # linear ramp of decode_noise_tau over N iters (0 = constant)
   # Rolling FIFO pool of recent z rows the estimator runs over, as a GLOBAL row count
   # (each rank holds 1/world_size of it; the CF all-reduce pools ranks). Sized to clear the
   # finite-sample floor -- ~0.0085 at S=128,C=768, which buries a rank-290 collapse. Pressure
@@ -136,6 +137,7 @@ training:
   # loader's rows pooled across ranks. Runs with or without SIGReg -- that is what makes
   # a sigreg arm and its plain twin comparable.
   eval_z_spread: true
+  eval_noise_sigmas: []  # eval decodes z + σ·N(0,I) per σ, logged as LossRecon_noise<σ>
   seed: 0
   eval_num_items: 256
   eval_num_visualizations: 8

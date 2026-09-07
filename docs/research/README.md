@@ -20,7 +20,7 @@ links between them drawn on click. It reads [`index.json`](index.json), built fr
 
 | Thread | Open |
 |---|---|
-| [`tc_width`](#tc_width--channel-and-token-budget-of-the-delta-token) | Where `sigreg_weight` turns over at tc512 and whether the optimum scales with Cz. Arms BSC:45296347–49 pending, read at ep 67. |
+| [`tc_width`](#tc_width--channel-and-token-budget-of-the-delta-token) | Where `sigreg_weight` turns over at tc512 and whether the optimum scales with Cz. Arms BSC:45296347–49 pending, read at ep 67. New 2026-09-07: does a noisy channel the encoder must survive raise usable rank off the ~92–105/512 shelf, where the `cov_weight` axis raised rank without raising recon? [`plan/2026-09-07_tc_width_decnoise_e2e_tc512.md`](plan/2026-09-07_tc_width_decnoise_e2e_tc512.md), BSC:45529827 running. |
 | [`sigreg`](#sigreg--making-the-delta-code-spread) | Does a direct `‖E[zzᵀ]−I‖²_F` penalty break the ~90/512 rank ceiling? Plan only, no code, not submitted. The `weight ∝ Cz` question is tracked in `tc_width`. |
 | [`compose`](#compose--additive-composition-of-delta-tokens) | Composed ≠ autoregressive. Whether a short-schedule plain arm buys composability for free. |
 | [`pair_sampling`](#pair_sampling--which-frame-pairs-and-gaps-the-tokenizer-trains-on) | None. |
@@ -55,6 +55,7 @@ question.
 | 2026-09-01 | [sigreg_weight_tc512](plan/2026-09-01_tc_width_sigreg_weight_tc512.md) | plan, **open** | Where `sigreg_weight` turns over at tc512; is it `∝ Cz`? | Arms 0.02 / 0.04 / 0.08 = BSC:45296347–49, read at ep 67 |
 | 2026-09-01 | [tc512_sigreg_weight_slides](results/2026-09-01_tc_width_tc512_sigreg_weight_slides.html) | results | Deck for Q3/Q4 | 0.005 vs 0.01 vs sigregsum at ep 67 |
 | 2026-09-04 | [tc512_sigreg_weight_axis_slides](results/2026-09-04_tc_width_tc512_sigreg_weight_axis_slides.html) | results | The whole 0.002…0.08 axis at tc512, plus the composed-sum variant at 0.005 and 0.02 | Broad plateau 0.01–0.04 (6% spread), break at 0.08; rank saturates near 100/512; the sum's 0.005 win reverses to +8% at 0.02 |
+| 2026-09-07 | [decnoise_e2e_tc512](plan/2026-09-07_tc_width_decnoise_e2e_tc512.md) | plan, **open** | Fold the RAE decoder noise into end-to-end tokenizer training at tc512 — encoder and decoder joint, gradient through `z + σ·ε`, SIGReg and compose still on the clean `z`. Does the ladder flatten without paying clean recon, and does a noisy channel raise `ZPartRank` off the 92–105/512 shelf? | BSC:45529827. One arm `..._compose1.0_decnoise0.8` against the twin BSC:45296347, 100 ep read at ep 40 / 72 / 80; 40 h a job, so ~61 h of training needs a chain. Routed here by falsifier 3 of [`plan/2026-09-04_flow_decoder_noise_finetune.md`](plan/2026-09-04_flow_decoder_noise_finetune.md) |
 
 ## sigreg — making the delta code spread
 

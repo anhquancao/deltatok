@@ -27,23 +27,29 @@ _EVAL_LOSS_KEYS = (
 )
 
 
-class DeltaTokEvalMetric(torchmetrics.Metric):
-	"""Weighted-mean eval losses with automatic distributed reduction."""
+def _state_name(key: str) -> str:
+	# '.' separates submodules in a state_dict, so sigma keys (LossRecon_noise0.32) drop it.
+	return "sum_" + key.replace(".", "_")
 
-	def __init__(self, **kwargs):
+
+class DeltaTokEvalMetric(torchmetrics.Metric):
+	"""Weighted-mean eval losses with automatic distributed reduction; extra_keys extend the set."""
+
+	def __init__(self, extra_keys: tuple = (), **kwargs):
 		super().__init__(**kwargs)
-		for key in _EVAL_LOSS_KEYS:
-			self.add_state(f"sum_{key}", default=torch.tensor(0.0), dist_reduce_fx="sum")
+		self._loss_keys = _EVAL_LOSS_KEYS + tuple(extra_keys)
+		for key in self._loss_keys:
+			self.add_state(_state_name(key), default=torch.tensor(0.0), dist_reduce_fx="sum")
 		self.add_state("count", default=torch.tensor(0, dtype=torch.long), dist_reduce_fx="sum")
 
 	def update(self, batch_size: int, **losses: float) -> None:
 		for key, value in losses.items():
-			getattr(self, f"sum_{key}").add_(value * batch_size)
+			getattr(self, _state_name(key)).add_(value * batch_size)
 		self.count += batch_size
 
 	def compute(self) -> dict[str, torch.Tensor]:
 		n = self.count.float().clamp(min=1)
-		return {key: getattr(self, f"sum_{key}") / n for key in _EVAL_LOSS_KEYS}
+		return {key: getattr(self, _state_name(key)) / n for key in self._loss_keys}
 
 
 @torch.no_grad()

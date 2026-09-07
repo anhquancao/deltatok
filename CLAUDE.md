@@ -5,6 +5,9 @@
 - Never add `Co-Authored-By` or `Claude-Session` trailers to commit messages.
 - Ask clarifying questions or offer choices via `AskUserQuestion`, never inline in plain text.
 - On multi-step tasks, post a one-line progress update as each step finishes, not in a batch.
+- A plan (shown or written to `docs/research/plan/`) contains only the code implementation: files, lines,
+  exact edits, scripts, pre-flight. No hypothesis, justification, read tables, or ledger rows unless asked.
+  Show the plan and wait for a go before editing code.
 
 ## Response style
 
