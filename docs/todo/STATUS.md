@@ -6,7 +6,7 @@ but not yet read into a `results/` doc. [`02-09-2026.md`](02-09-2026.md) keeps t
 Job states come from `../../monitor_jobs/data/monitor_jobs.json` (read the file, never the server); epochs come from
 the cached `logs/BSC/*.out`. Every row says what to grep and where the number goes.
 
-**As of 2026-09-07 10:51.**
+**As of 2026-09-07 17:25.**
 
 ## Queued and running
 
@@ -14,8 +14,9 @@ the cached `logs/BSC/*.out`. Every row says what to grep and where the number go
 |---|---|---|---|---|
 | BSC:45498520 | tc512 · sigreg 0.02 · compose 1.0 · `cov_weight=1e-4` | 6 | RUNNING on `as02r3b26` since 2026-09-07 00:00, ep **17**/100 at 10:22, 44 h | ep-12 tripwire **passed on rank, failed on recon**: train `ZPartRank` 95.4 (bar 65) but `LossRecon` is +0.0% K / −0.9% N against the cov 0 control on an ep 12–17 mean, i.e. outside the "within 10% of BSC:45416718" clause the other way — it is 11% *worse* than 45416718. Not killed: it is the middle rung of the dose axis and the null is the finding. **Next read at the wall, ep ~72** |
 | BSC:45498521 | same, `cov_weight=3e-4` | 6 | RUNNING on `as03r2b27` since 2026-09-07 00:00, ep **17**/100 at 10:22, 44 h | ep-12 tripwire passed: `ZPartRank` 129.1, `LossRecon` −8.9% K / −7.4% N vs control on the same mean. The hot rung did **not** trip the wire. **Next read at the wall, ep ~72** |
+| BSC:45529827 | tc512 · sigreg 0.02 · compose 1.0 · **end-to-end** `decode_noise_tau=0.8` | 13 | RUNNING on `as04r1b31` since 2026-09-07 14:45, ep **3**/100 at 17:09, 40 h | ep-12 tripwire in TODO 13. Measured 0.59 h/ep (35m18s, 35m01s, 35m34s for ep 1-3), so the 40 h wall lands at **ep ~67 on 2026-09-09 06:45 CEST** and ep 100 needs one chained resume. Eval 0.1181 / Recon 0.1017 at ep 3. Control `BSC:45296347` at matched ep 40 / 72 / 80 |
 
-Both are the `cov_weight` dose-response above BSC:45416718. **First read landed 2026-09-07, ep 17, in slide 11 of
+BSC:45498520 and BSC:45498521 are the `cov_weight` dose-response above BSC:45416718. **First read landed 2026-09-07, ep 17, in slide 11 of
 [`../research/results/2026-09-06_sigreg_cov_penalty_tc512_slides.html`](../research/results/2026-09-06_sigreg_cov_penalty_tc512_slides.html).**
 **Read: more `L_cov` buys more rank, and the rank does not turn into performance.** Train `ZPartRank` is monotone in dose with no
 ceiling — 62.8 (cov 0) → 93.1 (3e-5) → 104.2 (1e-4) → **141.0** (3e-4) — which kills the "~121/512 ceiling" in finding 1 of that deck.
@@ -24,7 +25,7 @@ None of it transfers. What the term moves is convergence *speed*, not the value 
 cov 0 control (+0.0% K / −0.9% N token, +5 to +11% worse under AR rollout) and 3e-4 fails to clear 3e-5 with 1.5× the rank.
 One seed. Resolved configs differ only in `training.cov_weight`; no NaN and no grad-skip in either arm.
 
-**Both jobs end on the 44 h wall at ~2026-09-08 19:50 CEST** (11h01m elapsed / 32h59m left at 10:51). At the observed
+**Both cov jobs end on the 44 h wall at ~2026-09-08 19:50 CEST** (11h01m elapsed / 32h59m left at 10:51). At the observed
 0.61 h/epoch they reach **ep ~71–72**, not ep 100, and `exit_before_time_limit=true` stops them cleanly. That is a matched
 read: BSC:45416718 (`cov 3e-5`) also stopped at ep 72 on its own 44 h wall, and the cov 0 control BSC:45296347 has data
 through ep 81. **The ep-17 conclusion above is interim — re-check all three claims at ep 72 before it is quoted anywhere else:**
@@ -58,6 +59,7 @@ fold them in once the ep-72 numbers settle which reading is right. Scripts `slur
 | TODO | What | Plan | Needs before `sbatch` | Check when it runs |
 |---|---|---|---|---|
 | 11 | best-of-K + K-spread evals on existing ckpts (minutes each) + one 72 h `train_fixed_t=0` regressor read at `iter_100000` | `../research/plan/2026-09-04_flow_bestofk_regressor_null.md` §3 | the eval flags and the regressor knob in §3; sync, then grep the remote file | falsifiers in §1 |
+| 13 (follow-on) | The BSC:45529827 recipe **+ OpenScene trainval** (front cam `CAM_F0`, tar store) in train and `openscene_test` in eval | `../research/plan/2026-09-07_tc_width_decnoise_openscene_tc512.md` | **Blocked on the BSC:45529827 read** (user decision 2026-09-07): that arm is the no-OpenScene control, so until it lands the data-scale read has no baseline to move against. Code is implemented and synced — md5-matched local vs BSC on all six files: `occany/datasets/{tar_store,openscene_pairs}.py`, `use_tar` in `base_seq_dataset.py` and `__init__.py`, `configs/deltatok/train_deltatok_nt10_openscene_bsc.yaml`, `slurm/deltatok/train_deltatok_compose_sigreg_decnoise_openscene_nozn_tc512_bsc.slurm`. Submitted in error 2026-09-07 17:20 as **BSC:45534627** and cancelled at 00:00 elapsed — that job ID holds no data, do not read it | Train grows 18000 → 22000 items, so 1375 iters/ep and `max_iter=137500`; at 0.59 h/ep the 40 h wall reaches **ep ~53**, not 66. First `.out` must show `OpenSceneSeqMultiView` with 550506 train seqs / 57185 test, three `Building test datasets` entries, and `[Eval/206 @ OpenSceneSeqMultiView...]` after ep 1. The tar read path and the 80-slot record layout are unproven until it runs |
 
 ## Plans whose §4 is still `_Pending_` with data already on disk
 

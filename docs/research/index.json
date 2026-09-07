@@ -1,5 +1,5 @@
 {
- "generated": "2026-09-07T14:39:19",
+ "generated": "2026-09-07T17:25:46",
  "root": "docs/research",
  "threads": [
   {
@@ -46,6 +46,29 @@
   }
  ],
  "docs": [
+  {
+   "id": "plan/2026-09-07_tc_width_decnoise_openscene_tc512.md",
+   "stage": "plan",
+   "ext": "md",
+   "date": "2026-09-07",
+   "thread": "tc_width",
+   "slug": "decnoise_openscene_tc512",
+   "title": "tc_width — decoder-noise tc512 arm + OpenScene trainval (front cam, tar store)",
+   "bytes": 7169,
+   "question": "The decnoise_e2e_tc512 recipe with OpenScene trainval added to train (front cam CAM_F0, tar store) and openscene_test to eval — does more driving data move the same tc512 shelf that cov_weight and the noisy channel could not?",
+   "verdict": "Not submitted: gated on the BSC:45529827 read, which is its no-OpenScene control. Code implemented and synced. Train grows 18000 → 22000 items/epoch (max_iter=137500); at 0.59 h/ep the 40 h wall reaches ~ep 53",
+   "status": "open",
+   "jobs": [],
+   "jobs_seen": [],
+   "todos": [],
+   "meta": {
+    "created": "2026-09-07",
+    "thread": "tc_width",
+    "arms": "deltatok_l12_dtok64_tc512_nozn_maxgap9_vpt1to2_sigreg0.02_ns1024_pool8192_compose1.0_decnoise0.8_openscene"
+   },
+   "in_ledger": true,
+   "body": "# tc_width — decoder-noise tc512 arm + OpenScene trainval (front cam, tar store)\n\nCreated 2026-09-07 · thread `tc_width` · prior cycle:\n[`../plan/2026-09-07_tc_width_decnoise_e2e_tc512.md`](../plan/2026-09-07_tc_width_decnoise_e2e_tc512.md)\n· arm: `deltatok_l12_dtok64_tc512_nozn_maxgap9_vpt1to2_sigreg0.02_ns1024_pool8192_compose1.0_decnoise0.8_openscene`\n· jobs: _pending_\n\nAdds `/gpfs/scratch/ehpc1001/occany_data_tar/openscene_trainval` to training and\n`.../openscene_test` to `test_dataset`, both front camera only (`fixed_cams=[0]` = CAM_F0). OpenScene is a\ntar store (one uncompressed `<scene>.tar.gz` + `.idx.npz` per scene); `../OccAny` already reads it, so the\nreader is ported. Checked on BSC: pkl schema is `scenes/frames/seqs`, a record is 80 = 10 slots × 8 cams\ntimestep-major, members are `<scene>/<frame_id>.npz` with `image/depthmap/intrinsics/cam2world`.\ntrainval: 19376 scenes / 550506 seqs; test: 2026 scenes / 57185 seqs.\n\n## 1 `occany/datasets/tar_store.py` (new)\n\n```bash\ncp ../OccAny/occany/datasets/tar_store.py occany/datasets/tar_store.py\n```\nVerbatim. Numpy-only. Reader: `get_store(scene_tar_path(root, scene)).read(\"<scene>/<file>\")`.\n\n## 2 `occany/datasets/base_seq_dataset.py`\n\nImports, after `:10 import pickle`:\n```python\nimport io\nfrom occany.datasets import tar_store\n```\n\n`__init__` signature `:29-32`: add `use_tar=False,` after `select_scenes=None, exclude_scenes=None,`.\nAfter `:60 self.ROOT = ROOT`:\n```python\n        self.use_tar = use_tar  # frames from one uncompressed tar per scene (see tar_store)\n```\n\n`_get_views` `:166`, after `preprocessed_scene_dir = ...`:\n```python\n        store = tar_store.get_store(\n            tar_store.scene_tar_path(self.ROOT, scene_name)) if self.use_tar else None\n```\n\n`_get_views` `:195-199`, replace the `npz_path` / `np.load` block with:\n```python\n            if store is None:\n                npz_path = osp.join(preprocessed_scene_dir, f\"{frame_id}.npz\")\n                try:\n                    data = np.load(npz_path)\n                except Exception:\n                    raise RuntimeError(f\"Failed to load dataset sample: {npz_path}\")\n            else:\n                npz_path = f\"{store.tar_path}::{scene_name}/{frame_id}.npz\"\n                try:\n                    data = np.load(io.BytesIO(store.read(f\"{scene_name}/{frame_id}.npz\")))\n                except Exception:\n                    raise RuntimeError(f\"Failed to load dataset sample: {npz_path}\")\n```\nSame shape as `../OccAny/occany/datasets/base_seq_dataset.py:540-552`. `use_tar=False` path is unchanged.\n\n## 3 `occany/datasets/openscene_pairs.py` (new)\n\n```bash\ncp occany/datasets/once_pairs.py occany/datasets/openscene_pairs.py\n```\nEdit to:\n```python\n# OpenScene (nuPlan-derived, 8-cam rig: 0=CAM_F0). Preprocessed by ../OccAny\n# dataset_setup/openscene/preprocess_openscene.py into one tar per scene (use_tar=True).\nfrom occany.datasets.base_seq_dataset import BaseSeqDatasetMultiView\n\n\nclass OpenSceneSeqMultiView(BaseSeqDatasetMultiView):\n    def __init__(self, *args, OPENSCENE_PREPROCESSED_ROOT,\n                 seq_pkl_name='seq_surround_temporal_sub1_stride9_fs1_openscene_all.pkl',\n                 num_views_per_timestep=8, **kwargs):\n        super().__init__(*args, ROOT=OPENSCENE_PREPROCESSED_ROOT, seq_pkl_name=seq_pkl_name,\n                         num_views_per_timestep=num_views_per_timestep, **kwargs)\n        self.is_metric_scale = True  # depths are projected nuPlan lidar\n        # No select_scene: trainval and test are separate roots (scene names collide across splits).\n```\n\n## 4 `occany/datasets/__init__.py`\n\nAfter `from .once_pairs import OnceSeqMultiView  # noqa: F401`:\n```python\nfrom .openscene_pairs import OpenSceneSeqMultiView  # noqa: F401\n```\n\n## 5 `configs/deltatok/train_deltatok_nt10_openscene_bsc.yaml` (new)\n\n```bash\ncp configs/deltatok/train_deltatok_nt10_bsc.yaml configs/deltatok/train_deltatok_nt10_openscene_bsc.yaml\n```\n`defaults` → `- train_deltatok_nt10_bsc`. Hydra cannot append to a string, so restate both strings.\n`train_dataset`: the five nt10 entries unchanged, plus\n```yaml\n      4000 @ OpenSceneSeqMultiView(OPENSCENE_PREPROCESSED_ROOT='/gpfs/scratch/ehpc1001/occany_data_tar/openscene_trainval', \\\n      seq_pkl_name='seq_surround_temporal_sub1_stride9_fs1_openscene_trainval_all.pkl', \\\n      num_timesteps=10, num_views_per_timestep=8, fixed_cams=[0], use_tar=True, \\\n      z_far=50, split='train', \\\n      resolution=[(518, 294), (518, 280), (518, 266), (518, 210), (518, 168)])\"\n```\n`test_dataset`: the KITTI + nuScenes entries from `train_deltatok_bsc.yaml:39-48` unchanged, plus\n```yaml\n      206 @ OpenSceneSeqMultiView(OPENSCENE_PREPROCESSED_ROOT='/gpfs/scratch/ehpc1001/occany_data_tar/openscene_test', \\\n      seq_pkl_name='seq_surround_temporal_sub1_stride9_fs1_openscene_test_all.pkl', \\\n      num_timesteps=5, num_views_per_timestep=8, fixed_cams=[0], use_tar=True, \\\n      z_far=50, split='val', seed=42, \\\n      resolution=[(518, 294)])\"\n```\nAnd\n```yaml\ntraining:\n  max_iter: 137500  # 22000 items / 16 = 1375 iters/epoch x 100 (was 18000 -> 112500)\n```\n`max_iter` is both the hard stop and the cosine horizon (`train_deltatok_bsc.yaml:57-61`), so it moves with\nthe epoch length.\n\n## 6 `slurm/deltatok/train_deltatok_compose_sigreg_decnoise_openscene_nozn_tc512_bsc.slurm` (new)\n\n```bash\ncp slurm/deltatok/train_deltatok_compose_sigreg_decnoise_nozn_tc512_bsc.slurm \\\n   slurm/deltatok/train_deltatok_compose_sigreg_decnoise_openscene_nozn_tc512_bsc.slurm\n```\nChange only:\n```\n--job-name=deltatok_decnoise_os_bsc\n--output/--error = slurm/output/train_deltatok_compose_sigreg_decnoise_openscene_nozn_tc512_bsc_%j.{out,err}\nheader: \"+ OpenScene trainval (front cam, tar store) in train, openscene_test in eval\"\nexport CONFIG_NAME=train_deltatok_nt10_openscene_bsc\nRUN_NAME=...compose${COMPOSE_WEIGHT}_decnoise${DECNOISE_TAU}_openscene\n```\n\n## 7 Pre-flight on BSC (user syncs), then submit\n\n```bash\nssh bsc \"bash -lc 'cd /gpfs/projects/ehpc1001/code/deltatok && grep -n use_tar occany/datasets/base_seq_dataset.py && grep -n OpenScene occany/datasets/__init__.py && ls occany/datasets/tar_store.py occany/datasets/openscene_pairs.py && grep -n \\\"openscene\\|max_iter\\\" configs/deltatok/train_deltatok_nt10_openscene_bsc.yaml && grep -E \\\"CONFIG_NAME=|RUN_NAME=|--time|--account\\\" slurm/deltatok/train_deltatok_compose_sigreg_decnoise_openscene_nozn_tc512_bsc.slurm'\"\nssh bsc \"bash -lc 'cd /gpfs/projects/ehpc1001/code/deltatok && sbatch slurm/deltatok/train_deltatok_compose_sigreg_decnoise_openscene_nozn_tc512_bsc.slurm'\"\n```\n\nWatch until the first `[KEpoch` line. The `.out` must show `Loaded ... OpenSceneSeqMultiView` with 550506 seqs\n(train) and 57185 (test), three `Building test datasets` entries, and `[Eval/206 @ OpenSceneSeqMultiView...]`\nafter epoch 1.\n\n## Assumptions\n\n- Single camera applies to the OpenScene entries only; the other five train sets keep the twin's\n  `min/max_views_per_timestep=1..2`.\n- Epoch grows 18000 → 22000 items: at the twin's 0.61 h/epoch the 40 h wall reaches ~53 epochs, not 66.\n- Eval viz for OpenScene falls back to a plain vertical stack (`occany/utils/vis_util.py:680`); fine for one cam.\n"
+  },
   {
    "id": "plan/2026-09-07_tc_width_decnoise_e2e_tc512.md",
    "stage": "plan",
@@ -2071,6 +2094,16 @@
    "from": "plan/2026-09-07_tc_width_decnoise_e2e_tc512.md",
    "to": "plan/2026-09-04_flow_decoder_noise_finetune.md",
    "kind": "prior"
+  },
+  {
+   "from": "plan/2026-09-07_tc_width_decnoise_openscene_tc512.md",
+   "to": "plan/2026-09-07_tc_width_decnoise_e2e_tc512.md",
+   "kind": "prior"
+  },
+  {
+   "from": "plan/2026-09-07_tc_width_decnoise_openscene_tc512.md",
+   "to": "plan/2026-09-07_tc_width_decnoise_e2e_tc512.md",
+   "kind": "ref"
   },
   {
    "from": "results/2026-07-07_tc_width_num_delta_tokens_ablation.html",

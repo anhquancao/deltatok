@@ -8,6 +8,8 @@ from dust3r.utils.geometry import depthmap_to_absolute_camera_coordinates
 from occany.utils.helpers import project_lidar_world2camera
 from dust3r.utils.geometry import depthmap_to_camera_coordinates
 import pickle
+import io
+from occany.datasets import tar_store
 from occany.datasets.easy_dataset import EasyDataset_MUSt3R
 from torchvision.transforms.functional import to_tensor
 from depth_anything_3.utils.io.input_processor import InputProcessor
@@ -29,6 +31,7 @@ class BaseSeqDatasetMultiView(BaseStereoViewDataset, EasyDataset_MUSt3R):
                  *args, ROOT, seq_pkl_name, num_timesteps,
                  distill_model_name=None,
                  select_scenes=None, exclude_scenes=None,
+                 use_tar=False,
                  **kwargs):
         # Timesteps in the window every item returns. Keyword-only and
         # undefaulted: item shape is fixed, so each arm must state it.
@@ -58,6 +61,7 @@ class BaseSeqDatasetMultiView(BaseStereoViewDataset, EasyDataset_MUSt3R):
 
         super().__init__(*args, **kwargs)
         self.ROOT = ROOT
+        self.use_tar = use_tar  # frames from one uncompressed tar per scene (see tar_store)
         # distill_model_name=None disables distill-image generation (flow training
         # doesn't consume view['distill_img']); skips the extra per-view tensor.
         if distill_model_name is None or str(distill_model_name).lower() == "none":
@@ -164,6 +168,8 @@ class BaseSeqDatasetMultiView(BaseStereoViewDataset, EasyDataset_MUSt3R):
         scene_idx, seq, _ = self.seqs[seq_idx]  # pkl stride offsets unused: labels are dense
         scene_name = self.scenes[scene_idx]
         preprocessed_scene_dir = osp.join(self.ROOT, scene_name)
+        store = tar_store.get_store(
+            tar_store.scene_tar_path(self.ROOT, scene_name)) if self.use_tar else None
 
         max_vpt = self.num_views_per_timestep
         avail = len(seq) // max_vpt  # timesteps physically in the record
@@ -192,11 +198,19 @@ class BaseSeqDatasetMultiView(BaseStereoViewDataset, EasyDataset_MUSt3R):
         for frame_index, t in zip(frames, times):
             frame_id = self.frames[frame_index]
 
-            npz_path = osp.join(preprocessed_scene_dir, f"{frame_id}.npz")
-            try:
-                data = np.load(npz_path)
-            except Exception:
-                raise RuntimeError(f"Failed to load dataset sample: {npz_path}")
+            # tar members are "<scene>/<file>"; loose files are "<scene dir>/<file>"
+            if store is None:
+                npz_path = osp.join(preprocessed_scene_dir, f"{frame_id}.npz")
+                try:
+                    data = np.load(npz_path)
+                except Exception:
+                    raise RuntimeError(f"Failed to load dataset sample: {npz_path}")
+            else:
+                npz_path = f"{store.tar_path}::{scene_name}/{frame_id}.npz"
+                try:
+                    data = np.load(io.BytesIO(store.read(f"{scene_name}/{frame_id}.npz")))
+                except Exception:
+                    raise RuntimeError(f"Failed to load dataset sample: {npz_path}")
 
 
             image = data['image']          # The image array

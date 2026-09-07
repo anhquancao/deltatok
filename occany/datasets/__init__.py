@@ -14,6 +14,7 @@ from .vkitti_pairs import VKittiSeqMultiView  # noqa: F401
 from .ddad_pairs import DDADSeqMultiView  # noqa: F401
 from .pandaset_pairs import PandasetSeqMultiView  # noqa: F401
 from .once_pairs import OnceSeqMultiView  # noqa: F401
+from .openscene_pairs import OpenSceneSeqMultiView  # noqa: F401
 from .kitti_pairs import KittiSeqMultiView  # noqa: F401
 from .nuscenes_pairs import Occ3dNuscenesSeqMultiView  # noqa: F401
 

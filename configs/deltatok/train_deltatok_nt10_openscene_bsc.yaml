@@ -1,0 +1,59 @@
+defaults:
+  - train_deltatok_nt10_bsc
+  - _self_
+
+# nt10 + OpenScene trainval (front cam only, tar store) in train, openscene_test in eval.
+# Hydra cannot append to a string, so both dataset strings are restated in full.
+dataset:
+  train_dataset: "4000 @ WaymoSeqMultiView(ROOT='/gpfs/scratch/ehpc1001/occany_data/waymo_processed', \
+      seq_pkl_name='seq_surround_temporal_sub5_stride9_fs1_all.pkl', \
+      num_timesteps=10, num_views_per_timestep=5, \
+      min_views_per_timestep=1, max_views_per_timestep=2, \
+      z_far=50, split='train', \
+      resolution=[(518, 294), (518, 280), (518, 266), (518, 210), (518, 168)]) + \
+      2000 @ VKittiSeqMultiView(VKITTI_PROCESSED_ROOT='/gpfs/scratch/ehpc1001/occany_data/vkitti_processed', \
+      seq_pkl_name='seq_exact_len_sub5_stride9.pkl', \
+      num_timesteps=10, fixed_cams=[0], \
+      z_far=50, split='train', \
+      resolution=[(518, 294), (518, 280), (518, 266), (518, 210), (518, 168)]) + \
+      4000 @ DDADSeqMultiView(DDAD_PREPROCESSED_ROOT='/gpfs/scratch/ehpc1001/occany_data/ddad_processed', \
+      seq_pkl_name='seq_surround_temporal_sub5_stride9_fs1_all.pkl', \
+      num_timesteps=10, num_views_per_timestep=6, \
+      min_views_per_timestep=1, max_views_per_timestep=2, \
+      z_far=50, split='train', \
+      resolution=[(518, 294), (518, 280), (518, 266), (518, 210), (518, 168)]) + \
+      4000 @ PandasetSeqMultiView(PANDASET_PREPROCESSED_ROOT='/gpfs/scratch/ehpc1001/occany_data/pandaset_processed', \
+      seq_pkl_name='seq_surround_temporal_sub5_stride9_fs1_all.pkl', \
+      num_timesteps=10, num_views_per_timestep=6, \
+      min_views_per_timestep=1, max_views_per_timestep=2, \
+      z_far=50, split='train', \
+      resolution=[(518, 294), (518, 280), (518, 266), (518, 210), (518, 168)]) + \
+      4000 @ OnceSeqMultiView(ONCE_PREPROCESSED_ROOT='/gpfs/scratch/ehpc1001/occany_data/once_processed', \
+      seq_pkl_name='seq_surround_temporal_sub5_stride9_fs1_once_5cam_all.pkl', \
+      num_timesteps=10, num_views_per_timestep=5, \
+      min_views_per_timestep=1, max_views_per_timestep=2, \
+      z_far=50, split='train', \
+      resolution=[(518, 294), (518, 280), (518, 266), (518, 210), (518, 168)]) + \
+      4000 @ OpenSceneSeqMultiView(OPENSCENE_PREPROCESSED_ROOT='/gpfs/scratch/ehpc1001/occany_data_tar/openscene_trainval', \
+      seq_pkl_name='seq_surround_temporal_sub1_stride9_fs1_openscene_trainval_all.pkl', \
+      num_timesteps=10, num_views_per_timestep=8, fixed_cams=[0], use_tar=True, \
+      z_far=50, \
+      resolution=[(518, 294), (518, 280), (518, 266), (518, 210), (518, 168)])"
+  test_dataset: "206 @ KittiSeqMultiView(KITTI_PREPROCESSED_ROOT='/gpfs/scratch/ehpc1001/occany_data/kitti_processed', \
+      seq_pkl_name='seq_exact_len_sub5_stride9.pkl', \
+      num_timesteps=5, fixed_cams=[0], \
+      z_far=50, split='val', seed=42, \
+      resolution=[(518, 168)]) + \
+      206 @ Occ3dNuscenesSeqMultiView(NUSCENES_PREPROCESSED_ROOT='/gpfs/scratch/ehpc1001/occany_data/occ3d_nuscenes_processed', \
+      seq_pkl_name='seq_surround_temporal_sub1_stride9_all.pkl', \
+      num_timesteps=5, num_views_per_timestep=6, fixed_cams=[0,1], \
+      z_far=50, split='val', seed=42, \
+      resolution=[(518, 266)]) + \
+      206 @ OpenSceneSeqMultiView(OPENSCENE_PREPROCESSED_ROOT='/gpfs/scratch/ehpc1001/occany_data_tar/openscene_test', \
+      seq_pkl_name='seq_surround_temporal_sub1_stride9_fs1_openscene_test_all.pkl', \
+      num_timesteps=5, num_views_per_timestep=8, fixed_cams=[0], use_tar=True, \
+      z_far=50, seed=42, \
+      resolution=[(518, 294)])"
+
+training:
+  max_iter: 137500  # 22000 items / 16 = 1375 iters/epoch x 100 (was 18000 -> 112500)
