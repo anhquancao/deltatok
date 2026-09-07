@@ -92,6 +92,17 @@ body.panel-open .board{margin-right:var(--panelw)}
 .card .q.meta{font:600 10px/1.5 var(--mono);letter-spacing:.04em;color:var(--muted);-webkit-line-clamp:1}
 .card .foot{padding-left:10px;margin-top:10px;display:flex;gap:5px;flex-wrap:wrap;align-items:center}
 .card .foot:empty{display:none}
+/* hide button: corner x, revealed on hover, taking the status pill's slot */
+.hidebtn{position:absolute;top:7px;right:7px;z-index:2;width:19px;height:19px;padding:0;
+  border:1px solid var(--border);border-radius:4px;background:var(--surface);color:var(--muted);
+  font:13px/1 var(--sans);opacity:0;transition:opacity .12s,color .12s}
+.card:hover .hidebtn,.hidebtn:focus-visible{opacity:1}
+.card:hover .hd>.pill{visibility:hidden}
+.hidebtn:hover{color:var(--crit);border-color:currentColor}
+@media (hover:none){.hidebtn{opacity:.55}}
+/* a hidden card, while the "hidden N" toggle is on */
+.card.ghost{opacity:.42;border-style:dashed}
+.card.ghost .hidebtn{opacity:1;color:var(--good)}
 .pill{font:600 9.5px/1 var(--mono);letter-spacing:.04em;padding:3px 5px;border-radius:3px;
   border:1px solid var(--border);color:var(--muted);white-space:nowrap}
 .pill.open{color:var(--accent);border-color:currentColor}
@@ -205,6 +216,8 @@ body.resizing .panel,body.resizing .board{transition:none}
   <div class="spacer"></div>
   <button class="tbtn" id="openonly" aria-pressed="false" title="Only rows still open">open only</button>
   <button class="tbtn" id="showdone" aria-pressed="true" title="Include closed TODO items">closed todos</button>
+  <button class="tbtn" id="showhidden" aria-pressed="false" hidden
+    title="Reveal the cards you hid · shift-click to clear the list">hidden <span class="num" id="hiddenn">0</span></button>
   <div class="legend" id="legend"></div>
 </header>
 
@@ -246,6 +259,10 @@ const CODE_MARK = "\u0000";   // sentinel for pulled-out code spans; never occur
 
 let DATA = null, BY_ID = new Map(), REL = new Map(), THREADS = [];
 let selected = null, activeThreads = new Set(), query = "", openOnly = false, showDone = true;
+// cards the reader dismissed, by card id; survives a reload
+const HIDDEN_KEY = "dtv.hidden";
+let hidden = new Set(), showHidden = false;
+const saveHidden = () => { try { localStorage.setItem(HIDDEN_KEY, JSON.stringify([...hidden])); } catch (_) {} };
 
 const esc = s => String(s == null ? "" : s)
   .replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
@@ -255,10 +272,20 @@ function threadColor(t) {
   return THREAD_COLOR[t];
 }
 const itemThread = x => (x && x.thread) || "unfiled";
+// dd/mm/yyyy for display only: ids, sort keys and filenames stay ISO
+const fmtDate = s => {
+  const m = String(s == null ? "" : s).match(/^(\d{4})-(\d{2})-(\d{2})/);
+  return m ? m[3] + "/" + m[2] + "/" + m[1] : String(s == null ? "" : s);
+};
+const fmtDateTime = s => {
+  const m = String(s == null ? "" : s).match(/^(\d{4})-(\d{2})-(\d{2})[T ](\d{2}:\d{2})/);
+  return m ? m[3] + "/" + m[2] + "/" + m[1] + " " + m[4] : fmtDate(s);
+};
 const todoId = t => "todo/" + t.num;
 const isTodo = x => !!(x && x.state);
 const proseId = p => "note/" + p.key;
 const isProse = x => !!(x && x.kind === "prose");
+const idOf = x => isProse(x) ? proseId(x) : isTodo(x) ? todoId(x) : x.id;
 
 /* ============================ markdown ============================ */
 // a doc reference in prose -> the index id it names, so it can open in the panel
@@ -402,6 +429,7 @@ function todoDate(t) {
 }
 
 function matches(x) {
+  if (hidden.has(idOf(x)) && !showHidden) return false;
   // a note is not a todo: the open/closed toggles and thread chips do not apply to it
   if (isProse(x)) return !query || (x._hay || "").includes(query);
   if (activeThreads.size && !activeThreads.has(itemThread(x))) return false;
@@ -418,25 +446,28 @@ const board = document.getElementById("board");
 
 function cardHTML(x) {
   const th = itemThread(x), col = threadColor(th);
+  const id = idOf(x), hid = hidden.has(id), g = hid ? " ghost" : "";
+  const hb = '<button class="hidebtn" data-hide="' + esc(id) + '" title="' +
+    (hid ? "Show this card again" : "Hide this card") + '">' + (hid ? "&#8630;" : "&times;") + "</button>";
   if (isProse(x)) {
-    return '<article class="card note" data-id="' + esc(proseId(x)) + '">' +
+    return '<article class="card note' + g + '" data-id="' + esc(id) + '">' + hb +
       '<div class="hd"><span class="tag">note</span></div><h3>' + esc(x.title) + "</h3></article>";
   }
   if (isTodo(x)) {
     const jobs = (x.jobs || []).slice(0, 3).map(j => '<span class="pill job num">' + esc(j) + "</span>").join("");
-    return '<article class="card" data-id="' + esc(todoId(x)) + '" style="--tc:' + col + '">' +
+    return '<article class="card' + g + '" data-id="' + esc(id) + '" style="--tc:' + col + '">' + hb +
       '<div class="hd"><span class="todonum">#' + x.num + "</span>" +
       '<span class="tag">' + esc(th) + "</span>" +
       '<span class="pill ' + cls(x.status) + '" style="margin-left:auto">' + esc(x.status) + "</span></div>" +
       "<h3>" + esc(x.item) + "</h3>" +
       (x.paper ? '<div class="q meta">' + esc(x.paper) + "</div>" : "") +
       '<div class="foot">' + jobs +
-      (x.closed ? '<span class="pill num">closed ' + esc(x.closed) + "</span>" : "") + "</div></article>";
+      (x.closed ? '<span class="pill num">closed ' + esc(fmtDate(x.closed)) + "</span>" : "") + "</div></article>";
   }
   const jobs = ((x.jobs && x.jobs.length ? x.jobs : x.jobs_seen) || [])
     .slice(0, 3).map(j => '<span class="pill job num">' + esc(j) + "</span>").join("");
-  return '<article class="card" data-id="' + esc(x.id) + '" style="--tc:' + col + '">' +
-    '<div class="hd"><span class="date">' + esc(x.date) + "</span>" +
+  return '<article class="card' + g + '" data-id="' + esc(id) + '" style="--tc:' + col + '">' + hb +
+    '<div class="hd"><span class="date">' + esc(fmtDate(x.date)) + "</span>" +
     '<span class="tag">' + esc(th) + "</span>" +
     (x.status ? '<span class="pill ' + cls(x.status) + '" style="margin-left:auto">' + esc(x.status) + "</span>" : "") +
     "</div><h3>" + esc(x.title) + "</h3>" +
@@ -465,6 +496,10 @@ function render() {
   document.getElementById("qn").textContent =
     DATA.docs.filter(matches).length + DATA.todos.filter(matches).length +
     (DATA.prose || []).filter(matches).length;
+  const hb = document.getElementById("showhidden");
+  hb.hidden = !hidden.size;
+  hb.setAttribute("aria-pressed", String(showHidden));
+  document.getElementById("hiddenn").textContent = hidden.size;
   for (const s of board.querySelectorAll(".scroll")) s.addEventListener("scroll", queueWires, { passive: true });
   applySelection();
 }
@@ -565,7 +600,7 @@ function relListHTML(id) {
     '<div class="rel-row" data-doc="' + esc(r.rid) + '">' +
     '<span class="k" style="color:' + KIND[r.kind].color + '">' + KIND[r.kind].label + "</span>" +
     '<span class="t">' + esc(r.label) + "</span>" +
-    '<span class="d">' + esc(r.where) + (r.date ? " · " + esc(r.date) : "") + "</span></div>").join("") + "</div>";
+    '<span class="d">' + esc(r.where) + (r.date ? " · " + esc(fmtDate(r.date)) : "") + "</span></div>").join("") + "</div>";
 }
 
 function openPanel(id) {
@@ -578,7 +613,7 @@ function openPanel(id) {
   document.getElementById("pmeta").innerHTML =
     (note ? '<span class="chip muted">note</span>'
           : '<span class="chip" style="color:' + col + '"><span class="sw"></span>' + esc(th) + "</span>") +
-    (note ? "" : '<span class="chip muted">' + (todo ? "todo #" + x.num : esc(x.stage) + " · " + esc(x.date)) + "</span>") +
+    (note ? "" : '<span class="chip muted">' + (todo ? "todo #" + x.num : esc(x.stage) + " · " + esc(fmtDate(x.date))) + "</span>") +
     (x.status ? '<span class="pill ' + cls(x.status) + '">' + esc(x.status) + "</span>" : "") +
     ((x.jobs || []).map(j => '<span class="pill job num">' + esc(j) + "</span>").join("")) +
     '<button class="close" id="pclose" title="Close (Esc)">&times;</button>';
@@ -655,6 +690,17 @@ function select(id) {
 }
 
 board.addEventListener("click", e => {
+  const hb = e.target.closest(".hidebtn");
+  if (hb) {
+    e.stopPropagation();
+    const id = hb.dataset.hide;
+    hidden.has(id) ? hidden.delete(id) : hidden.add(id);
+    // the panel would otherwise keep showing a card that just left the board
+    if (selected === id && !showHidden) { selected = null; closePanel(); }
+    saveHidden();
+    render();
+    return;
+  }
   const card = e.target.closest(".card");
   if (card) select(card.dataset.id);
 });
@@ -684,6 +730,11 @@ document.getElementById("openonly").addEventListener("click", e => {
 document.getElementById("showdone").addEventListener("click", e => {
   showDone = !showDone;
   e.currentTarget.setAttribute("aria-pressed", String(showDone));
+  render();
+});
+document.getElementById("showhidden").addEventListener("click", e => {
+  if (e.shiftKey) { hidden.clear(); showHidden = false; saveHidden(); }
+  else showHidden = !showHidden;
   render();
 });
 document.addEventListener("keydown", e => {
@@ -736,9 +787,10 @@ try {
 /* ============================ boot ============================ */
 function boot(data) {
   DATA = data;
+  try { hidden = new Set(JSON.parse(localStorage.getItem(HIDDEN_KEY)) || []); } catch (_) {}
   BY_ID = new Map();
   for (const d of DATA.docs) {
-    d._hay = [d.title, d.slug, d.thread, d.question, d.verdict, d.id,
+    d._hay = [d.title, d.slug, d.thread, d.question, d.verdict, d.id, fmtDate(d.date),
       (d.jobs || []).join(" "), (d.jobs_seen || []).join(" "), d.body || ""].join(" ").toLowerCase();
     BY_ID.set(d.id, d);
   }
@@ -747,7 +799,7 @@ function boot(data) {
     BY_ID.set(proseId(p), p);
   }
   for (const t of DATA.todos) {
-    t._hay = ["#" + t.num, t.item, t.thread, t.paper, t.note, t.status,
+    t._hay = ["#" + t.num, t.item, t.thread, t.paper, t.note, t.status, fmtDate(t.closed),
       (t.jobs || []).join(" "), (t.updates || []).map(u => u.text).join(" ")].join(" ").toLowerCase();
     BY_ID.set(todoId(t), t);
   }
@@ -761,7 +813,7 @@ function boot(data) {
   document.getElementById("gen").innerHTML = DATA.docs.length + " docs · " + DATA.todos.length + " todos" +
     '<span class="built num' + (ageH > 24 ? " stale" : "") + '" title="index built ' + esc(DATA.generated) +
     (ageH > 24 ? " — rebuild: python3 docs/research/tools/build_index.py" : "") + '">' +
-    '<span class="lbl">built</span>' + esc(String(DATA.generated).slice(0, 16).replace("T", " ")) + "</span>";
+    '<span class="lbl">built</span>' + esc(fmtDateTime(DATA.generated)) + "</span>";
 
   const bar = document.getElementById("threadbar");
   bar.innerHTML = THREADS.map(t => {
