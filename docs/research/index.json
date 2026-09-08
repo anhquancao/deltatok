@@ -1,12 +1,12 @@
 {
- "generated": "2026-09-07T18:12:37",
+ "generated": "2026-09-08T17:40:23",
  "root": "docs/research",
  "threads": [
   {
    "id": "tc_width",
    "title": "channel and token budget of the delta token",
    "blurb": "How many channels (target_channels, Cz) and tokens (num_delta_tokens, K) the delta code needs, and what sets its usable rank. Rank turned out to be set by SIGReg weight, not width, so this thread and sigreg share their open question.",
-   "open": "Answered 2026-09-07: sigreg_weight does not turn over at tc512 — 0.01–0.04 is one 6% plateau, 0.08 breaks, and the ∝ Cz exponent stays unidentified (TODO 2 closed). New 2026-09-07: does a noisy channel the encoder must survive raise usable rank off the ~92–105/512 shelf, where the cov_weight axis raised rank without raising recon? plan/2026-09-07_tc_width_decnoise_e2e_tc512.md, BSC:45529827 running."
+   "open": "Answered 2026-09-07: sigreg_weight does not turn over at tc512 — 0.01–0.04 is one 6% plateau, 0.08 breaks, and the ∝ Cz exponent stays unidentified (TODO 2 closed). New 2026-09-07: does a noisy channel the encoder must survive raise usable rank off the ~92–105/512 shelf, where the cov_weight axis raised rank without raising recon? plan/2026-09-07_tc_width_decnoise_e2e_tc512.md, BSC:45529827 running. Interim ep-37 read 2026-09-08, negative: rank is *halved* (40.3 vs 78.7), because a fixed absolute σ is answered with a 1.91× larger z rather than more dimensions — deck."
   },
   {
    "id": "sigreg",
@@ -47,6 +47,55 @@
  ],
  "docs": [
   {
+   "id": "results/2026-09-08_tc_width_decnoise_e2e_tc512_read_slides.html",
+   "stage": "results",
+   "ext": "html",
+   "date": "2026-09-08",
+   "thread": "tc_width",
+   "slug": "decnoise_e2e_tc512_read_slides",
+   "title": "DeltaTok — can the decoder-noise arm catch its clean twin?",
+   "bytes": 44369,
+   "question": "Interim read at ep 37 of 100: can the decnoise0.8 arm catch its clean twin, and did the noisy channel raise usable rank?",
+   "verdict": "No on recon, yes on geometry. Eval/Loss +28.1% at matched ep 37 (0.0629 vs 0.0491), gap peaked +32.9% at ep 28; two calibrated extrapolations put ep 100 at ~0.050–0.052 vs ~0.042, so it does not catch up in budget. But LossDepth_PredVsGT is only +8.3% against the twin's *final* ep 81 and still shrinking. Rank falsified: ZPartRank 40.3 vs 78.7 at matched epoch. Mechanism: a fixed absolute σ lets the encoder inflate z 1.91×, so it buys tolerance with scale, not dimensions",
+   "status": "",
+   "jobs": [],
+   "jobs_seen": [
+    "45296347",
+    "45529827"
+   ],
+   "todos": [],
+   "meta": {},
+   "in_ledger": true,
+   "body": null
+  },
+  {
+   "id": "plan/2026-09-08_tc_width_decnoise_detach_tc512.md",
+   "stage": "plan",
+   "ext": "md",
+   "date": "2026-09-08",
+   "thread": "tc_width",
+   "slug": "decnoise_detach_tc512",
+   "title": "tc_width — decoder-noise with a detached extra decode, end-to-end tc512",
+   "bytes": 8937,
+   "question": "Same tc512 decoder-noise arm, but the noised decode is a *second* decode of z.detach() + σ·ε with its own loss, so the encoder's gradients match the clean twin exactly and only the decoder learns the noise. Does decoder-side noise tolerance come for free once the encoder stops paying for it?",
+   "verdict": "Not submitted. Code implemented; gradient routing verified on CPU (encoder grad bit-identical to the clean baseline, decoder grad differs). The in-graph mode is removed, not gated: decode_noise_tau now always means the detached decode, so BSC:45529827 must not resume against this code. Arm ..._decnoise0.8_detach against the in-graph sibling BSC:45529827 and the clean twin BSC:45296347. Costs 2 enc + 6 dec a step vs the sibling's 2 enc + 3 dec: every decode runs twice, clean and noised. σ stays absolute here, so the \"σ must go relative\" finding from the ep-37 read is untouched",
+   "status": "open",
+   "jobs": [],
+   "jobs_seen": [
+    "45296347",
+    "45529827"
+   ],
+   "todos": [],
+   "meta": {
+    "created": "2026-09-08",
+    "thread": "tc_width",
+    "arms": "deltatok_l12_dtok64_tc512_nozn_maxgap9_vpt1to2_sigreg0.02_ns1024_pool8192_compose1.0_decnoise0.8_detach",
+    "control": "deltatok_l12_dtok64_tc512_nozn_maxgap9_vpt1to2_sigreg0.02_ns1024_pool8192_compose1.0 (BSC:45296347)"
+   },
+   "in_ledger": true,
+   "body": "# tc_width — decoder-noise with a detached extra decode, end-to-end tc512\n\nCreated 2026-09-08 · thread `tc_width` · prior cycle:\n[`../plan/2026-09-07_tc_width_decnoise_e2e_tc512.md`](../plan/2026-09-07_tc_width_decnoise_e2e_tc512.md)\n· arm: `deltatok_l12_dtok64_tc512_nozn_maxgap9_vpt1to2_sigreg0.02_ns1024_pool8192_compose1.0_decnoise0.8_detach`\n· control: `deltatok_l12_dtok64_tc512_nozn_maxgap9_vpt1to2_sigreg0.02_ns1024_pool8192_compose1.0` (`BSC:45296347`)\n· sibling: `..._compose1.0_decnoise0.8` (`BSC:45529827`, in-graph noise)\n\nSame arm as the prior cycle, but the noised decode is a **second** decode of `z.detach() + σ·ε` with its own loss.\nThe clean decode, SIGReg, compose and the round-trip keep the prior-cycle path, so the encoder's gradients are\nthose of the twin. This **replaces** the in-graph noise: `decode_noise_tau` now always means the detached decode,\nso the prior-cycle behaviour is gone and BSC:45529827 must not be resumed against this code. Three files edited, one new module,\none new script.\n\n## 1 `configs/deltatok/train_deltatok.yaml`\n\nRestate `decode_noise_tau`; add one key. No new mode flag — detached is the only mode.\n\n```yaml\n    decode_noise_tau: 0.0  # RAE noise finetune: a 2nd decode of z.detach()+σ·ε, σ ~ U(0, tau), trains the decoder alone. 0 = off\n  ...\n  decode_noise_warmup: 0  # linear ramp of decode_noise_tau over N iters (0 = constant)\n  decode_noise_weight: 1.0  # loss weight of that detached noised decode\n```\n\n## 2 `occrae/decode_noise.py` (new)\n\nBoth pure, no trainer or module state: the trainer owns the live tau and the tokenizer call. Sits beside\n`occrae/sigreg.py` and `occrae/cov_penalty.py` as a self-contained training-trick module.\n\n```python\ndef ramp_tau(tau: float, warmup: int, it: int) -> float:\n    if tau <= 0:\n        return 0.0\n    return tau * (1.0 if warmup <= 0 else min(1.0, it / max(1, warmup)))\n\n\ndef noise_z(z: torch.Tensor, tau: float) -> torch.Tensor:\n    sigma = tau * torch.rand(\n        z.shape[0], 1, 1, 1, device=z.device, dtype=z.dtype)          # (M,1,1,1) per-sample sigma\n    return z + sigma * torch.randn_like(z)                            # (M, N, K, Cz)\n```\n\n## 3 `occrae/deltatok_shared.py`\n\nDrop the `decode_noise_tau=` kwarg from `_make_deltatok_module` (`:505`); the module no longer takes it.\n\n## 4 `occrae/deltatok_trainer.py`\n\nImport beside the other regularisers (`:37`):\n\n```python\nfrom occrae.decode_noise import noise_z, ramp_tau  # RAE decoder-noise, applied off a detached z\n```\n\n### 4a Module — `__init__` and `forward` (`:79`, `:191`, `:483-489`)\n\nDelete the `decode_noise_tau` ctor param, the `self._decode_noise_tau` attribute and its comment, and the\nin-graph noise block. Nothing in the module reads tau any more; `forward` always decodes clean:\n\n```python\n        x_hat = self.decode(z, x_prev, rope_local, rope_global)\n```\n\n### 4b Trainer — helper, below `_compose_forward` (`:971`)\n\n```python\n    def _detached_noise_loss(self, x_prev, x, H, W, num_cameras, z):\n        \"\"\"decode(z.detach()+σ·ε) vs x: gradient reaches decoder_blocks + z_proj_up only. None when off.\"\"\"\n        if self._decode_noise_tau <= 0:\n            return None\n        assert z is not None, \"decode_noise_tau > 0 needs the caller to pass return_z=True\"\n        with self.autocast:\n            x_hat_dn = self.tokenizer(                                   # (M, N, P, C) same path as compose\n                x_prev, None, H, W, num_cameras=num_cameras,\n                z_input=noise_z(z.detach(), self._decode_noise_tau))\n        with torch.autocast(device_type=\"cuda\", enabled=False):\n            return _log_cosh(x_hat_dn.float(), x.detach().float()).mean()\n```\n\n### 4c Trainer — `_compose_forward` (`:987-1005`)\n\nAfter the hop encode and before `z = z.reshape(B, 2, ...)`:\n\n```python\n        loss_dn = self._detached_noise_loss(x_prev, x, H, W, num_cameras, z)   # (B*2 rows) or None\n```\n\n`forward` never noises (4a), so the composed decode needs the same explicit treatment as the\nhops, weighted like the clean term it mirrors. Without it the arm would differ from the sibling in *which*\ndecodes see noise as well as in where the gradient stops.\n\n```python\n        loss_dn_comp = self._detached_noise_loss(feats[:, 0], feats[:, 2], H, W, num_cameras, z_comp)\n        if loss_dn_comp is not None:\n            loss_dn = loss_dn + self._compose_weight * loss_dn_comp\n```\n\nReturn `loss_recon, loss_compose, loss_dn, z, step_t`. Cost is 2 encodes + 6 decodes a step, against the\nsibling's 2 + 3: every decode now runs twice, clean and noised.\n\n### 4d Trainer — `train_one_epoch`\n\nMeters (`:1057-1058`): add `cum_dn = 0.` and `n_dn = 0`.\n\nCompose branch (`:1103-1104`):\n\n```python\n                loss, loss_compose, loss_dn, z_compose, step_t = self._compose_forward(imgs, num_cameras)\n                loss_total = loss + self._compose_weight * loss_compose\n```\n\nPair branch: `z_bneck` is only bound on the `return_z=True` paths, so init it to `None` and request it\nwhenever tau is live, else the noise loss silently no-ops.\n\n```python\n                z_bneck = None                       # stays None on the no-sigreg, no-bneck path\n                want_dn = self._decode_noise_tau > 0\n                ...\n                    elif self.sigreg is not None or want_dn:\n                ...\n                loss_dn = self._detached_noise_loss(x_prev, x, H, W, num_cameras, z_bneck)\n```\n\nOne add-to-total for both branches, after the `if/else` and before the SIGReg block:\n\n```python\n            if loss_dn is not None:\n                loss_total = loss_total + self._decode_noise_weight * loss_dn\n```\n\nMeter update beside `cum_compose` (`:1219`): `if loss_dn is not None: cum_dn += loss_dn.detach().item(); n_dn += 1`.\nScalar beside `Train/LossCompose` (`:1245`): `self.log_add_scalar('Train/LossDecNoise', loss_dn if loss_dn is not None else 0.0, ...)`.\nStats (`:1258`): `if n_dn: stats[\"decnoise\"] = cum_dn / n_dn`, plus `(\"decnoise\", \"DecNoise\")` in the epoch\nsummary tuple (`:1799`) or the stat never prints.\n\n### 4e Trainer — `get_network` (`:817-823`)\n\nThe cfg target and the live value both live on the trainer now, so the ramp and the TB scalar drop their\n`_unwrapped_tokenizer()` calls.\n\n```python\n        self._decode_noise_tau_cfg = float(self.cfg.model.deltatok.get(\"decode_noise_tau\", 0.0))\n        self._decode_noise_tau = 0.0\n        self._decode_noise_weight = float(self.cfg.training.get(\"decode_noise_weight\", 1.0))\n        ...\n            print(f\"decode_noise_tau={self._decode_noise_tau_cfg} \"\n                  f\"decode_noise_warmup={self._decode_noise_warmup} \"\n                  f\"decode_noise_weight={self._decode_noise_weight}\")\n```\n\nThe ramp in `train_one_epoch` becomes one call, unconditional (`ramp_tau` returns 0 for tau 0):\n\n```python\n            self._decode_noise_tau = ramp_tau(\n                self._decode_noise_tau_cfg, self._decode_noise_warmup, self.cfg.training.iter)\n```\n\nEval is untouched: `_detached_noise_loss` is train-only and the ladder already uses the `z_input` path.\n\n## 5 `slurm/deltatok/train_deltatok_compose_sigreg_decnoise_detach_nozn_tc512_bsc.slurm`\n\n```bash\ncp slurm/deltatok/train_deltatok_compose_sigreg_decnoise_nozn_tc512_bsc.slurm \\\n   slurm/deltatok/train_deltatok_compose_sigreg_decnoise_detach_nozn_tc512_bsc.slurm\n```\n\nChange only:\n\n```\n--job-name=deltatok_decnoise_dt_bsc\n--output/--error = slurm/output/train_deltatok_compose_sigreg_decnoise_detach_nozn_tc512_bsc_%j.{out,err}\nheader: detached-decode twin of BSC:45529827; hops and compose both get the 2nd decode, so the only\n         difference is where the gradient stops + sbatch line with the new filename\ntraining.bsize comment: 2 enc + 6 dec/step\nexport DECNOISE_WEIGHT=${DECNOISE_WEIGHT:-1.0}   # loss weight of the detached decode\nRUN_NAME=...compose${COMPOSE_WEIGHT}_decnoise${DECNOISE_TAU}_detach\n+ training.decode_noise_weight=${DECNOISE_WEIGHT}\n```\n\nEverything else (tc512, sigreg 0.02, ns1024, pool 8192, compose 1.0, tau 0.8, warmup 2000, eval ladder\n`[0.32,0.55,0.82]`, bsize 2 / effective 16, 40 h, `exit_before_time_limit`) is the sibling's.\n\n## 6 Pre-flight on BSC (user syncs), then submit\n\n```bash\nssh bsc \"bash -lc 'cd /gpfs/projects/ehpc1001/code/deltatok && ls occrae/decode_noise.py && grep -n \\\"noise_z\\|_detached_noise_loss\\|decode_noise_weight\\\" occrae/deltatok_trainer.py && grep -E \\\"RUN_NAME=|decode_noise|--time|--account\\\" slurm/deltatok/train_deltatok_compose_sigreg_decnoise_detach_nozn_tc512_bsc.slurm'\"\nssh bsc \"bash -lc 'cd /gpfs/projects/ehpc1001/code/deltatok && sbatch slurm/deltatok/train_deltatok_compose_sigreg_decnoise_detach_nozn_tc512_bsc.slurm'\"\n```\n\nWatch until the first `[KEpoch` line. The `.out` must show `decode_noise_weight=1.0`,\n`encoder_blocks … trainable= 340.465M`, `Train/LossDecNoise` > 0 once `DecodeNoiseTau` > 0, and a step time\nabove the sibling's (2 enc + 3 dec → 2 enc + 5 dec). Chain at 40 h with `chain-slurm-jobs`, as the sibling.\n"
+  },
+  {
    "id": "plan/2026-09-07_tc_width_decnoise_openscene_tc512.md",
    "stage": "plan",
    "ext": "md",
@@ -79,7 +128,7 @@
    "title": "tc_width — end-to-end decoder-noise training of the tc512 compose tokenizer",
    "bytes": 5804,
    "question": "Fold the RAE decoder noise into end-to-end tokenizer training at tc512 — encoder and decoder joint, gradient through z + σ·ε, SIGReg and compose still on the clean z. Does the ladder flatten without paying clean recon, and does a noisy channel raise ZPartRank off the 92–105/512 shelf?",
-   "verdict": "BSC:45529827. One arm ..._compose1.0_decnoise0.8 against the twin BSC:45296347, 100 ep read at ep 40 / 72 / 80; 40 h a job, so ~61 h of training needs a chain. Routed here by falsifier 3 of plan/2026-09-04_flow_decoder_noise_finetune.md",
+   "verdict": "BSC:45529827. One arm ..._compose1.0_decnoise0.8 against the twin BSC:45296347, 100 ep read at ep 40 / 72 / 80; interim ep-37 read in the deck — recon does not catch up, rank falsified, σ must go relative before another run; 40 h a job, so ~61 h of training needs a chain. Routed here by falsifier 3 of plan/2026-09-04_flow_decoder_noise_finetune.md",
    "status": "open",
    "jobs": [
     "45529827"
@@ -2129,6 +2178,16 @@
    "kind": "ref"
   },
   {
+   "from": "plan/2026-09-08_tc_width_decnoise_detach_tc512.md",
+   "to": "plan/2026-09-07_tc_width_decnoise_e2e_tc512.md",
+   "kind": "prior"
+  },
+  {
+   "from": "plan/2026-09-08_tc_width_decnoise_detach_tc512.md",
+   "to": "plan/2026-09-07_tc_width_decnoise_e2e_tc512.md",
+   "kind": "ref"
+  },
+  {
    "from": "results/2026-07-07_tc_width_num_delta_tokens_ablation.html",
    "to": "plan/2026-07-03_tc_width_num_delta_tokens_sweep.html",
    "kind": "ref"
@@ -2226,6 +2285,16 @@
   {
    "from": "results/2026-09-06_sigreg_cov_penalty_tc512_slides.html",
    "to": "plan/2026-09-02_sigreg_cov_penalty.md",
+   "kind": "ref"
+  },
+  {
+   "from": "results/2026-09-08_tc_width_decnoise_e2e_tc512_read_slides.html",
+   "to": "plan/2026-09-02_sigreg_cov_penalty.md",
+   "kind": "ref"
+  },
+  {
+   "from": "results/2026-09-08_tc_width_decnoise_e2e_tc512_read_slides.html",
+   "to": "plan/2026-09-07_tc_width_decnoise_e2e_tc512.md",
    "kind": "ref"
   },
   {
@@ -2436,6 +2505,21 @@
   {
    "from": "plan/2026-09-04_flow_decoder_noise_finetune.md",
    "to": "results/2026-09-06_flow_decoder_noise_finetune_slides.html",
+   "kind": "slug"
+  },
+  {
+   "from": "plan/2026-09-07_tc_width_decnoise_e2e_tc512.md",
+   "to": "results/2026-09-08_tc_width_decnoise_e2e_tc512_read_slides.html",
+   "kind": "slug"
+  },
+  {
+   "from": "plan/2026-09-07_tc_width_decnoise_openscene_tc512.md",
+   "to": "results/2026-09-08_tc_width_decnoise_e2e_tc512_read_slides.html",
+   "kind": "slug"
+  },
+  {
+   "from": "plan/2026-09-08_tc_width_decnoise_detach_tc512.md",
+   "to": "results/2026-09-08_tc_width_decnoise_e2e_tc512_read_slides.html",
    "kind": "slug"
   },
   {

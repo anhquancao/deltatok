@@ -35,6 +35,7 @@ from models.qk_norm import enable_dinov3_qk_norm
 from occrae.abstract_trainer import Trainer
 from occrae.sigreg import SIGReg  # LeJEPA anti-collapse regularizer on the z bottleneck
 from occrae.cov_penalty import cov_penalty  # direct ||E[zz^T]-I||_F^2/Cz term beside SIGReg
+from occrae.decode_noise import noise_z, ramp_tau  # RAE decoder-noise, applied off a detached z
 from occrae.z_spread import ZSpreadStats  # eval-time effective-rank diagnostic on z
 from occrae.deltatok_shared import DeltaTokSharedMixin
 from occrae.network.rope_utils import compute_camera_rope  # shared 1xN camera-grid rope build
@@ -76,7 +77,6 @@ class DeltaTokModule(nn.Module):
         z_norm: bool = True,
         target_channels: int = 0,
         bottleneck_mlp: bool = False,
-        decode_noise_tau: float = 0.0,
     ):
         super().__init__()
         # Delta tokens per camera per transition (1 = max compression). K query
@@ -185,10 +185,6 @@ class DeltaTokModule(nn.Module):
             nn.LayerNorm(self.z_dim, cfg.layer_norm_eps, elementwise_affine=norm_affine)
             if z_norm else nn.Identity()
         )
-        # RAE noise-robustness finetune (third_party/RAE/src/stage1/rae.py:74-86): the
-        # decoder trains on z + σ·N(0,I), σ ~ U(0, τ) per sample, so it maps a ball around
-        # each code back to x. Train-mode only; 0 = off, and z itself never changes.
-        self._decode_noise_tau = float(decode_noise_tau)
         self._rope_cache: dict = {}
 
     def train(self, mode: bool = True):
@@ -297,7 +293,6 @@ class DeltaTokModule(nn.Module):
         x: torch.Tensor,
         rope_local,
         rope_global,
-        return_pre_bottleneck: bool = False,
     ) -> torch.Tensor:
         """Encode (x_prev, x) into N delta tokens (one per camera) with DA3-style alternation.
 
@@ -323,8 +318,6 @@ class DeltaTokModule(nn.Module):
             keeps the prefix-token structure compatible with HF's
             ``apply_rotary_pos_emb`` (which skips the leading
             ``num_tokens - num_patches`` tokens).
-        With ``return_pre_bottleneck``, also returns the raw (M, N, K, C) code from before
-        ``pre_bottleneck_norm`` — the target the bottleneck round-trip loss reconstructs.
         """
         M, N, P, C = x_prev.shape
         K = self.num_delta_tokens                          # delta tokens per camera
@@ -366,12 +359,9 @@ class DeltaTokModule(nn.Module):
                 prev_spatials = hidden[:, :, K : K + P]
                 next_spatials = hidden[:, :, K + P :]
 
-        z_pre = z                              # (M, N, K, C) raw code: round-trip target, constant under a frozen encoder
         if self.z_proj_down is not None:
             z = self.pre_bottleneck_norm(z)    # (M, N, K, C) unit-var before down-proj (no post-norm grad blow-up)
             z = self.z_proj_down(z)            # (M, N, K, Cz) channel bottleneck
-        if return_pre_bottleneck:
-            return self.norm(z), z_pre
         return self.norm(z)
 
     def decode(
@@ -441,7 +431,6 @@ class DeltaTokModule(nn.Module):
         width: int,
         num_cameras: int = 1,
         return_z: bool = False,
-        return_bneck: bool = False,
         z_input: torch.Tensor | None = None,
     ) -> torch.Tensor:
         """Reconstruct ``x`` from the (x_prev, x) pair via N delta tokens (one per camera).
@@ -450,12 +439,10 @@ class DeltaTokModule(nn.Module):
                     if x_prev is 3-D ``(M*N, P, C)`` it is interpreted as a single
                     -camera pair-batch (caller must then pass ``num_cameras=1``).
         Returns x_hat of the same shape as x, or ``(x_hat, z)`` when ``return_z``
-        (z is the (M, N, K, Cz) bottleneck latent, for the SIGReg regularizer), or
-        ``(x_hat, z, z_pre, z_rec)`` when ``return_bneck`` — the bottleneck's input and
-        its up-projected round-trip, both (M, N, K, C), for the round-trip loss.
+        (z is the (M, N, K, Cz) bottleneck latent, for the SIGReg regularizer).
 
         With ``z_input`` (M, N, K, Cz), the encoder is skipped and the given z is
-        decoded directly. Used by the compose path to decode z_a + z_b.
+        decoded directly: the compose sum, the noised decodes and the eval ladder.
         """
         if x_prev.dim() == 3:
             x_prev = x_prev.unsqueeze(1)
@@ -471,27 +458,13 @@ class DeltaTokModule(nn.Module):
         )
         if z_input is not None:
             z = z_input
-        elif return_bneck:
-            # z_pre (M, N, K, C) is the raw encoder code; the round-trip loss matches
-            # z_proj_up(z) against it -- the same thing decode() feeds the frozen decoder.
-            z, z_pre = self.encode(x_prev, x, rope_local, rope_global, return_pre_bottleneck=True)
-            z_rec = self.z_proj_up(z)                        # (M, N, K, C) round-trip of z_pre
         else:
             z = self.encode(x_prev, x, rope_local, rope_global)  # (M, N, K, Cz) flow-facing latent
 
-        # Noise only the decoder's copy: return_z / return_bneck keep the clean z, so SIGReg,
-        # the round-trip loss and the compose sum all see the untouched code.
-        z_dec = z
-        if self.training and self._decode_noise_tau > 0:
-            sigma = self._decode_noise_tau * torch.rand(
-                z.shape[0], 1, 1, 1, device=z.device, dtype=z.dtype)  # (M,1,1,1) per-sample σ ~ U(0, τ)
-            z_dec = z + sigma * torch.randn_like(z)                   # (M, N, K, Cz) noised decoder input
-        x_hat = self.decode(z_dec, x_prev, rope_local, rope_global)
+        x_hat = self.decode(z, x_prev, rope_local, rope_global)
 
         if squeeze:
             x_hat = x_hat.squeeze(1)
-        if return_bneck:
-            return x_hat, z, z_pre, z_rec
         if return_z:
             return x_hat, z
         return x_hat
@@ -661,8 +634,6 @@ class DeltaTokTrainer(DeltaTokSharedMixin, Trainer):
             assert not bool(self.cfg.model.get("deltatok", {}).get("z_norm", True)), \
                 "compose needs z_norm=false"
             assert self._max_gap >= 2, f"compose needs max_gap >= 2, got {self._max_gap}"
-            assert float(self.cfg.training.get("bottleneck_recon_weight", 0.0)) == 0.0, \
-                "compose is incompatible with bottleneck_recon_weight"
 
         # Send the composed sum to SIGReg too, cat'd onto both hops. z_a, z_b and z_comp are one
         # population of gap-deltas (hops draw gap ~ U[1,max_gap]; the sum spans g1+g2), so one
@@ -813,14 +784,17 @@ class DeltaTokTrainer(DeltaTokSharedMixin, Trainer):
                 if mod is not None:
                     mod.requires_grad_(True)
 
-        # The module's attribute is the live tau; train_one_epoch ramps it toward this target.
-        self._decode_noise_tau_cfg = float(model._decode_noise_tau)
+        # _tau is the live value train_one_epoch ramps toward the _tau_cfg target.
+        self._decode_noise_tau_cfg = float(self.cfg.model.deltatok.get("decode_noise_tau", 0.0))
+        self._decode_noise_tau = 0.0
         self._decode_noise_warmup = int(self.cfg.training.get("decode_noise_warmup", 0))
+        self._decode_noise_weight = float(self.cfg.training.get("decode_noise_weight", 1.0))
 
         if self.is_master:
             # A silently-unset knob otherwise reads as a null result.
             print(f"decode_noise_tau={self._decode_noise_tau_cfg} "
-                  f"decode_noise_warmup={self._decode_noise_warmup}")
+                  f"decode_noise_warmup={self._decode_noise_warmup} "
+                  f"decode_noise_weight={self._decode_noise_weight}")
             _print_param_breakdown(model, archi)
 
         model = model.to(self.device)
@@ -988,6 +962,9 @@ class DeltaTokTrainer(DeltaTokSharedMixin, Trainer):
             x_hat, z = self.tokenizer(                                        # (B*2, N, P, C), (B*2, N, K, Cz)
                 x_prev, x, H, W, num_cameras=num_cameras, return_z=True)
 
+        # Second decode of the same hops, noised and detached: decoder-only gradient.
+        loss_dn = self._detached_noise_loss(x_prev, x, H, W, num_cameras, z)  # scalar or None
+
         # z_a + z_b
         z = z.reshape(B, 2, *z.shape[1:])                                     # (B, 2, N, K, Cz)
         z_comp = z[:, 0] + z[:, 1]                                            # (B, N, K, Cz)
@@ -997,13 +974,29 @@ class DeltaTokTrainer(DeltaTokSharedMixin, Trainer):
             x_hat_comp = self.tokenizer(                                      # (B, N, P, C)
                 feats[:, 0], None, H, W, num_cameras=num_cameras, z_input=z_comp)
 
+        # Same treatment for the composed sum. Returned separately so its scalar stays
+        # comparable to LossCompose, exactly as loss_dn is to LossRecon.
+        loss_dn_comp = self._detached_noise_loss(feats[:, 0], feats[:, 2], H, W, num_cameras, z_comp)
+
         # Losses
         with torch.autocast(device_type="cuda", enabled=False):
             loss_recon   = _log_cosh(x_hat.float(), x.detach().float()).mean()
             loss_compose = _log_cosh(x_hat_comp.float(), feats[:, 2].detach().float()).mean()
 
         z = torch.cat([z, z_comp.unsqueeze(1)], dim=1)                        # (B, 3, N, K, Cz)
-        return loss_recon, loss_compose, z, step_t
+        return loss_recon, loss_compose, loss_dn, loss_dn_comp, z, step_t
+
+    def _detached_noise_loss(self, x_prev, x, H, W, num_cameras, z):
+        """decode(z.detach()+σ·ε) vs x: gradient reaches decoder_blocks + z_proj_up only. None when off."""
+        if self._decode_noise_tau <= 0:
+            return None
+        assert z is not None, "decode_noise_tau > 0 needs the caller to pass return_z=True"
+        with self.autocast:
+            x_hat_dn = self.tokenizer(                                   # (M, N, P, C) same path as compose
+                x_prev, None, H, W, num_cameras=num_cameras,
+                z_input=noise_z(z.detach(), self._decode_noise_tau))
+        with torch.autocast(device_type="cuda", enabled=False):
+            return _log_cosh(x_hat_dn.float(), x.detach().float()).mean()
 
     def _feature_loss(self, tokens, x_hat, B, T_minus_1, idx, num_cameras, height, width):
         """Downstream DA3 feature loss. Insert the predicted frames' patch features back
@@ -1054,8 +1047,8 @@ class DeltaTokTrainer(DeltaTokSharedMixin, Trainer):
         self.tokenizer.train()
         cum_loss = 0.
         cum_recon = 0.                           # per-component sums for the epoch breakdown
-        cum_sigreg = cum_bneck = cum_compose = cum_cov = 0.
-        n_sigreg = n_bneck = n_compose = n_cov = 0   # count only batches where the component fired
+        cum_sigreg = cum_compose = cum_cov = cum_dn = cum_dn_comp = 0.
+        n_sigreg = n_compose = n_cov = n_dn = n_dn_comp = 0   # count only batches where the component fired
         num_batches = 0
         last_update_time = time.time()
         window_loss = deque(maxlen=self.grad_cum)
@@ -1087,22 +1080,17 @@ class DeltaTokTrainer(DeltaTokSharedMixin, Trainer):
 
             self.adapt_learning_rate()
 
-            # Same ramp form as SIGReg below: full noise from step 0 fights the code
-            # before it forms. Written on the real module, so DDP/compile see it.
-            if self._decode_noise_tau_cfg > 0:
-                w = self._decode_noise_warmup
-                ramp = 1.0 if w <= 0 else min(1.0, self.cfg.training.iter / w)
-                self._unwrapped_tokenizer()._decode_noise_tau = self._decode_noise_tau_cfg * ramp
+            self._decode_noise_tau = ramp_tau(
+                self._decode_noise_tau_cfg, self._decode_noise_warmup, self.cfg.training.iter)
 
             imgs = batch["imgs"].to(self.device, non_blocking=True)
             num_cameras = batch.get("num_cameras", 1)
 
-            loss_compose = None
+            loss_compose = loss_dn_comp = None
             if self._compose_weight > 0:
                 # Triplet: 3 timesteps, 2 hops encoded, z_a+z_b decoded, both losses
-                loss, loss_compose, z_compose, step_t = self._compose_forward(imgs, num_cameras)
+                loss, loss_compose, loss_dn, loss_dn_comp, z_compose, step_t = self._compose_forward(imgs, num_cameras)
                 loss_total = loss + self._compose_weight * loss_compose
-                loss_bneck = None
                 # SIGReg z: all three streams (flag on) or one random hop (flag off)
                 if self.sigreg is not None:
                     if self._sigreg_compose_z:
@@ -1127,13 +1115,11 @@ class DeltaTokTrainer(DeltaTokSharedMixin, Trainer):
                     imgs, num_cameras=num_cameras, pair_t=pair_t, gap=gap,
                 )
 
-                w_bneck = float(self.cfg.training.get("bottleneck_recon_weight", 0.0))
-                need_bneck = w_bneck > 0 and self._unwrapped_tokenizer().z_proj_down is not None
+                z_bneck = None                       # stays None on the no-sigreg path
+                # The noise loss needs z here too, else _detached_noise_loss asserts.
+                want_dn = self._decode_noise_tau > 0
                 with self.autocast:
-                    if need_bneck:
-                        x_hat, z_bneck, z_pre, z_rec = self.tokenizer(
-                            x_prev, x, H, W, num_cameras=num_cameras, return_z=True, return_bneck=True)
-                    elif self.sigreg is not None:
+                    if self.sigreg is not None or want_dn:
                         x_hat, z_bneck = self.tokenizer(x_prev, x, H, W, num_cameras=num_cameras, return_z=True)
                     else:
                         x_hat = self.tokenizer(x_prev, x, H, W, num_cameras=num_cameras)
@@ -1143,19 +1129,18 @@ class DeltaTokTrainer(DeltaTokSharedMixin, Trainer):
 
                 loss_total = loss
 
-                # Optional bottleneck round-trip loss: make z_proj_up(z_proj_down(z)) reconstruct the
-                # full 1536-d code. The decoder recon only supervises the pair through 12 more blocks,
-                # so the projections get a weak, indirect signal; this is the direct one. Target is the
-                # PRE-norm code: constant under a frozen encoder, so it can't be shrunk to cheat.
-                loss_bneck = None
-                if need_bneck:
-                    with torch.autocast(device_type="cuda", enabled=False):
-                        loss_bneck = _log_cosh(z_rec.float(), z_pre.detach().float()).mean()
-                    loss_total = loss_total + w_bneck * loss_bneck
+                # Second decode of the same pair, noised and detached: decoder-only gradient.
+                loss_dn = self._detached_noise_loss(x_prev, x, H, W, num_cameras, z_bneck)
 
                 # Brownian scaling: z/√gap → N(0, I) when z ~ N(0, gap·I)
                 if self._sigreg_gap_sigma and self.sigreg is not None:
                     z_bneck = z_bneck / math.sqrt(gap)                   # scalar gap, same for all B items
+
+            # Mirrors the clean pair above: recon-side term, then the compose-weighted one.
+            if loss_dn is not None:
+                loss_total = loss_total + self._decode_noise_weight * loss_dn
+            if loss_dn_comp is not None:
+                loss_total = loss_total + self._decode_noise_weight * self._compose_weight * loss_dn_comp
 
             # Optional SIGReg anti-collapse loss on the z bottleneck (computed in fp32).
             # Runs EVERY micro-batch on the live rows + the FIFO queue, so it rides the same
@@ -1213,10 +1198,12 @@ class DeltaTokTrainer(DeltaTokSharedMixin, Trainer):
                 cum_sigreg += loss_sigreg.detach().item(); n_sigreg += 1
             if loss_cov is not None:
                 cum_cov += loss_cov.detach().item(); n_cov += 1
-            if loss_bneck is not None:
-                cum_bneck += loss_bneck.detach().item(); n_bneck += 1
             if loss_compose is not None:
                 cum_compose += loss_compose.detach().item(); n_compose += 1
+            if loss_dn is not None:
+                cum_dn += loss_dn.detach().item(); n_dn += 1
+            if loss_dn_comp is not None:
+                cum_dn_comp += loss_dn_comp.detach().item(); n_dn_comp += 1
 
             # Update the console meters every batch (matches OccAny) so the first
             # log_every line at step 0 has populated `loss`/`lr` meters.
@@ -1238,10 +1225,11 @@ class DeltaTokTrainer(DeltaTokSharedMixin, Trainer):
                     self.log_add_scalar('Train/LearningRate', self.optim.param_groups[0]['lr'], self.cfg.training.iter)
                     self.log_add_scalar('Train/LossRecon', loss, self.cfg.training.iter)
                     self.log_add_scalar('Train/LossSIGReg', loss_sigreg if loss_sigreg is not None else 0.0, self.cfg.training.iter)
-                    self.log_add_scalar('Train/DecodeNoiseTau', self._unwrapped_tokenizer()._decode_noise_tau, self.cfg.training.iter)
+                    self.log_add_scalar('Train/DecodeNoiseTau', self._decode_noise_tau, self.cfg.training.iter)
                     self.log_add_scalar('Train/LossCov', loss_cov if loss_cov is not None else 0.0, self.cfg.training.iter)
-                    self.log_add_scalar('Train/LossBneck', loss_bneck if loss_bneck is not None else 0.0, self.cfg.training.iter)
                     self.log_add_scalar('Train/LossCompose', loss_compose if loss_compose is not None else 0.0, self.cfg.training.iter)
+                    self.log_add_scalar('Train/LossDecNoise', loss_dn if loss_dn is not None else 0.0, self.cfg.training.iter)
+                    self.log_add_scalar('Train/LossDecNoiseComp', loss_dn_comp if loss_dn_comp is not None else 0.0, self.cfg.training.iter)
                     self.log_add_scalar('Train/LossTot', mini_batch_loss, self.cfg.training.iter)
                     self.log_add_scalar('Train/SpeedSamplesPerSec', speed_samples_per_sec, self.cfg.training.iter)
 
@@ -1253,10 +1241,12 @@ class DeltaTokTrainer(DeltaTokSharedMixin, Trainer):
             stats["sigreg"] = cum_sigreg / n_sigreg
         if n_cov:
             stats["cov"] = cum_cov / n_cov
-        if n_bneck:
-            stats["bneck"] = cum_bneck / n_bneck
         if n_compose:
             stats["compose"] = cum_compose / n_compose
+        if n_dn:
+            stats["decnoise"] = cum_dn / n_dn
+        if n_dn_comp:
+            stats["decnoisecomp"] = cum_dn_comp / n_dn_comp
         if self._compose_z_stats is not None:
             self._log_z_spread(self._compose_z_stats, "Train")
         return stats
@@ -1359,8 +1349,7 @@ class DeltaTokTrainer(DeltaTokSharedMixin, Trainer):
             num_cameras = batch.get("num_cameras", 1)
             tokens, feats, x_prev, x, H, W = self._extract_pair_feats(imgs, num_cameras=num_cameras)
             with self.autocast:
-                # Always keep z: the noise ladder decodes it a second time, and the
-                # module is in eval mode so the train-time noise hook cannot fire.
+                # Always keep z: the noise ladder decodes it a second time.
                 x_hat, z_bneck = self.tokenizer(x_prev, x, H, W, num_cameras=num_cameras, return_z=True)
                 if z_spread is not None:
                     z_spread.update(z_bneck)
@@ -1754,12 +1743,13 @@ class DeltaTokTrainer(DeltaTokSharedMixin, Trainer):
                 clock_time = (time.time() - start)
                 self.log_add_scalar('Train/Loss', train_loss, self.cfg.training.global_epoch)
                 self.log_add_scalar('Eval/Loss', test_loss, self.cfg.training.global_epoch)
-                # Break the total into its active components (recon/sigreg/bneck/compose).
+                # Break the total into its active components (recon/sigreg/compose/decnoise).
                 comp_str = ", ".join(
                     f"{name}: {float(train_stats[key]):.4f}"
                     for key, name in (("recon", "Recon"), ("sigreg", "SIGReg"),
-                                      ("bneck", "Bneck"), ("compose", "Compose"),
-                                      ("cov", "Cov"))
+                                      ("compose", "Compose"),
+                                      ("cov", "Cov"), ("decnoise", "DecNoise"),
+                                      ("decnoisecomp", "DecNoiseComp"))
                     if key in train_stats
                 )
                 now = os.popen('date').read().strip()

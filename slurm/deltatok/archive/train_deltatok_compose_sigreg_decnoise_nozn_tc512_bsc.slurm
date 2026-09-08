@@ -13,6 +13,8 @@
 #SBATCH --output=slurm/output/train_deltatok_compose_sigreg_decnoise_nozn_tc512_bsc_%j.out
 #SBATCH --error=slurm/output/train_deltatok_compose_sigreg_decnoise_nozn_tc512_bsc_%j.err
 
+# RETIRED 2026-09-08: in-graph noise was removed, so this script no longer reproduces
+# the run it names -- decode_noise_tau now adds a detached 2nd decode. Kept as a record.
 # End-to-end decoder-noise twin of BSC:45296347: encoder + decoder train through
 # z + sigma*eps, sigma ~ U(0, tau). Everything else matches that arm.
 #   ssh bsc "bash -lc 'cd /gpfs/projects/ehpc1001/code/deltatok && sbatch slurm/deltatok/train_deltatok_compose_sigreg_decnoise_nozn_tc512_bsc.slurm'"

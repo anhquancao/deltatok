@@ -74,7 +74,7 @@ model:
     use_camera_rope: false
     norm_affine: true  # learnable z-norm; slurm may override to false for fixed unit-var/zero-mean latent
     z_norm: true  # false removes the z-norm entirely (SIGReg then regularizes a free z, not one pinned to a sphere)
-    decode_noise_tau: 0.0  # RAE noise finetune: decoder trains on z + σ·N(0,I), σ ~ U(0, tau). 0 = off
+    decode_noise_tau: 0.0  # RAE noise finetune: a 2nd decode of z.detach()+σ·ε, σ ~ U(0, tau), trains the decoder alone. 0 = off
     mlp_ratio: 4
     layer_scale_init: 1.0e-5
     initializer_range: 0.02
@@ -104,10 +104,6 @@ training:
   # Decoder-only finetune (decoder_blocks + z_proj_up): encode() stays bit-identical, so z and
   # every flow checkpoint trained on it remain valid. Mutually exclusive with the line above.
   freeze_except_decoder: false
-  # Auxiliary log-cosh loss making z_proj_up(z_proj_down(z)) reconstruct the full 1536-d z:
-  # a direct linear-autoencoder signal on the bottleneck, not routed through the decoder.
-  # 0 = off; only meaningful with target_channels > 0.
-  bottleneck_recon_weight: 0.0
   grad_clip: 1.0
   grad_skip_thresh: 0.0  # >0 skips optim steps whose pre-clip grad_norm exceeds this (finite-spike guard)
   # Additive composition: sample 3 timesteps/sequence, encode both hops, and make
@@ -121,6 +117,7 @@ training:
   sigreg_num_slices: 256  # random 1D projections per step (more = lower-variance estimate)
   sigreg_warmup: 0  # linear ramp of sigreg_weight over N iters (0 = constant from step 0)
   decode_noise_warmup: 0  # linear ramp of decode_noise_tau over N iters (0 = constant)
+  decode_noise_weight: 1.0  # loss weight of that detached noised decode
   # Rolling FIFO pool of recent z rows the estimator runs over, as a GLOBAL row count
   # (each rank holds 1/world_size of it; the CF all-reduce pools ranks). Sized to clear the
   # finite-sample floor -- ~0.0085 at S=128,C=768, which buries a rank-290 collapse. Pressure

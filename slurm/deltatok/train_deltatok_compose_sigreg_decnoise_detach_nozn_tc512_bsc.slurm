@@ -1,5 +1,5 @@
 #!/bin/bash
-#SBATCH --job-name=deltatok_decnoise_os_bsc
+#SBATCH --job-name=deltatok_decnoise_dt_bsc
 #SBATCH --nodes=1
 #SBATCH --ntasks-per-node=4
 #SBATCH --gres=gpu:4
@@ -10,13 +10,13 @@
 #SBATCH --time=40:00:00
 ##SBATCH --qos=acc_debug
 ##SBATCH --time=02:00:00
-#SBATCH --output=slurm/output/train_deltatok_compose_sigreg_decnoise_openscene_nozn_tc512_bsc_%j.out
-#SBATCH --error=slurm/output/train_deltatok_compose_sigreg_decnoise_openscene_nozn_tc512_bsc_%j.err
+#SBATCH --output=slurm/output/train_deltatok_compose_sigreg_decnoise_detach_nozn_tc512_bsc_%j.out
+#SBATCH --error=slurm/output/train_deltatok_compose_sigreg_decnoise_detach_nozn_tc512_bsc_%j.err
 
-# End-to-end decoder-noise twin of BSC:45296347: encoder + decoder train through
-# z + sigma*eps, sigma ~ U(0, tau). Everything else matches that arm.
-# + OpenScene trainval (front cam, tar store) in train, openscene_test in eval
-#   ssh bsc "bash -lc 'cd /gpfs/projects/ehpc1001/code/deltatok && sbatch slurm/deltatok/train_deltatok_compose_sigreg_decnoise_openscene_nozn_tc512_bsc.slurm'"
+# Detached-decode twin of BSC:45529827: the clean decode trains encoder+decoder as BSC:45296347,
+# a 2nd decode of z.detach()+sigma*eps trains the decoder only. Hops and compose both get that 2nd
+# decode, so the ONLY difference from the sibling is where the gradient stops.
+#   ssh bsc "bash -lc 'cd /gpfs/projects/ehpc1001/code/deltatok && sbatch slurm/deltatok/train_deltatok_compose_sigreg_decnoise_detach_nozn_tc512_bsc.slurm'"
 # Control ladder on the twin's ckpt (no training): prepend
 #   EVAL_ONLY=1 DECNOISE_TAU=0 RUN_NAME=<fresh> INIT_CKPT=<twin>/ckpts/epoch_80.pth
 
@@ -24,6 +24,7 @@ export COMPOSE_WEIGHT=${COMPOSE_WEIGHT:-1.0}
 export SIGREG_WEIGHT=${SIGREG_WEIGHT:-0.02}    # matches the twin BSC:45296347
 export DECNOISE_TAU=${DECNOISE_TAU:-0.8}       # sigma ~ U(0, tau) per sample, decoder input only
 export DECNOISE_WARMUP=${DECNOISE_WARMUP:-2000}  # = SIGREG_WARMUP
+export DECNOISE_WEIGHT=${DECNOISE_WEIGHT:-1.0}   # loss weight of the detached noised decode
 
 mkdir -p slurm/output
 
@@ -37,7 +38,7 @@ export TORCH_NCCL_HEARTBEAT_TIMEOUT_SEC="${TORCH_NCCL_HEARTBEAT_TIMEOUT_SEC:-100
 # file_descriptor shm strategy holds an fd per shared tensor per worker
 ulimit -n "$(ulimit -Hn)"
 
-export CONFIG_NAME=train_deltatok_nt10_openscene_bsc   # nt10 (max_gap=9) + OpenScene front cam
+export CONFIG_NAME=train_deltatok_nt10_bsc   # num_timesteps=10 -> triplet spans up to max_gap=9
 export LOG_AND_CKPT_DIR="$SCRATCH/deltatok_log"
 export RESULTS_DIR="$LOG_AND_CKPT_DIR"
 
@@ -46,7 +47,7 @@ export SIGREG_POOL_SAMPLES=${SIGREG_POOL_SAMPLES:-8192}  # NOT weight-neutral; k
 export SIGREG_WARMUP=${SIGREG_WARMUP:-2000}              # held constant across the sweep
 
 # ${RUN_NAME:-} so the eval-only ladder can point at a fresh dir instead of resuming this arm.
-export RUN_NAME=${RUN_NAME:-deltatok_l12_dtok64_tc512_nozn_maxgap9_vpt1to2_sigreg${SIGREG_WEIGHT}_ns${SIGREG_NUM_SLICES}_pool${SIGREG_POOL_SAMPLES}_compose${COMPOSE_WEIGHT}_decnoise${DECNOISE_TAU}_openscene}
+export RUN_NAME=${RUN_NAME:-deltatok_l12_dtok64_tc512_nozn_maxgap9_vpt1to2_sigreg${SIGREG_WEIGHT}_ns${SIGREG_NUM_SLICES}_pool${SIGREG_POOL_SAMPLES}_compose${COMPOSE_WEIGHT}_decnoise${DECNOISE_TAU}_detach}
 
 EXTRA_CFG_ARGS=(
     model.deltatok.num_delta_tokens=64         # K delta tokens/camera (~12:1 compression at full res)
@@ -63,11 +64,12 @@ EXTRA_CFG_ARGS=(
     training.sigreg_pool_samples=${SIGREG_POOL_SAMPLES}
     training.sigreg_warmup=${SIGREG_WARMUP}
     training.compose_weight=${COMPOSE_WEIGHT}   # d(t0->t1)+d(t1->t2) decodes f_t2 from f_t0
-    model.deltatok.decode_noise_tau=${DECNOISE_TAU}    # train-mode only; z itself stays clean
+    model.deltatok.decode_noise_tau=${DECNOISE_TAU}    # 2nd decode of z.detach()+sigma*eps
+    training.decode_noise_weight=${DECNOISE_WEIGHT}    # weight of that 2nd decode's loss
     training.decode_noise_warmup=${DECNOISE_WARMUP}    # linear ramp of tau over N iters
     "training.eval_noise_sigmas=[0.32,0.55,0.82]"       # eval ladder, matches the 2026-09-04 probe grid
     training.max_gap=9                          # triplet spans cap at 9 (= nt10 window - 1)
-    training.bsize=2                            # 2 encodes + 3 decodes/step ~2.5x single-pair; halve batch
+    training.bsize=2                            # 2 enc + 6 dec/step; halve batch
     training.effective_bsize=16                 # 4 GPU x bsize 2 -> grad_cum 2
     training.exit_before_time_limit=true        # stop after a ckpt near the wall (chain-resume safe)
 )
