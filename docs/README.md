@@ -10,8 +10,8 @@ question it belongs to — is the tag in its filename.
 | `analysis` | `research/analysis/<date>_<thread>_<slug>.<ext>` | What it means: a mechanism, a diagnosis, or the verdict on a plan |
 
 **Start at [`ROADMAP.md`](ROADMAP.md)**: the CVPR paper skeleton with contributions, method, main results and
-ablations. The work queue is [the queue](research/viewer.html); closed items move to [the closed list](research/viewer.html).
-Live jobs, epochs reached and what to check next are on [the jobs board](research/viewer.html).
+ablations. The work queue is [the queue](http://127.0.0.1:9000/#/board/Deltatok); closed items move to [the closed list](http://127.0.0.1:9000/#/board/Deltatok).
+Live jobs, epochs reached and what to check next are on [the jobs board](http://127.0.0.1:9000/#/board/Deltatok).
 
 ## Layout
 
@@ -24,10 +24,10 @@ Live jobs, epochs reached and what to check next are on [the jobs board](researc
 | `occrae/` | OccRAE architecture note and its five 2026-05-31 plans. Only the image decoder landed. |
 | `proposals/` | EuroHPC access proposals (docx/pdf). |
 | `ROADMAP.md` | The paper skeleton: contributions, method, main results, ablations. Each section says what is measured and what is missing. |
-| `research/viewer.html` · the queue | The work queue: one row per item with its thread, the paper section it fills, and its status. |
-| `research/viewer.html` · the jobs board | The jobs board: one row per queued, running or unread job with its state, read point and the check to run. |
-| `research/viewer.html` · the closed list | Items closed out of the queue, newest first. A row keeps its original `#`, so old references still resolve. |
-| `research/todos.json` | Source of truth behind those three views: the todo rows, the jobs board and the closed list. Hand-edited; `research/tools/build_index.py` folds it into `index.json`. |
+| <http://127.0.0.1:9000/#/board/Deltatok> · the queue | The work queue: one row per item with its thread, the paper section it fills, and its status. |
+| <http://127.0.0.1:9000/#/board/Deltatok> · the jobs board | The jobs board: one row per queued, running or unread job with its state, read point and the check to run. |
+| <http://127.0.0.1:9000/#/board/Deltatok> · the closed list | Items closed out of the queue, newest first. A row keeps its original `#`, so old references still resolve. |
+| `research/todos.json` | Source of truth behind those three views: the todo rows, the jobs board and the closed list. Hand-edited; the board folds it into its index. |
 | `deltatok.md` | Eval-only launch note. |
 
 ## Threads

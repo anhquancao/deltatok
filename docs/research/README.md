@@ -11,10 +11,10 @@ the ledger for each thread is a section below.
 
 [`TEMPLATE.md`](TEMPLATE.md) is the plan template. Copy it; never start from a blank file.
 
-[`viewer.html`](viewer.html) browses all of it: four date-sorted columns — todo, plan, results, analysis — with the
-links between them drawn on click. It reads [`index.json`](index.json), built from this ledger, the doc headers and
-[`../todo/`](../todo/) by `python3 tools/build_index.py`. Re-run that after adding a doc. Hand fixes go in the file's
-`overrides` block, which a rebuild keeps.
+The board at <http://127.0.0.1:9000/#/board/Deltatok> browses all of it: four date-sorted columns — todo, plan,
+results, analysis — with the links between them drawn on click. It is built from this ledger, the doc headers and
+[`todos.json`](todos.json), and rebuilds itself whenever a file here changes, so there is nothing to re-run after
+adding a doc. Hand fixes go in [`overrides.json`](overrides.json).
 
 ## Open questions (2026-09-04)
 
@@ -31,7 +31,7 @@ links between them drawn on click. It reads [`index.json`](index.json), built fr
 
 | Date | File | Stage | Holds |
 |---|---|---|---|
-| 2026-08-18 | [backlog](plan/2026-08-18_cross_backlog.html) | plan | The previous work queue, superseded by [the queue](viewer.html) |
+| 2026-08-18 | [backlog](plan/2026-08-18_cross_backlog.html) | plan | The previous work queue, superseded by [the queue](http://127.0.0.1:9000/#/board/Deltatok) |
 | 2026-09-02 | [4week_review_slides](results/2026-09-02_cross_4week_review_slides.html) | results | Four-week review deck across every thread |
 
 ## tc_width — channel and token budget of the delta token
@@ -59,6 +59,7 @@ question.
 | 2026-09-07 | [decnoise_openscene_tc512](plan/2026-09-07_tc_width_decnoise_openscene_tc512.md) | plan, **open** | The `decnoise_e2e_tc512` recipe with OpenScene trainval added to train (front cam `CAM_F0`, tar store) and `openscene_test` to eval — does more driving data move the same tc512 shelf that `cov_weight` and the noisy channel could not? | Not submitted: gated on the BSC:45529827 read, which is its no-OpenScene control. Code implemented and synced. Train grows 18000 → 22000 items/epoch (`max_iter=137500`); at 0.59 h/ep the 40 h wall reaches ~ep 53 |
 | 2026-09-08 | [decnoise_e2e_tc512_read](results/2026-09-08_tc_width_decnoise_e2e_tc512_read_slides.html) | results | Interim read at ep 37 of 100: can the `decnoise0.8` arm catch its clean twin, and did the noisy channel raise usable rank? | **No on recon, yes on geometry.** Eval/Loss +28.1% at matched ep 37 (0.0629 vs 0.0491), gap peaked +32.9% at ep 28; two calibrated extrapolations put ep 100 at ~0.050–0.052 vs ~0.042, so it does not catch up in budget. But `LossDepth_PredVsGT` is only **+8.3%** against the twin's *final* ep 81 and still shrinking. Rank **falsified**: `ZPartRank` 40.3 vs 78.7 at matched epoch. Mechanism: a fixed absolute σ lets the encoder inflate `z` 1.91×, so it buys tolerance with scale, not dimensions |
 | 2026-09-08 | [decnoise_detach_tc512](plan/2026-09-08_tc_width_decnoise_detach_tc512.md) | plan, **open** | Same tc512 decoder-noise arm, but the noised decode is a *second* decode of `z.detach() + σ·ε` with its own loss, so the encoder's gradients match the clean twin exactly and only the decoder learns the noise. Does decoder-side noise tolerance come for free once the encoder stops paying for it? | Not submitted. Code implemented; gradient routing verified on CPU (encoder grad bit-identical to the clean baseline, decoder grad differs). The in-graph mode is **removed**, not gated: `decode_noise_tau` now always means the detached decode, so BSC:45529827 must not resume against this code. Arm `..._decnoise0.8_detach` against the in-graph sibling BSC:45529827 and the clean twin BSC:45296347. Costs 2 enc + 6 dec a step vs the sibling's 2 enc + 3 dec: every decode runs twice, clean and noised. σ stays absolute here, so the "σ must go relative" finding from the ep-37 read is untouched |
+| 2026-09-09 | [decnoise_detach_tc1536](plan/2026-09-09_tc_width_decnoise_detach_tc1536.md) | plan, **open** | The detached decoder-noise arm with no channel bottleneck: tc 1536, `sigreg_num_slices` 3072 (2·Cz), `sigreg_weight` 0.06 (∝ Cz from the tc512 twin's 0.02), pool 8192 unchanged. Does the noise-tolerant decoder hold at full width, and does the ∝ Cz weight sit inside the plateau at 1536? | Not submitted. No code change; one slurm script. Against the tc512 twin BSC:45578805 and the only tc1536 sigreg+compose reference BSC:44590128 (weight 0.005, ep 43). Guard: the tc512 0.08 break signature (train recon 1.8×, raw SIGReg residual not descending) at ep 5 / 30 → resubmit at 0.02 |
 
 ## sigreg — making the delta code spread
 

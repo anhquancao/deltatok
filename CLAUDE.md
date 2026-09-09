@@ -130,7 +130,9 @@ A new knob needs the yaml key **and** the trainer read. `compose()` rejects an o
 
 DeltaTok is the active research direction. Read `docs/README.md` first. Research is filed by stage: `docs/research/{plan,results,analysis}/<date>_<thread>_<slug>.<ext>`, and `docs/research/README.md` ledgers every thread. Runbooks and incidents are in `docs/infra/`, OccRAE notes in `docs/occrae/`.
 
-**Rebuild the research index after adding, renaming or deleting a `docs/research/` doc:** `python3 docs/research/tools/build_index.py`. It rescans the ledger, the doc headers and `docs/todo/`, then rewrites `index.json` + `index.js` behind `docs/research/viewer.html`; a doc is invisible in the viewer until it runs. It prints `· not in the README ledger: <file>` for anything you forgot to ledger. Hand fixes go in the `overrides` block of `index.json` and survive a rebuild. Links are read from what you already write — the `prior cycle:` and `deck:` header fields, paths in a `docs/todo/` note, and any `stage/file` mention in prose — so fill those in rather than editing `index.json`.
+**The research board is <http://127.0.0.1:9000/#/board/Deltatok>**, served by `../monitor_jobs`. It rebuilds itself whenever a file under `docs/research/` changes — there is no build step and no committed index. It reads the README ledger, the doc headers and `docs/research/todos.json`. `python -m monitor_jobs.tools.research_index Deltatok` prints the counts and a `· not in the README ledger: <file>` line for anything you forgot to ledger. Hand fixes go in `docs/research/overrides.json`. Links are read from what you already write — the `prior cycle:` and `deck:` header fields, the `docs` list of a `todos.json` row, and any `stage/file` mention in prose — so fill those in rather than editing the overrides.
+
+**The queue and the jobs board are `docs/research/todos.json`** (`docs/todo/` is gone since 2026-09-07). `prose[key=status]` is the queued / running / next board — refresh it whenever a job starts, dies or a plan lands, and keep finished work on its numbered `todos[]` row, not in the board. Rebuild the index after either.
 
 ## Conventions
 
