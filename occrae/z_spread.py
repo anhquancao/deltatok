@@ -83,6 +83,7 @@ class ZSpreadStats:
         mean = total / n                                               # (Cz,) channel means
         cov = outer / n - torch.outer(mean, mean)                      # (Cz, Cz) covariance
         cov = 0.5 * (cov + cov.T)                                      # eigvalsh needs exact symmetry
+        cov = cov.cpu()                                                # cuSOLVER handle OOMs at 57 GB peak
         evals = torch.linalg.eigvalsh(cov).flip(0).clamp_min(0)        # (Cz,) descending
         tot = float(evals.sum())                                       # = trace(cov)
         if tot <= 0.0:
