@@ -72,7 +72,12 @@ export SIGREG_WARMUP=${SIGREG_WARMUP:-0}                 # anchor on from step 0
 RUN_NAME=...compose${COMPOSE_WEIGHT}_decnoise${DECNOISE_TAU}_detach_bneck_sw${SIGREG_WARMUP}
 model.deltatok.target_channels=1536        # == hidden_size; bottleneck forced below
 model.deltatok.force_bottleneck=true       # LN(1536) + Linear down/up, as tc512
+model.deltatok.bottleneck_mlp=false        # Linear down/up, not the SiLU MLP variant
 ```
+
+The last line is a comment fix the list above missed: the twin reads `# inert at tc1536 (no bottleneck to
+make nonlinear)`, and `force_bottleneck` routes through the same `if bottleneck_mlp:` branch, so the value
+is no longer inert — it is what selects Linear over the SiLU MLP.
 
 Everything else (sigreg 0.06, ns 3072, pool 8192, compose 1.0, tau 0.8, decnoise weight 1.0, eval ladder,
 max_gap 9, bsize 2 / effective 16, lr 1e-3, grad_clip 0.1, 40 h, ehpc880) is the twin's.
@@ -82,11 +87,22 @@ max_gap 9, bsize 2 / effective 16, lr 1e-3, grad_clip 0.1, 40 h, ehpc880) is the
 ```bash
 python3 -m py_compile occrae/deltatok_trainer.py occrae/deltatok_shared.py
 bash -n slurm/deltatok/train_deltatok_compose_sigreg_decnoise_detach_bneck_nozn_tc1536_bsc.slurm
-ssh bsc "bash -lc 'cd /gpfs/projects/ehpc1001/code/deltatok && grep -n \"force_bottleneck\" occrae/deltatok_trainer.py occrae/deltatok_shared.py configs/deltatok/train_deltatok.yaml | wc -l && grep -E \"RUN_NAME=|SIGREG_WARMUP=|force_bottleneck|--job-name|--output|--time|--account\" slurm/deltatok/train_deltatok_compose_sigreg_decnoise_detach_bneck_nozn_tc1536_bsc.slurm'"
+F="occrae/deltatok_trainer.py occrae/deltatok_shared.py configs/deltatok/train_deltatok.yaml slurm/deltatok/train_deltatok_compose_sigreg_decnoise_detach_bneck_nozn_tc1536_bsc.slurm"
+md5sum $F
+ssh bsc "bash -lc 'cd /gpfs/projects/ehpc1001/code/deltatok && md5sum $F'"
 ssh bsc "bash -lc 'cd /gpfs/projects/ehpc1001/code/deltatok && sbatch slurm/deltatok/train_deltatok_compose_sigreg_decnoise_detach_bneck_nozn_tc1536_bsc.slurm'"
 ```
 
-The grep must count 3. Watch until the first `[KEpoch` line. The `.out` must show `pre_bottleneck_norm`,
+All four md5 pairs must match. Use md5, not a `grep force_bottleneck | wc -l` count — grep only checks the
+lines you thought to name, and the count is not 3 anyway (the trainer holds the word three times: param,
+comment, condition). Watch until the first `[KEpoch` line. The `.out` must show `pre_bottleneck_norm`,
 `z_proj_down` and `z_proj_up` rows in the parameter table (2 × 1536·1536 + biases + LN ≈ 4.7M params),
 `training.sigreg_warmup=0` in `EXTRA_CFG`, `Train/LossSIGReg` > 0 from the first print, and `ZRowMeanSquare`
 near 1 on the first eval. Chain at 40 h with `chain-slurm-jobs`.
+
+## 6 Status
+
+Applied 2026-09-10. `py_compile` and `bash -n` clean; local and BSC copies md5-identical on all four files
+(`deltatok_trainer.py`, `deltatok_shared.py`, `train_deltatok.yaml`, the new slurm). Submitted as
+**`BSC:45678654`** at 14:15, PENDING (Priority), 40 h on `ehpc880`. Control `BSC:45610897` was cancelled
+at ep 31/100 the same morning, so the two arms compare at matched epochs up to 31.
