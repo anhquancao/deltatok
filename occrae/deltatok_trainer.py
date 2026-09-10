@@ -77,6 +77,7 @@ class DeltaTokModule(nn.Module):
         z_norm: bool = True,
         target_channels: int = 0,
         bottleneck_mlp: bool = False,
+        force_bottleneck: bool = False,
     ):
         super().__init__()
         # Delta tokens per camera per transition (1 = max compression). K query
@@ -147,8 +148,8 @@ class DeltaTokModule(nn.Module):
 
         # Optional z channel bottleneck: hidden_size -> z_dim after the encoder
         # blocks, z_dim -> hidden_size before the decoder blocks. Absent at
-        # z_dim == hidden_size so existing checkpoints load unchanged.
-        if self.z_dim != cfg.hidden_size:
+        # z_dim == hidden_size unless force_bottleneck, so old ckpts load.
+        if self.z_dim != cfg.hidden_size or force_bottleneck:
             H = cfg.hidden_size
             if bottleneck_mlp:
                 # 2-layer SiLU MLP down/up: a curved z_dim-manifold can beat the linear

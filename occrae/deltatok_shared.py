@@ -501,6 +501,7 @@ class DeltaTokSharedMixin:
             z_norm=bool(deltatok_cfg.get("z_norm", True)),
             target_channels=int(deltatok_cfg.get("target_channels", 0)),
             bottleneck_mlp=bool(deltatok_cfg.get("bottleneck_mlp", False)),
+            force_bottleneck=bool(deltatok_cfg.get("force_bottleneck", False)),
         )
 
     def _build_occ_rae(self):

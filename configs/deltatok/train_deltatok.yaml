@@ -66,6 +66,7 @@ model:
     num_delta_tokens: 1  # delta tokens per camera per transition (1 = max compression)
     target_channels: 0  # z channel bottleneck (0 = off; e.g. 768 projects z 1536->768 at encode, back at decode)
     bottleneck_mlp: false  # bottleneck only: 2-layer SiLU MLP down/up instead of single Linear (beats linear-768 variance cap)
+    force_bottleneck: false  # build pre-norm + proj down/up even at target_channels == hidden_size
     use_delta: true
     use_swiglu: true
     use_qk_norm: true
