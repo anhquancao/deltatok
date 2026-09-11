@@ -14,7 +14,7 @@ avg_error
 .vscode
 .gradio
 pyrightconfig.json
-results
+/results
 checkpoints
 
 outputs/*
