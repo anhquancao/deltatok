@@ -135,3 +135,8 @@ damage to either alone.
 
 **Wall clock.** 37.2 min/epoch against 40 h from 2026-09-10 19:56 puts the wall at 2026-09-12 11:56 and the arm at
 ~ep 63, not 100. On these numbers the chained resume §5 calls for is not worth submitting.
+
+**Cancelled 2026-09-11 11:20 at ep 23/100 (15.2 h), sigreg pressure too high.** The read had answered §1 and the
+arm was ×3.2 off the control with 24 h of wall left. Surviving under `$SCRATCH/deltatok_log/<RUN_NAME>/ckpts/`:
+`current.pth` (ep 23), `epoch_20.pth`, `epoch_10.pth`, 31 G. Re-running this slurm script **resumes** that
+`current.pth`, so the successor arm needs a fresh `RUN_NAME`.
