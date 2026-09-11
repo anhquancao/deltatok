@@ -1,0 +1,542 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>DeltaTok — detached decoder noise at tc512, ep 100</title>
+<style>
+/* ---------- tokens · light only, white slides (no dark variant by request) ---------- */
+:root{
+  color-scheme: light only;
+  --backdrop:#e9e9e6; --page:#f7f7f6; --surface:#ffffff;
+  --ink:#0b0b0b; --ink2:#52514e; --muted:#83817c;
+  --grid:#e4e4de; --axis:#c3c2b7; --border:rgba(11,11,11,.12);
+  --s1:#2a78d6; --s2:#eb6834; --s3:#1baf7a; --s4:#eda100; --s5:#8a63c8; --s6:#c2407a;
+  --good:#0ca30c; --crit:#d03b3b; --serious:#ec835a;
+  --accent:var(--s1);
+  --serif:"Iowan Old Style","Palatino Linotype",Palatino,Georgia,serif;
+  --sans:system-ui,-apple-system,"Segoe UI",sans-serif;
+  --mono:ui-monospace,"Cascadia Code",Menlo,Consolas,monospace;
+}
+/* ---------- deck chrome ---------- */
+*{box-sizing:border-box;margin:0}
+html,body{height:100%}
+body{background:var(--backdrop);color:var(--ink);font:15px/1.45 var(--sans);overflow:hidden}
+.stage{position:absolute;left:50%;top:50%;width:1280px;height:720px;transform-origin:center center;
+  transform:translate(-50%,-50%)}  /* centred in CSS; fit() only adds the scale */
+.slide{position:absolute;inset:0;background:var(--surface);border:1px solid var(--border);
+  padding:46px 60px 40px;display:none;flex-direction:column}
+.slide.on{display:flex}
+.eyebrow{font:600 12px/1 var(--mono);letter-spacing:.14em;text-transform:uppercase;color:var(--accent);margin-bottom:12px}
+.eyebrow .dim{color:var(--muted)}
+h1{font:400 42px/1.14 var(--serif);letter-spacing:-.01em;text-wrap:balance}
+h2{font:400 29px/1.2 var(--serif);letter-spacing:-.005em;text-wrap:balance;margin-bottom:4px}
+.sub{color:var(--ink2);font-size:14.5px;max-width:80ch;margin-top:9px}
+.body{flex:1;min-height:0;margin-top:16px}
+.foot{display:flex;justify-content:space-between;align-items:baseline;color:var(--muted);
+  font:11px/1 var(--mono);letter-spacing:.06em;margin-top:12px;border-top:1px solid var(--grid);padding-top:10px}
+.pageno{font-variant-numeric:tabular-nums}
+/* nav */
+.nav{position:fixed;left:50%;bottom:14px;transform:translateX(-50%);display:flex;gap:8px;align-items:center;z-index:5}
+.nav button{width:9px;height:9px;border-radius:50%;border:1px solid var(--muted);background:transparent;cursor:pointer;padding:0}
+.nav button.cur{background:var(--accent);border-color:var(--accent)}
+.nav button:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+.arr{position:fixed;top:50%;transform:translateY(-50%);z-index:5;border:1px solid var(--border);
+  background:var(--surface);color:var(--ink2);width:34px;height:56px;cursor:pointer;font-size:18px;border-radius:4px}
+.arr:hover{color:var(--ink)}
+#prev{left:10px}#next{right:10px}
+/* ---------- shared bits ---------- */
+.mono{font-family:var(--mono)}
+.num{font-variant-numeric:tabular-nums}
+.chip{display:inline-block;font:600 10.5px/1 var(--mono);letter-spacing:.05em;padding:4px 7px;border-radius:3px;
+  border:1px solid var(--border);white-space:nowrap}
+.chip.good{color:var(--good);border-color:currentColor}
+.chip.bad{color:var(--crit);border-color:currentColor}
+.chip.hero{color:var(--accent);border-color:currentColor}
+.sw{display:inline-block;width:14px;height:0;border-top-width:3px;border-top-style:solid;vertical-align:4px}
+.cols{display:grid;gap:24px;min-height:0}
+.c2{grid-template-columns:1fr 1fr}
+.c58{grid-template-columns:1.32fr 1fr}
+.c85{grid-template-columns:1fr 1.28fr}
+.card{border:1px solid var(--grid);border-radius:6px;padding:14px 16px;background:var(--page)}
+.card h3{font:600 14px/1.3 var(--sans);margin:6px 0}
+.card .tag{font:600 10px/1 var(--mono);letter-spacing:.1em;text-transform:uppercase;color:var(--muted)}
+ul.tight{padding-left:18px;display:flex;flex-direction:column;gap:8px;font-size:13.5px;color:var(--ink2)}
+ul.tight li{padding-left:2px}
+ul.tight strong{color:var(--ink);font-weight:600}
+/* stat tiles */
+.tiles{display:grid;gap:12px}
+.tile{border:1px solid var(--grid);border-radius:6px;padding:12px 14px;background:var(--page)}
+.tile .v{font:600 25px/1.1 var(--sans);letter-spacing:-.01em;font-variant-numeric:tabular-nums}
+.tile .k{font:600 10px/1.4 var(--mono);letter-spacing:.1em;text-transform:uppercase;color:var(--muted);margin-bottom:5px}
+.tile .d{font-size:12.5px;color:var(--ink2);margin-top:5px}
+.rulebar{border:1px dashed var(--axis);border-radius:6px;padding:11px 15px;font-size:13.5px;color:var(--ink2)}
+.rulebar b{color:var(--ink)}
+/* tables */
+table{border-collapse:collapse;width:100%;font-size:13px;font-variant-numeric:tabular-nums}
+th,td{text-align:right;padding:5px 8px;border-bottom:1px solid var(--grid)}
+th:first-child,td:first-child{text-align:left}
+thead th{font:600 10px/1.3 var(--mono);letter-spacing:.08em;text-transform:uppercase;color:var(--muted);border-bottom:1px solid var(--axis)}
+tbody tr.hi td{background:#fff6f2}
+td.w{color:var(--crit);font-weight:600}
+td.g{color:var(--good);font-weight:600}
+/* charts */
+.legend{display:flex;flex-wrap:wrap;gap:5px 16px;font:12px/1 var(--sans);color:var(--ink2);margin-bottom:4px}
+.legend span{display:inline-flex;gap:7px;align-items:center}
+svg text{font:10.5px var(--sans);fill:var(--muted)}
+svg .axl{font:9.5px var(--mono);fill:var(--muted)}
+svg .hll{font:600 9.5px var(--mono)}
+svg .barlbl{font:600 12px var(--sans);fill:var(--ink)}
+svg .barval{font:11px var(--mono);fill:var(--ink2)}
+.chartwrap{display:flex;flex-direction:column;height:100%;min-height:0}
+.chartwrap svg{flex:1;min-height:0}
+.ptitle{font:600 12px/1.2 var(--mono);color:var(--ink2);letter-spacing:.02em;margin-bottom:2px}
+.ptitle span{color:var(--muted);font-weight:400}
+.takeaway{border:1px solid var(--grid);border-radius:6px;padding:12px 15px;background:var(--page);display:flex;gap:12px;align-items:flex-start}
+.takeaway .n{font:600 22px/1 var(--serif);color:var(--accent);flex:0 0 auto;width:24px}
+.takeaway .tx{font-size:13.5px;color:var(--ink2)}
+.takeaway .tx b{color:var(--ink)}
+@media (prefers-reduced-motion: no-preference){
+  .slide.on{animation:fadein .18s ease}
+  @keyframes fadein{from{opacity:.4}to{opacity:1}}
+}
+@media print{
+  body{overflow:visible;background:#fff}
+  .stage{position:static;transform:none!important;width:auto;height:auto}
+  .slide{display:flex;position:static;width:1280px;height:720px;page-break-after:always;margin:0 auto}
+  .nav,.arr{display:none}
+}
+/* ---------- small-multiple panel grids (this deck) ---------- */
+.g2{display:grid;grid-template-columns:1fr 1fr;gap:6px 22px;height:100%}
+.g2,.g4,.g6{padding-bottom:7px}
+.g4{display:grid;grid-template-columns:1fr 1fr;grid-template-rows:1fr 1fr;gap:8px 22px;height:100%}
+.g6{display:grid;grid-template-columns:repeat(3,1fr);grid-template-rows:1fr 1fr;gap:8px 16px;height:100%}
+.g8{display:grid;grid-template-columns:repeat(4,1fr);grid-template-rows:1fr 1fr;gap:8px 14px;height:100%}
+.pan{display:flex;flex-direction:column;min-height:0;min-width:0}
+.pan .plot{flex:1;min-height:0}
+.chartwrap svg,.pan .plot svg{display:block}
+.dsl{font:600 10px/1 var(--mono);letter-spacing:.09em;text-transform:uppercase;color:var(--accent)}
+.legend.top{margin:0 0 8px}
+svg .pt{font:600 9px var(--mono)}
+/* body is a flex column so a .legend.top caption cannot push a height:100% grid past the
+   slide floor — the grid takes the remainder instead of the full height */
+.body{display:flex;flex-direction:column}
+.body>.legend.top{flex:0 0 auto}
+.body>.g2,.body>.g4,.body>.g6,.body>.cols{flex:1;min-height:0;height:auto}
+</style>
+</head>
+
+<body>
+<div class="stage" id="stage">
+
+<!-- ============ 1 — verdict ============ -->
+<!-- ============ 1 — verdict ============ -->
+<section class="slide on">
+  <div class="eyebrow">DeltaTok tokenizer <span class="dim">— tc512 · sigreg 0.02 · decnoise 0.8 detached · BSC 45578805 → 45665286 · ep 100/100</span></div>
+  <h1 style="font-size:33px">The arm <span style="color:var(--good)">finishes where it stood</span> — and the decoded round trip on KITTI is <span style="color:var(--good)">better</span> than the clean twin's.</h1>
+  <p class="sub">The detached decoder-noise arm ran to <span class="mono">training.epoch=100</span> and saved <span class="mono">epoch_100.pth</span>. At the twin's last matched epoch <b>82</b> the token cost is <b>+2.7% KITTI / −0.3% nuScenes</b> — the <b>+1.1%</b> pooled read at ep 60 held to the end. Decoded, the sign flips: <span class="mono">PredVsOrig</span> depth and pointmap are <b>4.1–4.4% better</b> than the twin on KITTI. Bars are the arm against the clean twin <span class="mono">BSC:45296347</span> at matched ep 82; left is the arm winning.</p>
+  <div class="body">
+    <div class="cols c58" style="height:100%">
+      <div class="chartwrap">
+        <div class="ptitle">CHANGE VS THE CLEAN TWIN AT EPOCH 82 <span>· left is the arm winning</span></div>
+        <div class="legend"><span><i class="sw" style="border-color:var(--s1)"></i>KITTI</span>
+          <span><i class="sw" style="border-color:var(--s1);opacity:.45"></i>nuScenes</span></div>
+        <div id="chBars" style="flex:1;min-height:0"></div>
+      </div>
+      <div class="tiles" style="grid-template-columns:1fr 1fr;grid-template-rows:auto auto;align-content:center">
+        <div class="tile"><div class="k">Eval LossRecon · ep 100 <span style="color:var(--muted)">· K / nuSc</span></div>
+          <div class="v" style="font-size:22px">0.0520 <span style="color:var(--muted);font-size:14px">/</span> 0.0352</div>
+          <div class="d">twin's last, ep 82: 0.0510 / 0.0356 &nbsp;<span class="chip good">parity</span></div></div>
+        <div class="tile"><div class="k">what the last 18 epochs bought</div>
+          <div class="v" style="font-size:22px">−0.8<span style="font-size:14px">%</span></div>
+          <div class="d">0.0524 → 0.0520 K, 0.0355 → 0.0352 nuSc. The curve is flat from ~ep 90 &nbsp;<span class="chip">converged</span></div></div>
+        <div class="tile"><div class="k">Eval ZPartRank <span style="color:var(--muted)">· of 512 · ep 100</span></div>
+          <div class="v" style="font-size:22px">83.8 <span style="color:var(--muted);font-size:14px">/</span> 97.5</div>
+          <div class="d">twin 92.0 / 96.2 &nbsp;<span class="chip bad">never above the twin</span> — the ~90/512 shelf holds at 100 epochs too</div></div>
+        <div class="tile"><div class="k">σ=0.82 noise penalty <span style="color:var(--muted)">· K / nuSc</span></div>
+          <div class="v" style="font-size:22px">+27.1<span style="font-size:14px">%</span> <span style="color:var(--muted);font-size:14px">/</span> +27.3<span style="font-size:14px">%</span></div>
+          <div class="d">was +23.3 / +25.5 at ep 60 &nbsp;<span class="chip bad">widening</span> — slide 6</div></div>
+      </div>
+    </div>
+  </div>
+  <div class="foot"><span>both sets held out, 206 windows each · single seed · run complete, exit 0:0, 24.0 h of a 40 h allocation</span><span class="pageno">01 / 07</span></div>
+</section>
+
+<!-- ============ 2 — the arms ============ -->
+<section class="slide">
+  <div class="eyebrow">the comparison <span class="dim">— one recipe, three ways of wiring the noise</span></div>
+  <h2>One variable between the arm and its twin: where the noised decode's gradient goes.</h2>
+  <p class="sub">All three are the same tc512 compose tokenizer at <span class="mono">sigreg_weight 0.02</span>, <span class="mono">pool 8192</span>, <span class="mono">ns 1024</span>. The twin has no noise term at all. The sibling puts <span class="mono">z + σ·ε</span> in the encoder's graph. The arm decodes <span class="mono">z.detach() + σ·ε</span> a second time, so the encoder's gradients are the twin's exactly and only the decoder sees the noise.</p>
+  <div class="body">
+    <div class="cols c58" style="height:100%">
+      <div style="display:flex;flex-direction:column;min-height:0">
+        <table style="font-size:12.5px">
+          <thead><tr><th>arm</th><th>job</th><th>decnoise</th><th>encoder grad</th><th>epochs</th><th>min/ep</th><th>state</th></tr></thead>
+          <tbody>
+            <tr class="hi"><td style="white-space:nowrap"><span class="sw" style="border-color:var(--s1)"></span> <b>detached</b></td><td class="mono">45578805<br>45665286</td><td style="white-space:nowrap">0.8 detached</td><td style="white-space:nowrap">= twin's</td><td><b>100</b></td><td>37.8</td><td style="white-space:nowrap;color:var(--good)">COMPLETED</td></tr>
+            <tr><td style="white-space:nowrap"><span class="sw" style="border-color:var(--s2)"></span> clean twin</td><td class="mono">45296347</td><td>off</td><td>—</td><td>82</td><td>34.9</td><td style="white-space:nowrap">stopped on the wall</td></tr>
+            <tr><td style="white-space:nowrap"><span class="sw" style="border-color:var(--s3)"></span> in-graph sibling</td><td class="mono">45529827</td><td style="white-space:nowrap">0.8 in-graph</td><td style="white-space:nowrap">pays for σ</td><td>40</td><td>36.2</td><td style="white-space:nowrap">cancelled, negative</td></tr>
+          </tbody>
+        </table>
+        <div class="rulebar" style="margin-top:14px">The arm is two allocations, not two runs: <b class="mono">45578805</b> stopped clean at ep 62 and <b class="mono">45665286</b> resumed <span class="mono">current.pth</span> at <span class="mono">Training (Epoch 62)</span> and ran to 100 in 23 h 57 m. Every curve here is the two logs concatenated at that seam.</div>
+        <div class="rulebar" style="margin-top:10px">Noise costs <b>+8.3%</b> wall clock — 37.8 min/epoch against the twin's 34.9. Every decode runs twice, clean and noised: 2 enc + 6 dec a step against the twin's 2 enc + 3 dec.</div>
+        <div class="rulebar" style="margin-top:10px">σ is <b>absolute</b>, drawn per sample as σ ~ U(0, 0.8) and added to a <span class="mono">z</span> of RMS ≈ 1.38. The "σ must go relative" finding from the ep-37 read is untouched by this run.</div>
+      </div>
+      <div class="tiles" style="grid-template-rows:auto auto auto;align-content:start">
+        <div class="tile"><div class="k">what closes here</div>
+          <div class="v" style="font-size:20px;color:var(--good)">TODO 13</div>
+          <div class="d">"Does a noisy channel raise usable rank off the ~90/512 shelf?" — <b>no</b>, on three axes now. "Does detaching buy decoder tolerance for free?" — <b>yes, for ~1.5%</b>.</div></div>
+        <div class="tile"><div class="k">the checkpoint the flow will use</div>
+          <div class="v mono" style="font-size:18px">epoch_100.pth</div>
+          <div class="d">8.19 GB, written 09-11 14:24 under <span class="mono">..._compose1.0_decnoise0.8_detach/ckpts/</span>. Decided 09-10: the flow trains on this, not on <span class="mono">epoch_60.pth</span>.</div></div>
+        <div class="tile"><div class="k">matched read epoch</div>
+          <div class="v" style="font-size:20px">82</div>
+          <div class="d">the twin's last complete epoch. Every arm-vs-twin number on these slides is epoch-matched at 82; ep-100 numbers are the arm alone.</div></div>
+      </div>
+    </div>
+  </div>
+  <div class="foot"><span>configs grepped from each job's EXTRA_CFG line in the cached BSC stdout</span><span class="pageno">02 / 07</span></div>
+</section>
+
+<!-- ============ 3 — token recon ============ -->
+<section class="slide">
+  <div class="eyebrow">the clean cost <span class="dim">— token reconstruction, no noise</span></div>
+  <h2>The gap never grows. It peaks early and stays inside 3%.</h2>
+  <p class="sub">The arm tracks its twin the whole way, at a constant small offset — the opposite of the in-graph sibling, which separates from both and was cancelled at ep 40 with <span class="mono">LossRecon</span> 0.0725 against the twin's 0.0575. On nuScenes the arm is <b>at or slightly under</b> the twin by ep 82. The twin's curve stops at 82; the arm runs 18 more epochs and gains 0.8%.</p>
+  <div class="body">
+    <div class="legend top"><span><i class="sw" style="border-color:var(--s1)"></i>detached · 45578805+45665286</span><span><i class="sw" style="border-color:var(--s2)"></i>clean twin · 45296347</span><span><i class="sw" style="border-color:var(--s3)"></i>in-graph sibling · 45529827</span></div>
+    <div class="g4">
+      <div class="pan"><div class="ptitle">LossRecon · KITTI <span>· teacher forcing</span></div><div class="plot" id="p31"></div></div>
+      <div class="pan"><div class="ptitle">LossRecon · nuScenes <span>· teacher forcing</span></div><div class="plot" id="p32"></div></div>
+      <div class="pan"><div class="ptitle">LossRecon_AR · KITTI <span>· rollout</span></div><div class="plot" id="p33"></div></div>
+      <div class="pan"><div class="ptitle">LossRecon_AR · nuScenes <span>· rollout</span></div><div class="plot" id="p34"></div></div>
+    </div>
+  </div>
+  <div class="foot"><span>log y · epochs 4–100 · the twin ends at 82 and the sibling at 40, so their curves stop there</span><span class="pageno">03 / 07</span></div>
+</section>
+
+<!-- ============ 4 — the code ============ -->
+<section class="slide">
+  <div class="eyebrow">the code <span class="dim">— what the noise did and did not do to z</span></div>
+  <h2>Rank lands under the twin and stays there for 100 epochs.</h2>
+  <p class="sub">The in-graph sibling's two pathologies are absent: rank is not halved and <span class="mono">ZRowMeanSquare</span> stays on the SIGReg anchor near 1.0–1.4 instead of inflating to 2.96 KITTI / 1.47 nuScenes at ep 40. But the arm never climbs <i>above</i> the twin either — 83.8 against 92.0 of 512 on KITTI at ep 100, and flat since ep 60. <b>A noisy channel does not buy dimensions.</b> That is the third axis to fail on this shelf, after <span class="mono">cov_weight</span> and the in-graph noise.</p>
+  <div class="body">
+    <div class="legend top"><span><i class="sw" style="border-color:var(--s1)"></i>detached</span><span><i class="sw" style="border-color:var(--s2)"></i>clean twin</span><span><i class="sw" style="border-color:var(--s3)"></i>in-graph sibling</span></div>
+    <div class="g4">
+      <div class="pan"><div class="ptitle">EVAL ZPartRank · KITTI <span>· of Cz = 512</span></div><div class="plot" id="p41"></div></div>
+      <div class="pan"><div class="ptitle">EVAL ZPartRank · nuScenes <span>· of Cz = 512</span></div><div class="plot" id="p42"></div></div>
+      <div class="pan"><div class="ptitle">EVAL ZRowMeanSquare · KITTI <span>· SIGReg anchor = 1</span></div><div class="plot" id="p43"></div></div>
+      <div class="pan"><div class="ptitle">EVAL ZRowMeanSquare · nuScenes <span>· SIGReg anchor = 1</span></div><div class="plot" id="p44"></div></div>
+    </div>
+  </div>
+  <div class="foot"><span>linear y · ZPartRank is the participation ratio of the eval-set covariance spectrum, in channels</span><span class="pageno">04 / 07</span></div>
+</section>
+
+<!-- ============ 5 — round trip ============ -->
+<section class="slide">
+  <div class="eyebrow">the decoded read <span class="dim">— PredVsOrig, the tokenizer's own round trip</span></div>
+  <h2>On KITTI the noised decoder decodes geometry <i>better</i> than the clean one.</h2>
+  <p class="sub">At matched ep 82 the arm beats its twin on KITTI depth (<b>−4.1%</b>) and pointmap (<b>−4.4%</b>) while losing 2.7% on the token loss the decode comes from. Raymap is the exception and loses on both sets (+7.5% / +4.4%). On nuScenes depth and pointmap go the other way by 2–3%. So the noise does not simply cost — it redistributes, and the token loss is the wrong single number to rank these two arms by.</p>
+  <div class="body">
+    <div class="legend top"><span><i class="sw" style="border-color:var(--s1)"></i>detached</span><span><i class="sw" style="border-color:var(--s2)"></i>clean twin</span><span><i class="sw" style="border-color:var(--s3)"></i>in-graph sibling</span></div>
+    <div class="g6">
+      <div class="pan"><div class="ptitle">DEPTH · KITTI</div><div class="plot" id="p51"></div></div>
+      <div class="pan"><div class="ptitle">POINTMAP · KITTI</div><div class="plot" id="p52"></div></div>
+      <div class="pan"><div class="ptitle">RAYMAP · KITTI</div><div class="plot" id="p53"></div></div>
+      <div class="pan"><div class="ptitle">DEPTH · nuScenes</div><div class="plot" id="p54"></div></div>
+      <div class="pan"><div class="ptitle">POINTMAP · nuScenes</div><div class="plot" id="p55"></div></div>
+      <div class="pan"><div class="ptitle">RAYMAP · nuScenes</div><div class="plot" id="p56"></div></div>
+    </div>
+  </div>
+  <div class="foot"><span>PredVsOrig · log y · epochs 4–100 · decode against the frozen teacher's own token, no teacher error folded in</span><span class="pageno">05 / 07</span></div>
+</section>
+
+<!-- ============ 6 — the ladder drifts ============ -->
+<section class="slide">
+  <div class="eyebrow">the noise ladder over training <span class="dim">— absolute LossRecon at each sigma, every epoch</span></div>
+  <h2>The tolerance stops improving at ep 60. The clean branch does not.</h2>
+  <p class="sub">The absolute <span class="mono">LossRecon</span>, decoded at each σ. From ep 60 to ep 100 on KITTI the σ=0.82 curve moves <b>0.0671 → 0.0661</b> (−1.5%) while the clean curve moves <b>0.0544 → 0.0520</b> (−4.4%): the noised decode has flattened and the clean one has not. <b>Robustness converges ~40 epochs before clean accuracy does.</b> Any ratio of the two therefore widens on its own — the σ=0.82 penalty goes +17.5% at ep 40 to +27.1% at ep 100 — so a ladder read late flatters the twin, and a twin comparison has to be epoch-matched.</p>
+  <div class="body">
+    <div class="legend top"><span><i class="sw" style="border-color:var(--s1)"></i>σ 0.82</span><span><i class="sw" style="border-color:var(--s4)"></i>σ 0.55</span><span><i class="sw" style="border-color:var(--s3)"></i>σ 0.32</span><span><i class="sw" style="border-color:var(--s5)"></i>clean · σ 0</span></div>
+    <div class="g2">
+      <div class="pan"><div class="ptitle">ABSOLUTE LossRecon · KITTI <span>· log · ep 20–100</span></div><div class="plot" id="p61"></div></div>
+      <div class="pan"><div class="ptitle">ABSOLUTE LossRecon · nuScenes <span>· log · ep 20–100</span></div><div class="plot" id="p62"></div></div>
+    </div>
+    <div class="rulebar" style="margin-top:9px;flex:0 0 auto"><b>Every number on this slide is token space.</b> The ladder decodes <span class="mono">z + σ·ε</span> and stops at <span class="mono">LossRecon</span> — <span class="mono">_eval_batch_geometry</span> is called on <span class="mono">x_hat</span> and <span class="mono">x_hat_ar</span> only (<span class="mono">deltatok_trainer.py:1412</span>), so there is no <span class="mono">LossDepth_noise*</span>, <span class="mono">LossPointmap_noise*</span> or <span class="mono">LossRaymap_noise*</span> in any log or TB event file for these runs. <b>Slide 5's decoded win at σ = 0 therefore has no σ &gt; 0 counterpart yet</b> — measuring it needs a code change and one <span class="mono">--eval-only</span> pass per arm.</div>
+  </div>
+  <div class="foot"><span>the twin has no in-training ladder — it predates eval_noise_sigmas</span><span class="pageno">06 / 07</span></div>
+</section>
+
+<!-- ============ 7 — verdict ============ -->
+<section class="slide">
+  <div class="eyebrow">verdict <span class="dim">— TODO 13 closes; the test it exists for has not run</span></div>
+  <h2>The tokenizer question is answered. The flow question is not.</h2>
+  <p class="sub">Everything measurable about the tokenizer held from ep 60 to ep 100. What the noise tolerance is <i>for</i> — the flow — is still unmeasured.</p>
+  <div class="body">
+    <div class="cols c2" style="height:100%">
+      <div style="display:flex;flex-direction:column;gap:10px;min-height:0;justify-content:space-between">
+        <div class="takeaway"><div class="n">1</div><div class="tx"><b>The ep-60 read held.</b> Clean cost +1.1% pooled then, +1.5% pooled at matched ep 82, and the per-set split is +2.7% KITTI / −0.3% nuScenes. Nothing in 40 more epochs changed the verdict.</div></div>
+        <div class="takeaway"><div class="n">2</div><div class="tx"><b>The decoded read is better than the token read suggests.</b> KITTI <span class="mono">PredVsOrig</span> depth and pointmap beat the clean twin by 4.1–4.4%. Only raymap loses on both sets.</div></div>
+        <div class="takeaway"><div class="n">3</div><div class="tx"><b>Rank is retired.</b> 83.8 / 512 at ep 100, below the twin's 92.0, flat since ep 60. Three axes have now failed to lift this shelf: <span class="mono">cov_weight</span>, the in-graph channel, and the detached channel.</div></div>
+        <div class="takeaway"><div class="n">4</div><div class="tx"><b>The ladder ratio is epoch-sensitive.</b> Quoting "2.4× smaller than the twin" only holds at the epoch both were measured at. The arm's own penalty widens 17.5% → 27.1% over ep 40 → 100, so any future twin comparison has to be matched.</div></div>
+      </div>
+      <div style="display:flex;flex-direction:column;gap:10px;min-height:0">
+        <div class="card"><div class="tag">the next arm</div>
+          <h3>Flow matching on <span class="mono">epoch_100.pth</span></h3>
+          <p style="font-size:13px;color:var(--ink2);margin-top:4px">The only test the tolerance is for. The 2026-09-04 decoder-only finetune helped at N = 20 (−35.5% raymap) and hurt at N = 1 (+17.7%); this tokenizer is the from-scratch version of the same idea, so the N = 1 result is the one to watch. Control is the flow on the clean twin.</p></div>
+        <div class="card"><div class="tag">not settled by this run</div>
+          <h3>σ absolute vs relative</h3>
+          <p style="font-size:13px;color:var(--ink2);margin-top:4px">σ ~ U(0, 0.8) is added to a <span class="mono">z</span> of RMS 1.38 and never rescaled. The ep-37 in-graph read showed an encoder can answer a fixed absolute σ by inflating <span class="mono">z</span>; detaching removes the incentive but not the arbitrariness of the scale.</p></div>
+        <div class="rulebar">Read at ep <b>100</b>, the arm's last. Arm-vs-twin numbers are matched at ep 82, the twin's last. The twin remains resumable and was never taken to 100.</div>
+      </div>
+    </div>
+  </div>
+  <div class="foot"><span>plan: plan/2026-09-08_tc_width_decnoise_detach_tc512.md · TODO 13 · thread tc_width</span><span class="pageno">07 / 07</span></div>
+</section>
+
+</div>
+
+<button class="arr" id="prev" aria-label="Previous slide">‹</button>
+<button class="arr" id="next" aria-label="Next slide">›</button>
+<div class="nav" id="nav" role="tablist" aria-label="Slides"></div>
+
+<script>
+/* ---------- deck nav ---------- */
+const stage=document.getElementById("stage");
+const slides=[...document.querySelectorAll(".slide")];
+const nav=document.getElementById("nav");
+let cur=0;
+slides.forEach((_,i)=>{
+  const b=document.createElement("button");
+  b.setAttribute("role","tab");b.setAttribute("aria-label","Slide "+(i+1));
+  b.addEventListener("click",()=>go(i));
+  nav.appendChild(b);
+});
+function go(i){
+  cur=Math.max(0,Math.min(slides.length-1,i));
+  slides.forEach((s,j)=>s.classList.toggle("on",j===cur));
+  [...nav.children].forEach((b,j)=>b.classList.toggle("cur",j===cur));
+}
+document.getElementById("prev").addEventListener("click",()=>go(cur-1));
+document.getElementById("next").addEventListener("click",()=>go(cur+1));
+addEventListener("keydown",e=>{
+  if(["ArrowRight","PageDown"," "].includes(e.key)){go(cur+1);e.preventDefault();}
+  else if(["ArrowLeft","PageUp"].includes(e.key)){go(cur-1);e.preventDefault();}
+  else if(e.key==="Home")go(0);
+  else if(e.key==="End")go(slides.length-1);
+});
+go(0);
+/* ---------- auto-scale ---------- */
+function fit(){
+  const s=Math.min(innerWidth/1300,(innerHeight-40)/730);
+  stage.style.transform=`translate(-50%,-50%) scale(${Math.min(s,1.4)})`;
+}
+addEventListener("resize",fit);fit();
+
+/* ---------- CSS var resolver (for SVG strokes) ---------- */
+const CV=n=>getComputedStyle(document.documentElement).getPropertyValue(n).trim();
+
+/* ---------- multi-series epoch line chart; data[i] is epoch xmin+i ---------- */
+function lineChart(el,cfg){
+  const W=cfg.W||600,H=cfg.H||300,L=cfg.L||44,R=cfg.R||52,T=cfg.T||10,B=cfg.B||26,
+        iw=W-L-R, ih=H-T-B;
+  const {ymin,ymax,yticks,xmax,xticks,log}=cfg, xmin=cfg.xmin||0, span=xmax-xmin;
+  const f=log?Math.log10:(v=>v), y0=f(ymin), y1=f(ymax);
+  const XE=e=>L+iw*((e-xmin)/span);
+  const Y=v=>T+ih*(1-(f(Math.min(Math.max(v,ymin),ymax))-y0)/(y1-y0));
+  const fmt=cfg.fmt||(t=>t.toFixed(4));
+  let s=`<svg viewBox="0 0 ${W} ${H}" width="100%" height="100%" preserveAspectRatio="xMidYMid meet">`;
+  yticks.forEach(t=>{const y=Y(t);
+    s+=`<line x1="${L}" y1="${y}" x2="${L+iw}" y2="${y}" stroke="${CV('--grid')}"/>`;
+    s+=`<text x="${L-6}" y="${y+3}" text-anchor="end" class="axl">${fmt(t)}</text>`;});
+  xticks.forEach(t=>s+=`<text x="${XE(t)}" y="${H-9}" text-anchor="middle" class="axl">${t}</text>`);
+  cfg.series.forEach(se=>{const c=CV(se.color);
+    const d=se.data.map((v,i)=>`${i?'L':'M'}${XE(xmin+i).toFixed(1)} ${Y(v).toFixed(1)}`).join(' ');
+    s+=`<path d="${d}" fill="none" stroke="${c}" stroke-width="${se.width||1.8}" opacity="${se.faint?.5:1}" ${se.dash?`stroke-dasharray="${se.dash}"`:''}/>`;
+    const n=se.data.length-1, lx=XE(xmin+n), ly=Y(se.data[n]);
+    s+=`<circle cx="${lx.toFixed(1)}" cy="${ly.toFixed(1)}" r="2.4" fill="${c}" opacity="${se.faint?.5:1}"/>`;
+    if(se.tag&&!se.faint) s+=`<text x="${lx+5}" y="${ly+3.5}" class="hll" fill="${c}" opacity="${se.faint?.6:1}">${se.tag}</text>`;});
+  s+=`<text x="${L+iw/2}" y="${H-0.5}" text-anchor="middle" class="axl">${cfg.xlab||'epoch'}</text></svg>`;
+  el.innerHTML=s;
+}
+
+/* ---------- diverging horizontal bars, zero-centred: one row per metric, n bars per row ---------- */
+function barsH(el,cfg){
+  const W=cfg.W||560,H=cfg.H||420,L=cfg.L||96,R=44,T=8,B=26, iw=W-L-R, ih=H-T-B;
+  const lo=cfg.lo!==undefined?cfg.lo:-cfg.lim, hi=cfg.hi!==undefined?cfg.hi:cfg.lim;
+  const X=v=>L+iw*(v-lo)/(hi-lo);                    // symmetric about zero unless lo/hi given
+  const x0=X(0), rowh=ih/cfg.rows.length;
+  let s=`<svg viewBox="0 0 ${W} ${H}" width="100%" height="100%" preserveAspectRatio="xMidYMid meet">`;
+  (cfg.xticks||[]).forEach(t=>{const x=X(t);
+    s+=`<line x1="${x}" y1="${T}" x2="${x}" y2="${T+ih}" stroke="${CV(t===0?'--axis':'--grid')}"/>`;
+    s+=`<text x="${x}" y="${H-9}" text-anchor="middle" class="axl">${t}%</text>`;});
+  cfg.rows.forEach((r,ri)=>{
+    const top=T+ri*rowh, nb=r.bars.length, bh=Math.min(11,(rowh-10)/nb), pad=(rowh-nb*bh-2)/2;
+    s+=`<text x="${L-8}" y="${top+rowh/2+3.5}" text-anchor="end" class="barlbl" style="font-size:11px">${r.l}</text>`;
+    r.bars.forEach((b,bi)=>{const y=top+pad+bi*bh, x=X(b.v), c=CV(b.color);
+      s+=`<rect x="${Math.min(x,x0).toFixed(1)}" y="${y.toFixed(1)}" width="${Math.abs(x0-x).toFixed(1)}" height="${(bh-1.6).toFixed(1)}" fill="${c}" opacity="${b.op||1}"/>`;
+      s+=`<text x="${(b.v<0?x-4:x+4).toFixed(1)}" y="${(y+bh-2).toFixed(1)}" text-anchor="${b.v<0?'end':'start'}" class="barval" style="opacity:${b.op||1}">${b.v.toFixed(1)}</text>`;});
+  });
+  s+=`</svg>`; el.innerHTML=s;
+}
+
+/* ================= DATA =================
+   Every scalar is grepped from the cached BSC stdout of each job
+   (../../../../monitor_jobs/data/logs/BSC/): deltatok_decnoise_dt_bsc_45578805.out +
+   _45665286.out (the arm, concatenated at the ep-62 resume seam),
+   deltatok_bsc_45296347.out (clean twin), deltatok_decnoise_bsc_45529827.out (in-graph
+   sibling). Index i is epoch i+1. _D detached · _T clean twin · _G in-graph sibling.
+   Series lengths differ by design: 100 / 82 / 40 epochs. PEN* are LossRecon at that σ
+   over LossRecon at σ = 0, in percent, per epoch. ===================== */
+var LR_K_D=[0.1407,0.1367,0.1322,0.1208,0.1131,0.1071,0.1033,0.0981,0.0949,0.092,0.0895,0.087,0.0842,0.082,0.0791,0.0766,0.0754,0.0738,0.0727,0.0713,0.0699,0.0688,0.0675,0.0666,0.0656,0.0649,0.0642,0.0633,0.0627,0.0623,0.0617,0.0611,0.0606,0.0604,0.0601,0.0595,0.0591,0.0588,0.0586,0.0583,0.0581,0.0579,0.0578,0.0574,0.0571,0.057,0.0568,0.0565,0.0563,0.0562,0.0559,0.0558,0.0555,0.0553,0.0552,0.055,0.0548,0.0546,0.0545,0.0544,0.0543,0.0542,0.054,0.0538,0.0538,0.0537,0.0535,0.0534,0.0533,0.0531,0.0531,0.053,0.0529,0.0528,0.0528,0.0528,0.0527,0.0526,0.0525,0.0525,0.0525,0.0524,0.0524,0.0524,0.0523,0.0523,0.0522,0.0522,0.0522,0.0521,0.0521,0.0521,0.0521,0.0521,0.0521,0.052,0.052,0.052,0.052,0.052];
+var LRA_K_D=[0.1538,0.1505,0.2538,0.1309,0.1233,0.1175,0.113,0.1069,0.1033,0.1004,0.0977,0.095,0.0923,0.0897,0.0861,0.0835,0.0823,0.0808,0.0793,0.0775,0.076,0.0752,0.0737,0.0727,0.0716,0.0707,0.0697,0.0686,0.0685,0.0676,0.067,0.0666,0.0663,0.0656,0.0651,0.0652,0.0641,0.0638,0.0636,0.063,0.0628,0.0626,0.0633,0.0626,0.0619,0.0617,0.0615,0.0614,0.0609,0.0607,0.0606,0.0602,0.0599,0.06,0.0596,0.0595,0.0596,0.0593,0.0587,0.0588,0.0585,0.0587,0.0583,0.0583,0.0582,0.0578,0.0577,0.058,0.0579,0.0573,0.0577,0.0572,0.0573,0.0572,0.0571,0.0572,0.0568,0.057,0.0567,0.0567,0.0568,0.0567,0.0566,0.0566,0.0566,0.0567,0.0565,0.0565,0.0565,0.0565,0.0564,0.0564,0.0564,0.0564,0.0564,0.0563,0.0564,0.0564,0.0563,0.0563];
+var LRC_K_D=[0.1481,0.1453,0.1402,0.129,0.122,0.1166,0.1134,0.1079,0.104,0.1003,0.0979,0.0955,0.0923,0.0895,0.0864,0.0833,0.0818,0.0797,0.0785,0.0769,0.0751,0.0739,0.0726,0.0714,0.0704,0.0696,0.0688,0.0675,0.067,0.0668,0.0658,0.065,0.0652,0.0652,0.0647,0.0639,0.0635,0.0626,0.063,0.0626,0.0628,0.0624,0.0621,0.0614,0.0615,0.0618,0.0623,0.0615,0.0612,0.0609,0.0611,0.0612,0.0611,0.0596,0.0608,0.0603,0.0603,0.0602,0.0595,0.0608,0.0612,0.0608,0.0605,0.0592,0.0595,0.06,0.0619,0.0595,0.0592,0.0591,0.0594,0.0592,0.0593,0.0591,0.0592,0.0601,0.0608,0.0593,0.0613,0.06,0.061,0.06,0.0592,0.0599,0.0609,0.0601,0.0599,0.0597,0.0607,0.0592,0.0584,0.0612,0.0608,0.0593,0.0596,0.059,0.0591,0.0591,0.0601,0.0584];
+var RK_K_D=[14.2,20.9,21.4,10.0,14.5,19.0,20.9,25.0,27.4,27.8,28.2,30.3,32.5,35.1,39.1,42.4,43.9,45.9,47.4,50.4,52.0,53.5,57.1,57.4,59.2,59.9,60.5,61.4,63.7,64.6,64.8,66.1,66.2,68.6,68.9,67.6,70.0,70.2,71.5,70.2,70.9,72.2,72.1,71.1,71.7,73.2,72.7,74.4,74.0,74.5,74.1,75.2,76.0,75.6,76.8,77.0,77.5,77.9,78.7,79.5,80.5,79.8,81.0,81.1,80.7,82.1,82.1,82.5,82.4,82.8,82.8,84.0,83.8,83.3,83.2,83.8,84.3,83.5,84.1,83.9,84.0,84.0,83.6,83.8,83.9,83.9,83.4,83.7,83.4,83.7,83.3,83.2,83.6,83.8,83.3,83.6,83.8,83.5,83.6,83.8];
+var RMS_K_D=[1.1336,1.125,1.1163,1.5976,1.4328,1.6469,1.6248,1.6745,1.6494,1.7182,1.7417,1.7001,1.8781,1.7602,1.6659,1.6768,1.8035,1.7956,1.7945,1.5783,1.5901,1.4246,1.5683,1.3675,1.6732,1.3553,1.4206,1.4087,1.5685,1.6602,1.3073,1.3151,1.3923,1.8082,1.6406,1.043,1.6668,1.529,1.7739,1.3499,1.6123,1.4053,1.2846,1.1913,1.2285,1.6182,1.2785,1.3598,1.362,1.586,1.3859,1.6228,1.6389,1.2134,1.5912,1.4613,1.4186,1.4345,1.4296,1.2821,1.7643,1.2153,1.632,1.6153,1.2982,2.0252,1.9107,1.3666,1.2239,1.401,1.1413,1.7761,1.6151,1.3426,1.2201,1.3867,1.6415,1.2107,1.5005,1.5852,1.5423,1.4536,1.538,1.4555,1.4829,1.5628,1.3098,1.5072,1.4688,1.3864,1.3467,1.3942,1.4473,1.4586,1.354,1.3713,1.4249,1.3865,1.3584,1.3786];
+var PM_K_D=[17.201,6.4751,13.13,7.738,3.0161,2.2715,2.0018,1.9938,1.4993,1.6174,1.3988,1.1685,1.2965,1.263,1.3846,1.1094,1.0455,0.9824,1.0132,0.9341,1.0715,0.9313,0.8689,0.7904,0.8965,0.8837,0.825,0.8154,0.8499,0.8151,0.7781,0.802,0.8228,0.8533,0.7239,0.7404,0.7045,0.6977,0.7684,0.7262,0.6994,0.7435,0.7493,0.8017,0.682,0.7828,0.7156,0.6691,0.7596,0.658,0.6831,0.7525,0.6178,0.6875,0.6981,0.6842,0.6339,0.7097,0.6811,0.6714,0.6746,0.6576,0.6657,0.6424,0.6578,0.6197,0.6496,0.6396,0.6711,0.6261,0.6564,0.6569,0.6448,0.6313,0.6339,0.6245,0.6377,0.6454,0.627,0.6463,0.6255,0.6395,0.6487,0.6223,0.6576,0.649,0.6469,0.6354,0.648,0.6424,0.6312,0.6423,0.6336,0.6354,0.6349,0.6376,0.6373,0.6254,0.6337,0.6386];
+var DP_K_D=[3.1052,2.7669,2.6954,1.8429,1.5194,1.3216,1.2286,1.1723,0.9533,0.9912,0.8565,0.7483,0.7981,0.7909,0.8368,0.6968,0.6613,0.6306,0.623,0.5852,0.6525,0.5923,0.5552,0.5145,0.5739,0.5543,0.5305,0.518,0.5261,0.5413,0.5033,0.5262,0.5228,0.53,0.477,0.4797,0.4627,0.477,0.4868,0.486,0.4625,0.479,0.4859,0.4942,0.4513,0.4871,0.4471,0.4332,0.4733,0.4207,0.4389,0.4575,0.4144,0.4384,0.4386,0.4217,0.4273,0.4434,0.4305,0.4263,0.4211,0.4217,0.4165,0.4013,0.4134,0.4016,0.4014,0.4098,0.4133,0.3937,0.4087,0.4109,0.4019,0.3975,0.3983,0.4104,0.4022,0.4074,0.4042,0.403,0.4048,0.404,0.4032,0.403,0.407,0.4022,0.4063,0.4056,0.4034,0.4042,0.4049,0.4072,0.4026,0.4028,0.4036,0.4028,0.4032,0.401,0.4014,0.4057];
+var RM_K_D=[15.504,5.6433,12.402,7.1497,2.2496,1.4629,1.2037,1.2134,0.9055,0.9696,0.8244,0.671,0.7547,0.7306,0.7806,0.6459,0.6453,0.5729,0.597,0.5526,0.6272,0.5454,0.4891,0.4863,0.5078,0.5343,0.4918,0.4958,0.5327,0.4955,0.4708,0.497,0.4828,0.5126,0.4364,0.4532,0.4365,0.4167,0.481,0.4533,0.445,0.4512,0.4764,0.488,0.4179,0.4862,0.4531,0.4082,0.4688,0.4004,0.4374,0.4635,0.3864,0.4221,0.4143,0.4206,0.393,0.4428,0.4262,0.4302,0.4373,0.41,0.4151,0.3958,0.4233,0.3982,0.4126,0.3932,0.4205,0.3868,0.4143,0.4073,0.4059,0.3954,0.4005,0.3921,0.4103,0.4229,0.3943,0.4115,0.3915,0.4043,0.4119,0.3953,0.4153,0.4229,0.4052,0.4011,0.4151,0.401,0.4013,0.4074,0.4019,0.4017,0.4009,0.4081,0.4069,0.3945,0.4007,0.3996];
+var PMG_K_D=[16.809,6.4426,13.905,8.6299,4.225,3.5221,3.3384,3.7354,3.2328,3.4029,3.1872,2.8654,3.0466,3.11,3.2708,2.9487,2.9072,2.8564,2.9077,2.8334,2.987,2.8513,2.749,2.7237,2.8296,2.827,2.7496,2.7497,2.8094,2.7544,2.7275,2.746,2.7921,2.831,2.6628,2.6973,2.6117,2.5516,2.7252,2.6684,2.6113,2.6975,2.6867,2.7485,2.591,2.7273,2.6555,2.5828,2.6859,2.5984,2.6079,2.6916,2.5449,2.6596,2.6822,2.6361,2.4987,2.6944,2.6347,2.5942,2.6144,2.5801,2.6372,2.6197,2.5938,2.5697,2.6236,2.5524,2.6098,2.599,2.6014,2.5959,2.5859,2.5893,2.5866,2.5477,2.5819,2.5939,2.5644,2.5895,2.5358,2.5775,2.6272,2.5475,2.6167,2.595,2.5866,2.571,2.5865,2.5742,2.5511,2.5666,2.5584,2.5678,2.5628,2.5757,2.5732,2.5561,2.5654,2.5676];
+var DPG_K_D=[3.2281,3.0904,2.9743,2.3209,2.3192,2.1502,2.1095,2.2596,2.0424,2.1264,1.9995,1.8501,1.9289,1.976,2.0598,1.8791,1.8386,1.8391,1.856,1.8136,1.8985,1.8311,1.7829,1.7514,1.8265,1.8104,1.7774,1.7634,1.7901,1.7752,1.7588,1.763,1.7987,1.8145,1.7248,1.7382,1.6833,1.6624,1.7479,1.725,1.6854,1.7438,1.7282,1.762,1.68,1.7472,1.7062,1.6877,1.7248,1.6891,1.685,1.7284,1.6544,1.7261,1.742,1.7063,1.6389,1.7386,1.7022,1.6731,1.6825,1.6768,1.7088,1.7,1.6699,1.6627,1.6955,1.6612,1.6857,1.6919,1.6829,1.6847,1.6759,1.6779,1.6757,1.6546,1.6678,1.6715,1.6667,1.6747,1.6515,1.6706,1.6992,1.6572,1.6929,1.6749,1.679,1.6704,1.6738,1.6744,1.6594,1.6666,1.662,1.6683,1.6655,1.6712,1.6704,1.6628,1.6678,1.6709];
+var N32_K_D=[0.1407,0.1367,0.1323,0.1209,0.1132,0.1073,0.1035,0.0983,0.0952,0.0922,0.0897,0.0873,0.0844,0.0823,0.0795,0.0771,0.0759,0.0744,0.0733,0.072,0.0707,0.0697,0.0684,0.0677,0.0666,0.0661,0.0655,0.0646,0.064,0.0636,0.0633,0.0628,0.0622,0.0617,0.0616,0.0617,0.0606,0.0604,0.0601,0.0602,0.0597,0.0598,0.0599,0.0597,0.0594,0.0588,0.0591,0.0587,0.0585,0.0581,0.0582,0.0577,0.0574,0.058,0.0573,0.0573,0.0572,0.057,0.0569,0.0573,0.0565,0.0573,0.0563,0.0562,0.0567,0.0556,0.0557,0.0564,0.0565,0.056,0.0566,0.0555,0.0556,0.0562,0.0563,0.056,0.0555,0.0563,0.0557,0.0555,0.0556,0.0557,0.0555,0.0557,0.0556,0.0553,0.0558,0.0555,0.0556,0.0557,0.0557,0.0558,0.0556,0.0555,0.0558,0.0556,0.0556,0.0557,0.0557,0.0556];
+var N55_K_D=[0.1407,0.1366,0.1323,0.121,0.1134,0.1075,0.1039,0.0987,0.0956,0.0927,0.0902,0.0878,0.085,0.0832,0.0806,0.0783,0.0773,0.0757,0.0748,0.0737,0.0725,0.0716,0.0703,0.07,0.0685,0.0684,0.0678,0.067,0.0662,0.0658,0.0661,0.0656,0.0649,0.0639,0.064,0.0654,0.0631,0.0632,0.0626,0.0633,0.0625,0.0629,0.0633,0.0633,0.0629,0.0618,0.0627,0.0621,0.0619,0.0612,0.0617,0.0609,0.0606,0.062,0.0607,0.0609,0.0608,0.0607,0.0605,0.0616,0.0598,0.0616,0.0598,0.0597,0.0609,0.0587,0.059,0.0606,0.061,0.0601,0.0613,0.0591,0.0595,0.0607,0.0611,0.0604,0.0595,0.0611,0.06,0.0597,0.0599,0.0601,0.0599,0.0602,0.0601,0.0595,0.0606,0.0599,0.0602,0.0603,0.0604,0.0605,0.0602,0.0601,0.0606,0.0603,0.0602,0.0605,0.0604,0.0603];
+var N82_K_D=[0.1406,0.1366,0.1324,0.1212,0.1137,0.108,0.1046,0.0996,0.0966,0.0937,0.0913,0.0893,0.0867,0.0864,0.0846,0.0838,0.0839,0.0812,0.082,0.0803,0.0784,0.0769,0.0758,0.0769,0.0732,0.074,0.0724,0.0716,0.0707,0.0701,0.0715,0.0704,0.0699,0.068,0.0681,0.0717,0.0674,0.0679,0.0668,0.0685,0.0671,0.0681,0.0686,0.0691,0.0686,0.0665,0.0682,0.0674,0.067,0.0659,0.0668,0.0654,0.0651,0.0673,0.0654,0.0659,0.0657,0.0657,0.0654,0.0671,0.0644,0.0673,0.0645,0.0645,0.0663,0.063,0.0635,0.0659,0.0667,0.0654,0.0672,0.0639,0.0646,0.0663,0.067,0.0659,0.0646,0.0669,0.0654,0.0649,0.0653,0.0655,0.0652,0.0657,0.0655,0.0648,0.0663,0.0653,0.0657,0.066,0.0661,0.0662,0.0659,0.0657,0.0664,0.066,0.0658,0.0662,0.0662,0.0661];
+var LR_N_D=[0.1035,0.0987,0.0971,0.0836,0.0784,0.0743,0.0713,0.0681,0.0661,0.0642,0.0627,0.0612,0.0593,0.058,0.056,0.0539,0.0531,0.0517,0.0508,0.0497,0.0485,0.0474,0.0464,0.0459,0.0452,0.0446,0.044,0.0432,0.0428,0.0424,0.042,0.0417,0.0413,0.0411,0.0407,0.0404,0.0402,0.0399,0.0397,0.0395,0.0394,0.0392,0.0392,0.0389,0.0388,0.0387,0.0386,0.0385,0.0383,0.0382,0.038,0.0379,0.0377,0.0377,0.0376,0.0374,0.0372,0.0372,0.037,0.0369,0.0368,0.0367,0.0367,0.0365,0.0365,0.0364,0.0363,0.0362,0.0361,0.036,0.036,0.0359,0.0359,0.0358,0.0358,0.0357,0.0357,0.0356,0.0356,0.0356,0.0355,0.0355,0.0355,0.0354,0.0354,0.0354,0.0353,0.0353,0.0353,0.0353,0.0353,0.0353,0.0352,0.0352,0.0352,0.0352,0.0352,0.0352,0.0352,0.0352];
+var LRA_N_D=[0.1193,0.1137,0.118,0.0949,0.0893,0.0857,0.0812,0.0778,0.0751,0.0737,0.0719,0.0698,0.0678,0.0662,0.0637,0.0611,0.0603,0.0589,0.0577,0.0564,0.0547,0.0537,0.0526,0.0517,0.0509,0.0501,0.0494,0.0486,0.0484,0.0475,0.0471,0.0467,0.0467,0.0461,0.0456,0.0456,0.045,0.0448,0.0446,0.0443,0.044,0.044,0.0441,0.0437,0.0435,0.0434,0.0433,0.0433,0.0429,0.0427,0.0426,0.0424,0.0421,0.0421,0.0418,0.0418,0.0417,0.0417,0.0413,0.0412,0.041,0.0411,0.0408,0.0408,0.0408,0.0406,0.0405,0.0406,0.0404,0.0401,0.0403,0.04,0.0401,0.0399,0.04,0.04,0.0398,0.0398,0.0397,0.0397,0.0396,0.0396,0.0395,0.0395,0.0394,0.0395,0.0394,0.0394,0.0393,0.0393,0.0393,0.0393,0.0392,0.0392,0.0392,0.0392,0.0392,0.0392,0.0392,0.0392];
+var LRC_N_D=[0.1097,0.1071,0.1053,0.0931,0.0882,0.0838,0.0805,0.0774,0.0751,0.073,0.0715,0.0696,0.0671,0.0657,0.0631,0.0608,0.0595,0.058,0.0568,0.055,0.0539,0.0529,0.0515,0.0508,0.0498,0.0493,0.0485,0.0476,0.0472,0.0466,0.0461,0.0457,0.0455,0.0449,0.0447,0.0444,0.044,0.0437,0.0435,0.0432,0.0431,0.043,0.0429,0.0425,0.0426,0.0424,0.0422,0.0422,0.0419,0.0417,0.0415,0.0415,0.0412,0.0415,0.0411,0.0408,0.0407,0.0406,0.0405,0.0402,0.0403,0.0401,0.04,0.04,0.0399,0.0397,0.0397,0.0396,0.0396,0.0394,0.0394,0.0392,0.0393,0.0392,0.0391,0.0391,0.039,0.039,0.039,0.0391,0.0389,0.0388,0.0388,0.0387,0.0389,0.0386,0.0387,0.0388,0.0388,0.0386,0.0387,0.0386,0.0386,0.0385,0.0386,0.0386,0.0386,0.0386,0.0384,0.0385];
+var RK_N_D=[13.5,21.9,25.5,18.5,21.8,24.2,27.5,31.0,32.3,33.1,33.3,35.0,37.2,39.6,45.2,49.6,52.1,55.1,57.2,61.3,64.0,67.7,71.0,71.8,74.4,75.8,78.3,79.8,81.7,82.9,84.1,85.9,85.8,86.3,88.0,88.4,89.7,89.0,90.4,90.1,90.9,91.4,92.0,91.5,91.8,92.1,92.0,92.5,93.3,93.3,93.8,94.8,94.4,94.2,96.2,96.5,97.2,96.8,97.6,97.9,98.0,97.6,98.3,99.0,97.9,99.5,100.0,99.4,98.8,98.5,99.4,99.2,99.7,98.8,99.6,99.4,99.2,99.5,99.7,99.3,98.7,99.4,99.0,98.0,98.9,97.9,98.6,98.2,98.5,97.8,98.1,98.0,98.1,97.5,97.4,97.3,97.3,97.7,97.4,97.5];
+var RMS_N_D=[1.1571,1.0615,1.003,0.9903,0.9066,1.0596,0.9926,1.0109,1.0083,1.0127,1.0074,0.9365,1.0625,0.9811,0.9469,0.9612,1.061,1.035,1.0511,0.9487,0.9739,0.9708,1.0276,0.9634,1.1549,0.9714,1.0302,1.0674,1.0989,1.1174,0.9736,0.9756,1.0064,1.0988,1.1267,0.8826,1.1878,1.1123,1.2193,0.9852,1.0913,1.0378,0.9757,1.0026,1.0354,1.117,0.9546,0.9753,1.0438,1.1468,1.0628,1.1089,1.1174,0.9969,1.0681,1.0832,1.0103,1.0169,1.0539,0.9066,1.1406,0.9232,1.1424,1.1154,0.9665,1.2006,1.1012,1.0441,0.9892,1.0781,0.9675,1.1888,1.1438,1.099,1.004,1.0202,1.077,0.9812,1.069,1.0703,1.0893,1.0584,1.0751,1.0482,1.0565,1.0957,0.9846,1.0511,1.0432,1.0404,1.0454,1.0318,1.0487,1.0697,1.0283,1.0459,1.0553,1.0273,1.0246,1.0442];
+var PM_N_D=[22.455,7.7858,12.765,8.0644,3.8207,2.6561,2.1524,1.9048,1.8579,1.5757,1.5717,1.4332,1.4103,1.3426,1.319,1.0056,1.0816,0.8908,0.9067,0.9488,0.9026,0.8657,0.7569,0.7451,0.7312,0.6797,0.6822,0.7323,0.675,0.6443,0.6367,0.6051,0.6074,0.6195,0.6006,0.5948,0.5799,0.6011,0.6086,0.5696,0.5969,0.5796,0.5812,0.5874,0.6013,0.5767,0.5603,0.5525,0.546,0.5513,0.5581,0.5484,0.5528,0.531,0.5107,0.5156,0.5261,0.5269,0.5335,0.5533,0.5233,0.5527,0.5101,0.5036,0.5282,0.5457,0.5306,0.5318,0.514,0.5271,0.5247,0.5098,0.5175,0.5142,0.5129,0.5306,0.5327,0.5052,0.5258,0.5213,0.5174,0.5074,0.5032,0.51,0.5064,0.5087,0.5039,0.5071,0.5166,0.5126,0.5111,0.5103,0.5138,0.5063,0.5155,0.5123,0.5104,0.5076,0.5076,0.505];
+var DP_N_D=[3.8449,2.821,3.1428,2.2076,1.6383,1.5366,1.3886,1.1916,1.1698,1.0433,1.0195,0.9532,0.902,0.8709,0.861,0.6962,0.751,0.624,0.64,0.6572,0.6432,0.6055,0.5453,0.5472,0.5219,0.4983,0.5054,0.5325,0.4887,0.4793,0.4603,0.4532,0.4502,0.4439,0.4407,0.445,0.4307,0.4442,0.4435,0.4207,0.4296,0.4184,0.4206,0.4318,0.4301,0.4197,0.4107,0.4079,0.3993,0.403,0.4078,0.4016,0.3943,0.39,0.3728,0.3792,0.3882,0.3832,0.3893,0.402,0.3829,0.3953,0.3737,0.3719,0.3839,0.3974,0.3849,0.3927,0.3699,0.3806,0.3789,0.3706,0.3717,0.3752,0.3721,0.3877,0.3853,0.3738,0.3753,0.3748,0.3759,0.3695,0.3648,0.3705,0.3678,0.3715,0.3688,0.3702,0.3716,0.3694,0.3736,0.3675,0.3711,0.368,0.3718,0.3711,0.3693,0.3688,0.3668,0.3667];
+var RM_N_D=[18.724,6.1278,10.006,6.173,2.8193,1.8176,1.3746,1.1212,1.0848,0.8922,0.898,0.7924,0.7708,0.7122,0.6872,0.5135,0.5311,0.4482,0.4452,0.4598,0.4328,0.4103,0.3668,0.3522,0.3538,0.33,0.3177,0.3348,0.3278,0.3027,0.3079,0.293,0.282,0.3026,0.2868,0.2828,0.2782,0.2936,0.2971,0.2685,0.2903,0.2828,0.2831,0.2756,0.295,0.2794,0.2726,0.2578,0.2604,0.2647,0.2696,0.2635,0.2733,0.2639,0.2492,0.2448,0.2504,0.2588,0.2595,0.2703,0.2609,0.2694,0.2518,0.2461,0.2614,0.2686,0.2646,0.2564,0.261,0.265,0.2625,0.2495,0.2574,0.2528,0.2563,0.2649,0.2647,0.2442,0.2631,0.2577,0.2573,0.2507,0.2525,0.25,0.253,0.2529,0.2475,0.2518,0.2594,0.2573,0.2524,0.2585,0.2571,0.2532,0.259,0.257,0.2554,0.254,0.2537,0.2524];
+var PMG_N_D=[22.614,8.4329,13.303,9.1947,5.3993,4.4883,4.2176,4.1372,4.0979,3.9309,3.9489,3.8705,3.8896,3.8438,3.8525,3.6032,3.6837,3.5263,3.5588,3.6084,3.5887,3.5595,3.4802,3.4836,3.4843,3.4332,3.4259,3.4732,3.4438,3.4183,3.4075,3.3837,3.3931,3.4133,3.3841,3.387,3.3657,3.3703,3.407,3.3606,3.3897,3.3853,3.3727,3.3876,3.4012,3.3845,3.3746,3.3506,3.3626,3.3589,3.3495,3.3671,3.363,3.3522,3.3292,3.344,3.321,3.3439,3.3505,3.368,3.346,3.3568,3.3368,3.3397,3.3588,3.3469,3.3659,3.3505,3.3441,3.3594,3.3517,3.3439,3.3418,3.3458,3.3486,3.3589,3.3625,3.3421,3.3535,3.3559,3.3486,3.3499,3.3365,3.3451,3.3403,3.343,3.3434,3.351,3.3506,3.3468,3.3448,3.3443,3.3501,3.3417,3.3498,3.349,3.3482,3.3421,3.3455,3.3416];
+var DPG_N_D=[4.6539,3.7963,4.0763,3.4562,3.1866,3.121,3.0721,2.9831,2.9808,2.9153,2.9142,2.8843,2.8764,2.8603,2.8622,2.7381,2.7816,2.7089,2.7158,2.7412,2.7371,2.7212,2.6819,2.6839,2.6678,2.6506,2.6509,2.6777,2.6566,2.66,2.6326,2.6272,2.632,2.635,2.6224,2.6322,2.6097,2.6125,2.626,2.6096,2.6173,2.6183,2.6149,2.6271,2.6249,2.6149,2.6167,2.6031,2.6073,2.6081,2.5995,2.611,2.6011,2.6014,2.5962,2.5974,2.5888,2.5984,2.6009,2.6156,2.5971,2.6036,2.598,2.596,2.6075,2.6027,2.6056,2.6078,2.5957,2.6086,2.6028,2.5975,2.5984,2.6026,2.5957,2.6072,2.6065,2.5989,2.6004,2.6017,2.6009,2.5995,2.5943,2.5976,2.5947,2.5963,2.5999,2.601,2.5995,2.5995,2.5999,2.5996,2.602,2.5993,2.6012,2.6018,2.6002,2.5988,2.5979,2.5984];
+var N32_N_D=[0.1036,0.0987,0.0972,0.0836,0.0785,0.0744,0.0715,0.0683,0.0663,0.0644,0.0629,0.0614,0.0595,0.0583,0.0563,0.0543,0.0535,0.0522,0.0514,0.0504,0.0493,0.0483,0.0473,0.0469,0.0461,0.0457,0.0451,0.0443,0.0439,0.0435,0.0433,0.0431,0.0427,0.0424,0.042,0.0421,0.0415,0.0414,0.041,0.0411,0.0409,0.0408,0.0408,0.0406,0.0404,0.0403,0.0404,0.0403,0.04,0.0398,0.0397,0.0396,0.0394,0.0396,0.0393,0.0392,0.0392,0.0392,0.0389,0.0392,0.0386,0.039,0.0385,0.0384,0.0387,0.0382,0.0383,0.0384,0.0384,0.0382,0.0383,0.0379,0.0379,0.038,0.0381,0.0381,0.0379,0.0381,0.0379,0.0378,0.0378,0.0378,0.0378,0.0378,0.0378,0.0377,0.0379,0.0377,0.0377,0.0377,0.0377,0.0378,0.0377,0.0376,0.0377,0.0377,0.0377,0.0377,0.0377,0.0377];
+var N55_N_D=[0.1038,0.0988,0.0972,0.0837,0.0785,0.0747,0.0718,0.0686,0.0666,0.0648,0.0633,0.0618,0.06,0.0589,0.0572,0.0554,0.0546,0.0535,0.0529,0.0519,0.0509,0.0499,0.0489,0.0488,0.0477,0.0476,0.047,0.0462,0.0458,0.0455,0.0456,0.0453,0.0449,0.0445,0.0441,0.0447,0.0436,0.0436,0.0431,0.0437,0.0432,0.0433,0.0434,0.0431,0.0429,0.0427,0.0431,0.043,0.0425,0.0422,0.0423,0.0421,0.042,0.0425,0.042,0.0419,0.042,0.042,0.0417,0.0423,0.0413,0.0421,0.0412,0.0412,0.0418,0.0409,0.0412,0.0413,0.0416,0.0411,0.0415,0.0407,0.0408,0.041,0.0413,0.0412,0.041,0.0413,0.041,0.0409,0.0409,0.0409,0.0409,0.041,0.0409,0.0408,0.0412,0.041,0.041,0.041,0.0409,0.041,0.0409,0.0408,0.041,0.0409,0.0409,0.041,0.041,0.0409];
+var N82_N_D=[0.1042,0.0989,0.0974,0.0838,0.0787,0.0752,0.0725,0.0693,0.0673,0.0656,0.0641,0.063,0.0613,0.0612,0.0602,0.0593,0.0591,0.0579,0.0584,0.0568,0.0558,0.0542,0.0537,0.0544,0.052,0.0523,0.0509,0.0499,0.0498,0.0493,0.0496,0.0492,0.0491,0.0485,0.0478,0.0493,0.0471,0.0476,0.0466,0.0479,0.0473,0.0474,0.0474,0.0472,0.0469,0.0464,0.0472,0.047,0.0462,0.0457,0.046,0.0456,0.0455,0.0461,0.0456,0.0455,0.0457,0.0457,0.0453,0.0463,0.0448,0.046,0.0447,0.0447,0.0456,0.0443,0.0448,0.045,0.0454,0.0448,0.0454,0.0442,0.0444,0.0446,0.0451,0.045,0.0447,0.0452,0.0447,0.0447,0.0446,0.0447,0.0446,0.0448,0.0447,0.0446,0.0451,0.0448,0.0448,0.0448,0.0448,0.0449,0.0447,0.0446,0.0449,0.0448,0.0447,0.0449,0.0449,0.0448];
+var LR_K_T=[0.1406,0.1383,0.1284,0.1195,0.1119,0.105,0.1003,0.0955,0.0928,0.0886,0.0857,0.0834,0.0815,0.0797,0.0783,0.0757,0.0741,0.0726,0.0713,0.0707,0.068,0.0671,0.0663,0.0656,0.065,0.0644,0.0631,0.0624,0.0616,0.0613,0.0609,0.0606,0.0603,0.0598,0.059,0.0585,0.0583,0.0578,0.0577,0.0575,0.0573,0.0569,0.0566,0.0563,0.0559,0.0558,0.0555,0.0554,0.0557,0.0551,0.0548,0.0548,0.0546,0.0547,0.0543,0.0539,0.0537,0.0534,0.0532,0.0533,0.0529,0.0527,0.0526,0.0525,0.0523,0.0522,0.0521,0.052,0.052,0.0519,0.0517,0.0517,0.0516,0.0515,0.0515,0.0514,0.0513,0.0512,0.0512,0.0511,0.0511,0.051];
+var LRA_K_T=[0.1627,0.1474,0.137,0.1285,0.1224,0.1149,0.1102,0.1045,0.1023,0.0969,0.0938,0.0917,0.0892,0.087,0.0856,0.0831,0.0812,0.0794,0.078,0.077,0.0738,0.073,0.0726,0.0716,0.0706,0.0701,0.0688,0.0684,0.067,0.0665,0.0659,0.0656,0.0653,0.0652,0.0639,0.0635,0.063,0.0629,0.0622,0.0621,0.0618,0.0612,0.0613,0.0609,0.0603,0.0605,0.0598,0.0597,0.06,0.0595,0.0593,0.0592,0.059,0.059,0.0585,0.058,0.058,0.0576,0.0574,0.0573,0.0569,0.0569,0.0565,0.0567,0.0562,0.0563,0.056,0.056,0.0559,0.0558,0.0558,0.0558,0.0555,0.0554,0.0555,0.0553,0.0551,0.055,0.0551,0.055,0.055,0.0548];
+var LRC_K_T=[0.148,0.1461,0.1358,0.1281,0.1209,0.1142,0.1099,0.1051,0.1017,0.0973,0.0933,0.0908,0.0892,0.0869,0.085,0.0821,0.0807,0.0787,0.0771,0.0759,0.0737,0.0724,0.0715,0.0707,0.0701,0.0691,0.0678,0.0671,0.0661,0.0656,0.0655,0.0647,0.0641,0.0641,0.063,0.0628,0.0624,0.0619,0.0621,0.0617,0.0615,0.0611,0.0607,0.0602,0.06,0.06,0.0599,0.0594,0.0596,0.0591,0.059,0.0588,0.0589,0.0586,0.0579,0.0581,0.058,0.0573,0.0575,0.0573,0.0572,0.0573,0.057,0.0564,0.0564,0.0568,0.0565,0.0561,0.0562,0.0562,0.0565,0.0561,0.0567,0.0567,0.0565,0.056,0.0566,0.0568,0.0564,0.0555,0.0559,0.0563];
+var RK_K_T=[26.9,23.6,12.5,11.6,18.7,23.6,25.9,30.7,32.3,36.8,40.3,42.5,44.6,46.5,50.3,52.0,54.5,56.0,57.7,59.8,63.3,64.9,65.1,65.6,66.6,68.1,71.4,72.4,73.5,74.0,73.5,74.8,74.7,75.6,77.1,77.1,78.3,78.7,79.0,79.2,79.3,79.8,80.2,81.3,82.3,83.1,83.2,83.4,83.2,83.4,84.9,84.5,85.0,84.7,85.1,81.8,86.7,86.7,87.6,86.9,87.9,88.3,88.2,88.2,88.6,88.8,89.0,89.2,89.5,90.0,89.5,90.0,91.1,90.9,90.0,91.1,91.2,91.5,91.4,91.7,91.9,92.0];
+var RMS_K_T=[1.0285,1.0126,1.191,1.494,1.5146,1.5472,1.6313,1.6329,1.6927,1.604,1.5374,1.4881,1.6278,1.515,1.4539,1.4503,1.5355,1.5471,1.5126,1.3885,1.4534,1.4889,1.4101,1.3148,1.4778,1.281,1.4095,1.3619,1.3849,1.4807,1.2531,1.5047,1.3928,1.4682,1.4075,1.1718,1.3538,1.3328,1.4352,1.2837,1.4159,1.3069,1.3,1.3109,1.4637,1.4184,1.3595,1.4303,1.2623,1.2485,1.2441,1.2381,1.275,1.1296,1.3126,1.4212,1.2837,1.2678,1.2489,1.1422,1.2761,1.2126,1.4294,1.3313,1.2056,1.2832,1.3387,1.2246,1.3071,1.3953,1.1056,1.4106,1.3793,1.2693,1.1075,1.2503,1.2564,1.3695,1.2332,1.222,1.3162,1.2885];
+var PM_K_T=[18.772,5.6498,11.702,6.0836,2.9269,1.9828,1.9938,1.8974,1.3757,1.2628,1.3391,1.1296,1.1329,1.0064,1.1328,1.0395,1.0243,0.8665,0.8987,0.8555,0.8458,0.9141,0.8603,0.7951,0.7884,0.82,0.8186,0.833,0.7906,0.7779,0.7587,0.7378,0.8172,0.7759,0.7637,0.7443,0.7222,0.7642,0.7058,0.6953,0.7096,0.8256,0.7715,0.7577,0.7705,0.7294,0.75,0.7228,0.7052,0.7504,0.7825,0.7336,0.7076,0.7195,0.6936,0.7132,0.6873,0.7385,0.7506,0.6757,0.6833,0.6828,0.6665,0.6665,0.6884,0.7024,0.7111,0.6692,0.6872,0.6869,0.678,0.7116,0.6775,0.6751,0.6748,0.6764,0.6873,0.6754,0.6596,0.6618,0.6529,0.669];
+var DP_K_T=[3.2013,2.7897,2.4147,1.7977,1.5242,1.1833,1.2263,1.147,0.8756,0.7831,0.8215,0.7219,0.7046,0.6632,0.7018,0.6378,0.637,0.5618,0.5657,0.5578,0.533,0.552,0.538,0.5013,0.5068,0.5185,0.5121,0.5195,0.4925,0.4845,0.4725,0.4724,0.5036,0.4844,0.4792,0.4791,0.4696,0.4738,0.451,0.4495,0.4635,0.5127,0.4768,0.4757,0.483,0.4563,0.4706,0.463,0.4503,0.4725,0.4765,0.452,0.4437,0.4514,0.4346,0.4452,0.4354,0.4655,0.4631,0.4289,0.4315,0.432,0.4215,0.4248,0.4322,0.4483,0.4478,0.4241,0.4306,0.433,0.4234,0.4397,0.4252,0.4268,0.4275,0.4252,0.4318,0.4247,0.415,0.4131,0.416,0.4211];
+var RM_K_T=[16.923,4.767,10.815,5.5019,2.1459,1.2084,1.1574,1.0944,0.7726,0.7646,0.7843,0.6679,0.6503,0.5716,0.6716,0.6022,0.578,0.4844,0.5034,0.506,0.4764,0.5304,0.4997,0.4664,0.4504,0.4694,0.4687,0.475,0.4624,0.4501,0.4477,0.43,0.4631,0.4238,0.4522,0.4214,0.4058,0.429,0.4039,0.3905,0.4024,0.4513,0.4419,0.4361,0.4357,0.4266,0.4166,0.4054,0.3943,0.416,0.4514,0.4166,0.4006,0.3998,0.3874,0.4102,0.3926,0.402,0.4208,0.3789,0.3832,0.3755,0.3785,0.3757,0.3838,0.3761,0.3946,0.3759,0.384,0.381,0.3819,0.4006,0.3797,0.3755,0.3777,0.3809,0.387,0.3787,0.37,0.3761,0.3639,0.3762];
+var PMG_K_T=[18.326,5.5093,12.521,6.877,4.0984,3.5692,3.576,3.6197,3.1128,3.0166,3.1229,2.885,2.9585,2.8584,2.9399,2.9161,2.9153,2.7223,2.7962,2.7415,2.751,2.8579,2.7461,2.6686,2.6705,2.7039,2.7155,2.7144,2.7104,2.7066,2.6893,2.6147,2.7437,2.6858,2.6933,2.6628,2.5744,2.6539,2.62,2.623,2.5276,2.7622,2.6783,2.6857,2.6989,2.6154,2.6743,2.6451,2.6191,2.6657,2.7206,2.5501,2.594,2.5836,2.6192,2.6657,2.556,2.6701,2.6068,2.5678,2.6073,2.5588,2.5556,2.5853,2.6176,2.6102,2.5842,2.5984,2.6387,2.6025,2.5969,2.6174,2.5922,2.5731,2.5414,2.5612,2.5963,2.5824,2.6143,2.5993,2.5769,2.6029];
+var DPG_K_T=[3.3002,3.2347,2.798,2.3217,2.2878,2.1922,2.2294,2.2438,1.9826,1.8865,1.9553,1.8422,1.8866,1.8571,1.8676,1.8601,1.8682,1.768,1.8106,1.7725,1.7872,1.8326,1.7703,1.7208,1.7317,1.7507,1.7556,1.7536,1.7521,1.7518,1.7348,1.7017,1.7761,1.7568,1.7399,1.7351,1.6939,1.7328,1.7144,1.7221,1.6686,1.7997,1.7424,1.7499,1.7554,1.7054,1.7495,1.7307,1.7151,1.7513,1.767,1.6883,1.7016,1.7062,1.7213,1.7401,1.6832,1.7638,1.7116,1.6927,1.7159,1.6968,1.6851,1.7049,1.7232,1.7292,1.7043,1.7084,1.735,1.7149,1.7108,1.7178,1.7061,1.7002,1.6837,1.6895,1.7098,1.7013,1.7201,1.7073,1.7012,1.7134];
+var LR_N_T=[0.1044,0.0982,0.0902,0.0829,0.0778,0.0729,0.0692,0.0665,0.0646,0.0621,0.0599,0.0584,0.0571,0.0556,0.054,0.0529,0.0518,0.0506,0.0495,0.0487,0.0475,0.0468,0.0463,0.0458,0.0451,0.0446,0.0442,0.0438,0.0433,0.043,0.0425,0.0423,0.0419,0.0417,0.0412,0.0409,0.0406,0.0404,0.0402,0.0401,0.0398,0.0397,0.0395,0.0393,0.039,0.0389,0.0386,0.0385,0.0384,0.0383,0.0381,0.038,0.0379,0.0378,0.0376,0.0374,0.0372,0.0372,0.0371,0.0369,0.0369,0.0368,0.0367,0.0366,0.0365,0.0365,0.0364,0.0363,0.0363,0.0362,0.0361,0.0361,0.036,0.036,0.0359,0.0358,0.0358,0.0357,0.0357,0.0356,0.0356,0.0356];
+var LRA_N_T=[0.1257,0.1123,0.1014,0.0939,0.0892,0.0831,0.0795,0.076,0.0746,0.0709,0.0686,0.0664,0.0649,0.063,0.0614,0.0601,0.0591,0.0575,0.0562,0.0555,0.0535,0.0529,0.0525,0.0518,0.0509,0.0503,0.0498,0.0496,0.0489,0.0483,0.0477,0.0474,0.0471,0.047,0.0463,0.0459,0.0455,0.0453,0.045,0.045,0.0446,0.0444,0.0442,0.0441,0.0436,0.0437,0.0433,0.0431,0.043,0.0429,0.0426,0.0426,0.0425,0.0422,0.0419,0.0417,0.0415,0.0416,0.0413,0.0412,0.041,0.0411,0.0408,0.0408,0.0405,0.0407,0.0405,0.0405,0.0404,0.0402,0.0402,0.0402,0.0401,0.04,0.0399,0.0398,0.0398,0.0397,0.0397,0.0396,0.0396,0.0394];
+var LRC_N_T=[0.1115,0.1073,0.0987,0.0917,0.0871,0.0818,0.0784,0.0754,0.0732,0.0706,0.0676,0.0663,0.0649,0.063,0.0608,0.0596,0.0582,0.057,0.0554,0.0544,0.0528,0.0521,0.0516,0.051,0.0501,0.0496,0.0491,0.0487,0.0481,0.0476,0.0471,0.0468,0.0465,0.046,0.0456,0.0453,0.0448,0.0445,0.0443,0.0446,0.0438,0.0438,0.0434,0.0433,0.0431,0.0428,0.0427,0.0424,0.0423,0.0423,0.0421,0.042,0.0417,0.0417,0.0414,0.0412,0.0408,0.0408,0.0409,0.0406,0.0407,0.0405,0.0402,0.0402,0.0402,0.0401,0.04,0.0401,0.0398,0.0398,0.0399,0.0397,0.0397,0.0397,0.0395,0.0394,0.0395,0.0394,0.0393,0.0394,0.0392,0.0392];
+var RK_N_T=[28.9,24.8,21.7,20.9,26.7,29.5,32.1,35.8,37.7,41.1,44.6,46.7,49.5,52.1,56.3,58.9,61.2,63.5,66.8,69.1,72.4,74.1,75.7,76.9,78.0,79.0,80.9,82.4,83.4,83.9,84.8,84.9,85.5,86.1,86.9,87.4,88.8,89.5,90.0,90.3,91.0,91.3,91.9,91.8,93.0,93.6,93.2,93.6,94.1,94.6,94.2,95.6,95.3,96.0,96.1,84.4,95.9,96.0,96.4,97.1,97.3,97.0,97.5,97.2,97.8,97.9,97.8,98.0,97.6,97.7,97.6,97.3,97.4,97.6,97.2,97.7,97.1,97.1,96.8,96.0,96.2,96.2];
+var RMS_N_T=[1.0249,1.007,0.9762,0.9565,0.9488,0.9692,0.9732,0.9776,1.0143,0.9846,0.9505,0.93,1.0126,0.953,0.9599,0.9525,0.9878,1.0384,1.0171,0.9395,0.9794,1.0314,1.0037,0.9427,1.0332,0.9277,0.9938,0.9592,0.9695,1.0188,0.8974,1.0786,1.0144,0.9961,1.0269,0.8952,1.0291,0.9949,1.0367,0.9474,0.9914,0.9345,0.9593,0.912,1.042,1.0373,0.9751,1.0368,0.9625,0.9314,0.9857,0.9682,0.9639,0.9081,0.9801,1.0764,0.9758,0.9856,0.9792,0.9435,0.9738,0.9576,1.0466,1.0178,0.9316,0.9896,0.9847,0.9347,1.0107,1.0048,0.9178,1.0783,1.0282,0.9957,0.9524,0.984,0.9573,1.013,0.9856,0.9886,1.0486,1.0064];
+var PM_N_T=[18.378,7.7629,10.382,6.0842,3.5815,2.2801,1.9781,1.7974,1.7294,1.536,1.422,1.3227,1.2294,1.2133,1.171,1.1122,1.1108,0.9211,0.9129,0.8387,0.8663,0.8685,0.6994,0.7396,0.812,0.726,0.7898,0.8011,0.7154,0.7363,0.6437,0.6083,0.6618,0.6644,0.5918,0.6614,0.7086,0.6334,0.5852,0.5872,0.7013,0.6469,0.5879,0.6625,0.6076,0.5956,0.5447,0.6071,0.5593,0.5424,0.5176,0.5236,0.534,0.549,0.5534,0.5477,0.5257,0.5361,0.507,0.5373,0.5351,0.5263,0.5217,0.5244,0.5205,0.5108,0.5129,0.5019,0.5408,0.4914,0.5163,0.5124,0.4965,0.5062,0.4836,0.4934,0.5061,0.4889,0.5033,0.4981,0.4947,0.4981];
+var DP_N_T=[3.5527,2.8401,2.5869,1.9978,1.7017,1.3699,1.2831,1.2037,1.1426,1.0228,0.9447,0.8753,0.8078,0.8162,0.7728,0.7386,0.7397,0.6396,0.6283,0.5996,0.5912,0.5994,0.5154,0.5443,0.5821,0.5317,0.5592,0.5692,0.5166,0.5346,0.4727,0.4495,0.4787,0.4845,0.4371,0.4798,0.5037,0.4504,0.4254,0.427,0.4993,0.4653,0.429,0.4747,0.4415,0.4333,0.4027,0.4454,0.409,0.4001,0.3842,0.3877,0.3971,0.4029,0.4037,0.4055,0.3859,0.3862,0.373,0.3917,0.3882,0.3822,0.3766,0.3828,0.3769,0.3716,0.3753,0.3691,0.3914,0.3606,0.3698,0.3633,0.36,0.3644,0.3553,0.3602,0.3651,0.3553,0.3594,0.3602,0.356,0.3587];
+var RM_N_T=[14.774,5.8494,7.7923,4.5621,2.6518,1.4983,1.1243,1.0309,0.9661,0.836,0.7585,0.6885,0.6556,0.6253,0.6046,0.5679,0.567,0.4788,0.4606,0.4152,0.4291,0.4169,0.3428,0.3381,0.3559,0.3264,0.3557,0.3699,0.3294,0.3371,0.2954,0.2881,0.2963,0.2923,0.269,0.2977,0.3104,0.2952,0.2807,0.2796,0.3081,0.2787,0.2736,0.2943,0.2699,0.2809,0.2505,0.2692,0.2646,0.2544,0.2442,0.2421,0.2509,0.2553,0.259,0.2498,0.2435,0.2538,0.2452,0.2416,0.2499,0.2501,0.2443,0.2485,0.245,0.2406,0.246,0.238,0.2478,0.2326,0.2435,0.2436,0.2405,0.2416,0.2291,0.239,0.2418,0.2285,0.242,0.2373,0.2397,0.2401];
+var PMG_N_T=[18.57,8.5805,11.156,7.329,5.1108,4.3264,4.1539,4.0547,4.0501,3.919,3.8614,3.8151,3.7503,3.7277,3.7433,3.701,3.7074,3.5566,3.5708,3.5131,3.5731,3.5729,3.4173,3.4314,3.5157,3.4686,3.5143,3.5383,3.4621,3.4734,3.4019,3.3693,3.4151,3.427,3.3745,3.4252,3.4731,3.4183,3.3757,3.3669,3.4505,3.4194,3.3857,3.4412,3.391,3.3787,3.3439,3.4031,3.3609,3.3484,3.3383,3.3432,3.3523,3.3752,3.3881,3.3714,3.3613,3.3317,3.3445,3.3833,3.3574,3.3546,3.3682,3.3555,3.3614,3.3464,3.3561,3.3183,3.3824,3.336,3.3555,3.3597,3.3113,3.3531,3.3328,3.3485,3.3397,3.3349,3.3594,3.3528,3.3512,3.3542];
+var DPG_N_T=[4.3807,3.8436,3.6999,3.3396,3.2095,3.0578,3.0434,3.0022,2.9751,2.9043,2.8638,2.8456,2.8081,2.8038,2.7917,2.783,2.7811,2.7068,2.7071,2.6846,2.6934,2.7091,2.6328,2.6464,2.6992,2.6742,2.6915,2.6995,2.6665,2.671,2.6394,2.6169,2.6481,2.6535,2.6186,2.6506,2.6733,2.6374,2.6156,2.6131,2.6587,2.6518,2.6177,2.6563,2.6339,2.6216,2.6036,2.6381,2.6082,2.6048,2.5965,2.603,2.6033,2.6165,2.6178,2.6164,2.6072,2.5916,2.5978,2.6183,2.6044,2.6007,2.6057,2.6039,2.6034,2.5935,2.6,2.5848,2.6183,2.5924,2.5969,2.5963,2.5769,2.5956,2.5884,2.5939,2.594,2.5899,2.5967,2.5978,2.5935,2.596];
+var LR_K_G=[0.1404,0.1367,0.1358,0.1333,0.1251,0.1203,0.1162,0.1126,0.1095,0.1065,0.1046,0.102,0.101,0.0991,0.0978,0.096,0.0944,0.0927,0.0912,0.09,0.0884,0.0878,0.0869,0.0861,0.0853,0.0845,0.0837,0.0828,0.0822,0.0816,0.0809,0.0794,0.0791,0.078,0.0769,0.0758,0.0751,0.0742,0.0735,0.0725];
+var LRA_K_G=[0.1538,0.1462,0.519,0.3662,0.1404,0.1312,0.1274,0.1231,0.1204,0.1166,0.1146,0.1131,0.1117,0.1098,0.1085,0.1065,0.1047,0.103,0.1015,0.1003,0.0985,0.0979,0.0966,0.0964,0.095,0.0943,0.0929,0.0924,0.091,0.0904,0.0898,0.0882,0.0875,0.0863,0.0852,0.0844,0.0828,0.0823,0.0809,0.0803];
+var LRC_K_G=[0.1477,0.1448,0.1442,0.1427,0.134,0.13,0.126,0.1229,0.1208,0.1172,0.1155,0.1139,0.1124,0.1103,0.1088,0.1077,0.1053,0.1037,0.1014,0.1005,0.0992,0.0978,0.0973,0.0964,0.0958,0.0955,0.0936,0.0929,0.092,0.0912,0.0904,0.0888,0.0879,0.0869,0.0859,0.0848,0.0831,0.0826,0.0818,0.0806];
+var RK_K_G=[10.9,29.6,19.8,26.0,11.3,11.2,12.2,13.5,13.9,15.5,15.4,16.2,16.3,16.6,17.3,18.1,19.5,20.7,21.7,23.0,23.6,23.9,23.8,24.4,25.0,25.2,26.0,27.0,28.0,28.9,29.8,31.4,32.2,33.9,35.0,37.1,38.5,40.3,41.4,42.2];
+var RMS_K_G=[1.113,0.9922,1.332,1.2591,1.4279,1.5028,1.5783,1.6681,1.7574,1.8537,1.9575,1.8688,1.992,2.0946,1.9621,2.1512,2.1765,2.372,2.4132,2.181,2.3032,2.3397,2.3318,2.1709,2.3121,2.4016,2.4777,2.4483,2.6038,2.4141,2.4636,2.6798,2.528,2.5357,2.6255,2.3492,2.9168,2.5521,2.8423,2.9587];
+var PM_K_G=[14.999,6.7406,16.665,11.319,8.9149,5.9139,4.6079,3.2176,2.6472,2.2461,2.2412,2.074,1.8495,2.0302,2.0112,1.6671,2.0609,1.5524,1.7473,1.7338,1.5214,1.553,1.4604,1.5932,1.4236,1.4992,1.3674,1.2451,1.3222,1.3613,1.348,1.1823,1.1215,1.1781,1.0749,1.1683,1.1479,1.0888,1.0055,1.0117];
+var DP_K_G=[2.9504,2.7985,3.3319,2.9175,2.1573,1.957,1.6333,1.5087,1.3815,1.2263,1.3122,1.2209,1.1158,1.2011,1.1816,0.9945,1.2201,0.9682,1.067,1.0508,0.926,0.9355,0.8752,0.9255,0.8753,0.8945,0.8499,0.7762,0.7905,0.8166,0.804,0.7221,0.6977,0.723,0.675,0.7079,0.6857,0.6713,0.6415,0.6338];
+var RM_K_G=[13.973,5.9533,15.75,10.722,7.9435,4.7928,3.8979,2.5138,1.9183,1.5567,1.4191,1.2293,1.1291,1.2038,1.1727,1.017,1.1911,0.9201,0.9943,1.0076,0.8833,0.9167,0.8525,0.9427,0.7946,0.8738,0.7793,0.714,0.7732,0.7893,0.8089,0.7005,0.673,0.6704,0.6289,0.6782,0.7021,0.6685,0.604,0.6046];
+var PMG_K_G=[14.975,6.7793,17.334,12.068,9.7672,6.7662,6.0235,4.6655,4.1558,3.8402,3.8364,3.7186,3.3844,3.6908,3.6816,3.4002,3.7824,3.2501,3.4867,3.5144,3.2884,3.3524,3.2793,3.3937,3.2363,3.3161,3.1966,3.0363,3.1789,3.2014,3.195,3.0352,2.9501,3.0397,2.9365,3.0381,3.0347,2.9566,2.8681,2.8723];
+var DPG_K_G=[3.135,3.139,3.4829,3.1647,2.647,2.5283,2.513,2.3973,2.3066,2.2155,2.2961,2.2563,2.0847,2.2573,2.25,2.0925,2.3207,2.0517,2.177,2.1858,2.0553,2.0868,2.0491,2.0891,2.0476,2.0645,2.0277,1.9366,1.9977,2.011,1.9925,1.9219,1.8664,1.9345,1.8738,1.9282,1.9028,1.8629,1.8296,1.8286];
+var N32_K_G=[0.1404,0.1367,0.1359,0.1333,0.1252,0.1203,0.1163,0.1127,0.1096,0.1065,0.1047,0.1021,0.1011,0.0992,0.0979,0.0962,0.0946,0.0928,0.0913,0.0901,0.0886,0.0879,0.087,0.0863,0.0855,0.0846,0.0838,0.083,0.0824,0.0818,0.0812,0.0796,0.0794,0.0782,0.0772,0.0762,0.0754,0.0745,0.0738,0.0728];
+var N55_K_G=[0.1404,0.1366,0.1359,0.1333,0.1252,0.1204,0.1163,0.1128,0.1097,0.1067,0.1048,0.1023,0.1013,0.0994,0.0982,0.0964,0.0948,0.0931,0.0916,0.0905,0.0888,0.0882,0.0873,0.0866,0.0858,0.085,0.0842,0.0834,0.0827,0.0822,0.0816,0.08,0.0798,0.0787,0.0777,0.0768,0.0759,0.0751,0.0745,0.0734];
+var N82_K_G=[0.1404,0.1365,0.1361,0.1333,0.1253,0.1204,0.1165,0.1129,0.1099,0.107,0.1051,0.1027,0.1017,0.0998,0.0986,0.0968,0.0953,0.0936,0.0921,0.091,0.0894,0.0888,0.0879,0.0872,0.0864,0.0856,0.0848,0.0841,0.0835,0.0829,0.0824,0.0808,0.0807,0.0797,0.0786,0.0779,0.0769,0.0763,0.0755,0.0746];
+var LR_N_G=[0.1016,0.0982,0.1008,0.1029,0.0872,0.0834,0.0804,0.0777,0.076,0.0735,0.0723,0.0706,0.0697,0.0683,0.0675,0.0664,0.0653,0.0643,0.0632,0.0623,0.0615,0.0611,0.0604,0.06,0.0592,0.0589,0.0583,0.0578,0.0572,0.0567,0.056,0.0554,0.0548,0.0541,0.0535,0.0528,0.0521,0.0516,0.0511,0.0506];
+var LRA_N_G=[0.1161,0.1126,0.1968,0.1169,0.0997,0.0949,0.0916,0.0887,0.087,0.0842,0.0824,0.081,0.0797,0.0783,0.0777,0.0761,0.0751,0.074,0.0728,0.0719,0.0707,0.0707,0.0694,0.0694,0.0681,0.0678,0.0671,0.0666,0.0657,0.0651,0.0642,0.0634,0.0629,0.0622,0.0611,0.0605,0.0598,0.0592,0.0583,0.0577];
+var LRC_N_G=[0.1092,0.1066,0.1093,0.11,0.0972,0.0931,0.0902,0.0877,0.0863,0.0836,0.0821,0.0807,0.0796,0.0784,0.0774,0.0767,0.075,0.074,0.0724,0.0719,0.0705,0.0699,0.0698,0.069,0.0679,0.0678,0.067,0.0666,0.0654,0.065,0.0643,0.0637,0.0629,0.062,0.0613,0.0604,0.0593,0.0586,0.0583,0.0575];
+var RK_N_G=[11.7,31.6,21.5,27.5,18.9,19.6,20.5,21.3,20.8,21.3,21.0,21.4,21.3,21.4,22.1,22.8,23.7,25.5,27.1,28.3,29.1,28.8,28.9,29.4,30.1,30.6,31.0,32.1,33.1,34.2,35.5,36.6,37.8,39.7,41.1,43.5,45.0,46.9,47.9,48.7];
+var RMS_N_G=[1.0968,0.9788,1.2224,1.2796,1.0729,1.0008,0.9999,1.0418,1.0374,1.0766,1.1015,1.0447,1.0961,1.1229,1.0847,1.1152,1.1616,1.2348,1.2472,1.1338,1.1986,1.2166,1.2318,1.1269,1.2125,1.2425,1.2718,1.2549,1.3311,1.2647,1.2626,1.4109,1.3304,1.3117,1.3719,1.2687,1.4716,1.2999,1.4469,1.4723];
+var PM_N_G=[14.089,9.6829,15.845,18.773,8.7298,6.1687,4.7292,3.6049,3.2325,2.7042,2.5558,2.353,2.2157,2.0545,1.9495,2.0159,1.8073,1.7928,1.6723,1.7624,1.7429,1.7028,1.6139,1.5118,1.6465,1.6346,1.4834,1.5843,1.3978,1.3242,1.3991,1.2667,1.2611,1.2428,1.2894,1.2644,1.1518,1.1586,1.1251,0.9262];
+var DP_N_G=[3.2435,3.0077,3.5808,3.9141,2.4276,2.0271,1.8734,1.7308,1.6193,1.4753,1.4556,1.354,1.3187,1.2835,1.1948,1.2234,1.1569,1.1231,1.043,1.1108,1.0916,1.0617,0.9908,0.9395,1.0132,1.0315,0.9401,0.99,0.8883,0.8537,0.8887,0.8157,0.8278,0.8053,0.831,0.7921,0.7594,0.7623,0.7532,0.644];
+var RM_N_G=[10.975,7.3475,12.628,15.245,6.8451,4.7004,3.5784,2.5593,2.2764,1.8163,1.6406,1.5171,1.4352,1.2606,1.1924,1.1746,1.0422,1.0471,0.9754,0.9923,0.9875,0.9425,0.9158,0.8942,0.8992,0.8739,0.8048,0.8481,0.7471,0.6879,0.7197,0.6779,0.6447,0.646,0.6484,0.6593,0.5975,0.5832,0.5586,0.4807];
+var PMG_N_G=[14.44,10.301,16.239,19.075,9.6008,7.3958,6.1021,5.2129,4.9638,4.5344,4.4682,4.4177,4.2684,4.1747,4.1464,4.2435,4.0463,4.0816,3.9995,4.0654,4.0818,4.0507,3.9809,3.9112,4.0329,4.0432,3.9159,3.9889,3.8618,3.7955,3.8855,3.8039,3.7693,3.7813,3.791,3.8137,3.7405,3.7492,3.712,3.5485];
+var DPG_N_G=[4.1709,3.9671,4.4123,4.6803,3.586,3.3785,3.3099,3.2522,3.1628,3.1202,3.0995,3.0578,3.0528,3.0265,2.9745,3.0306,2.9629,2.9577,2.9319,2.9569,2.9666,2.9519,2.9055,2.8854,2.9319,2.9485,2.8903,2.9017,2.866,2.8299,2.8508,2.8245,2.8186,2.8167,2.8215,2.8119,2.7944,2.7991,2.7999,2.715];
+var N32_N_G=[0.1016,0.0982,0.1008,0.1029,0.0872,0.0834,0.0804,0.0777,0.076,0.0735,0.0724,0.0707,0.0698,0.0684,0.0676,0.0665,0.0654,0.0645,0.0633,0.0624,0.0616,0.0612,0.0605,0.0602,0.0594,0.059,0.0585,0.058,0.0574,0.0569,0.0562,0.0555,0.055,0.0544,0.0537,0.0531,0.0524,0.0519,0.0514,0.0509];
+var N55_N_G=[0.1017,0.0983,0.1009,0.1029,0.0872,0.0834,0.0804,0.0778,0.0761,0.0737,0.0725,0.0709,0.07,0.0686,0.0679,0.0667,0.0656,0.0647,0.0636,0.0627,0.0619,0.0615,0.0608,0.0604,0.0596,0.0593,0.0588,0.0583,0.0577,0.0572,0.0566,0.0559,0.0554,0.0548,0.0541,0.0536,0.0529,0.0525,0.0519,0.0515];
+var N82_N_G=[0.1019,0.0985,0.101,0.1029,0.0873,0.0835,0.0805,0.0779,0.0762,0.074,0.0729,0.0712,0.0703,0.069,0.0683,0.0671,0.0661,0.0651,0.064,0.0632,0.0624,0.062,0.0613,0.061,0.0602,0.0599,0.0594,0.0589,0.0584,0.0579,0.0573,0.0566,0.0562,0.0557,0.055,0.0546,0.0538,0.0536,0.053,0.0526];
+var PEN032_K=[0.0,0.0,0.08,0.08,0.09,0.19,0.19,0.2,0.32,0.22,0.22,0.34,0.24,0.37,0.51,0.65,0.66,0.81,0.83,0.98,1.14,1.31,1.33,1.65,1.52,1.85,2.02,2.05,2.07,2.09,2.59,2.78,2.64,2.15,2.5,3.7,2.54,2.72,2.56,3.26,2.75,3.28,3.63,4.01,4.03,3.16,4.05,3.89,3.91,3.38,4.11,3.41,3.42,4.88,3.8,4.18,4.38,4.4,4.4,5.33,4.05,5.72,4.26,4.46,5.39,3.54,4.11,5.62,6.0,5.46,6.59,4.72,5.1,6.44,6.63,6.06,5.31,7.03,6.1,5.71,5.9,6.3,5.92,6.3,6.31,5.74,6.9,6.32,6.51,6.91,6.91,7.1,6.72,6.53,7.1,6.92,6.92,7.12,7.12,6.92];
+var PEN055_K=[0.0,-0.07,0.08,0.17,0.27,0.37,0.58,0.61,0.74,0.76,0.78,0.92,0.95,1.46,1.9,2.22,2.52,2.57,2.89,3.37,3.72,4.07,4.15,5.11,4.42,5.39,5.61,5.85,5.58,5.62,7.13,7.36,7.1,5.79,6.49,9.92,6.77,7.48,6.83,8.58,7.57,8.64,9.52,10.28,10.16,8.42,10.39,9.91,9.95,8.9,10.38,9.14,9.19,12.12,9.96,10.73,10.95,11.17,11.01,13.24,10.13,13.65,10.74,10.97,13.2,9.31,10.28,13.48,14.45,13.18,15.44,11.51,12.48,14.96,15.72,14.39,12.9,16.16,14.29,13.71,14.1,14.69,14.31,14.89,14.91,13.77,16.09,14.75,15.33,15.74,15.93,16.12,15.55,15.36,16.31,15.96,15.77,16.35,16.15,15.96];
+var PEN082_K=[-0.07,-0.07,0.15,0.33,0.53,0.84,1.26,1.53,1.79,1.85,2.01,2.64,2.97,5.37,6.95,9.4,11.27,10.03,12.79,12.62,12.16,11.77,12.3,15.47,11.59,14.02,12.77,13.11,12.76,12.52,15.88,15.22,15.35,12.58,13.31,20.5,14.04,15.48,13.99,17.5,15.49,17.62,18.69,20.38,20.14,16.67,20.07,19.29,19.01,17.26,19.5,17.2,17.3,21.7,18.48,19.82,19.89,20.33,20.0,23.35,18.6,24.17,19.44,19.89,23.23,17.32,18.69,23.41,25.14,23.16,26.55,20.57,22.12,25.57,26.89,24.81,22.58,27.19,24.57,23.62,24.38,25.0,24.43,25.38,25.24,23.9,27.01,25.1,25.86,26.68,26.87,27.06,26.49,26.1,27.45,26.92,26.54,27.31,27.31,27.12];
+var PEN032_N=[0.1,0.0,0.1,0.0,0.13,0.13,0.28,0.29,0.3,0.31,0.32,0.33,0.34,0.52,0.54,0.74,0.75,0.97,1.18,1.41,1.65,1.9,1.94,2.18,1.99,2.47,2.5,2.55,2.57,2.59,3.1,3.36,3.39,3.16,3.19,4.21,3.23,3.76,3.27,4.05,3.81,4.08,4.08,4.37,4.12,4.13,4.66,4.68,4.44,4.19,4.47,4.49,4.51,5.04,4.52,4.81,5.38,5.38,5.14,6.23,4.89,6.27,4.9,5.21,6.03,4.95,5.51,6.08,6.37,6.11,6.39,5.57,5.57,6.15,6.42,6.72,6.16,7.02,6.46,6.18,6.48,6.48,6.48,6.78,6.78,6.5,7.37,6.8,6.8,6.8,6.8,7.08,7.1,6.82,7.1,7.1,7.1,7.1,7.1,7.1];
+var PEN055_N=[0.29,0.1,0.1,0.12,0.13,0.54,0.7,0.73,0.76,0.93,0.96,0.98,1.18,1.55,2.14,2.78,2.82,3.48,4.13,4.43,4.95,5.27,5.39,6.32,5.53,6.73,6.82,6.94,7.01,7.31,8.57,8.63,8.72,8.27,8.35,10.64,8.46,9.27,8.56,10.63,9.64,10.46,10.71,10.8,10.57,10.34,11.66,11.69,10.97,10.47,11.32,11.08,11.41,12.73,11.7,12.03,12.9,12.9,12.7,14.63,12.23,14.71,12.26,12.88,14.52,12.36,13.5,14.09,15.24,14.17,15.28,13.37,13.65,14.53,15.36,15.41,14.85,16.01,15.17,14.89,15.21,15.21,15.21,15.82,15.54,15.25,16.71,16.15,16.15,16.15,15.86,16.15,16.19,15.91,16.48,16.19,16.19,16.48,16.48,16.19];
+var PEN082_N=[0.68,0.2,0.31,0.24,0.38,1.21,1.68,1.76,1.82,2.18,2.23,2.94,3.37,5.52,7.5,10.02,11.3,11.99,14.96,14.29,15.05,14.35,15.73,18.52,15.04,17.26,15.68,15.51,16.36,16.27,18.1,17.99,18.89,18.0,17.44,22.03,17.16,19.3,17.38,21.27,20.05,20.92,20.92,21.34,20.88,19.9,22.28,22.08,20.63,19.63,21.05,20.32,20.69,22.28,21.28,21.66,22.85,22.85,22.43,25.47,21.74,25.34,21.8,22.47,24.93,21.7,23.42,24.31,25.76,24.44,26.11,23.12,23.68,24.58,25.98,26.05,25.21,26.97,25.56,25.56,25.63,25.92,25.63,26.55,26.27,25.99,27.76,26.91,26.91,26.91,26.91,27.2,26.99,26.7,27.56,27.27,26.99,27.56,27.56,27.27];
+
+/* ---------- panel plumbing ---------- */
+const COL={D:'--s1',T:'--s2',G:'--s3'};
+const NAME={D:'detach',T:'twin',G:'in-graph'};
+/* arms[] = which arms to draw; tags[] = which get an end-of-line tag (the rest ride the
+   legend — the arm and its twin converge and collide otherwise). x0 drops the first
+   epochs where every decoded error is an order of magnitude high. Series have different
+   lengths on purpose: the twin ends at 82 and the sibling at 40. */
+function panel(id,pre,o){
+  const arms=o.arms||['D','T','G'], x0=o.x0||0;
+  const series=arms.map(a=>{
+    const v=window[pre+'_'+a]; if(!v) return null;
+    return {data:v.slice(x0),color:COL[a],tag:(o.tags||[]).includes(a)?NAME[a]:null,
+            faint:(o.faint||[]).includes(a)};
+  }).filter(Boolean);
+  lineChart(document.getElementById(id),Object.assign({
+    W:o.W||560,H:o.H||196,xmin:x0,xmax:100,xticks:o.xticks||[4,28,52,76,100],
+    log:o.log!==false,series,fmt:o.fmt||(t=>t<0.01?t.toExponential(0):(''+(+t.toPrecision(3))))
+  },{ymin:o.ymin,ymax:o.ymax,yticks:o.yticks}));
+}
+
+/* ---- 1 · change vs the clean twin at matched ep 82 ---- */
+barsH(document.getElementById('chBars'),{
+  W:540,H:420,L:126,lo:-9,hi:11,xticks:[-8,-4,0,4,8],
+  rows:[
+    {l:'LossRecon',           bars:[{v:2.7,color:'--s1'},{v:-0.3,color:'--s1',op:.45}]},
+    {l:'LossRecon · AR',      bars:[{v:3.5,color:'--s1'},{v:0.5,color:'--s1',op:.45}]},
+    {l:'LossRecon · comp',    bars:[{v:6.6,color:'--s1'},{v:-1.0,color:'--s1',op:.45}]},
+    {l:'Depth PredVsOrig',    bars:[{v:-4.1,color:'--s1'},{v:3.0,color:'--s1',op:.45}]},
+    {l:'Pointmap PredVsOrig', bars:[{v:-4.4,color:'--s1'},{v:1.9,color:'--s1',op:.45}]},
+    {l:'Raymap PredVsOrig',   bars:[{v:7.5,color:'--s1'},{v:4.4,color:'--s1',op:.45}]},
+    {l:'Depth PredVsGT',      bars:[{v:-2.5,color:'--s1'},{v:0.1,color:'--s1',op:.45}]},
+    {l:'Pointmap PredVsGT',   bars:[{v:-1.0,color:'--s1'},{v:-0.1,color:'--s1',op:.45}]},
+  ]});
+
+/* ---- 3 · token recon ---- */
+const TR={x0:4,tags:['D','G']};
+panel('p31','LR_K', Object.assign({ymin:.05,ymax:.115,yticks:[0.05,0.065,0.085,0.115]},TR));
+panel('p32','LR_N', Object.assign({ymin:.034,ymax:.08, yticks:[0.034,0.045,0.06,0.08]},TR));
+panel('p33','LRA_K',Object.assign({ymin:.054,ymax:.125,yticks:[0.055,0.07,0.09,0.125]},TR));
+panel('p34','LRA_N',Object.assign({ymin:.038,ymax:.09, yticks:[0.038,0.05,0.066,0.09]},TR));
+
+/* ---- 4 · the code · linear, rank in channels ---- */
+panel('p41','RK_K', {tags:['D','G'],log:false,ymin:0,ymax:100,yticks:[0,25,50,75,100],fmt:t=>''+t});
+panel('p42','RK_N', {tags:['D','G'],log:false,ymin:0,ymax:110,yticks:[0,27,55,82,110],fmt:t=>''+t});
+panel('p43','RMS_K',{tags:['D','G'],log:false,ymin:.8,ymax:3.2,yticks:[1,1.6,2.2,3.2],fmt:t=>''+t});
+panel('p44','RMS_N',{tags:['D','G'],log:false,ymin:.8,ymax:3.2,yticks:[1,1.6,2.2,3.2],fmt:t=>''+t});
+
+/* ---- 5 · round trip ---- */
+const RT={x0:4,W:420,H:178,tags:['D','G']};
+panel('p51','DP_K',Object.assign({ymin:.35,ymax:1.6,yticks:[0.35,0.6,1,1.6]},RT));
+panel('p52','PM_K',Object.assign({ymin:.55,ymax:2.6,yticks:[0.55,1,1.7,2.6]},RT));
+panel('p53','RM_K',Object.assign({ymin:.3,ymax:1.7, yticks:[0.3,0.6,1,1.7]},RT));
+panel('p54','DP_N',Object.assign({ymin:.3,ymax:1.5, yticks:[0.3,0.55,0.9,1.5]},RT));
+panel('p55','PM_N',Object.assign({ymin:.42,ymax:2.2,yticks:[0.45,0.8,1.3,2.2]},RT));
+panel('p56','RM_N',Object.assign({ymin:.2,ymax:1.2, yticks:[0.2,0.4,0.7,1.2]},RT));
+
+/* ---- 6 · the ladder · absolute term on top, the ratio it produces below ---- */
+const LADX={W:560,H:330,xmin:20,xmax:100,xticks:[20,40,60,80,100]};
+/* absolute: the same LossRecon as every other slide, decoded at each sigma */
+function ladderAbs(id,suf,o){
+  lineChart(document.getElementById(id),Object.assign({},LADX,o,{log:true,
+    fmt:t=>t.toFixed(3),
+    series:[{data:window['N82_'+suf+'_D'].slice(20),color:'--s1',tag:'0.82'},
+            {data:window['N55_'+suf+'_D'].slice(20),color:'--s4',tag:'0.55'},
+            {data:window['N32_'+suf+'_D'].slice(20),color:'--s3',tag:'0.32'},
+            {data:window['LR_'+suf+'_D'].slice(20), color:'--s5',tag:'clean'}]}));
+}
+ladderAbs('p61','K',{ymin:.050,ymax:.082,yticks:[0.050,0.058,0.068,0.082]});
+ladderAbs('p62','N',{ymin:.034,ymax:.058,yticks:[0.034,0.040,0.048,0.058]});
+
+</script>
+</body>
+</html>

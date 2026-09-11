@@ -1,313 +1,314 @@
 {
- "_comment": "Source of truth for the TODO queue, the jobs board and the closed list. Hand-edited; the research board at http://127.0.0.1:9000/#/board/Deltatok folds it into its index. Replaced docs/todo/02-09-2026.md, docs/todo/STATUS.md and docs/DONE.md (2026-09-07). Markdown link targets are relative to docs/research/.",
- "prose": [
-  {
-   "kind": "prose",
-   "key": "status",
-   "title": "STATUS — queued, running, next",
-   "order": 1,
-   "md": "**As of 2026-09-11 12:15.** Only what is queued, running or next. Finished jobs live on their `todo` row.\n\n## Running\n\n| Job | Arm | TODO | Now | Next |\n|---|---|---|---|---|\n| BSC:45665286 | tc512 · detach τ0.8 · **resume** | `todo/13` | RUNNING since 09-10 14:24, at **ep 96/100** · 37.7 min/ep · 18 h still on the wall | `epoch_100.pth` lands **~14:55 today**. Then train the flow matching on it — not on `epoch_60.pth` |\n\n## Queued — the SIGReg pool pair at tc1536\n\nOne variable. Both `sigreg_weight` 0.02, both `sw0`, both 20 h on `ehpc1001`, both from the unchanged no-bottleneck script.\n`RUN_NAME`s differ only in the pool tag.\n\n| Job | `sigreg_pool_samples` | `scale = n_pooled/n_live` | TODO |\n|---|---|---|---|\n| BSC:45725881 | **8192** | 11.7 | `todo/14` |\n| BSC:45727710 | **24576** | **33.0** | `todo/14` |\n\nMotivated by the finite-sample floor: at S=8192 it is 1.32e-4 against a 1.65e-4 anisotropy signal, so SIGReg can barely see a rank collapse at Cz=1536.\n**Guard** — `analysis/2026-07-31_sigreg_pool_not_weight_neutral.html` found pool 32768 at unchanged weight stalled training outright. Compare Eval `LossRecon` at **ep 4**; if `45727710` sits near 0.126 while `45725881` has broken out, kill it.\nThat failure spiked at the `sigreg_warmup=2000` boundary, which `sw0` removes — so it may not reproduce.\n\n## Next\n\n| Do | TODO | Gate |\n|---|---|---|\n| Train the **flow** on the tc512 detached tokenizer, from its final `epoch_100.pth` | `todo/13` → `flow` | `BSC:45665286` reaching ep 100, ~15:00 on 09-11 |\n| Read the pool pair at ep ~29 | `todo/14` | both arms running |\n| Submit the OpenScene arm — code implemented, md5-matched on BSC | `todo/13` | none |\n\nTwo tc1536 arms cancelled in two days, both for the regulariser. `BSC:45610897` on 09-10 11:47 at ep 31/100: [the read](results/2026-09-10_tc_width_decnoise_detach_tc1536_read_slides.html) found `z` stuck at `ZPartRank` 1.0.\n`BSC:45678654` on **09-11 11:20 at ep 23/100**: [the read](results/2026-09-11_tc_width_bneck_sw0_tc1536_read_slides.html) showed the forced bottleneck cures the code and costs **×3.2** the token recon.\nAgainst the tc512 detach arm the gap is **rank, not scale** — both sit at RMS ≈ 1, but tc512 grows to 57 usable dims of 512 while the bneck arm shrinks to 35 of 1536. `sigreg_weight` is the least likely cause; `force_bottleneck` at `z_dim == hidden_size` builds a **square** `Linear(1536,1536)`, which pins scale but imposes no dimensional pressure."
-  }
- ],
- "todos": [
-  {
-   "num": 3,
-   "status": "not started",
-   "item": "Finalize the training and evaluation setting",
-   "thread": "cross",
-   "paper": "main results: target setting",
-   "note": "Open per ../ROADMAP.md \"Where the code is against it\": OpenScene loader, training mixture, FVD or not, final eval sets",
-   "note_md": "Open per `../ROADMAP.md` \"Where the code is against it\": OpenScene loader, training mixture, FVD or not, final eval sets",
-   "closed": "",
-   "state": "open",
-   "source": "docs/research/todos.json",
-   "order": 1,
-   "jobs": [],
-   "docs": [],
-   "updates": []
-  },
-  {
-   "num": 4,
-   "status": "not started",
-   "item": "Baseline results: DeltaTok, VGGT-World, Gen3R",
-   "thread": "cross",
-   "paper": "main results: main table",
-   "note": "Depends on 3. Per ../ROADMAP.md \"Baselines\": none run on our setting, Gen3R not in third_party/",
-   "note_md": "Depends on 3. Per `../ROADMAP.md` \"Baselines\": none run on our setting, Gen3R not in `third_party/`",
-   "closed": "",
-   "state": "open",
-   "source": "docs/research/todos.json",
-   "order": 2,
-   "jobs": [],
-   "docs": [],
-   "updates": []
-  },
-  {
-   "num": 7,
-   "status": "started",
-   "item": "Implement the pointdit choices in the flow trainer",
-   "thread": "pointdit",
-   "paper": "ablation: flow recipe",
-   "note": "BSC:45344713 cancelled 2026-09-04 at ep 58; read at matched ep 50: ../research/results/2026-09-04_pointdit_lowt_numsteps_ep50_slides.html — loses 19/20 cells. Remaining arms gated on TODO 11. The shared force_zero_t_ratio patch landed in 911b026 (trainer + yaml key + startup print of the resolved t schedule), so the other two arms need no new code. Submitted: both knobs from scratch, logitnormal(-0.8,0.8) + 10% t=0, 100 ep, ~65 h in one 72 h BSC job. Not submitted: mitigation 1 alone, ../research/plan/2026-09-02_pointdit_lowt_recipe_finetune.md (10% forced t=0, ~6.5 h fine-tune off iter 200000) — mostly redundant if the from-scratch arm moves; mitigation 2 alone, ../research/plan/2026-09-02_pointdit_xloss_additive.md (unweighted x-MSE at weight 1.3) — the fallback if everything degrades. The zeros ODE init is dropped: not important for us — eval-time sampler knob, no plan file was written. Mechanism: ../research/analysis/2026-09-02_pointdit_vs_deltatok.md. The fourth choice, the boundary-F1 realism probe, has no plan file yet. Inherited from TODO 1: re-run the 1,2,3,4,20 step sweep once a low-t arm exists, where N=1 is no longer starved",
-   "note_md": "`BSC:45344713 cancelled 2026-09-04 at ep 58; read at matched ep 50: ../research/results/2026-09-04_pointdit_lowt_numsteps_ep50_slides.html — loses 19/20 cells`. Remaining arms gated on TODO 11. The shared `force_zero_t_ratio` patch landed in 911b026 (trainer + yaml key + startup print of the resolved `t` schedule), so the other two arms need no new code. **Submitted:** both knobs from scratch, `logitnormal(-0.8,0.8)` + 10% `t=0`, 100 ep, ~65 h in one 72 h BSC job. **Not submitted:** mitigation 1 alone, `../research/plan/2026-09-02_pointdit_lowt_recipe_finetune.md` (10% forced `t=0`, ~6.5 h fine-tune off iter 200000) — mostly redundant if the from-scratch arm moves; mitigation 2 alone, `../research/plan/2026-09-02_pointdit_xloss_additive.md` (unweighted x-MSE at weight 1.3) — the fallback if everything degrades. The zeros ODE init is `dropped: not important for us` — eval-time sampler knob, no plan file was written. Mechanism: `../research/analysis/2026-09-02_pointdit_vs_deltatok.md`. The fourth choice, the boundary-F1 realism probe, has no plan file yet. Inherited from **TODO 1**: re-run the `1,2,3,4,20` step sweep once a low-`t` arm exists, where N=1 is no longer starved",
-   "closed": "",
-   "state": "open",
-   "source": "docs/research/todos.json",
-   "order": 3,
-   "jobs": [
-    "45344713"
-   ],
-   "docs": [
-    "analysis/2026-09-02_pointdit_vs_deltatok.md",
-    "plan/2026-09-02_pointdit_lowt_recipe_finetune.md",
-    "plan/2026-09-02_pointdit_xloss_additive.md",
-    "results/2026-09-04_pointdit_lowt_numsteps_ep50_slides.html"
-   ],
-   "updates": []
-  },
-  {
-   "num": 10,
-   "status": "not started",
-   "item": "Add FVD on OccAny features for eval: average patch tokens",
-   "thread": "flow",
-   "paper": "main results: main table",
-   "note": "occrae/util/training_summary.py:57 already consumes a \"FVD\" metric key and nothing emits it. Settles the FVD line in ../ROADMAP.md \"Target setting\"",
-   "note_md": "`occrae/util/training_summary.py:57` already consumes a `\"FVD\"` metric key and nothing emits it. Settles the FVD line in `../ROADMAP.md` \"Target setting\"",
-   "closed": "",
-   "state": "open",
-   "source": "docs/research/todos.json",
-   "order": 4,
-   "jobs": [],
-   "docs": [],
-   "updates": []
-  },
-  {
-   "num": 13,
-   "status": "running",
-   "item": "End-to-end noisy-channel tokenizer at tc512: fold z + σ·ε into training with the encoder in the graph",
-   "thread": "tc_width",
-   "paper": "ablation: noise in the latent",
-   "note": "plan/2026-09-07_tc_width_decnoise_e2e_tc512.md. Routed here by falsifier 3 of TODO 12's plan: \"the pair needs a from-scratch noisy tokenizer, which changes z and is a tc_width/sigreg question, not a flow one.\" Motivation: the cov_weight dose-response (TODO 6) shows train ZPartRank monotone in dose to 141.0 with none of it transferring to recon, so a term that pushes E[zzᵀ]→I is answered; a noisy channel applies the pressure through the reconstruction loss instead. Control throughout is the clean twin BSC:45296347. The full-width arm split off 2026-09-10 into TODO 14.\n\nIn-graph arm BSC:45529827, cancelled 2026-09-08 at ep 39/100 — negative. The encoder is in the graph, so it optimises a code that must survive the channel while SIGReg and the compose sum keep reading the clean z. Read at ep 37 (results/2026-09-08_tc_width_decnoise_e2e_tc512_read_slides.html): Eval/Loss +28.1% at matched epoch and ZPartRank halved (40.3 vs 78.7) — a fixed absolute σ is answered with a 1.91× larger z, buying tolerance with scale rather than dimensions. The in-graph mode is removed from the code, not gated, so BSC:45529827 must not be resumed against current code.\n\nDetached arm BSC:45578805 — answers the question yes (plan/2026-09-08_tc_width_decnoise_detach_tc512.md, read 2026-09-10 in results/2026-09-10_tc_width_decnoise_detach_tc512_slides.html). A second decode of z.detach() + σ·ε with its own loss leaves encoder gradients identical to the clean twin. At matched 60 ep Eval/Loss is 0.0456 vs the twin's 0.0451 (+1.1%, against the in-graph arm's +26.2%); ZPartRank 79.5/97.9 vs 86.9/97.1 and z scale back on the SIGReg anchor — both in-graph pathologies vanish once the encoder is off the hook, so the ep-37 mechanism is confirmed by removal. Ladder measured on both epoch_60.pth with --eval-only (BSC:45663648 twin, BSC:45664038 detached, same seeded ε; the twin predates eval_noise_sigmas and had never had one): at σ=0.82 the detached arm's penalty is 2.4× smaller on both sets (23.3% vs 56.3% KITTI, 25.5% vs 61.2% nuScenes), −19.4% / −22.2% absolute. Cost +9.7% wall clock (38.3 vs 34.9 min/ep). Rank never climbs above the twin, so the ~90/512 shelf has now resisted three axes and is retired as a tc_width lever. σ stays absolute here, so the \"σ must go relative\" finding from the ep-37 read is untouched.\n\nNow: BSC:45578805 stopped clean at ep 61/100 on one 40 h allocation and was chained 2026-09-10 as BSC:45665286 (40 h, no dependency — nothing was queued for this arm): it resumes current.pth at ep 61 and reaches training.epoch=100 in ~24.9 h, so one allocation closes it. Running since 09-10 14:24, resumed correctly at Training (Epoch 62); at ep 96/100 by 09-11 12:13 at 37.7 min/epoch, so epoch_100.pth lands ~14:55 on 09-11 with 18 h still on the wall. Decided 2026-09-10: the flow matching trains on this arm's final epoch_100.pth, not the ep-60 checkpoint the ladder was measured on. Left open: the flow re-read on the detached tokenizer, the only test the noise tolerance is actually for; the 2026-09-04 decoder finetune helped at N=20 and hurt at N=1.",
-   "note_md": "`plan/2026-09-07_tc_width_decnoise_e2e_tc512.md`. Routed here by falsifier 3 of TODO 12's plan: *\"the pair needs a from-scratch noisy tokenizer, which changes `z` and is a `tc_width`/`sigreg` question, not a flow one.\"* Motivation: the `cov_weight` dose-response (TODO 6) shows train `ZPartRank` monotone in dose to 141.0 with **none of it transferring** to recon, so a term that pushes `E[zzᵀ]→I` is answered; a noisy channel applies the pressure through the reconstruction loss instead. Control throughout is the clean twin `BSC:45296347`. The full-width arm split off 2026-09-10 into **TODO 14**.\n\n**In-graph arm `BSC:45529827`, cancelled 2026-09-08 at ep 39/100 — negative.** The encoder is in the graph, so it optimises a code that must survive the channel while SIGReg and the compose sum keep reading the clean `z`. Read at ep 37 (`results/2026-09-08_tc_width_decnoise_e2e_tc512_read_slides.html`): Eval/Loss **+28.1%** at matched epoch and `ZPartRank` halved (40.3 vs 78.7) — a fixed absolute σ is answered with a **1.91× larger `z`**, buying tolerance with scale rather than dimensions. The in-graph mode is **removed** from the code, not gated, so `BSC:45529827` must not be resumed against current code.\n\n**Detached arm `BSC:45578805` — answers the question yes** (`plan/2026-09-08_tc_width_decnoise_detach_tc512.md`, read 2026-09-10 in `results/2026-09-10_tc_width_decnoise_detach_tc512_slides.html`). A second decode of `z.detach() + σ·ε` with its own loss leaves encoder gradients identical to the clean twin. At matched 60 ep Eval/Loss is 0.0456 vs the twin's 0.0451 (**+1.1%**, against the in-graph arm's +26.2%); `ZPartRank` 79.5/97.9 vs 86.9/97.1 and `z` scale back on the SIGReg anchor — both in-graph pathologies vanish once the encoder is off the hook, so **the ep-37 mechanism is confirmed by removal**. Ladder measured on both `epoch_60.pth` with `--eval-only` (`BSC:45663648` twin, `BSC:45664038` detached, same seeded ε; the twin predates `eval_noise_sigmas` and had never had one): at σ=0.82 the detached arm's penalty is **2.4× smaller on both sets** (23.3% vs 56.3% KITTI, 25.5% vs 61.2% nuScenes), −19.4% / −22.2% absolute. Cost +9.7% wall clock (38.3 vs 34.9 min/ep). Rank never climbs *above* the twin, so the ~90/512 shelf has now resisted three axes and is **retired as a tc_width lever**. σ stays absolute here, so the \"σ must go relative\" finding from the ep-37 read is untouched.\n\n**Now:** `BSC:45578805` stopped clean at ep 61/100 on one 40 h allocation and was chained 2026-09-10 as **`BSC:45665286`** (40 h, no dependency — nothing was queued for this arm): it resumes `current.pth` at ep 61 and reaches `training.epoch=100` in ~24.9 h, so one allocation closes it. **Running** since 09-10 14:24, resumed correctly at `Training (Epoch 62)`; at **ep 96/100** by 09-11 12:13 at 37.7 min/epoch, so `epoch_100.pth` lands **~14:55 on 09-11** with 18 h still on the wall. **Decided 2026-09-10: the flow matching trains on this arm's final `epoch_100.pth`**, not the ep-60 checkpoint the ladder was measured on. Left open: the **flow** re-read on the detached tokenizer, the only test the noise tolerance is actually for; the 2026-09-04 decoder finetune helped at N=20 and hurt at N=1.",
-   "closed": "",
-   "state": "open",
-   "source": "docs/research/todos.json",
-   "order": 5,
-   "jobs": [
-    "45529827",
-    "45578805",
-    "45296347",
-    "45663648",
-    "45664038",
-    "45665286"
-   ],
-   "docs": [
-    "plan/2026-09-07_tc_width_decnoise_e2e_tc512.md",
-    "plan/2026-09-08_tc_width_decnoise_detach_tc512.md",
-    "results/2026-09-08_tc_width_decnoise_e2e_tc512_read_slides.html",
-    "results/2026-09-10_tc_width_decnoise_detach_tc512_slides.html"
-   ],
-   "updates": []
-  },
-  {
-   "num": 14,
-   "status": "running",
-   "item": "Detached decoder-noise at full width (tc1536, no channel bottleneck), and the unnormalised z it exposed",
-   "thread": "tc_width",
-   "paper": "ablation: channel width Cz",
-   "note": "plan/2026-09-09_tc_width_decnoise_detach_tc1536.md. Split out of TODO 13 on 2026-09-10, which had grown to cover two questions: 13 owns the noise recipe at tc512, this row owns full width and the code scale it exposed. The arm is the tc512 detached-noise recipe with no channel bottleneck — target_channels=1536 == hidden_size, sigreg_num_slices 3072 (2·Cz), sigreg_weight 0.06 (∝ Cz from the tc512 twin's 0.02), pool 8192 unchanged. Submitted 2026-09-09 as BSC:45608142 (ehpc880), which died at 43 min on a transient cusolverDnCreate failure — not a config bug — and was resubmitted as BSC:45610897.\n\nRead at ep 31 (results/2026-09-10_tc_width_decnoise_detach_tc1536_read_slides.html): width wins, the recipe costs, the code is stuck. Removing the tc512 bottleneck is worth −51.6% / −49.2% LossRecon at matched ep 31, and tc512 cannot close it with 2× the epochs (its ep 61 0.0542 is still 1.83× this arm's ep 31). But the 2026-08 plain tc1536 reference BSC:44590128 (sigreg 0.005, no decnoise) beats this arm at every epoch on every readout — +17.0% KITTI / +25.4% nuScenes — so width buys the 2× and the decnoise + 12× sigreg recipe gives a quarter of it back. The plan's over-regularisation guard passes (train recon 0.51× the twin, raw SIGReg: descending to 0.0014) and is the wrong instrument: ZPartRank sits at 1.0/1536 with ZRowMeanSquare 872 the whole time.\n\nDiagnosis — a sparse heavy tail, not a collapsed code. Simulation at the real Cz=1536 geometry fits all four scalars only one way: the tail sits on a single coordinate channel, ~0.57% of rows at ~1.5e4. A random direction reads ZMeanAbsMax 8.1 against the observed 87.7, and a broad collapse is excluded by 900× on the SIGReg statistic. That is the massive-activation / attention-sink signature. SIGReg is structurally unable to see it: the statistic is a bounded mean of cos/sin over rows, so a 0.5% tail moves it by nothing, while ZPartRank is a second moment and the same 0.5% owns the entire trace. It cannot pull the tail back either — the restoring force on an outlier row goes as p·exp(−p²/4), coherent only for |p| ≲ 5. No sigreg_weight fixes this; it is structural, not a tuning miss.\n\nWhy tc1536 and never tc512: pre_bottleneck_norm and z_proj_down are built only when z_dim != hidden_size (deltatok_trainer.py:151) and z_norm=false makes the final norm an nn.Identity (:184), so at tc1536 with _nozn nothing normalises z anywhere; tc512 keeps a LayerNorm pinning z_proj_down's input to unit variance. LeJEPA never meets this because its scale is fixed upstream and not by SIGReg — backbone LayerNorm, projector BatchNorm1ds, weight decay 5e-2, and lamb constant from step 0.\n\nBSC:45610897 cancelled 2026-09-10 11:47 at ep 31/100 (21.4 h) rather than chained — chaining a stuck arm buys nothing. Successor submitted the same day as BSC:45678654 (plan/2026-09-10_tc_width_bneck_sw0_tc1536.md): a new force_bottleneck flag builds tc512's three modules at tc1536 — LayerNorm(1536) + Linear(1536,1536) down/up, ~4.7 M params — with sigreg_warmup=0, so the code is normalised and the anchor is on from step 0. The flag defaults false and builds nothing, so every other arm stays bit-identical. The detached noise term is not a suspect: it decodes z.detach(), so it has no gradient path to the encoder and cannot push z outward — what still separates the two tc1536 arms is 12× the sigreg weight (0.06 vs 0.005) and this norm. Read at ep 4, the epoch where the plain arm escapes ZPartRank 1.0 and BSC:45610897 never did.\n\nRead at ep 22 (results/2026-09-11_tc_width_bneck_sw0_tc1536_read_slides.html): the code is cured and the decoder pays 3.2x for it. Every mechanical check held - pre_bottleneck_norm 0.003M + z_proj_down 2.361M + z_proj_up 2.361M = 4.725M of 685.757M, sigreg_warmup=0 in EXTRA_CFG, ZRowMeanSquare 1.02 on the first eval - and ZPartRank never touches 1.0, so the ep-4 gate passes and the ep-31 massive-activation diagnosis is confirmed by repair. ZRowMeanSquare 1.13 against the control's 2781, ZMeanAbsMax 0.10 against 171.\n\nIt is not enough and it is expensive. At matched ep 22 token LossRecon is x3.24 / x3.11 the control (0.1054 / 0.0722 vs 0.0325 / 0.0232), x3.72 / x3.80 the plain tc1536 BSC:44590128 and x1.56 the detached tc512 arm BSC:45665286 at half the width; decoded, pointmap PredVsOrig is x4.35 KITTI / x6.62 nuScenes and the rollout is worse. The arm never has the ep-4 cliff the other three have - it descends 0.134 to 0.105 over 19 epochs and stays on the plateau. Rank lands at 2.3% of Cz against the plain arm's 15.7%, and the raw SIGReg statistic is 4x further from the anchor than the control's (0.0063 vs 0.0016) at the same weight and slice count: scale fixed, rank not. The sigma ladder is flat (+0.3% at sigma=0.82, where the control pays +55% and tc512 +12%) on a code of RMS 1.13 - a decoder undisturbed by noise the size of its own input is not reading much of it.\n\nThe missing norm was not the cause. The plain tc1536 has no norm on z either, sits at ZPartRank 1.0 for epochs 1-3 and escapes on its own at ep 4 (44.2, 112.8, 172.4, 240.7 by ep 22), so what traps the control is not the missing norm but the 12x sigreg weight and the decode-noise term. Next arm: tc1536, no bottleneck, sigreg_weight 0.005, decnoise on - one 40 h allocation, tests that suspect directly. Caveat: this arm moved force_bottleneck and sigreg_warmup together, so the read cannot assign the recon damage to either alone.\n\nBSC:45678654 cancelled 2026-09-11 11:20 at ep 23/100 (15.2 h) - sigreg pressure too high. The read had already answered the plan's question and the arm was 3.2x off the control with 24 h of its wall left; spending them to reach ~ep 63 on a decoder that is not reading its code buys nothing. Surviving on SCRATCH/deltatok_log/<run>/ckpts/: current.pth (ep 23), epoch_20.pth, epoch_10.pth, 31 G. Relaunching this slurm script resumes it - training always picks up current.pth, so the successor needs a new RUN_NAME. Next arm: tc1536, no bottleneck, sigreg_weight 0.005, decnoise on.\n\nSigreg-weight sweep submitted 2026-09-11 11:42 - BSC:45725879 (0.005), BSC:45725880 (0.01), BSC:45725881 (0.02), all on ehpc1001 at 20 h each, from the unchanged slurm/deltatok/train_deltatok_compose_sigreg_decnoise_detach_nozn_tc1536_bsc.slurm with --export=ALL,SIGREG_WEIGHT=<w>,SIGREG_WARMUP=0,RUN_NAME=<...>_sw0. No file edit: the script already derives RUN_NAME from the weight, and the explicit RUN_NAME only adds the _sw0 tag the plain script omits. sigreg_warmup is 0 - the anchor is on from step 0 on every arm, standing policy. A first submission at the script's default warmup 2000 (45725787/88/89) was cancelled while still PENDING, so nothing was written. Against the control BSC:45610897 (0.06, warmup 2000) weight and warmup both differ; the clean single-variable comparison is within the sweep. 20 h is ~29 epochs at the control's 41 min/ep, past the ep-4 cliff and onto the plateau. A no-decnoise partner already exists at every weight - sigreg 0.005/0.01/0.02 ns3072 pool8192 at ep 48 / 30 / 40 - so each arm reads as decnoise on vs off at matched weight, and ep 30 is a matched point for all three.\n\nSweep cut to a pool pair, 2026-09-11 12:10. BSC:45725879 (0.005) and BSC:45725880 (0.01) cancelled while PENDING; nothing was written. What runs is a one-variable pool comparison at sigreg_weight 0.02, both sw0, both 20 h on ehpc1001, both from the unchanged no-bottleneck script: BSC:45725881 at sigreg_pool_samples 8192 and BSC:45727710 at 24576. RUN_NAMEs differ only in pool8192 vs pool24576.\n\nKnown risk, accepted. analysis/2026-07-31_sigreg_pool_not_weight_neutral.html found pool 8192->32768 at unchanged weight *stopped* DeltaTok learning (Eval/Loss stuck at the untrained 0.126 through ep 11 against a twin at 0.0332 by ep 4), and reweighting at 0.05 / 0.5 / 5 did not rescue it. Cause: scale = n_pooled/n_live (deltatok_trainer.py:701) cancels the instantaneous 1/n attenuation but not the FIFO's feedback delay, so SIGReg dominates the grad norm and grad_clip=0.1 starves recon. At our geometry scale is 11.7 at pool 8192 and 33.0 at 24576 (43.7 at the 32768 that failed). But that failure's signature was a 39x LossSIGReg spike at iter 2211, exactly where sigreg_warmup=2000 ended - and these arms run sw0, so that boundary does not exist. The follow-up BSC:44014668 that would have settled it is archived CANCELLED at 00:00:00, never run.\n\nGuard: compare Eval LossRecon at ep 4. If 45727710 is still near 0.126 while 45725881 has broken out, it is the 2026-07-31 stall - kill it.\n\nWhy the bneck arm loses to the tc512 arm: rank, not scale, and probably not sigreg_weight (2026-09-11). Both sit at ZRowMeanSquare ~ 1 (1.27 vs 1.57 KITTI ep 22) and at a comparable raw SIGReg statistic (0.0114 vs 0.0141), so neither the scale-escape story nor \"more pressure\" separates them. What separates them is absolute usable dimensions: bneck goes ZPartRank 54.3 -> 34.7 of 1536 over ep 0->22 while tc512 goes 14.2 -> 57.1 of 512. Variance per used direction moves the opposite way too - bneck 28.7 -> 56.1 (concentrating), tc512 39.5 -> 14.1 (spreading). The wide arm ends with a *narrower* code than the narrow arm, and its sigma ladder (+0.3% vs +12.3%) says the decoder stopped reading it.\n\nsigreg_weight is the least likely cause, on sign. SIGReg exists to *raise* rank; the arm with 3x the weight has *lower* absolute rank. Two better candidates. (1) force_bottleneck at z_dim == hidden_size builds a square nn.Linear(1536,1536) (deltatok_trainer.py:160-161) - it delivers pre_bottleneck_norm, which is what pinned the scale, and zero dimensional pressure; tc512's Linear(1536,512) is a real 3:1 compression where a wasted direction is lost information. (2) SIGReg's rank sensitivity degrades with width at fixed pool - S/C is 5.3 at Cz=1536 against 16 at Cz=512, and the finite-sample floor at S=8192 is 1.32e-4 against a 1.65e-4 anisotropy signal. Candidate (2) is what BSC:45725881 / BSC:45727710 test. Candidate (1) needs tc1536 + force_bottleneck at tc512's exact regulariser (weight 0.02, slices 1024, sw0) - not yet submitted.",
-   "note_md": "`plan/2026-09-09_tc_width_decnoise_detach_tc1536.md`. **Split out of TODO 13 on 2026-09-10**, which had grown to cover two questions: 13 owns the noise recipe at tc512, this row owns full width and the code scale it exposed. The arm is the tc512 detached-noise recipe with **no channel bottleneck** — `target_channels=1536` == `hidden_size`, `sigreg_num_slices` 3072 (2·Cz), `sigreg_weight` 0.06 (∝ Cz from the tc512 twin's 0.02), pool 8192 unchanged. Submitted 2026-09-09 as `BSC:45608142` (`ehpc880`), which died at 43 min on a transient `cusolverDnCreate` failure — not a config bug — and was resubmitted as **`BSC:45610897`**.\n\n**Read at ep 31** (`results/2026-09-10_tc_width_decnoise_detach_tc1536_read_slides.html`): **width wins, the recipe costs, the code is stuck.** Removing the tc512 bottleneck is worth **−51.6% / −49.2%** `LossRecon` at matched ep 31, and tc512 cannot close it with 2× the epochs (its ep 61 0.0542 is still 1.83× this arm's ep 31). But the 2026-08 **plain** tc1536 reference `BSC:44590128` (sigreg 0.005, no decnoise) beats this arm at every epoch on every readout — **+17.0% KITTI / +25.4% nuScenes** — so width buys the 2× and the decnoise + 12× sigreg recipe gives a quarter of it back. The plan's over-regularisation guard **passes** (train recon 0.51× the twin, raw `SIGReg:` descending to 0.0014) and is the **wrong instrument**: `ZPartRank` sits at **1.0/1536** with `ZRowMeanSquare` 872 the whole time.\n\n**Diagnosis — a sparse heavy tail, not a collapsed code.** Simulation at the real Cz=1536 geometry fits all four scalars only one way: the tail sits on a **single coordinate channel**, ~0.57% of rows at ~1.5e4. A random direction reads `ZMeanAbsMax` 8.1 against the observed 87.7, and a broad collapse is excluded by 900× on the SIGReg statistic. That is the **massive-activation / attention-sink** signature. **SIGReg is structurally unable to see it**: the statistic is a bounded mean of `cos`/`sin` over rows, so a 0.5% tail moves it by nothing, while `ZPartRank` is a second moment and the same 0.5% owns the entire trace. It cannot pull the tail back either — the restoring force on an outlier row goes as `p·exp(−p²/4)`, coherent only for `|p| ≲ 5`. No `sigreg_weight` fixes this; it is structural, not a tuning miss.\n\n**Why tc1536 and never tc512:** `pre_bottleneck_norm` and `z_proj_down` are built only when `z_dim != hidden_size` (`deltatok_trainer.py:151`) and `z_norm=false` makes the final norm an `nn.Identity` (`:184`), so at tc1536 with `_nozn` **nothing normalises `z` anywhere**; tc512 keeps a LayerNorm pinning `z_proj_down`'s input to unit variance. LeJEPA never meets this because its scale is fixed upstream and not by SIGReg — backbone `LayerNorm`, projector `BatchNorm1d`s, weight decay 5e-2, and `lamb` constant from step 0.\n\n**`BSC:45610897` cancelled 2026-09-10 11:47 at ep 31/100 (21.4 h)** rather than chained — chaining a stuck arm buys nothing. Successor submitted the same day as **`BSC:45678654`** (`plan/2026-09-10_tc_width_bneck_sw0_tc1536.md`): a new `force_bottleneck` flag builds tc512's three modules at tc1536 — `LayerNorm(1536)` + `Linear(1536,1536)` down/up, ~4.7 M params — with `sigreg_warmup=0`, so the code is normalised and the anchor is on from step 0. The flag defaults `false` and builds nothing, so every other arm stays bit-identical. The detached noise term is **not** a suspect: it decodes `z.detach()`, so it has no gradient path to the encoder and cannot push `z` outward — what still separates the two tc1536 arms is **12× the sigreg weight** (0.06 vs 0.005) and this norm. **Read at ep 4**, the epoch where the plain arm escapes `ZPartRank` 1.0 and `BSC:45610897` never did.\n\n**Read at ep 22** (`results/2026-09-11_tc_width_bneck_sw0_tc1536_read_slides.html`): **the code is cured and the decoder pays 3.2× for it.** Every mechanical check held — `pre_bottleneck_norm` 0.003 M + `z_proj_down` 2.361 M + `z_proj_up` 2.361 M = 4.725 M of 685.757 M, `training.sigreg_warmup=0` in `EXTRA_CFG`, `ZRowMeanSquare` 1.02 on the first eval — and `ZPartRank` never touches 1.0, so the ep-4 gate **passes** and the ep-31 massive-activation diagnosis is confirmed *by repair*. `ZRowMeanSquare` 1.13 against the control's 2781, `ZMeanAbsMax` 0.10 against 171.\n\n**It is not enough, and it is expensive.** At matched ep 22 token `LossRecon` is **×3.24 / ×3.11** the control (0.1054 / 0.0722 vs 0.0325 / 0.0232), **×3.72 / ×3.80** the plain tc1536 `BSC:44590128` and **×1.56** the detached tc512 arm `BSC:45665286` at half the width; decoded, pointmap `PredVsOrig` is **×4.35 KITTI / ×6.62 nuScenes** and the rollout is worse. The arm never has the ep-4 cliff the other three have — it descends 0.134 → 0.105 over 19 epochs and stays on the plateau. Rank lands at **2.3% of Cz** against the plain arm's 15.7%, and the raw `SIGReg:` statistic is **4× further from the anchor** than the control's (0.0063 vs 0.0016) at the same weight and slice count: **scale fixed, rank not.** The σ ladder is **flat** (+0.3% at σ=0.82, where the control pays +55% and tc512 +12%) on a code of RMS 1.13 — a decoder undisturbed by noise the size of its own input is not reading much of it.\n\n**The missing norm was not the cause.** The plain tc1536 has **no norm on `z` either**, sits at `ZPartRank` 1.0 for epochs 1–3 and escapes on its own at ep 4 (44.2 → 112.8 → 172.4 → 240.7 by ep 22). So what traps the control is not the missing norm but the **12× sigreg weight** and the decode-noise term. **Next arm:** tc1536, no bottleneck, `sigreg_weight` 0.005, decnoise on — one 40 h allocation, tests that suspect directly. **Caveat:** this arm moved `force_bottleneck` **and** `sigreg_warmup` together, so the read cannot assign the recon damage to either alone.\n\n**`BSC:45678654` cancelled 2026-09-11 11:20 at ep 23/100 (15.2 h)** — sigreg pressure too high. The read had already answered the plan's question and the arm was ×3.2 off the control with 24 h of its wall left; spending them to reach ~ep 63 on a decoder that is not reading its code buys nothing. Surviving on `$SCRATCH/deltatok_log/<run>/ckpts/`: `current.pth` (ep 23), `epoch_20.pth`, `epoch_10.pth`, 31 G. **Relaunching this slurm script resumes it** — training always picks up `current.pth`, so the successor needs a new `RUN_NAME`. **Next arm:** tc1536, no bottleneck, `sigreg_weight` 0.005, decnoise on.\n\n**Sigreg-weight sweep submitted 2026-09-11 11:42** — `BSC:45725879` (0.005), `BSC:45725880` (0.01), `BSC:45725881` (0.02), all on `ehpc1001` at **20 h** each, from the unchanged `slurm/deltatok/train_deltatok_compose_sigreg_decnoise_detach_nozn_tc1536_bsc.slurm` with `--export=ALL,SIGREG_WEIGHT=<w>,SIGREG_WARMUP=0,RUN_NAME=<...>_sw0`. No file edit: the script already derives `RUN_NAME` from the weight, and the explicit `RUN_NAME` only adds the `_sw0` tag the plain script omits. **`sigreg_warmup` is 0 — the anchor is on from step 0 on every arm, standing policy.** A first submission at the script's default warmup 2000 (`45725787`/`88`/`89`) was cancelled while still PENDING, so nothing was written. Against the control `BSC:45610897` (0.06, warmup 2000) weight and warmup both differ; the clean single-variable comparison is **within the sweep**. 20 h is ~29 epochs at the control's 41 min/ep, past the ep-4 cliff and onto the plateau. A **no-decnoise partner already exists at every weight** — `..._sigreg{0.005,0.01,0.02}_ns3072_pool8192` at ep 48 / 30 / 40 — so each arm reads as decnoise on vs off at matched weight, and ep 30 is a matched point for all three.\n\n**Sweep cut to a pool pair, 2026-09-11 12:10.** `BSC:45725879` (0.005) and `BSC:45725880` (0.01) cancelled while PENDING; nothing was written. What runs is a **one-variable pool comparison at `sigreg_weight` 0.02**, both `sw0`, both 20 h on `ehpc1001`, both from the unchanged no-bottleneck script: **`BSC:45725881`** at `sigreg_pool_samples` 8192 and **`BSC:45727710`** at 24576. `RUN_NAME`s differ only in `pool8192` vs `pool24576`.\n\n**Known risk, accepted.** `analysis/2026-07-31_sigreg_pool_not_weight_neutral.html` found pool 8192→32768 at unchanged weight *stopped* DeltaTok learning (Eval/Loss stuck at the untrained 0.126 through ep 11 against a twin at 0.0332 by ep 4), and reweighting at 0.05 / 0.5 / 5 did not rescue it. Cause: `scale = n_pooled/n_live` (`deltatok_trainer.py:701`) cancels the instantaneous 1/n attenuation but not the FIFO's feedback delay, so SIGReg dominates the grad norm and `grad_clip=0.1` starves recon. At our geometry `scale` is 11.7 at pool 8192 and **33.0 at 24576** (43.7 at the 32768 that failed). **But that failure's signature was a 39× `LossSIGReg` spike at iter 2211, exactly where `sigreg_warmup=2000` ended — and these arms run `sw0`, so that boundary does not exist.** The follow-up `BSC:44014668` that would have settled it is archived CANCELLED at 00:00:00, never run.\n\n**Guard:** compare Eval `LossRecon` at ep 4. If `45727710` is still near 0.126 while `45725881` has broken out, it is the 2026-07-31 stall — kill it.\n\n**Why the bneck arm loses to the tc512 arm: rank, not scale, and probably not `sigreg_weight` (2026-09-11).** Both sit at `ZRowMeanSquare` ≈ 1 (1.27 vs 1.57 KITTI ep 22) and at a comparable raw SIGReg statistic (0.0114 vs 0.0141), so neither the scale-escape story nor \"more pressure\" separates them. What separates them is **absolute usable dimensions**: bneck goes `ZPartRank` **54.3 → 34.7 of 1536** over ep 0→22 while tc512 goes **14.2 → 57.1 of 512**. Variance per used direction moves the opposite way too — bneck **28.7 → 56.1** (concentrating), tc512 **39.5 → 14.1** (spreading). The wide arm ends with a *narrower* code than the narrow arm, and its σ ladder (+0.3% vs +12.3%) says the decoder stopped reading it.\n\n**`sigreg_weight` is the least likely cause, on sign.** SIGReg exists to *raise* rank; the arm with 3× the weight has *lower* absolute rank. Two better candidates. (1) **`force_bottleneck` at `z_dim == hidden_size` builds a square `nn.Linear(1536,1536)`** (`deltatok_trainer.py:160-161`) — it delivers `pre_bottleneck_norm`, which is what pinned the scale, and **zero dimensional pressure**; tc512's `Linear(1536,512)` is a real 3:1 compression where a wasted direction is lost information. (2) **SIGReg's rank sensitivity degrades with width at fixed pool** — S/C is 5.3 at Cz=1536 against 16 at Cz=512, and the finite-sample floor at S=8192 is 1.32e-4 against a 1.65e-4 anisotropy signal. Candidate (2) is what `BSC:45725881` / `BSC:45727710` test. Candidate (1) needs tc1536 + `force_bottleneck` at tc512's exact regulariser (weight 0.02, slices 1024, `sw0`) — **not yet submitted**.",
-   "closed": "",
-   "state": "open",
-   "source": "docs/research/todos.json",
-   "order": 6,
-   "jobs": [
-    "45608142",
-    "45610897",
-    "45678654",
-    "44590128",
-    "45725881",
-    "45727710"
-   ],
-   "docs": [
-    "plan/2026-09-09_tc_width_decnoise_detach_tc1536.md",
-    "plan/2026-09-10_tc_width_bneck_sw0_tc1536.md",
-    "results/2026-09-10_tc_width_decnoise_detach_tc1536_read_slides.html",
-    "results/2026-09-11_tc_width_bneck_sw0_tc1536_read_slides.html"
-   ],
-   "updates": []
-  },
-  {
-   "num": 5,
-   "status": "dropped",
-   "item": "Re-read the width sweep at the calibrated weight",
-   "thread": "tc_width",
-   "paper": "ablation: channel width Cz",
-   "note": "dropped: by decision, not worth the GPU hours. Would have re-run Cz 128–1536 at the weight TODO 2 calibrates; the original sweep held weight at 0.005 throughout, so width and regulariser pressure stay unseparated. The null it would refine is already recorded (research/results/2026-09-01_tc_width_tc512_sigreg_weight_slides.html: tc128 wins, usable rank stalls at 30–96 dims whatever Cz). Revive only if TODO 2 shifts the ranking",
-   "note_md": "`dropped: by decision, not worth the GPU hours`. Would have re-run Cz 128–1536 at the weight TODO 2 calibrates; the original sweep held weight at 0.005 throughout, so width and regulariser pressure stay unseparated. The null it would refine is already recorded (`research/results/2026-09-01_tc_width_tc512_sigreg_weight_slides.html`: tc128 wins, usable rank stalls at 30–96 dims whatever Cz). Revive only if TODO 2 shifts the ranking",
-   "closed": "2026-09-02",
-   "state": "done",
-   "source": "docs/research/todos.json",
-   "order": 1,
-   "jobs": [],
-   "docs": [
-    "results/2026-09-01_tc_width_tc512_sigreg_weight_slides.html"
-   ],
-   "updates": []
-  },
-  {
-   "num": 1,
-   "status": "done",
-   "item": "Try 1, 2, 3, 4 steps like PointDiT",
-   "thread": "flow",
-   "paper": "ablation: ODE steps",
-   "note": "done: research/results/2026-09-01_flow_numsteps_tc128compose_slides.html. 1,2,3,4,20 steps on tc128compose ckpt iter 200000, BSC:45296762. Fewer steps win monotonically — MSEToken 0.7417 at N=1 vs 0.8837 at N=20, LossDepth 3.6563 vs 3.8796. It does not measure step count: the sampler does not integrate, so N steps returns x̂ at t = 1 − 1/N, and N=1 reads out the arm's least-trained regime (0.28% of gradient mass below t=0.1). Mechanism: research/analysis/2026-09-01_flow_numsteps_why_more_steps_degrade.md. Left open: the seed spread at N=1 vs N=20 (8 seeds, plus a decoded depth-edge F1, one acc_debug job) was never submitted, so \"the rise is sample variance\" stays unmeasured; the re-read on a low-t arm moved to TODO 7",
-   "note_md": "`done: research/results/2026-09-01_flow_numsteps_tc128compose_slides.html`. `1,2,3,4,20` steps on `tc128compose` ckpt iter 200000, BSC:45296762. Fewer steps win monotonically — MSEToken 0.7417 at N=1 vs 0.8837 at N=20, LossDepth 3.6563 vs 3.8796. It does **not** measure step count: the sampler does not integrate, so N steps returns x̂ at `t = 1 − 1/N`, and N=1 reads out the arm's least-trained regime (0.28% of gradient mass below `t=0.1`). Mechanism: `research/analysis/2026-09-01_flow_numsteps_why_more_steps_degrade.md`. Left open: the seed spread at N=1 vs N=20 (8 seeds, plus a decoded depth-edge F1, one `acc_debug` job) was never submitted, so \"the rise is sample variance\" stays unmeasured; the re-read on a low-`t` arm moved to **TODO 7**",
-   "closed": "2026-09-02",
-   "state": "done",
-   "source": "docs/research/todos.json",
-   "order": 2,
-   "jobs": [
-    "45296762"
-   ],
-   "docs": [
-    "analysis/2026-09-01_flow_numsteps_why_more_steps_degrade.md",
-    "results/2026-09-01_flow_numsteps_tc128compose_slides.html"
-   ],
-   "updates": []
-  },
-  {
-   "num": 9,
-   "status": "done",
-   "item": "How is the sky handled when computing the eval loss for the flow matching?",
-   "thread": "flow",
-   "paper": "main results: eval protocol",
-   "note": "done: research/analysis/2026-09-02_flow_sky_in_eval_loss.md. Dropped implicitly — valid_mask = depth>0 & depth<z_far(50) over sparse LiDAR, so sky has no return and never enters LossDepth / LossPointmap. The flow loss is latent-space and keeps sky at full weight. Left open: the valid-pixel fraction per eval set is not logged",
-   "note_md": "`done: research/analysis/2026-09-02_flow_sky_in_eval_loss.md`. Dropped implicitly — `valid_mask = depth>0 & depth<z_far(50)` over sparse LiDAR, so sky has no return and never enters `LossDepth` / `LossPointmap`. The flow loss is latent-space and keeps sky at full weight. Left open: the valid-pixel fraction per eval set is not logged",
-   "closed": "2026-09-02",
-   "state": "done",
-   "source": "docs/research/todos.json",
-   "order": 3,
-   "jobs": [],
-   "docs": [
-    "analysis/2026-09-02_flow_sky_in_eval_loss.md"
-   ],
-   "updates": []
-  },
-  {
-   "num": 6,
-   "status": "done",
-   "item": "Attack the rank ceiling directly instead of via the weight",
-   "thread": "sigreg",
-   "paper": "contribution: SIGReg",
-   "note": "done: results/2026-09-06_sigreg_cov_penalty_tc512_slides.html. Four doses over one base (tc512 · compose 1.0 · sigreg 0.02): cov 0 BSC:45296347, 3e-5 BSC:45416718 (ep 72, 44 h wall), 1e-4 BSC:45498520 and 3e-4 BSC:45498521 (both cancelled 2026-09-07 at ep 29/100, 18 h of 44 h — the axis was already answered). Verdict: not worth adding. cov_weight does exactly what it was designed to do to the spectrum and almost nothing to reconstruction. Train ZPartRank is monotone in dose with no ceiling — 84.8 → 109.1 → 115.8 → 163.3 at matched ep 29, a 1.9× spread — while eval LossRecon moves a few percent and not even in dose order: on the ep 24–29 mean only 3e-5 is ahead of the control (−10.6% K / −10.6% N), 1e-4 is behind it (+8.0% / +5.3%) and 3e-4 clears the control (−6.1% / −4.9%) but not 3e-5 (+5.0% / +6.4%). This falsifies the thread's central hypothesis: participation rank is not the lever on reconstruction. The r = −0.997 … −0.999 rank↔recon correlation that motivated the term held across arms that differed in convergence, and it breaks the moment rank is pushed directly at a fixed recipe — 1.9× the rank buys nothing. Rank stays a diagnostic, never a target. No dose reached the 0.0528 K / 0.0370 N weight-axis best either, so the plateau confound of TODO 2 is not settled and was not settled by this route. Left open: slides 1–10 of the deck still carry the earlier ep-67 3e-5 reading (\"a new best, narrowly\") and disagree with slide 11 — the ep-29 dose axis is the one to quote. §4–5 of plan/2026-09-02_sigreg_cov_penalty.md were written under the old reading and carry a reversal note. Both cancelled current.pth are resumable at ep 29 if the axis is ever revisited; the 3e-4 late-crossing question is dropped, not measured.",
-   "note_md": "`done: results/2026-09-06_sigreg_cov_penalty_tc512_slides.html`. Four doses over one base (tc512 · compose 1.0 · sigreg 0.02): `cov 0` BSC:45296347, `3e-5` BSC:45416718 (ep 72, 44 h wall), `1e-4` BSC:45498520 and `3e-4` BSC:45498521 (both cancelled 2026-09-07 at ep 29/100, 18 h of 44 h — the axis was already answered). **Verdict: not worth adding.** `cov_weight` does exactly what it was designed to do to the spectrum and almost nothing to reconstruction. Train `ZPartRank` is monotone in dose with no ceiling — 84.8 → 109.1 → 115.8 → **163.3** at matched ep 29, a **1.9×** spread — while eval `LossRecon` moves a few percent and not even in dose order: on the ep 24–29 mean only `3e-5` is ahead of the control (−10.6% K / −10.6% N), `1e-4` is **behind** it (+8.0% / +5.3%) and `3e-4` clears the control (−6.1% / −4.9%) but not `3e-5` (+5.0% / +6.4%). **This falsifies the thread's central hypothesis: participation rank is not the lever on reconstruction.** The r = −0.997 … −0.999 rank↔recon correlation that motivated the term held across arms that differed in *convergence*, and it breaks the moment rank is pushed directly at a fixed recipe — 1.9× the rank buys nothing. Rank stays a diagnostic, never a target. No dose reached the 0.0528 K / 0.0370 N weight-axis best either, so the plateau confound of TODO 2 is not settled and was not settled by this route. Left open: slides 1–10 of the deck still carry the earlier ep-67 `3e-5` reading (\"a new best, narrowly\") and disagree with slide 11 — the ep-29 dose axis is the one to quote. §4–5 of `plan/2026-09-02_sigreg_cov_penalty.md` were written under the old reading and carry a reversal note. Both cancelled `current.pth` are resumable at ep 29 if the axis is ever revisited; the `3e-4` late-crossing question is dropped, not measured.",
-   "closed": "2026-09-07",
-   "state": "done",
-   "source": "docs/research/todos.json",
-   "order": 4,
-   "jobs": [
-    "45416718",
-    "45498520",
-    "45498521",
-    "45296347",
-    "45106935"
-   ],
-   "docs": [
-    "plan/2026-09-02_sigreg_cov_penalty.md",
-    "results/2026-09-06_sigreg_cov_penalty_tc512_slides.html"
-   ],
-   "updates": []
-  },
-  {
-   "num": 12,
-   "status": "done",
-   "item": "Decoder-only noise-augmented finetune of the tc128 compose tokenizer (RAE noise_tau), read through the unchanged flow control",
-   "thread": "flow",
-   "paper": "main results: tokenizer for the flow eval",
-   "note": "done: results/2026-09-06_flow_decoder_noise_finetune_slides.html. BSC:45421190 (10-epoch decoder-only finetune of the tc128 compose tokenizer, decode_noise_tau=0.8 + freeze_except_decoder=true, warm-started weights-only from compose1.0/ckpts/epoch_100.pth) plus the eval jobs BSC:45497311/19, 45497830/31 and the N-sweep BSC:45498382. Every design check held: MSEToken reproduces 0.6677 / 0.8850 to the digit, so encode() is bit-identical and only the decoder moved; the σ=0 round trip improved 1.3–1.7%. The ladder flattens outright — σ=0.82 raymap 19.09 → 1.67, so the superlinear knee below MSE 0.30 is gone. Best achievable against best achievable: raymap −17.6%, pointmap −9.1%, with the sampler optimum moving N=2 → N=20 and −35.5% raymap at matched N=20. The one loss is N=1 (+17.7% raymap): at the same latent error magnitude, isotropic noise now decodes 3.5× better than the flow's own error, so the 1-step error is structured, not isotropic — the probe's framing inverts. epoch_10 replaces epoch_100 as the tokenizer every flow read uses. Leads to TODO 13, in tc_width: end-to-end decoder-noise training of the tc512 compose tokenizer (plan/2026-09-07_tc_width_decnoise_e2e_tc512.md, BSC:45529827). Falsifier 3 routed it out of flow: fixing the decoder alone cannot change a code it is not allowed to touch, so the pair needs a from-scratch noisy tokenizer with the encoder in the graph — which changes z and is a tc_width/sigreg question. Left open, but not queued: the N=20 penalty in plan/2026-09-04_flow_bestofk_regressor_null.md is at least partly a decoder artifact and was never re-read on epoch_10 — TODO 11 was dropped 2026-09-07 as not needed.",
-   "note_md": "`done: results/2026-09-06_flow_decoder_noise_finetune_slides.html`. `BSC:45421190` (10-epoch decoder-only finetune of the tc128 compose tokenizer, `decode_noise_tau=0.8` + `freeze_except_decoder=true`, warm-started weights-only from `compose1.0/ckpts/epoch_100.pth`) plus the eval jobs `BSC:45497311/19`, `45497830/31` and the N-sweep `BSC:45498382`. Every design check held: `MSEToken` reproduces 0.6677 / 0.8850 to the digit, so `encode()` is bit-identical and only the decoder moved; the σ=0 round trip *improved* 1.3–1.7%. **The ladder flattens outright** — σ=0.82 raymap 19.09 → **1.67**, so the superlinear knee below MSE 0.30 is gone. **Best achievable against best achievable: raymap −17.6%, pointmap −9.1%**, with the sampler optimum moving N=2 → N=20 and −35.5% raymap at matched N=20. **The one loss is N=1** (+17.7% raymap): at the same latent error magnitude, isotropic noise now decodes 3.5× better than the flow's own error, so the 1-step error is **structured, not isotropic** — the probe's framing inverts. `epoch_10` replaces `epoch_100` as the tokenizer every flow read uses. **Leads to TODO 13, in `tc_width`: end-to-end decoder-noise training of the tc512 compose tokenizer** (`plan/2026-09-07_tc_width_decnoise_e2e_tc512.md`, `BSC:45529827`). Falsifier 3 routed it out of `flow`: fixing the decoder alone cannot change a code it is not allowed to touch, so the pair needs a from-scratch noisy tokenizer with the encoder in the graph — which changes `z` and is a `tc_width`/`sigreg` question. Left open, but not queued: the N=20 penalty in `plan/2026-09-04_flow_bestofk_regressor_null.md` is at least partly a decoder artifact and was never re-read on `epoch_10` — TODO 11 was dropped 2026-09-07 as `not needed`.",
-   "closed": "2026-09-07",
-   "state": "done",
-   "source": "docs/research/todos.json",
-   "order": 5,
-   "jobs": [
-    "45421190",
-    "45417908",
-    "45497311",
-    "45497830",
-    "45498382"
-   ],
-   "docs": [
-    "plan/2026-09-04_flow_decoder_noise_finetune.md",
-    "results/2026-09-04_flow_decoder_noise_probe.md",
-    "results/2026-09-06_flow_decoder_noise_finetune_slides.html",
-    "plan/2026-09-07_tc_width_decnoise_e2e_tc512.md"
-   ],
-   "updates": []
-  },
-  {
-   "num": 2,
-   "status": "done",
-   "item": "tc512 + sigreg 0.02 / 0.04 / 0.08",
-   "thread": "tc_width",
-   "paper": "ablation: SIGReg weight",
-   "note": "done: results/2026-09-04_tc_width_tc512_sigreg_weight_axis_slides.html. BSC:45296347 (0.02) and BSC:45297731 (0.04) stopped at ep 81/100 on the 48 h wall, resumable; BSC:45296349 (0.08) cancelled at ep 32. Read at ep 67 and 81. No turnover inside the axis: 0.01 · 0.02 · 0.04 are one plateau spanning 6.0% of eval LossRecon (pooled 0.0416 / 0.0441 / 0.0427 at ep 67), and 0.08 breaks — 1.82× worse recon at ep 32 with ZPartRank falling to 46.5. The bracket closed, the exponent did not: weight ∝ Cz predicts 0.02, which lands inside the plateau and is its worst arm, so ∝ Cz and ∝ √Cz both fit the 0.01–0.04 band. What to use: 0.01 for token recon, 0.04 if decoded geometry is the target, difference under 3% pooled. The 0.08 failure is over-regularisation, not the pool8192 warmup instability (raw SIGReg: bumps 1.2×, not 39×). Rank saturating near 100/512 is what routed the thread to TODO 6 (cov_weight) and TODO 13 (noisy channel). Left open: §4–5 of plan/2026-09-01_tc_width_sigreg_weight_tc512.md are still _Pending._, so the numbers live only in the deck; no ep-99 read; 0.08 read only at ep 32; tc128 / tc256 never re-run at the higher weights, so weight ∝ Cz^k stays a one-width claim",
-   "note_md": "`done: results/2026-09-04_tc_width_tc512_sigreg_weight_axis_slides.html`. `BSC:45296347` (0.02) and `BSC:45297731` (0.04) stopped at ep 81/100 on the 48 h wall, resumable; `BSC:45296349` (0.08) cancelled at ep 32. Read at ep 67 and 81. **No turnover inside the axis:** 0.01 · 0.02 · 0.04 are one plateau spanning **6.0%** of eval `LossRecon` (pooled 0.0416 / 0.0441 / 0.0427 at ep 67), and 0.08 breaks — 1.82× worse recon at ep 32 with `ZPartRank` *falling* to 46.5. The bracket closed, the exponent did not: `weight ∝ Cz` predicts 0.02, which lands inside the plateau and is its **worst** arm, so `∝ Cz` and `∝ √Cz` both fit the 0.01–0.04 band. **What to use:** 0.01 for token recon, 0.04 if decoded geometry is the target, difference under 3% pooled. The 0.08 failure is over-regularisation, not the `pool8192` warmup instability (raw `SIGReg:` bumps 1.2×, not 39×). Rank saturating near 100/512 is what routed the thread to **TODO 6** (`cov_weight`) and **TODO 13** (noisy channel). Left open: §4–5 of `plan/2026-09-01_tc_width_sigreg_weight_tc512.md` are still `_Pending._`, so the numbers live only in the deck; no ep-99 read; 0.08 read only at ep 32; tc128 / tc256 never re-run at the higher weights, so `weight ∝ Cz^k` stays a one-width claim",
-   "closed": "2026-09-07",
-   "state": "done",
-   "source": "docs/research/todos.json",
-   "order": 6,
-   "jobs": [
-    "45296347",
-    "45297731",
-    "45296349"
-   ],
-   "docs": [
-    "plan/2026-09-01_tc_width_sigreg_weight_tc512.md",
-    "results/2026-09-04_tc_width_tc512_sigreg_weight_axis_slides.html"
-   ],
-   "updates": []
-  },
-  {
-   "num": 8,
-   "status": "done",
-   "item": "Sum is actually better → run again with 0.02 tc512 (0.01 undecided); compare with 512 plain",
-   "thread": "sigreg",
-   "paper": "ablation: SIGReg on the composed sum",
-   "note": "done: results/2026-09-04_tc_width_tc512_sigreg_weight_axis_slides.html, slide 6. BSC:45345063 cancelled 2026-09-04 15:46 mid-ep 67; last complete eval ep 66; read at ep 65 against the plain twin BSC:45296347. Falsifier 2 lands — the sum loses at 0.02: eval LossRecon +8.0% (0.0479 vs 0.0444 pooled), LossRecon_Comp +8.7%, ZPartRank −22% (72.8 vs 93.3), reversing its −11.4% win at 0.005. It was buying effective weight, not a better objective: 4× the weight moves plain rank +140% (39.0 → 93.3) and the sum only +15% (63.4 → 72.8), and recon tracks rank at r = −0.988 across all six arms. Epochs do not save it — sum 0.005 at ep 99 (0.0505, rank 67.5) is still worse than plain 0.02 at ep 81 (0.0433, rank 94.1). sigreg_compose_z stays off. Left open: §4–5 of plan/2026-09-02_sigreg_sum_at_weight_0.02.md are still _Pending._",
-   "note_md": "`done: results/2026-09-04_tc_width_tc512_sigreg_weight_axis_slides.html`, slide 6. `BSC:45345063` cancelled 2026-09-04 15:46 mid-ep 67; last complete eval ep 66; read at ep 65 against the plain twin `BSC:45296347`. **Falsifier 2 lands — the sum loses at 0.02:** eval `LossRecon` +8.0% (0.0479 vs 0.0444 pooled), `LossRecon_Comp` +8.7%, `ZPartRank` −22% (72.8 vs 93.3), reversing its −11.4% win at 0.005. It was buying **effective weight**, not a better objective: 4× the weight moves plain rank +140% (39.0 → 93.3) and the sum only +15% (63.4 → 72.8), and recon tracks rank at r = −0.988 across all six arms. Epochs do not save it — sum 0.005 at ep 99 (0.0505, rank 67.5) is still worse than plain 0.02 at ep 81 (0.0433, rank 94.1). **`sigreg_compose_z` stays off.** Left open: §4–5 of `plan/2026-09-02_sigreg_sum_at_weight_0.02.md` are still `_Pending._`",
-   "closed": "2026-09-07",
-   "state": "done",
-   "source": "docs/research/todos.json",
-   "order": 7,
-   "jobs": [
-    "45345063",
-    "45296347"
-   ],
-   "docs": [
-    "plan/2026-09-02_sigreg_sum_at_weight_0.02.md",
-    "results/2026-09-04_tc_width_tc512_sigreg_weight_axis_slides.html"
-   ],
-   "updates": []
-  },
-  {
-   "num": 11,
-   "status": "dropped",
-   "item": "Can the eval see generation? best-of-K + K-spread + train_fixed_t=0 regressor null",
-   "thread": "flow",
-   "paper": "main results: eval protocol",
-   "note": "dropped: not needed. ../research/plan/2026-09-04_flow_bestofk_regressor_null.md. Five eval jobs on existing ckpts (minutes each) + one 72 h regressor run read at iter_100000. Gates every further t-schedule / sampler arm, and the CFG and weight-cap arms",
-   "note_md": "`dropped: not needed`. `../research/plan/2026-09-04_flow_bestofk_regressor_null.md`. Five eval jobs on existing ckpts (minutes each) + one 72 h regressor run read at `iter_100000`. Gates every further `t`-schedule / sampler arm, and the CFG and weight-cap arms",
-   "closed": "2026-09-07",
-   "state": "done",
-   "source": "docs/research/todos.json",
-   "order": 8,
-   "jobs": [],
-   "docs": [
-    "plan/2026-09-04_flow_bestofk_regressor_null.md"
-   ],
-   "updates": []
-  }
- ]
+  "_comment": "Source of truth for the TODO queue, the jobs board and the closed list. Hand-edited; the research board at http://127.0.0.1:9000/#/board/Deltatok folds it into its index. Replaced docs/todo/02-09-2026.md, docs/todo/STATUS.md and docs/DONE.md (2026-09-07). Markdown link targets are relative to docs/research/.",
+  "prose": [
+    {
+      "kind": "prose",
+      "key": "status",
+      "title": "STATUS — queued, running, next",
+      "order": 1,
+      "md": "**As of 2026-09-11 15:45.** Only what is queued, running or next. Finished jobs live on their `todo` row.\n\n## Running — the SIGReg pool pair at tc1536\n\n`BSC:45665286` finished 09-11 14:24 — the tc512 detach arm reached **ep 100/100**, exit `0:0`, `epoch_100.pth` on disk, and `todo/13` is closed ([the read](results/2026-09-11_tc_width_decnoise_detach_tc512_ep100_slides.html)).\n\nBoth pool arms started **09-11 15:35** and are past the first-iteration check: `Training (Epoch 0)` on both, 0.99 s/iter over 2250 iters, so **~37 min/epoch** and **ep 4 lands ~18:20 today**. 20 h wall reaches ~ep 32.\n\n## The pair\n\nOne variable. Both `sigreg_weight` 0.02, both `sw0`, both 20 h on `ehpc1001`, both from the unchanged no-bottleneck script.\n`RUN_NAME`s differ only in the pool tag.\n\n| Job | `sigreg_pool_samples` | `scale = n_pooled/n_live` | TODO | state |\n|---|---|---|---|---|\n| BSC:45725881 | **8192** | 11.7 | `todo/14` | RUNNING on `as03r2b16`, train loss 0.739 at iter 60 |\n| BSC:45727710 | **24576** | **33.0** | `todo/14` | RUNNING on `as04r3b15`, train loss 0.855 at iter 60 |\n\n`RUN_NAME`s verified to differ only in the pool tag: `..._sigreg0.02_ns3072_pool8192_compose1.0_decnoise0.8_detach_sw0` against `..._pool24576_...`.\n\nMotivated by the finite-sample floor: at S=8192 it is 1.32e-4 against a 1.65e-4 anisotropy signal, so SIGReg can barely see a rank collapse at Cz=1536.\n**Guard** — `analysis/2026-07-31_sigreg_pool_not_weight_neutral.html` found pool 32768 at unchanged weight stalled training outright. Compare Eval `LossRecon` at **ep 4**; if `45727710` sits near 0.126 while `45725881` has broken out, kill it.\nThat failure spiked at the `sigreg_warmup=2000` boundary, which `sw0` removes — so it may not reproduce.\n\n## Next\n\n| Do | TODO | Gate |\n|---|---|---|\n| Train the **flow** on the tc512 detached tokenizer, from its final `epoch_100.pth` | `todo/13` → `flow` | **ungated — the checkpoint exists.** Nothing is submitted for it yet |\n| Read the pool pair at ep ~29 | `todo/14` | both running since 15:35; the ep-4 guard first, ~18:20 today |\n| Submit the OpenScene arm — code implemented, md5-matched on BSC | `todo/13` | none |\n\nTwo tc1536 arms cancelled in two days, both for the regulariser. `BSC:45610897` on 09-10 11:47 at ep 31/100: [the read](results/2026-09-10_tc_width_decnoise_detach_tc1536_read_slides.html) found `z` stuck at `ZPartRank` 1.0.\n`BSC:45678654` on **09-11 11:20 at ep 23/100**: [the read](results/2026-09-11_tc_width_bneck_sw0_tc1536_read_slides.html) showed the forced bottleneck cures the code and costs **×3.2** the token recon.\nAgainst the tc512 detach arm the gap is **rank, not scale** — both sit at RMS ≈ 1, but tc512 grows to 57 usable dims of 512 while the bneck arm shrinks to 35 of 1536. `sigreg_weight` is the least likely cause; `force_bottleneck` at `z_dim == hidden_size` builds a **square** `Linear(1536,1536)`, which pins scale but imposes no dimensional pressure."
+    }
+  ],
+  "todos": [
+    {
+      "num": 3,
+      "status": "not started",
+      "item": "Finalize the training and evaluation setting",
+      "thread": "cross",
+      "paper": "main results: target setting",
+      "note": "Open per ../ROADMAP.md \"Where the code is against it\": OpenScene loader, training mixture, FVD or not, final eval sets",
+      "note_md": "Open per `../ROADMAP.md` \"Where the code is against it\": OpenScene loader, training mixture, FVD or not, final eval sets",
+      "closed": "",
+      "state": "open",
+      "source": "docs/research/todos.json",
+      "order": 1,
+      "jobs": [],
+      "docs": [],
+      "updates": []
+    },
+    {
+      "num": 4,
+      "status": "not started",
+      "item": "Baseline results: DeltaTok, VGGT-World, Gen3R",
+      "thread": "cross",
+      "paper": "main results: main table",
+      "note": "Depends on 3. Per ../ROADMAP.md \"Baselines\": none run on our setting, Gen3R not in third_party/",
+      "note_md": "Depends on 3. Per `../ROADMAP.md` \"Baselines\": none run on our setting, Gen3R not in `third_party/`",
+      "closed": "",
+      "state": "open",
+      "source": "docs/research/todos.json",
+      "order": 2,
+      "jobs": [],
+      "docs": [],
+      "updates": []
+    },
+    {
+      "num": 7,
+      "status": "started",
+      "item": "Implement the pointdit choices in the flow trainer",
+      "thread": "pointdit",
+      "paper": "ablation: flow recipe",
+      "note": "BSC:45344713 cancelled 2026-09-04 at ep 58; read at matched ep 50: ../research/results/2026-09-04_pointdit_lowt_numsteps_ep50_slides.html — loses 19/20 cells. Remaining arms gated on TODO 11. The shared force_zero_t_ratio patch landed in 911b026 (trainer + yaml key + startup print of the resolved t schedule), so the other two arms need no new code. Submitted: both knobs from scratch, logitnormal(-0.8,0.8) + 10% t=0, 100 ep, ~65 h in one 72 h BSC job. Not submitted: mitigation 1 alone, ../research/plan/2026-09-02_pointdit_lowt_recipe_finetune.md (10% forced t=0, ~6.5 h fine-tune off iter 200000) — mostly redundant if the from-scratch arm moves; mitigation 2 alone, ../research/plan/2026-09-02_pointdit_xloss_additive.md (unweighted x-MSE at weight 1.3) — the fallback if everything degrades. The zeros ODE init is dropped: not important for us — eval-time sampler knob, no plan file was written. Mechanism: ../research/analysis/2026-09-02_pointdit_vs_deltatok.md. The fourth choice, the boundary-F1 realism probe, has no plan file yet. Inherited from TODO 1: re-run the 1,2,3,4,20 step sweep once a low-t arm exists, where N=1 is no longer starved",
+      "note_md": "`BSC:45344713 cancelled 2026-09-04 at ep 58; read at matched ep 50: ../research/results/2026-09-04_pointdit_lowt_numsteps_ep50_slides.html — loses 19/20 cells`. Remaining arms gated on TODO 11. The shared `force_zero_t_ratio` patch landed in 911b026 (trainer + yaml key + startup print of the resolved `t` schedule), so the other two arms need no new code. **Submitted:** both knobs from scratch, `logitnormal(-0.8,0.8)` + 10% `t=0`, 100 ep, ~65 h in one 72 h BSC job. **Not submitted:** mitigation 1 alone, `../research/plan/2026-09-02_pointdit_lowt_recipe_finetune.md` (10% forced `t=0`, ~6.5 h fine-tune off iter 200000) — mostly redundant if the from-scratch arm moves; mitigation 2 alone, `../research/plan/2026-09-02_pointdit_xloss_additive.md` (unweighted x-MSE at weight 1.3) — the fallback if everything degrades. The zeros ODE init is `dropped: not important for us` — eval-time sampler knob, no plan file was written. Mechanism: `../research/analysis/2026-09-02_pointdit_vs_deltatok.md`. The fourth choice, the boundary-F1 realism probe, has no plan file yet. Inherited from **TODO 1**: re-run the `1,2,3,4,20` step sweep once a low-`t` arm exists, where N=1 is no longer starved",
+      "closed": "",
+      "state": "open",
+      "source": "docs/research/todos.json",
+      "order": 3,
+      "jobs": [
+        "45344713"
+      ],
+      "docs": [
+        "analysis/2026-09-02_pointdit_vs_deltatok.md",
+        "plan/2026-09-02_pointdit_lowt_recipe_finetune.md",
+        "plan/2026-09-02_pointdit_xloss_additive.md",
+        "results/2026-09-04_pointdit_lowt_numsteps_ep50_slides.html"
+      ],
+      "updates": []
+    },
+    {
+      "num": 10,
+      "status": "not started",
+      "item": "Add FVD on OccAny features for eval: average patch tokens",
+      "thread": "flow",
+      "paper": "main results: main table",
+      "note": "occrae/util/training_summary.py:57 already consumes a \"FVD\" metric key and nothing emits it. Settles the FVD line in ../ROADMAP.md \"Target setting\"",
+      "note_md": "`occrae/util/training_summary.py:57` already consumes a `\"FVD\"` metric key and nothing emits it. Settles the FVD line in `../ROADMAP.md` \"Target setting\"",
+      "closed": "",
+      "state": "open",
+      "source": "docs/research/todos.json",
+      "order": 4,
+      "jobs": [],
+      "docs": [],
+      "updates": []
+    },
+    {
+      "num": 13,
+      "status": "done",
+      "item": "End-to-end noisy-channel tokenizer at tc512: fold z + σ·ε into training with the encoder in the graph",
+      "thread": "tc_width",
+      "paper": "ablation: noise in the latent",
+      "note": "plan/2026-09-07_tc_width_decnoise_e2e_tc512.md. Routed here by falsifier 3 of TODO 12's plan: \"the pair needs a from-scratch noisy tokenizer, which changes z and is a tc_width/sigreg question, not a flow one.\" Motivation: the cov_weight dose-response (TODO 6) shows train ZPartRank monotone in dose to 141.0 with none of it transferring to recon, so a term that pushes E[zzᵀ]→I is answered; a noisy channel applies the pressure through the reconstruction loss instead. Control throughout is the clean twin BSC:45296347. The full-width arm split off 2026-09-10 into TODO 14.\n\nIn-graph arm BSC:45529827, cancelled 2026-09-08 at ep 39/100 — negative. The encoder is in the graph, so it optimises a code that must survive the channel while SIGReg and the compose sum keep reading the clean z. Read at ep 37 (results/2026-09-08_tc_width_decnoise_e2e_tc512_read_slides.html): Eval/Loss +28.1% at matched epoch and ZPartRank halved (40.3 vs 78.7) — a fixed absolute σ is answered with a 1.91× larger z, buying tolerance with scale rather than dimensions. The in-graph mode is removed from the code, not gated, so BSC:45529827 must not be resumed against current code.\n\nDetached arm BSC:45578805 — answers the question yes (plan/2026-09-08_tc_width_decnoise_detach_tc512.md, read 2026-09-10 in results/2026-09-10_tc_width_decnoise_detach_tc512_slides.html). A second decode of z.detach() + σ·ε with its own loss leaves encoder gradients identical to the clean twin. At matched 60 ep Eval/Loss is 0.0456 vs the twin's 0.0451 (+1.1%, against the in-graph arm's +26.2%); ZPartRank 79.5/97.9 vs 86.9/97.1 and z scale back on the SIGReg anchor — both in-graph pathologies vanish once the encoder is off the hook, so the ep-37 mechanism is confirmed by removal. Ladder measured on both epoch_60.pth with --eval-only (BSC:45663648 twin, BSC:45664038 detached, same seeded ε; the twin predates eval_noise_sigmas and had never had one): at σ=0.82 the detached arm's penalty is 2.4× smaller on both sets (23.3% vs 56.3% KITTI, 25.5% vs 61.2% nuScenes), −19.4% / −22.2% absolute. Cost +9.7% wall clock (38.3 vs 34.9 min/ep). Rank never climbs above the twin, so the ~90/512 shelf has now resisted three axes and is retired as a tc_width lever. σ stays absolute here, so the \"σ must go relative\" finding from the ep-37 read is untouched.\n\nClosed 2026-09-11 at ep 100/100. BSC:45578805 stopped clean at ep 62 on one 40 h allocation and was chained 2026-09-10 as BSC:45665286, which resumed current.pth at Training (Epoch 62) and reached training.epoch=100 in 23 h 57 m — COMPLETED, exit 0:0, 24.0 h of a 40 h wall, epoch_100.pth (8.19 GB) on disk. Read in results/2026-09-11_tc_width_decnoise_detach_tc512_ep100_slides.html. Nothing the ep-60 read said changed: at the twin's last matched epoch 82 the clean cost is +2.7% KITTI / −0.3% nuScenes (+1.5% pooled, against +1.1% pooled at ep 60), and the last 18 epochs buy only −0.8%, so the arm is converged. ZPartRank closes at 83.8/512 against the twin's 92.0 and has been flat since ep 60 — the ~90/512 shelf holds at 100 epochs too. Two things the ep-60 read could not see. First, decoded the sign flips: on KITTI the arm beats the clean twin on PredVsOrig depth (−4.1%) and pointmap (−4.4%) and on PredVsGT depth (−2.5%), losing only raymap (+7.5% / +4.4% on both sets), so token LossRecon is the wrong single number to rank these two arms by. Second, the σ ladder ratio widens with training — the arm's own σ=0.82 penalty goes +17.5% at ep 40 to +27.1% at ep 100 — because the noised decode converges about 40 epochs before the clean one does (KITTI σ=0.82 absolute 0.0671 → 0.0661 while clean goes 0.0544 → 0.0520). The \"2.4× smaller than the twin\" figure therefore holds only at the epoch both were measured at, and any future twin comparison has to be epoch-matched. Left open: the flow re-read on this tokenizer, the only test the noise tolerance is actually for — it trains on epoch_100.pth, not epoch_60.pth; and σ stays absolute, so \"σ must go relative\" is still unanswered.",
+      "note_md": "`plan/2026-09-07_tc_width_decnoise_e2e_tc512.md`. Routed here by falsifier 3 of TODO 12's plan: *\"the pair needs a from-scratch noisy tokenizer, which changes `z` and is a `tc_width`/`sigreg` question, not a flow one.\"* Motivation: the `cov_weight` dose-response (TODO 6) shows train `ZPartRank` monotone in dose to 141.0 with **none of it transferring** to recon, so a term that pushes `E[zzᵀ]→I` is answered; a noisy channel applies the pressure through the reconstruction loss instead. Control throughout is the clean twin `BSC:45296347`. The full-width arm split off 2026-09-10 into **TODO 14**.\n\n**In-graph arm `BSC:45529827`, cancelled 2026-09-08 at ep 39/100 — negative.** The encoder is in the graph, so it optimises a code that must survive the channel while SIGReg and the compose sum keep reading the clean `z`. Read at ep 37 (`results/2026-09-08_tc_width_decnoise_e2e_tc512_read_slides.html`): Eval/Loss **+28.1%** at matched epoch and `ZPartRank` halved (40.3 vs 78.7) — a fixed absolute σ is answered with a **1.91× larger `z`**, buying tolerance with scale rather than dimensions. The in-graph mode is **removed** from the code, not gated, so `BSC:45529827` must not be resumed against current code.\n\n**Detached arm `BSC:45578805` — answers the question yes** (`plan/2026-09-08_tc_width_decnoise_detach_tc512.md`, read 2026-09-10 in `results/2026-09-10_tc_width_decnoise_detach_tc512_slides.html`). A second decode of `z.detach() + σ·ε` with its own loss leaves encoder gradients identical to the clean twin. At matched 60 ep Eval/Loss is 0.0456 vs the twin's 0.0451 (**+1.1%**, against the in-graph arm's +26.2%); `ZPartRank` 79.5/97.9 vs 86.9/97.1 and `z` scale back on the SIGReg anchor — both in-graph pathologies vanish once the encoder is off the hook, so **the ep-37 mechanism is confirmed by removal**. Ladder measured on both `epoch_60.pth` with `--eval-only` (`BSC:45663648` twin, `BSC:45664038` detached, same seeded ε; the twin predates `eval_noise_sigmas` and had never had one): at σ=0.82 the detached arm's penalty is **2.4× smaller on both sets** (23.3% vs 56.3% KITTI, 25.5% vs 61.2% nuScenes), −19.4% / −22.2% absolute. Cost +9.7% wall clock (38.3 vs 34.9 min/ep). Rank never climbs *above* the twin, so the ~90/512 shelf has now resisted three axes and is **retired as a tc_width lever**. σ stays absolute here, so the \"σ must go relative\" finding from the ep-37 read is untouched.\n\n**Closed 2026-09-11 at ep 100/100.** `BSC:45578805` stopped clean at ep 62 on one 40 h allocation and was chained 2026-09-10 as **`BSC:45665286`**, which resumed `current.pth` at `Training (Epoch 62)` and reached `training.epoch=100` in 23 h 57 m — COMPLETED, exit `0:0`, 24.0 h of a 40 h wall, **`epoch_100.pth`** (8.19 GB) on disk. Read in `results/2026-09-11_tc_width_decnoise_detach_tc512_ep100_slides.html`. **Nothing the ep-60 read said changed:** at the twin's last matched epoch 82 the clean cost is **+2.7% KITTI / −0.3% nuScenes** (+1.5% pooled, against +1.1% pooled at ep 60), and the last 18 epochs buy only **−0.8%**, so the arm is converged. `ZPartRank` closes at **83.8/512** against the twin's 92.0 and has been flat since ep 60 — the ~90/512 shelf holds at 100 epochs too. Two things the ep-60 read could not see. **First, decoded the sign flips:** on KITTI the arm *beats* the clean twin on `PredVsOrig` depth (**−4.1%**) and pointmap (**−4.4%**) and on `PredVsGT` depth (−2.5%), losing only raymap (+7.5% / +4.4% on both sets) — so token `LossRecon` is the wrong single number to rank these two arms by. **Second, the σ ladder ratio widens with training** — the arm's own σ=0.82 penalty goes +17.5% at ep 40 to **+27.1%** at ep 100 — because the noised decode converges about 40 epochs before the clean one does (KITTI σ=0.82 absolute 0.0671 → 0.0661 while clean goes 0.0544 → 0.0520). The \"2.4× smaller than the twin\" figure therefore holds **only at the epoch both were measured at**, and any future twin comparison has to be epoch-matched. Left open: the **flow** re-read on this tokenizer, the only test the noise tolerance is actually for — it trains on `epoch_100.pth`, not `epoch_60.pth`; and σ stays absolute, so \"σ must go relative\" is still unanswered.",
+      "closed": "2026-09-11",
+      "state": "done",
+      "source": "docs/research/todos.json",
+      "order": 5,
+      "jobs": [
+        "45529827",
+        "45578805",
+        "45296347",
+        "45663648",
+        "45664038",
+        "45665286"
+      ],
+      "docs": [
+        "plan/2026-09-07_tc_width_decnoise_e2e_tc512.md",
+        "plan/2026-09-08_tc_width_decnoise_detach_tc512.md",
+        "results/2026-09-08_tc_width_decnoise_e2e_tc512_read_slides.html",
+        "results/2026-09-10_tc_width_decnoise_detach_tc512_slides.html",
+        "results/2026-09-11_tc_width_decnoise_detach_tc512_ep100_slides.html"
+      ],
+      "updates": []
+    },
+    {
+      "num": 14,
+      "status": "running",
+      "item": "Detached decoder-noise at full width (tc1536, no channel bottleneck), and the unnormalised z it exposed",
+      "thread": "tc_width",
+      "paper": "ablation: channel width Cz",
+      "note": "plan/2026-09-09_tc_width_decnoise_detach_tc1536.md. Split out of TODO 13 on 2026-09-10, which had grown to cover two questions: 13 owns the noise recipe at tc512, this row owns full width and the code scale it exposed. The arm is the tc512 detached-noise recipe with no channel bottleneck — target_channels=1536 == hidden_size, sigreg_num_slices 3072 (2·Cz), sigreg_weight 0.06 (∝ Cz from the tc512 twin's 0.02), pool 8192 unchanged. Submitted 2026-09-09 as BSC:45608142 (ehpc880), which died at 43 min on a transient cusolverDnCreate failure — not a config bug — and was resubmitted as BSC:45610897.\n\nRead at ep 31 (results/2026-09-10_tc_width_decnoise_detach_tc1536_read_slides.html): width wins, the recipe costs, the code is stuck. Removing the tc512 bottleneck is worth −51.6% / −49.2% LossRecon at matched ep 31, and tc512 cannot close it with 2× the epochs (its ep 61 0.0542 is still 1.83× this arm's ep 31). But the 2026-08 plain tc1536 reference BSC:44590128 (sigreg 0.005, no decnoise) beats this arm at every epoch on every readout — +17.0% KITTI / +25.4% nuScenes — so width buys the 2× and the decnoise + 12× sigreg recipe gives a quarter of it back. The plan's over-regularisation guard passes (train recon 0.51× the twin, raw SIGReg: descending to 0.0014) and is the wrong instrument: ZPartRank sits at 1.0/1536 with ZRowMeanSquare 872 the whole time.\n\nDiagnosis — a sparse heavy tail, not a collapsed code. Simulation at the real Cz=1536 geometry fits all four scalars only one way: the tail sits on a single coordinate channel, ~0.57% of rows at ~1.5e4. A random direction reads ZMeanAbsMax 8.1 against the observed 87.7, and a broad collapse is excluded by 900× on the SIGReg statistic. That is the massive-activation / attention-sink signature. SIGReg is structurally unable to see it: the statistic is a bounded mean of cos/sin over rows, so a 0.5% tail moves it by nothing, while ZPartRank is a second moment and the same 0.5% owns the entire trace. It cannot pull the tail back either — the restoring force on an outlier row goes as p·exp(−p²/4), coherent only for |p| ≲ 5. No sigreg_weight fixes this; it is structural, not a tuning miss.\n\nWhy tc1536 and never tc512: pre_bottleneck_norm and z_proj_down are built only when z_dim != hidden_size (deltatok_trainer.py:151) and z_norm=false makes the final norm an nn.Identity (:184), so at tc1536 with _nozn nothing normalises z anywhere; tc512 keeps a LayerNorm pinning z_proj_down's input to unit variance. LeJEPA never meets this because its scale is fixed upstream and not by SIGReg — backbone LayerNorm, projector BatchNorm1ds, weight decay 5e-2, and lamb constant from step 0.\n\nBSC:45610897 cancelled 2026-09-10 11:47 at ep 31/100 (21.4 h) rather than chained — chaining a stuck arm buys nothing. Successor submitted the same day as BSC:45678654 (plan/2026-09-10_tc_width_bneck_sw0_tc1536.md): a new force_bottleneck flag builds tc512's three modules at tc1536 — LayerNorm(1536) + Linear(1536,1536) down/up, ~4.7 M params — with sigreg_warmup=0, so the code is normalised and the anchor is on from step 0. The flag defaults false and builds nothing, so every other arm stays bit-identical. The detached noise term is not a suspect: it decodes z.detach(), so it has no gradient path to the encoder and cannot push z outward — what still separates the two tc1536 arms is 12× the sigreg weight (0.06 vs 0.005) and this norm. Read at ep 4, the epoch where the plain arm escapes ZPartRank 1.0 and BSC:45610897 never did.\n\nRead at ep 22 (results/2026-09-11_tc_width_bneck_sw0_tc1536_read_slides.html): the code is cured and the decoder pays 3.2x for it. Every mechanical check held - pre_bottleneck_norm 0.003M + z_proj_down 2.361M + z_proj_up 2.361M = 4.725M of 685.757M, sigreg_warmup=0 in EXTRA_CFG, ZRowMeanSquare 1.02 on the first eval - and ZPartRank never touches 1.0, so the ep-4 gate passes and the ep-31 massive-activation diagnosis is confirmed by repair. ZRowMeanSquare 1.13 against the control's 2781, ZMeanAbsMax 0.10 against 171.\n\nIt is not enough and it is expensive. At matched ep 22 token LossRecon is x3.24 / x3.11 the control (0.1054 / 0.0722 vs 0.0325 / 0.0232), x3.72 / x3.80 the plain tc1536 BSC:44590128 and x1.56 the detached tc512 arm BSC:45665286 at half the width; decoded, pointmap PredVsOrig is x4.35 KITTI / x6.62 nuScenes and the rollout is worse. The arm never has the ep-4 cliff the other three have - it descends 0.134 to 0.105 over 19 epochs and stays on the plateau. Rank lands at 2.3% of Cz against the plain arm's 15.7%, and the raw SIGReg statistic is 4x further from the anchor than the control's (0.0063 vs 0.0016) at the same weight and slice count: scale fixed, rank not. The sigma ladder is flat (+0.3% at sigma=0.82, where the control pays +55% and tc512 +12%) on a code of RMS 1.13 - a decoder undisturbed by noise the size of its own input is not reading much of it.\n\nThe missing norm was not the cause. The plain tc1536 has no norm on z either, sits at ZPartRank 1.0 for epochs 1-3 and escapes on its own at ep 4 (44.2, 112.8, 172.4, 240.7 by ep 22), so what traps the control is not the missing norm but the 12x sigreg weight and the decode-noise term. Next arm: tc1536, no bottleneck, sigreg_weight 0.005, decnoise on - one 40 h allocation, tests that suspect directly. Caveat: this arm moved force_bottleneck and sigreg_warmup together, so the read cannot assign the recon damage to either alone.\n\nBSC:45678654 cancelled 2026-09-11 11:20 at ep 23/100 (15.2 h) - sigreg pressure too high. The read had already answered the plan's question and the arm was 3.2x off the control with 24 h of its wall left; spending them to reach ~ep 63 on a decoder that is not reading its code buys nothing. Surviving on SCRATCH/deltatok_log/<run>/ckpts/: current.pth (ep 23), epoch_20.pth, epoch_10.pth, 31 G. Relaunching this slurm script resumes it - training always picks up current.pth, so the successor needs a new RUN_NAME. Next arm: tc1536, no bottleneck, sigreg_weight 0.005, decnoise on.\n\nSigreg-weight sweep submitted 2026-09-11 11:42 - BSC:45725879 (0.005), BSC:45725880 (0.01), BSC:45725881 (0.02), all on ehpc1001 at 20 h each, from the unchanged slurm/deltatok/train_deltatok_compose_sigreg_decnoise_detach_nozn_tc1536_bsc.slurm with --export=ALL,SIGREG_WEIGHT=<w>,SIGREG_WARMUP=0,RUN_NAME=<...>_sw0. No file edit: the script already derives RUN_NAME from the weight, and the explicit RUN_NAME only adds the _sw0 tag the plain script omits. sigreg_warmup is 0 - the anchor is on from step 0 on every arm, standing policy. A first submission at the script's default warmup 2000 (45725787/88/89) was cancelled while still PENDING, so nothing was written. Against the control BSC:45610897 (0.06, warmup 2000) weight and warmup both differ; the clean single-variable comparison is within the sweep. 20 h is ~29 epochs at the control's 41 min/ep, past the ep-4 cliff and onto the plateau. A no-decnoise partner already exists at every weight - sigreg 0.005/0.01/0.02 ns3072 pool8192 at ep 48 / 30 / 40 - so each arm reads as decnoise on vs off at matched weight, and ep 30 is a matched point for all three.\n\nSweep cut to a pool pair, 2026-09-11 12:10. BSC:45725879 (0.005) and BSC:45725880 (0.01) cancelled while PENDING; nothing was written. What runs is a one-variable pool comparison at sigreg_weight 0.02, both sw0, both 20 h on ehpc1001, both from the unchanged no-bottleneck script: BSC:45725881 at sigreg_pool_samples 8192 and BSC:45727710 at 24576. RUN_NAMEs differ only in pool8192 vs pool24576.\n\nKnown risk, accepted. analysis/2026-07-31_sigreg_pool_not_weight_neutral.html found pool 8192->32768 at unchanged weight *stopped* DeltaTok learning (Eval/Loss stuck at the untrained 0.126 through ep 11 against a twin at 0.0332 by ep 4), and reweighting at 0.05 / 0.5 / 5 did not rescue it. Cause: scale = n_pooled/n_live (deltatok_trainer.py:701) cancels the instantaneous 1/n attenuation but not the FIFO's feedback delay, so SIGReg dominates the grad norm and grad_clip=0.1 starves recon. At our geometry scale is 11.7 at pool 8192 and 33.0 at 24576 (43.7 at the 32768 that failed). But that failure's signature was a 39x LossSIGReg spike at iter 2211, exactly where sigreg_warmup=2000 ended - and these arms run sw0, so that boundary does not exist. The follow-up BSC:44014668 that would have settled it is archived CANCELLED at 00:00:00, never run.\n\nGuard: compare Eval LossRecon at ep 4. If 45727710 is still near 0.126 while 45725881 has broken out, it is the 2026-07-31 stall - kill it.\n\nWhy the bneck arm loses to the tc512 arm: rank, not scale, and probably not sigreg_weight (2026-09-11). Both sit at ZRowMeanSquare ~ 1 (1.27 vs 1.57 KITTI ep 22) and at a comparable raw SIGReg statistic (0.0114 vs 0.0141), so neither the scale-escape story nor \"more pressure\" separates them. What separates them is absolute usable dimensions: bneck goes ZPartRank 54.3 -> 34.7 of 1536 over ep 0->22 while tc512 goes 14.2 -> 57.1 of 512. Variance per used direction moves the opposite way too - bneck 28.7 -> 56.1 (concentrating), tc512 39.5 -> 14.1 (spreading). The wide arm ends with a *narrower* code than the narrow arm, and its sigma ladder (+0.3% vs +12.3%) says the decoder stopped reading it.\n\nsigreg_weight is the least likely cause, on sign. SIGReg exists to *raise* rank; the arm with 3x the weight has *lower* absolute rank. Two better candidates. (1) force_bottleneck at z_dim == hidden_size builds a square nn.Linear(1536,1536) (deltatok_trainer.py:160-161) - it delivers pre_bottleneck_norm, which is what pinned the scale, and zero dimensional pressure; tc512's Linear(1536,512) is a real 3:1 compression where a wasted direction is lost information. (2) SIGReg's rank sensitivity degrades with width at fixed pool - S/C is 5.3 at Cz=1536 against 16 at Cz=512, and the finite-sample floor at S=8192 is 1.32e-4 against a 1.65e-4 anisotropy signal. Candidate (2) is what BSC:45725881 / BSC:45727710 test. Candidate (1) needs tc1536 + force_bottleneck at tc512's exact regulariser (weight 0.02, slices 1024, sw0) - not yet submitted.",
+      "note_md": "`plan/2026-09-09_tc_width_decnoise_detach_tc1536.md`. **Split out of TODO 13 on 2026-09-10**, which had grown to cover two questions: 13 owns the noise recipe at tc512, this row owns full width and the code scale it exposed. The arm is the tc512 detached-noise recipe with **no channel bottleneck** — `target_channels=1536` == `hidden_size`, `sigreg_num_slices` 3072 (2·Cz), `sigreg_weight` 0.06 (∝ Cz from the tc512 twin's 0.02), pool 8192 unchanged. Submitted 2026-09-09 as `BSC:45608142` (`ehpc880`), which died at 43 min on a transient `cusolverDnCreate` failure — not a config bug — and was resubmitted as **`BSC:45610897`**.\n\n**Read at ep 31** (`results/2026-09-10_tc_width_decnoise_detach_tc1536_read_slides.html`): **width wins, the recipe costs, the code is stuck.** Removing the tc512 bottleneck is worth **−51.6% / −49.2%** `LossRecon` at matched ep 31, and tc512 cannot close it with 2× the epochs (its ep 61 0.0542 is still 1.83× this arm's ep 31). But the 2026-08 **plain** tc1536 reference `BSC:44590128` (sigreg 0.005, no decnoise) beats this arm at every epoch on every readout — **+17.0% KITTI / +25.4% nuScenes** — so width buys the 2× and the decnoise + 12× sigreg recipe gives a quarter of it back. The plan's over-regularisation guard **passes** (train recon 0.51× the twin, raw `SIGReg:` descending to 0.0014) and is the **wrong instrument**: `ZPartRank` sits at **1.0/1536** with `ZRowMeanSquare` 872 the whole time.\n\n**Diagnosis — a sparse heavy tail, not a collapsed code.** Simulation at the real Cz=1536 geometry fits all four scalars only one way: the tail sits on a **single coordinate channel**, ~0.57% of rows at ~1.5e4. A random direction reads `ZMeanAbsMax` 8.1 against the observed 87.7, and a broad collapse is excluded by 900× on the SIGReg statistic. That is the **massive-activation / attention-sink** signature. **SIGReg is structurally unable to see it**: the statistic is a bounded mean of `cos`/`sin` over rows, so a 0.5% tail moves it by nothing, while `ZPartRank` is a second moment and the same 0.5% owns the entire trace. It cannot pull the tail back either — the restoring force on an outlier row goes as `p·exp(−p²/4)`, coherent only for `|p| ≲ 5`. No `sigreg_weight` fixes this; it is structural, not a tuning miss.\n\n**Why tc1536 and never tc512:** `pre_bottleneck_norm` and `z_proj_down` are built only when `z_dim != hidden_size` (`deltatok_trainer.py:151`) and `z_norm=false` makes the final norm an `nn.Identity` (`:184`), so at tc1536 with `_nozn` **nothing normalises `z` anywhere**; tc512 keeps a LayerNorm pinning `z_proj_down`'s input to unit variance. LeJEPA never meets this because its scale is fixed upstream and not by SIGReg — backbone `LayerNorm`, projector `BatchNorm1d`s, weight decay 5e-2, and `lamb` constant from step 0.\n\n**`BSC:45610897` cancelled 2026-09-10 11:47 at ep 31/100 (21.4 h)** rather than chained — chaining a stuck arm buys nothing. Successor submitted the same day as **`BSC:45678654`** (`plan/2026-09-10_tc_width_bneck_sw0_tc1536.md`): a new `force_bottleneck` flag builds tc512's three modules at tc1536 — `LayerNorm(1536)` + `Linear(1536,1536)` down/up, ~4.7 M params — with `sigreg_warmup=0`, so the code is normalised and the anchor is on from step 0. The flag defaults `false` and builds nothing, so every other arm stays bit-identical. The detached noise term is **not** a suspect: it decodes `z.detach()`, so it has no gradient path to the encoder and cannot push `z` outward — what still separates the two tc1536 arms is **12× the sigreg weight** (0.06 vs 0.005) and this norm. **Read at ep 4**, the epoch where the plain arm escapes `ZPartRank` 1.0 and `BSC:45610897` never did.\n\n**Read at ep 22** (`results/2026-09-11_tc_width_bneck_sw0_tc1536_read_slides.html`): **the code is cured and the decoder pays 3.2× for it.** Every mechanical check held — `pre_bottleneck_norm` 0.003 M + `z_proj_down` 2.361 M + `z_proj_up` 2.361 M = 4.725 M of 685.757 M, `training.sigreg_warmup=0` in `EXTRA_CFG`, `ZRowMeanSquare` 1.02 on the first eval — and `ZPartRank` never touches 1.0, so the ep-4 gate **passes** and the ep-31 massive-activation diagnosis is confirmed *by repair*. `ZRowMeanSquare` 1.13 against the control's 2781, `ZMeanAbsMax` 0.10 against 171.\n\n**It is not enough, and it is expensive.** At matched ep 22 token `LossRecon` is **×3.24 / ×3.11** the control (0.1054 / 0.0722 vs 0.0325 / 0.0232), **×3.72 / ×3.80** the plain tc1536 `BSC:44590128` and **×1.56** the detached tc512 arm `BSC:45665286` at half the width; decoded, pointmap `PredVsOrig` is **×4.35 KITTI / ×6.62 nuScenes** and the rollout is worse. The arm never has the ep-4 cliff the other three have — it descends 0.134 → 0.105 over 19 epochs and stays on the plateau. Rank lands at **2.3% of Cz** against the plain arm's 15.7%, and the raw `SIGReg:` statistic is **4× further from the anchor** than the control's (0.0063 vs 0.0016) at the same weight and slice count: **scale fixed, rank not.** The σ ladder is **flat** (+0.3% at σ=0.82, where the control pays +55% and tc512 +12%) on a code of RMS 1.13 — a decoder undisturbed by noise the size of its own input is not reading much of it.\n\n**The missing norm was not the cause.** The plain tc1536 has **no norm on `z` either**, sits at `ZPartRank` 1.0 for epochs 1–3 and escapes on its own at ep 4 (44.2 → 112.8 → 172.4 → 240.7 by ep 22). So what traps the control is not the missing norm but the **12× sigreg weight** and the decode-noise term. **Next arm:** tc1536, no bottleneck, `sigreg_weight` 0.005, decnoise on — one 40 h allocation, tests that suspect directly. **Caveat:** this arm moved `force_bottleneck` **and** `sigreg_warmup` together, so the read cannot assign the recon damage to either alone.\n\n**`BSC:45678654` cancelled 2026-09-11 11:20 at ep 23/100 (15.2 h)** — sigreg pressure too high. The read had already answered the plan's question and the arm was ×3.2 off the control with 24 h of its wall left; spending them to reach ~ep 63 on a decoder that is not reading its code buys nothing. Surviving on `$SCRATCH/deltatok_log/<run>/ckpts/`: `current.pth` (ep 23), `epoch_20.pth`, `epoch_10.pth`, 31 G. **Relaunching this slurm script resumes it** — training always picks up `current.pth`, so the successor needs a new `RUN_NAME`. **Next arm:** tc1536, no bottleneck, `sigreg_weight` 0.005, decnoise on.\n\n**Sigreg-weight sweep submitted 2026-09-11 11:42** — `BSC:45725879` (0.005), `BSC:45725880` (0.01), `BSC:45725881` (0.02), all on `ehpc1001` at **20 h** each, from the unchanged `slurm/deltatok/train_deltatok_compose_sigreg_decnoise_detach_nozn_tc1536_bsc.slurm` with `--export=ALL,SIGREG_WEIGHT=<w>,SIGREG_WARMUP=0,RUN_NAME=<...>_sw0`. No file edit: the script already derives `RUN_NAME` from the weight, and the explicit `RUN_NAME` only adds the `_sw0` tag the plain script omits. **`sigreg_warmup` is 0 — the anchor is on from step 0 on every arm, standing policy.** A first submission at the script's default warmup 2000 (`45725787`/`88`/`89`) was cancelled while still PENDING, so nothing was written. Against the control `BSC:45610897` (0.06, warmup 2000) weight and warmup both differ; the clean single-variable comparison is **within the sweep**. 20 h is ~29 epochs at the control's 41 min/ep, past the ep-4 cliff and onto the plateau. A **no-decnoise partner already exists at every weight** — `..._sigreg{0.005,0.01,0.02}_ns3072_pool8192` at ep 48 / 30 / 40 — so each arm reads as decnoise on vs off at matched weight, and ep 30 is a matched point for all three.\n\n**Sweep cut to a pool pair, 2026-09-11 12:10.** `BSC:45725879` (0.005) and `BSC:45725880` (0.01) cancelled while PENDING; nothing was written. What runs is a **one-variable pool comparison at `sigreg_weight` 0.02**, both `sw0`, both 20 h on `ehpc1001`, both from the unchanged no-bottleneck script: **`BSC:45725881`** at `sigreg_pool_samples` 8192 and **`BSC:45727710`** at 24576. `RUN_NAME`s differ only in `pool8192` vs `pool24576`.\n\n**Known risk, accepted.** `analysis/2026-07-31_sigreg_pool_not_weight_neutral.html` found pool 8192→32768 at unchanged weight *stopped* DeltaTok learning (Eval/Loss stuck at the untrained 0.126 through ep 11 against a twin at 0.0332 by ep 4), and reweighting at 0.05 / 0.5 / 5 did not rescue it. Cause: `scale = n_pooled/n_live` (`deltatok_trainer.py:701`) cancels the instantaneous 1/n attenuation but not the FIFO's feedback delay, so SIGReg dominates the grad norm and `grad_clip=0.1` starves recon. At our geometry `scale` is 11.7 at pool 8192 and **33.0 at 24576** (43.7 at the 32768 that failed). **But that failure's signature was a 39× `LossSIGReg` spike at iter 2211, exactly where `sigreg_warmup=2000` ended — and these arms run `sw0`, so that boundary does not exist.** The follow-up `BSC:44014668` that would have settled it is archived CANCELLED at 00:00:00, never run.\n\n**Guard:** compare Eval `LossRecon` at ep 4. If `45727710` is still near 0.126 while `45725881` has broken out, it is the 2026-07-31 stall — kill it.\n\n**Why the bneck arm loses to the tc512 arm: rank, not scale, and probably not `sigreg_weight` (2026-09-11).** Both sit at `ZRowMeanSquare` ≈ 1 (1.27 vs 1.57 KITTI ep 22) and at a comparable raw SIGReg statistic (0.0114 vs 0.0141), so neither the scale-escape story nor \"more pressure\" separates them. What separates them is **absolute usable dimensions**: bneck goes `ZPartRank` **54.3 → 34.7 of 1536** over ep 0→22 while tc512 goes **14.2 → 57.1 of 512**. Variance per used direction moves the opposite way too — bneck **28.7 → 56.1** (concentrating), tc512 **39.5 → 14.1** (spreading). The wide arm ends with a *narrower* code than the narrow arm, and its σ ladder (+0.3% vs +12.3%) says the decoder stopped reading it.\n\n**`sigreg_weight` is the least likely cause, on sign.** SIGReg exists to *raise* rank; the arm with 3× the weight has *lower* absolute rank. Two better candidates. (1) **`force_bottleneck` at `z_dim == hidden_size` builds a square `nn.Linear(1536,1536)`** (`deltatok_trainer.py:160-161`) — it delivers `pre_bottleneck_norm`, which is what pinned the scale, and **zero dimensional pressure**; tc512's `Linear(1536,512)` is a real 3:1 compression where a wasted direction is lost information. (2) **SIGReg's rank sensitivity degrades with width at fixed pool** — S/C is 5.3 at Cz=1536 against 16 at Cz=512, and the finite-sample floor at S=8192 is 1.32e-4 against a 1.65e-4 anisotropy signal. Candidate (2) is what `BSC:45725881` / `BSC:45727710` test. Candidate (1) needs tc1536 + `force_bottleneck` at tc512's exact regulariser (weight 0.02, slices 1024, `sw0`) — **not yet submitted**.",
+      "closed": "",
+      "state": "open",
+      "source": "docs/research/todos.json",
+      "order": 6,
+      "jobs": [
+        "45608142",
+        "45610897",
+        "45678654",
+        "44590128",
+        "45725881",
+        "45727710"
+      ],
+      "docs": [
+        "plan/2026-09-09_tc_width_decnoise_detach_tc1536.md",
+        "plan/2026-09-10_tc_width_bneck_sw0_tc1536.md",
+        "results/2026-09-10_tc_width_decnoise_detach_tc1536_read_slides.html",
+        "results/2026-09-11_tc_width_bneck_sw0_tc1536_read_slides.html"
+      ],
+      "updates": []
+    },
+    {
+      "num": 5,
+      "status": "dropped",
+      "item": "Re-read the width sweep at the calibrated weight",
+      "thread": "tc_width",
+      "paper": "ablation: channel width Cz",
+      "note": "dropped: by decision, not worth the GPU hours. Would have re-run Cz 128–1536 at the weight TODO 2 calibrates; the original sweep held weight at 0.005 throughout, so width and regulariser pressure stay unseparated. The null it would refine is already recorded (research/results/2026-09-01_tc_width_tc512_sigreg_weight_slides.html: tc128 wins, usable rank stalls at 30–96 dims whatever Cz). Revive only if TODO 2 shifts the ranking",
+      "note_md": "`dropped: by decision, not worth the GPU hours`. Would have re-run Cz 128–1536 at the weight TODO 2 calibrates; the original sweep held weight at 0.005 throughout, so width and regulariser pressure stay unseparated. The null it would refine is already recorded (`research/results/2026-09-01_tc_width_tc512_sigreg_weight_slides.html`: tc128 wins, usable rank stalls at 30–96 dims whatever Cz). Revive only if TODO 2 shifts the ranking",
+      "closed": "2026-09-02",
+      "state": "done",
+      "source": "docs/research/todos.json",
+      "order": 1,
+      "jobs": [],
+      "docs": [
+        "results/2026-09-01_tc_width_tc512_sigreg_weight_slides.html"
+      ],
+      "updates": []
+    },
+    {
+      "num": 1,
+      "status": "done",
+      "item": "Try 1, 2, 3, 4 steps like PointDiT",
+      "thread": "flow",
+      "paper": "ablation: ODE steps",
+      "note": "done: research/results/2026-09-01_flow_numsteps_tc128compose_slides.html. 1,2,3,4,20 steps on tc128compose ckpt iter 200000, BSC:45296762. Fewer steps win monotonically — MSEToken 0.7417 at N=1 vs 0.8837 at N=20, LossDepth 3.6563 vs 3.8796. It does not measure step count: the sampler does not integrate, so N steps returns x̂ at t = 1 − 1/N, and N=1 reads out the arm's least-trained regime (0.28% of gradient mass below t=0.1). Mechanism: research/analysis/2026-09-01_flow_numsteps_why_more_steps_degrade.md. Left open: the seed spread at N=1 vs N=20 (8 seeds, plus a decoded depth-edge F1, one acc_debug job) was never submitted, so \"the rise is sample variance\" stays unmeasured; the re-read on a low-t arm moved to TODO 7",
+      "note_md": "`done: research/results/2026-09-01_flow_numsteps_tc128compose_slides.html`. `1,2,3,4,20` steps on `tc128compose` ckpt iter 200000, BSC:45296762. Fewer steps win monotonically — MSEToken 0.7417 at N=1 vs 0.8837 at N=20, LossDepth 3.6563 vs 3.8796. It does **not** measure step count: the sampler does not integrate, so N steps returns x̂ at `t = 1 − 1/N`, and N=1 reads out the arm's least-trained regime (0.28% of gradient mass below `t=0.1`). Mechanism: `research/analysis/2026-09-01_flow_numsteps_why_more_steps_degrade.md`. Left open: the seed spread at N=1 vs N=20 (8 seeds, plus a decoded depth-edge F1, one `acc_debug` job) was never submitted, so \"the rise is sample variance\" stays unmeasured; the re-read on a low-`t` arm moved to **TODO 7**",
+      "closed": "2026-09-02",
+      "state": "done",
+      "source": "docs/research/todos.json",
+      "order": 2,
+      "jobs": [
+        "45296762"
+      ],
+      "docs": [
+        "analysis/2026-09-01_flow_numsteps_why_more_steps_degrade.md",
+        "results/2026-09-01_flow_numsteps_tc128compose_slides.html"
+      ],
+      "updates": []
+    },
+    {
+      "num": 9,
+      "status": "done",
+      "item": "How is the sky handled when computing the eval loss for the flow matching?",
+      "thread": "flow",
+      "paper": "main results: eval protocol",
+      "note": "done: research/analysis/2026-09-02_flow_sky_in_eval_loss.md. Dropped implicitly — valid_mask = depth>0 & depth<z_far(50) over sparse LiDAR, so sky has no return and never enters LossDepth / LossPointmap. The flow loss is latent-space and keeps sky at full weight. Left open: the valid-pixel fraction per eval set is not logged",
+      "note_md": "`done: research/analysis/2026-09-02_flow_sky_in_eval_loss.md`. Dropped implicitly — `valid_mask = depth>0 & depth<z_far(50)` over sparse LiDAR, so sky has no return and never enters `LossDepth` / `LossPointmap`. The flow loss is latent-space and keeps sky at full weight. Left open: the valid-pixel fraction per eval set is not logged",
+      "closed": "2026-09-02",
+      "state": "done",
+      "source": "docs/research/todos.json",
+      "order": 3,
+      "jobs": [],
+      "docs": [
+        "analysis/2026-09-02_flow_sky_in_eval_loss.md"
+      ],
+      "updates": []
+    },
+    {
+      "num": 6,
+      "status": "done",
+      "item": "Attack the rank ceiling directly instead of via the weight",
+      "thread": "sigreg",
+      "paper": "contribution: SIGReg",
+      "note": "done: results/2026-09-06_sigreg_cov_penalty_tc512_slides.html. Four doses over one base (tc512 · compose 1.0 · sigreg 0.02): cov 0 BSC:45296347, 3e-5 BSC:45416718 (ep 72, 44 h wall), 1e-4 BSC:45498520 and 3e-4 BSC:45498521 (both cancelled 2026-09-07 at ep 29/100, 18 h of 44 h — the axis was already answered). Verdict: not worth adding. cov_weight does exactly what it was designed to do to the spectrum and almost nothing to reconstruction. Train ZPartRank is monotone in dose with no ceiling — 84.8 → 109.1 → 115.8 → 163.3 at matched ep 29, a 1.9× spread — while eval LossRecon moves a few percent and not even in dose order: on the ep 24–29 mean only 3e-5 is ahead of the control (−10.6% K / −10.6% N), 1e-4 is behind it (+8.0% / +5.3%) and 3e-4 clears the control (−6.1% / −4.9%) but not 3e-5 (+5.0% / +6.4%). This falsifies the thread's central hypothesis: participation rank is not the lever on reconstruction. The r = −0.997 … −0.999 rank↔recon correlation that motivated the term held across arms that differed in convergence, and it breaks the moment rank is pushed directly at a fixed recipe — 1.9× the rank buys nothing. Rank stays a diagnostic, never a target. No dose reached the 0.0528 K / 0.0370 N weight-axis best either, so the plateau confound of TODO 2 is not settled and was not settled by this route. Left open: slides 1–10 of the deck still carry the earlier ep-67 3e-5 reading (\"a new best, narrowly\") and disagree with slide 11 — the ep-29 dose axis is the one to quote. §4–5 of plan/2026-09-02_sigreg_cov_penalty.md were written under the old reading and carry a reversal note. Both cancelled current.pth are resumable at ep 29 if the axis is ever revisited; the 3e-4 late-crossing question is dropped, not measured.",
+      "note_md": "`done: results/2026-09-06_sigreg_cov_penalty_tc512_slides.html`. Four doses over one base (tc512 · compose 1.0 · sigreg 0.02): `cov 0` BSC:45296347, `3e-5` BSC:45416718 (ep 72, 44 h wall), `1e-4` BSC:45498520 and `3e-4` BSC:45498521 (both cancelled 2026-09-07 at ep 29/100, 18 h of 44 h — the axis was already answered). **Verdict: not worth adding.** `cov_weight` does exactly what it was designed to do to the spectrum and almost nothing to reconstruction. Train `ZPartRank` is monotone in dose with no ceiling — 84.8 → 109.1 → 115.8 → **163.3** at matched ep 29, a **1.9×** spread — while eval `LossRecon` moves a few percent and not even in dose order: on the ep 24–29 mean only `3e-5` is ahead of the control (−10.6% K / −10.6% N), `1e-4` is **behind** it (+8.0% / +5.3%) and `3e-4` clears the control (−6.1% / −4.9%) but not `3e-5` (+5.0% / +6.4%). **This falsifies the thread's central hypothesis: participation rank is not the lever on reconstruction.** The r = −0.997 … −0.999 rank↔recon correlation that motivated the term held across arms that differed in *convergence*, and it breaks the moment rank is pushed directly at a fixed recipe — 1.9× the rank buys nothing. Rank stays a diagnostic, never a target. No dose reached the 0.0528 K / 0.0370 N weight-axis best either, so the plateau confound of TODO 2 is not settled and was not settled by this route. Left open: slides 1–10 of the deck still carry the earlier ep-67 `3e-5` reading (\"a new best, narrowly\") and disagree with slide 11 — the ep-29 dose axis is the one to quote. §4–5 of `plan/2026-09-02_sigreg_cov_penalty.md` were written under the old reading and carry a reversal note. Both cancelled `current.pth` are resumable at ep 29 if the axis is ever revisited; the `3e-4` late-crossing question is dropped, not measured.",
+      "closed": "2026-09-07",
+      "state": "done",
+      "source": "docs/research/todos.json",
+      "order": 4,
+      "jobs": [
+        "45416718",
+        "45498520",
+        "45498521",
+        "45296347",
+        "45106935"
+      ],
+      "docs": [
+        "plan/2026-09-02_sigreg_cov_penalty.md",
+        "results/2026-09-06_sigreg_cov_penalty_tc512_slides.html"
+      ],
+      "updates": []
+    },
+    {
+      "num": 12,
+      "status": "done",
+      "item": "Decoder-only noise-augmented finetune of the tc128 compose tokenizer (RAE noise_tau), read through the unchanged flow control",
+      "thread": "flow",
+      "paper": "main results: tokenizer for the flow eval",
+      "note": "done: results/2026-09-06_flow_decoder_noise_finetune_slides.html. BSC:45421190 (10-epoch decoder-only finetune of the tc128 compose tokenizer, decode_noise_tau=0.8 + freeze_except_decoder=true, warm-started weights-only from compose1.0/ckpts/epoch_100.pth) plus the eval jobs BSC:45497311/19, 45497830/31 and the N-sweep BSC:45498382. Every design check held: MSEToken reproduces 0.6677 / 0.8850 to the digit, so encode() is bit-identical and only the decoder moved; the σ=0 round trip improved 1.3–1.7%. The ladder flattens outright — σ=0.82 raymap 19.09 → 1.67, so the superlinear knee below MSE 0.30 is gone. Best achievable against best achievable: raymap −17.6%, pointmap −9.1%, with the sampler optimum moving N=2 → N=20 and −35.5% raymap at matched N=20. The one loss is N=1 (+17.7% raymap): at the same latent error magnitude, isotropic noise now decodes 3.5× better than the flow's own error, so the 1-step error is structured, not isotropic — the probe's framing inverts. epoch_10 replaces epoch_100 as the tokenizer every flow read uses. Leads to TODO 13, in tc_width: end-to-end decoder-noise training of the tc512 compose tokenizer (plan/2026-09-07_tc_width_decnoise_e2e_tc512.md, BSC:45529827). Falsifier 3 routed it out of flow: fixing the decoder alone cannot change a code it is not allowed to touch, so the pair needs a from-scratch noisy tokenizer with the encoder in the graph — which changes z and is a tc_width/sigreg question. Left open, but not queued: the N=20 penalty in plan/2026-09-04_flow_bestofk_regressor_null.md is at least partly a decoder artifact and was never re-read on epoch_10 — TODO 11 was dropped 2026-09-07 as not needed.",
+      "note_md": "`done: results/2026-09-06_flow_decoder_noise_finetune_slides.html`. `BSC:45421190` (10-epoch decoder-only finetune of the tc128 compose tokenizer, `decode_noise_tau=0.8` + `freeze_except_decoder=true`, warm-started weights-only from `compose1.0/ckpts/epoch_100.pth`) plus the eval jobs `BSC:45497311/19`, `45497830/31` and the N-sweep `BSC:45498382`. Every design check held: `MSEToken` reproduces 0.6677 / 0.8850 to the digit, so `encode()` is bit-identical and only the decoder moved; the σ=0 round trip *improved* 1.3–1.7%. **The ladder flattens outright** — σ=0.82 raymap 19.09 → **1.67**, so the superlinear knee below MSE 0.30 is gone. **Best achievable against best achievable: raymap −17.6%, pointmap −9.1%**, with the sampler optimum moving N=2 → N=20 and −35.5% raymap at matched N=20. **The one loss is N=1** (+17.7% raymap): at the same latent error magnitude, isotropic noise now decodes 3.5× better than the flow's own error, so the 1-step error is **structured, not isotropic** — the probe's framing inverts. `epoch_10` replaces `epoch_100` as the tokenizer every flow read uses. **Leads to TODO 13, in `tc_width`: end-to-end decoder-noise training of the tc512 compose tokenizer** (`plan/2026-09-07_tc_width_decnoise_e2e_tc512.md`, `BSC:45529827`). Falsifier 3 routed it out of `flow`: fixing the decoder alone cannot change a code it is not allowed to touch, so the pair needs a from-scratch noisy tokenizer with the encoder in the graph — which changes `z` and is a `tc_width`/`sigreg` question. Left open, but not queued: the N=20 penalty in `plan/2026-09-04_flow_bestofk_regressor_null.md` is at least partly a decoder artifact and was never re-read on `epoch_10` — TODO 11 was dropped 2026-09-07 as `not needed`.",
+      "closed": "2026-09-07",
+      "state": "done",
+      "source": "docs/research/todos.json",
+      "order": 5,
+      "jobs": [
+        "45421190",
+        "45417908",
+        "45497311",
+        "45497830",
+        "45498382"
+      ],
+      "docs": [
+        "plan/2026-09-04_flow_decoder_noise_finetune.md",
+        "results/2026-09-04_flow_decoder_noise_probe.md",
+        "results/2026-09-06_flow_decoder_noise_finetune_slides.html",
+        "plan/2026-09-07_tc_width_decnoise_e2e_tc512.md"
+      ],
+      "updates": []
+    },
+    {
+      "num": 2,
+      "status": "done",
+      "item": "tc512 + sigreg 0.02 / 0.04 / 0.08",
+      "thread": "tc_width",
+      "paper": "ablation: SIGReg weight",
+      "note": "done: results/2026-09-04_tc_width_tc512_sigreg_weight_axis_slides.html. BSC:45296347 (0.02) and BSC:45297731 (0.04) stopped at ep 81/100 on the 48 h wall, resumable; BSC:45296349 (0.08) cancelled at ep 32. Read at ep 67 and 81. No turnover inside the axis: 0.01 · 0.02 · 0.04 are one plateau spanning 6.0% of eval LossRecon (pooled 0.0416 / 0.0441 / 0.0427 at ep 67), and 0.08 breaks — 1.82× worse recon at ep 32 with ZPartRank falling to 46.5. The bracket closed, the exponent did not: weight ∝ Cz predicts 0.02, which lands inside the plateau and is its worst arm, so ∝ Cz and ∝ √Cz both fit the 0.01–0.04 band. What to use: 0.01 for token recon, 0.04 if decoded geometry is the target, difference under 3% pooled. The 0.08 failure is over-regularisation, not the pool8192 warmup instability (raw SIGReg: bumps 1.2×, not 39×). Rank saturating near 100/512 is what routed the thread to TODO 6 (cov_weight) and TODO 13 (noisy channel). Left open: §4–5 of plan/2026-09-01_tc_width_sigreg_weight_tc512.md are still _Pending._, so the numbers live only in the deck; no ep-99 read; 0.08 read only at ep 32; tc128 / tc256 never re-run at the higher weights, so weight ∝ Cz^k stays a one-width claim",
+      "note_md": "`done: results/2026-09-04_tc_width_tc512_sigreg_weight_axis_slides.html`. `BSC:45296347` (0.02) and `BSC:45297731` (0.04) stopped at ep 81/100 on the 48 h wall, resumable; `BSC:45296349` (0.08) cancelled at ep 32. Read at ep 67 and 81. **No turnover inside the axis:** 0.01 · 0.02 · 0.04 are one plateau spanning **6.0%** of eval `LossRecon` (pooled 0.0416 / 0.0441 / 0.0427 at ep 67), and 0.08 breaks — 1.82× worse recon at ep 32 with `ZPartRank` *falling* to 46.5. The bracket closed, the exponent did not: `weight ∝ Cz` predicts 0.02, which lands inside the plateau and is its **worst** arm, so `∝ Cz` and `∝ √Cz` both fit the 0.01–0.04 band. **What to use:** 0.01 for token recon, 0.04 if decoded geometry is the target, difference under 3% pooled. The 0.08 failure is over-regularisation, not the `pool8192` warmup instability (raw `SIGReg:` bumps 1.2×, not 39×). Rank saturating near 100/512 is what routed the thread to **TODO 6** (`cov_weight`) and **TODO 13** (noisy channel). Left open: §4–5 of `plan/2026-09-01_tc_width_sigreg_weight_tc512.md` are still `_Pending._`, so the numbers live only in the deck; no ep-99 read; 0.08 read only at ep 32; tc128 / tc256 never re-run at the higher weights, so `weight ∝ Cz^k` stays a one-width claim",
+      "closed": "2026-09-07",
+      "state": "done",
+      "source": "docs/research/todos.json",
+      "order": 6,
+      "jobs": [
+        "45296347",
+        "45297731",
+        "45296349"
+      ],
+      "docs": [
+        "plan/2026-09-01_tc_width_sigreg_weight_tc512.md",
+        "results/2026-09-04_tc_width_tc512_sigreg_weight_axis_slides.html"
+      ],
+      "updates": []
+    },
+    {
+      "num": 8,
+      "status": "done",
+      "item": "Sum is actually better → run again with 0.02 tc512 (0.01 undecided); compare with 512 plain",
+      "thread": "sigreg",
+      "paper": "ablation: SIGReg on the composed sum",
+      "note": "done: results/2026-09-04_tc_width_tc512_sigreg_weight_axis_slides.html, slide 6. BSC:45345063 cancelled 2026-09-04 15:46 mid-ep 67; last complete eval ep 66; read at ep 65 against the plain twin BSC:45296347. Falsifier 2 lands — the sum loses at 0.02: eval LossRecon +8.0% (0.0479 vs 0.0444 pooled), LossRecon_Comp +8.7%, ZPartRank −22% (72.8 vs 93.3), reversing its −11.4% win at 0.005. It was buying effective weight, not a better objective: 4× the weight moves plain rank +140% (39.0 → 93.3) and the sum only +15% (63.4 → 72.8), and recon tracks rank at r = −0.988 across all six arms. Epochs do not save it — sum 0.005 at ep 99 (0.0505, rank 67.5) is still worse than plain 0.02 at ep 81 (0.0433, rank 94.1). sigreg_compose_z stays off. Left open: §4–5 of plan/2026-09-02_sigreg_sum_at_weight_0.02.md are still _Pending._",
+      "note_md": "`done: results/2026-09-04_tc_width_tc512_sigreg_weight_axis_slides.html`, slide 6. `BSC:45345063` cancelled 2026-09-04 15:46 mid-ep 67; last complete eval ep 66; read at ep 65 against the plain twin `BSC:45296347`. **Falsifier 2 lands — the sum loses at 0.02:** eval `LossRecon` +8.0% (0.0479 vs 0.0444 pooled), `LossRecon_Comp` +8.7%, `ZPartRank` −22% (72.8 vs 93.3), reversing its −11.4% win at 0.005. It was buying **effective weight**, not a better objective: 4× the weight moves plain rank +140% (39.0 → 93.3) and the sum only +15% (63.4 → 72.8), and recon tracks rank at r = −0.988 across all six arms. Epochs do not save it — sum 0.005 at ep 99 (0.0505, rank 67.5) is still worse than plain 0.02 at ep 81 (0.0433, rank 94.1). **`sigreg_compose_z` stays off.** Left open: §4–5 of `plan/2026-09-02_sigreg_sum_at_weight_0.02.md` are still `_Pending._`",
+      "closed": "2026-09-07",
+      "state": "done",
+      "source": "docs/research/todos.json",
+      "order": 7,
+      "jobs": [
+        "45345063",
+        "45296347"
+      ],
+      "docs": [
+        "plan/2026-09-02_sigreg_sum_at_weight_0.02.md",
+        "results/2026-09-04_tc_width_tc512_sigreg_weight_axis_slides.html"
+      ],
+      "updates": []
+    },
+    {
+      "num": 11,
+      "status": "dropped",
+      "item": "Can the eval see generation? best-of-K + K-spread + train_fixed_t=0 regressor null",
+      "thread": "flow",
+      "paper": "main results: eval protocol",
+      "note": "dropped: not needed. ../research/plan/2026-09-04_flow_bestofk_regressor_null.md. Five eval jobs on existing ckpts (minutes each) + one 72 h regressor run read at iter_100000. Gates every further t-schedule / sampler arm, and the CFG and weight-cap arms",
+      "note_md": "`dropped: not needed`. `../research/plan/2026-09-04_flow_bestofk_regressor_null.md`. Five eval jobs on existing ckpts (minutes each) + one 72 h regressor run read at `iter_100000`. Gates every further `t`-schedule / sampler arm, and the CFG and weight-cap arms",
+      "closed": "2026-09-07",
+      "state": "done",
+      "source": "docs/research/todos.json",
+      "order": 8,
+      "jobs": [],
+      "docs": [
+        "plan/2026-09-04_flow_bestofk_regressor_null.md"
+      ],
+      "updates": []
+    }
+  ]
 }
