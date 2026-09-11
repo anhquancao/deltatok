@@ -4,6 +4,7 @@ Created 2026-09-10 · thread `tc_width` · prior cycle:
 [`../plan/2026-09-09_tc_width_decnoise_detach_tc1536.md`](../plan/2026-09-09_tc_width_decnoise_detach_tc1536.md)
 · arm: `deltatok_l12_dtok64_tc1536_nozn_maxgap9_vpt1to2_sigreg0.06_ns3072_pool8192_compose1.0_decnoise0.8_detach_bneck_sw0`
 · control: the prior cycle's arm (no norm on z, warmup 2000), `BSC:45610897`
+· jobs: `BSC:45678654` · deck: [`../results/2026-09-11_tc_width_bneck_sw0_tc1536_read_slides.html`](../results/2026-09-11_tc_width_bneck_sw0_tc1536_read_slides.html)
 
 One new model flag, `force_bottleneck`, builds `pre_bottleneck_norm` + `z_proj_down` + `z_proj_up` even when
 `z_dim == hidden_size`. At tc1536 that is `LayerNorm(1536) → Linear(1536,1536)` on encode and `Linear(1536,1536)`
@@ -106,3 +107,31 @@ Applied 2026-09-10. `py_compile` and `bash -n` clean; local and BSC copies md5-i
 (`deltatok_trainer.py`, `deltatok_shared.py`, `train_deltatok.yaml`, the new slurm). Submitted as
 **`BSC:45678654`** at 14:15, PENDING (Priority), 40 h on `ehpc880`. Control `BSC:45610897` was cancelled
 at ep 31/100 the same morning, so the two arms compare at matched epochs up to 31.
+
+## 7 Outcome
+
+Read at ep 22 in
+[`../results/2026-09-11_tc_width_bneck_sw0_tc1536_read_slides.html`](../results/2026-09-11_tc_width_bneck_sw0_tc1536_read_slides.html).
+
+**The code is cured and the decoder pays 3.2× for it.** Every mechanical check in §5 held: the param table shows
+`pre_bottleneck_norm` 0.003 M + `z_proj_down` 2.361 M + `z_proj_up` 2.361 M = 4.725 M of 685.757 M,
+`training.sigreg_warmup=0` in `EXTRA_CFG`, and `ZRowMeanSquare` 1.02 on the first eval. `ZPartRank` never touches
+1.0, so the ep-4 gate passes and the ep-31 massive-activation diagnosis is confirmed by repair.
+
+It is not enough. At matched ep 22 token `LossRecon` is ×3.24 / ×3.11 the control (0.1054 / 0.0722 against
+0.0325 / 0.0232), ×3.72 / ×3.80 the plain tc1536 and ×1.56 the tc512 arm at half the width; pointmap `PredVsOrig`
+is ×4.35 KITTI / ×6.62 nuScenes. The arm never has the ep-4 cliff the other three have. Rank lands at 2.3% of Cz
+against the plain arm's 15.7%, and the raw SIGReg statistic is 4× *further* from the anchor than the control's
+(0.0063 vs 0.0016) at the same weight and slice count — scale fixed, rank not. The σ ladder is flat (+0.3% at
+σ=0.82 against the control's +55%) on a code of RMS 1.13, so the decoder is barely reading `z`.
+
+**The missing norm was not the cause.** The plain tc1536 `BSC:44590128` has no norm on `z` either, sits at
+`ZPartRank` 1.0 for epochs 1–3, and escapes on its own at ep 4 (44.2 → 112.8 → 172.4 → 240.7 by ep 22). What the
+control has and the plain arm does not is 12× the sigreg weight and the decode-noise term. That is the next arm:
+tc1536, no bottleneck, `sigreg_weight` 0.005, decode-noise on.
+
+**Caveat.** The arm moved `force_bottleneck` and `sigreg_warmup` together, so this read cannot assign the recon
+damage to either alone.
+
+**Wall clock.** 37.2 min/epoch against 40 h from 2026-09-10 19:56 puts the wall at 2026-09-12 11:56 and the arm at
+~ep 63, not 100. On these numbers the chained resume §5 calls for is not worth submitting.
