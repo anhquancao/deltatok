@@ -136,6 +136,22 @@ damage to either alone.
 **Wall clock.** 37.2 min/epoch against 40 h from 2026-09-10 19:56 puts the wall at 2026-09-12 11:56 and the arm at
 ~ep 63, not 100. On these numbers the chained resume §5 calls for is not worth submitting.
 
+**Follow-up 2026-09-11: against the tc512 arm the gap is rank, not scale.** Both sit at `ZRowMeanSquare` ≈ 1
+(1.27 vs 1.57 KITTI at ep 22) and at a comparable raw SIGReg statistic (0.0114 vs 0.0141), so neither scale nor
+"more pressure" separates them. Absolute usable dimensions do: this arm goes `ZPartRank` 54.3 → 34.7 of 1536 over
+ep 0→22 while tc512 goes 14.2 → 57.1 of 512, and variance per used direction moves opposite (28.7 → 56.1
+concentrating here, 39.5 → 14.1 spreading there). The wide arm ends with the narrower code, and its flat σ ladder
+says the decoder stopped reading it.
+
+`sigreg_weight` is the least likely cause, on sign: SIGReg exists to raise rank, and the 3×-weight arm has the
+lower rank. Two candidates replace it. (1) `force_bottleneck` at `z_dim == hidden_size` builds a **square**
+`nn.Linear(1536,1536)` (`deltatok_trainer.py:160-161`): it delivers `pre_bottleneck_norm`, which is what pinned the
+scale, and no dimensional pressure at all, where tc512's `Linear(1536,512)` is a real 3:1 compression in which a
+wasted direction is lost information. (2) SIGReg's rank sensitivity degrades with width at fixed pool — S/C is 5.3
+at Cz=1536 against 16 at Cz=512, and the finite-sample floor at S=8192 is 1.32e-4 against a 1.65e-4 anisotropy
+signal. (2) is under test as `BSC:45725881` (pool 8192) against `BSC:45727710` (pool 24576), weight 0.02, `sw0`,
+one variable. (1) needs tc1536 + `force_bottleneck` at tc512's exact regulariser — not yet submitted.
+
 **Cancelled 2026-09-11 11:20 at ep 23/100 (15.2 h), sigreg pressure too high.** The read had answered §1 and the
 arm was ×3.2 off the control with 24 h of wall left. Surviving under `$SCRATCH/deltatok_log/<RUN_NAME>/ckpts/`:
 `current.pth` (ep 23), `epoch_20.pth`, `epoch_10.pth`, 31 G. Re-running this slurm script **resumes** that
