@@ -40,7 +40,7 @@ export RESULTS_DIR="$LOG_AND_CKPT_DIR"
 
 export SIGREG_NUM_SLICES=${SIGREG_NUM_SLICES:-256}      # 2*Cz at tc128
 export SIGREG_POOL_SAMPLES=${SIGREG_POOL_SAMPLES:-8192}  # NOT weight-neutral; keep 8192 (2026-07-31)
-export SIGREG_WARMUP=${SIGREG_WARMUP:-2000}              # held constant across the sweep
+export SIGREG_WARMUP=${SIGREG_WARMUP:-0}                 # anchor on from step 0
 
 export RUN_NAME=deltatok_l12_dtok64_tc128_nozn_maxgap9_vpt1to2_sigreg${SIGREG_WEIGHT}_ns${SIGREG_NUM_SLICES}_pool${SIGREG_POOL_SAMPLES}_compose${COMPOSE_WEIGHT}
 

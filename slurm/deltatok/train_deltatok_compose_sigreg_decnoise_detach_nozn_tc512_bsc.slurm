@@ -23,7 +23,7 @@
 export COMPOSE_WEIGHT=${COMPOSE_WEIGHT:-1.0}
 export SIGREG_WEIGHT=${SIGREG_WEIGHT:-0.02}    # matches the twin BSC:45296347
 export DECNOISE_TAU=${DECNOISE_TAU:-0.8}       # sigma ~ U(0, tau) per sample, decoder input only
-export DECNOISE_WARMUP=${DECNOISE_WARMUP:-2000}  # = SIGREG_WARMUP
+export DECNOISE_WARMUP=${DECNOISE_WARMUP:-2000}  # tau ramp only
 export DECNOISE_WEIGHT=${DECNOISE_WEIGHT:-1.0}   # loss weight of the detached noised decode
 
 mkdir -p slurm/output
@@ -44,7 +44,7 @@ export RESULTS_DIR="$LOG_AND_CKPT_DIR"
 
 export SIGREG_NUM_SLICES=${SIGREG_NUM_SLICES:-1024}      # 2*Cz at tc512
 export SIGREG_POOL_SAMPLES=${SIGREG_POOL_SAMPLES:-8192}  # NOT weight-neutral; keep 8192 (2026-07-31)
-export SIGREG_WARMUP=${SIGREG_WARMUP:-2000}              # held constant across the sweep
+export SIGREG_WARMUP=${SIGREG_WARMUP:-0}                 # anchor on from step 0
 
 # ${RUN_NAME:-} so the eval-only ladder can point at a fresh dir instead of resuming this arm.
 export RUN_NAME=${RUN_NAME:-deltatok_l12_dtok64_tc512_nozn_maxgap9_vpt1to2_sigreg${SIGREG_WEIGHT}_ns${SIGREG_NUM_SLICES}_pool${SIGREG_POOL_SAMPLES}_compose${COMPOSE_WEIGHT}_decnoise${DECNOISE_TAU}_detach}

@@ -56,7 +56,7 @@ export BOTTLENECK_MLP=${BOTTLENECK_MLP:-false}    # inert at TARGET_CHANNELS=153
 export Z_NORM=${Z_NORM:-false}                    # this arm: no z LayerNorm at all (true restores the BSC arm)
 export SIGREG_WEIGHT=${SIGREG_WEIGHT:-0.05}       # SIGReg anti-collapse weight on z, LeJEPA's lamb (0=off)
 export SIGREG_NUM_SLICES=${SIGREG_NUM_SLICES:-3072}  # 1D projections/step; >= 2*Cz, and Cz=1536 here
-export SIGREG_WARMUP=${SIGREG_WARMUP:-2000}       # linear ramp of the weight over N iters
+export SIGREG_WARMUP=${SIGREG_WARMUP:-0}                 # anchor on from step 0
 # Rolling FIFO pool (GLOBAL rows) the estimator fires over every micro-batch; clears the
 # finite-sample floor at Cz=1536. Rescaled by pool/live, so not a weight knob.
 export SIGREG_POOL_SAMPLES=${SIGREG_POOL_SAMPLES:-8192}
