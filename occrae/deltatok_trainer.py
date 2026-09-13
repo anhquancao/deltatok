@@ -643,6 +643,8 @@ class DeltaTokTrainer(DeltaTokSharedMixin, Trainer):
         # Eval-only noise ladder: decode z + sigma*N(0,I) per sigma. [] = off, nothing changes.
         self._eval_noise_sigmas = tuple(float(x) for x in self.cfg.training.get("eval_noise_sigmas", []))
         self._eval_noise_keys = tuple(f"LossRecon_noise{x:g}" for x in self._eval_noise_sigmas)
+        if self._recon_whiten_alpha > 0:
+            self._eval_noise_keys += ("LossRecon_W",)  # metric state must exist; reads 0 before W freezes
 
         # Additive composition: sample 3 timesteps, encode both hops, add z_a + z_b,
         # decode the sum. 0 = off (single-pair path is bit-identical).
