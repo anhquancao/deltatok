@@ -131,6 +131,9 @@ training:
   sigreg_gap_sigma: false  # z/√gap before SIGReg (Brownian: Var ∝ gap)
   sigreg_compose_z: false  # cat all 3 compose streams into SIGReg
   cov_weight: 0.0  # + ||E[zz^T]-I||_F^2/Cz on the SIGReg pool: spectrum shape directly. Needs sigreg_weight > 0
+  recon_whiten_alpha: 0.0  # recon on (x_hat-x) @ W, W = U diag((λ+eps)^(-α/2)) Uᵀ of cov(x); 0 = raw log-cosh
+  recon_whiten_eps: 0.05  # eigenvalue floor
+  recon_whiten_warmup: 500  # optim steps banking cov(x) under the raw loss, then W is frozen
   # z-spread diagnostics (Eval/<test>/Z*): effective rank of the z covariance, i.e. how
   # much of the Cz budget the code uses. One measurement per eval loader, over that
   # loader's rows pooled across ranks. Runs with or without SIGReg -- that is what makes

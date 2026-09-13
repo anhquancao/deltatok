@@ -471,6 +471,12 @@ class DeltaTokModule(nn.Module):
         return x_hat
 
 
+def _log_cosh_diff(diff: torch.Tensor) -> torch.Tensor:
+    """log(cosh(diff)) via |x| + softplus(-2|x|) - log 2; see _log_cosh."""
+    diff = diff.abs()
+    return diff + F.softplus(-2.0 * diff) - math.log(2.0)
+
+
 def _log_cosh(pred: torch.Tensor, tgt: torch.Tensor) -> torch.Tensor:
     """Log-cosh loss (numerically-stable). Matches third_party/deltatok default.
 
@@ -492,8 +498,7 @@ def _log_cosh(pred: torch.Tensor, tgt: torch.Tensor) -> torch.Tensor:
     targets can have heavy-tailed errors during early training; log-cosh gives
     robustness without sacrificing the smooth quadratic regime at convergence.
     """
-    diff = (pred - tgt).abs()
-    return diff + F.softplus(-2.0 * diff) - math.log(2.0)
+    return _log_cosh_diff(pred - tgt)
 
 
 def _print_param_breakdown(model: nn.Module, archi: str) -> None:
@@ -618,6 +623,17 @@ class DeltaTokTrainer(DeltaTokSharedMixin, Trainer):
         if self.is_master:
             print(f"cov_weight={self._cov_weight}")  # 0.0 on a stale trainer = a null for the wrong reason
 
+        # Per-direction whitened recon: cov(x) banked for recon_whiten_warmup steps, then W frozen.
+        self._recon_whiten_alpha = float(self.cfg.training.get("recon_whiten_alpha", 0.0))
+        self._recon_whiten_eps = float(self.cfg.training.get("recon_whiten_eps", 0.05))
+        self._recon_whiten_warmup = int(self.cfg.training.get("recon_whiten_warmup", 500))
+        self._recon_W = None                                            # (C, C) once frozen
+        self._recon_acc = ZSpreadStats(self.device) if self._recon_whiten_alpha > 0 else None
+        self._recon_acc_steps = 0                                       # optim steps banked so far
+        if self.is_master:
+            print(f"recon_whiten_alpha={self._recon_whiten_alpha} eps={self._recon_whiten_eps} "
+                  f"warmup={self._recon_whiten_warmup}")                  # 0.0 on a stale trainer = raw loss
+
         # z-spread diagnostics (Eval/<test>/Z*): how much of the Cz budget the code
         # actually uses. Measured on eval only -- a fixed val set makes it comparable
         # across epochs and runs. Runs with or without SIGReg, which is what makes a
@@ -682,6 +698,35 @@ class DeltaTokTrainer(DeltaTokSharedMixin, Trainer):
                   f"ZPartRank={s['part_rank']:.1f} ZTotalVar={s['total_var']:.4f} "
                   f"ZRowMeanSquare={s['row_mean_square']:.4f} "
                   f"ZMeanAbsMax={s['mean_abs_max']:.4f}", flush=True)
+
+    @torch.no_grad()
+    def _recon_whiten_bank(self, x: torch.Tensor) -> None:
+        """Bank recon targets (..., C) until W is frozen. No-op when off or frozen."""
+        if self._recon_acc is not None:
+            self._recon_acc.update(x.float())                           # (S, C) rows, fp64 inside
+
+    @torch.no_grad()
+    def _recon_whiten_freeze(self) -> None:
+        """Collective: pool cov(x) over ranks, build W, drop the accumulator."""
+        s = self._recon_acc.summary(distributed=self.distributed, full=True)
+        lam, U = s["evals"].double(), s["evecs"].double()               # (C,), (C, C) descending
+        scale = (lam.clamp_min(0) + self._recon_whiten_eps).pow(-self._recon_whiten_alpha / 2)  # (C,)
+        W = ((U * scale) @ U.T).float().to(self.device)                 # (C, C) U diag(scale) Uᵀ
+        if self.distributed:
+            dist.broadcast(W, src=0)                                    # bit-identical W on every rank
+        self._recon_W, self._recon_acc = W, None
+        if self.is_master:
+            print(f"[recon_whiten] froze W at iter {self.cfg.training.iter}: rows={s['rows']} "
+                  f"part_rank={s['part_rank']:.1f} eig[0,100,500,1000]="
+                  f"{[round(float(lam[k]), 4) for k in (0, 100, 500, 1000)]} "
+                  f"W_cond={float(scale.max() / scale.min()):.1f}", flush=True)
+
+    def _recon_loss(self, pred: torch.Tensor, tgt: torch.Tensor) -> torch.Tensor:
+        """log-cosh of the residual, through W once frozen. fp32 caller."""
+        diff = pred - tgt                                               # (..., C)
+        if self._recon_W is not None:
+            diff = diff @ self._recon_W                                 # (..., C) per-direction scaled
+        return _log_cosh_diff(diff).mean()
 
     def _sigreg_pooled(self, z: torch.Tensor):
         """(live, pool, scale): this micro-batch's z rows, a FIFO of detached rows from
@@ -855,6 +900,7 @@ class DeltaTokTrainer(DeltaTokSharedMixin, Trainer):
             "global_epoch": self.cfg.training.global_epoch,
             "model_state_dict": net.state_dict(),
             "optimizer_state_dict": self.optim.state_dict(),
+            "recon_W": None if self._recon_W is None else self._recon_W.cpu(),  # (C, C) or None
         }
         os.makedirs(os.path.dirname(path), exist_ok=True)
         if os.path.isfile(path):
@@ -903,6 +949,8 @@ class DeltaTokTrainer(DeltaTokSharedMixin, Trainer):
                 group.setdefault("initial_lr", group["lr"])
         self.cfg.training.iter = ckpt["iter"]
         self.cfg.training.global_epoch = ckpt["global_epoch"]
+        if ckpt.get("recon_W") is not None and self._recon_whiten_alpha > 0:
+            self._recon_W, self._recon_acc = ckpt["recon_W"].to(self.device), None  # frozen W resumes as-is
         if self.is_master:
             print(f"Number of iteration(s): {self.cfg.training.iter}")
 
@@ -989,8 +1037,9 @@ class DeltaTokTrainer(DeltaTokSharedMixin, Trainer):
 
         # Losses
         with torch.autocast(device_type="cuda", enabled=False):
-            loss_recon   = _log_cosh(x_hat.float(), x.detach().float()).mean()
-            loss_compose = _log_cosh(x_hat_comp.float(), feats[:, 2].detach().float()).mean()
+            loss_recon   = self._recon_loss(x_hat.float(), x.detach().float())
+            self._recon_whiten_bank(x)  # (B*2, N, P, C) targets
+            loss_compose = self._recon_loss(x_hat_comp.float(), feats[:, 2].detach().float())
 
         z = torch.cat([z, z_comp.unsqueeze(1)], dim=1)                        # (B, 3, N, K, Cz)
         return loss_recon, loss_compose, loss_dn, loss_dn_comp, z, step_t
@@ -1005,7 +1054,7 @@ class DeltaTokTrainer(DeltaTokSharedMixin, Trainer):
                 x_prev, None, H, W, num_cameras=num_cameras,
                 z_input=noise_z(z.detach(), self._decode_noise_tau))
         with torch.autocast(device_type="cuda", enabled=False):
-            return _log_cosh(x_hat_dn.float(), x.detach().float()).mean()
+            return self._recon_loss(x_hat_dn.float(), x.detach().float())
 
     def _feature_loss(self, tokens, x_hat, B, T_minus_1, idx, num_cameras, height, width):
         """Downstream DA3 feature loss. Insert the predicted frames' patch features back
@@ -1134,7 +1183,8 @@ class DeltaTokTrainer(DeltaTokSharedMixin, Trainer):
                         x_hat = self.tokenizer(x_prev, x, H, W, num_cameras=num_cameras)
 
                 with torch.autocast(device_type="cuda", enabled=False):
-                    loss = _log_cosh(x_hat.float(), x.detach().float()).mean()
+                    loss = self._recon_loss(x_hat.float(), x.detach().float())
+                self._recon_whiten_bank(x)  # (M, N, P, C) targets
 
                 loss_total = self._clean_decode_weight * loss
 
@@ -1241,6 +1291,11 @@ class DeltaTokTrainer(DeltaTokSharedMixin, Trainer):
                     self.log_add_scalar('Train/LossDecNoiseComp', loss_dn_comp if loss_dn_comp is not None else 0.0, self.cfg.training.iter)
                     self.log_add_scalar('Train/LossTot', mini_batch_loss, self.cfg.training.iter)
                     self.log_add_scalar('Train/SpeedSamplesPerSec', speed_samples_per_sec, self.cfg.training.iter)
+
+                if self._recon_acc is not None:
+                    self._recon_acc_steps += 1
+                    if self._recon_acc_steps >= self._recon_whiten_warmup:
+                        self._recon_whiten_freeze()                     # collective, same step on every rank
 
                 self.cfg.training.iter += 1
 
@@ -1403,6 +1458,9 @@ class DeltaTokTrainer(DeltaTokSharedMixin, Trainer):
                 "LossRecon_AR": loss_recon_ar.detach().float().item(),
                 "LossRecon_Comp": loss_recon_comp.detach().float().item(),
             }
+            if self._recon_W is not None:
+                with torch.autocast(device_type="cuda", enabled=False):
+                    batch_losses["LossRecon_W"] = self._recon_loss(x_hat.float(), x.float()).item()
 
             # Noise ladder: same decode path as Comp above, fed z + sigma*eps at each fixed
             # sigma. Measures how far the decoder tolerates a wrong code, not how good z is.
