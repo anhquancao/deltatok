@@ -1,0 +1,635 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>DeltaTok — SIGReg pool pair at tc1536</title>
+<style>
+/* ---------- tokens · light only, white slides (no dark variant by request) ---------- */
+:root{
+  color-scheme: light only;
+  --backdrop:#e9e9e6; --page:#f7f7f6; --surface:#ffffff;
+  --ink:#0b0b0b; --ink2:#52514e; --muted:#83817c;
+  --grid:#e4e4de; --axis:#c3c2b7; --border:rgba(11,11,11,.12);
+  --s1:#2a78d6; --s2:#eb6834; --s3:#1baf7a; --s4:#eda100; --s5:#8a63c8; --s6:#c2407a;
+  --good:#0ca30c; --crit:#d03b3b; --serious:#ec835a;
+  --accent:var(--s1);
+  --serif:"Iowan Old Style","Palatino Linotype",Palatino,Georgia,serif;
+  --sans:system-ui,-apple-system,"Segoe UI",sans-serif;
+  --mono:ui-monospace,"Cascadia Code",Menlo,Consolas,monospace;
+}
+/* ---------- deck chrome ---------- */
+*{box-sizing:border-box;margin:0}
+html,body{height:100%}
+body{background:var(--backdrop);color:var(--ink);font:15px/1.45 var(--sans);overflow:hidden}
+.stage{position:absolute;left:50%;top:50%;width:1280px;height:720px;transform-origin:center center}
+.slide{position:absolute;inset:0;background:var(--surface);border:1px solid var(--border);
+  padding:46px 60px 40px;display:none;flex-direction:column}
+.slide.on{display:flex}
+.eyebrow{font:600 12px/1 var(--mono);letter-spacing:.14em;text-transform:uppercase;color:var(--accent);margin-bottom:12px}
+.eyebrow .dim{color:var(--muted)}
+h1{font:400 42px/1.14 var(--serif);letter-spacing:-.01em;text-wrap:balance}
+h2{font:400 29px/1.2 var(--serif);letter-spacing:-.005em;text-wrap:balance;margin-bottom:4px}
+.sub{color:var(--ink2);font-size:14.5px;max-width:80ch;margin-top:9px}
+.body{flex:1;min-height:0;margin-top:16px}
+.foot{display:flex;justify-content:space-between;align-items:baseline;color:var(--muted);
+  font:11px/1 var(--mono);letter-spacing:.06em;margin-top:12px;border-top:1px solid var(--grid);padding-top:10px}
+.pageno{font-variant-numeric:tabular-nums}
+/* nav */
+.nav{position:fixed;left:50%;bottom:14px;transform:translateX(-50%);display:flex;gap:8px;align-items:center;z-index:5}
+.nav button{width:9px;height:9px;border-radius:50%;border:1px solid var(--muted);background:transparent;cursor:pointer;padding:0}
+.nav button.cur{background:var(--accent);border-color:var(--accent)}
+.nav button:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+.arr{position:fixed;top:50%;transform:translateY(-50%);z-index:5;border:1px solid var(--border);
+  background:var(--surface);color:var(--ink2);width:34px;height:56px;cursor:pointer;font-size:18px;border-radius:4px}
+.arr:hover{color:var(--ink)}
+#prev{left:10px}#next{right:10px}
+/* ---------- shared bits ---------- */
+.mono{font-family:var(--mono)}
+.num{font-variant-numeric:tabular-nums}
+.chip{display:inline-block;font:600 10.5px/1 var(--mono);letter-spacing:.05em;padding:4px 7px;border-radius:3px;
+  border:1px solid var(--border);white-space:nowrap}
+.chip.good{color:var(--good);border-color:currentColor}
+.chip.bad{color:var(--crit);border-color:currentColor}
+.chip.hero{color:var(--accent);border-color:currentColor}
+.sw{display:inline-block;width:14px;height:0;border-top-width:3px;border-top-style:solid;vertical-align:4px}
+.cols{display:grid;gap:24px;min-height:0}
+.c2{grid-template-columns:1fr 1fr}
+.c58{grid-template-columns:1.32fr 1fr}
+.c85{grid-template-columns:1fr 1.28fr}
+.card{border:1px solid var(--grid);border-radius:6px;padding:14px 16px;background:var(--page)}
+.card h3{font:600 14px/1.3 var(--sans);margin:6px 0}
+.card .tag{font:600 10px/1 var(--mono);letter-spacing:.1em;text-transform:uppercase;color:var(--muted)}
+ul.tight{padding-left:18px;display:flex;flex-direction:column;gap:8px;font-size:13.5px;color:var(--ink2)}
+ul.tight li{padding-left:2px}
+ul.tight strong{color:var(--ink);font-weight:600}
+/* stat tiles */
+.tiles{display:grid;gap:12px}
+.tile{border:1px solid var(--grid);border-radius:6px;padding:12px 14px;background:var(--page)}
+.tile .v{font:600 25px/1.1 var(--sans);letter-spacing:-.01em;font-variant-numeric:tabular-nums}
+.tile .k{font:600 10px/1.4 var(--mono);letter-spacing:.1em;text-transform:uppercase;color:var(--muted);margin-bottom:5px}
+.tile .d{font-size:12.5px;color:var(--ink2);margin-top:5px}
+.rulebar{border:1px dashed var(--axis);border-radius:6px;padding:11px 15px;font-size:13.5px;color:var(--ink2)}
+.rulebar b{color:var(--ink)}
+/* tables */
+table{border-collapse:collapse;width:100%;font-size:13px;font-variant-numeric:tabular-nums}
+th,td{text-align:right;padding:5px 8px;border-bottom:1px solid var(--grid)}
+th:first-child,td:first-child{text-align:left}
+thead th{font:600 10px/1.3 var(--mono);letter-spacing:.08em;text-transform:uppercase;color:var(--muted);border-bottom:1px solid var(--axis)}
+tbody tr.hi td{background:#fff6f2}
+td.w{color:var(--crit);font-weight:600}
+td.g{color:var(--good);font-weight:600}
+/* charts */
+.legend{display:flex;flex-wrap:wrap;gap:7px 28px;font:12px/1 var(--sans);color:var(--ink2);margin-bottom:4px}
+.legend span{display:inline-flex;gap:7px;align-items:center}
+svg text{font:10.5px var(--sans);fill:var(--muted)}
+svg .axl{font:9.5px var(--mono);fill:var(--muted)}
+svg .hll{font:600 9.5px var(--mono)}
+svg .barlbl{font:600 12px var(--sans);fill:var(--ink)}
+svg .barval{font:11px var(--mono);fill:var(--ink2)}
+.chartwrap{display:flex;flex-direction:column;height:100%;min-height:0}
+.chartwrap svg{flex:1;min-height:0}
+.ptitle{font:600 12px/1.2 var(--mono);color:var(--ink2);letter-spacing:.02em;margin-bottom:2px}
+.ptitle span{color:var(--muted);font-weight:400}
+.takeaway{border:1px solid var(--grid);border-radius:6px;padding:12px 15px;background:var(--page);display:flex;gap:12px;align-items:flex-start}
+.takeaway .n{font:600 22px/1 var(--serif);color:var(--accent);flex:0 0 auto;width:24px}
+.takeaway .tx{font-size:13.5px;color:var(--ink2)}
+.takeaway .tx b{color:var(--ink)}
+@media (prefers-reduced-motion: no-preference){
+  .slide.on{animation:fadein .18s ease}
+  @keyframes fadein{from{opacity:.4}to{opacity:1}}
+}
+@media print{
+  body{overflow:visible;background:#fff}
+  .stage{position:static;transform:none!important;width:auto;height:auto}
+  .slide{display:flex;position:static;width:1280px;height:720px;page-break-after:always;margin:0 auto}
+  .nav,.arr{display:none}
+}
+/* ---------- small-multiple panel grids (this deck) ---------- */
+.g2{display:grid;grid-template-columns:1fr 1fr;gap:6px 22px;height:100%}
+.g2,.g4,.g6{padding-bottom:7px}
+.g4{display:grid;grid-template-columns:1fr 1fr;grid-template-rows:1fr 1fr;gap:8px 22px;height:100%}
+.g6{display:grid;grid-template-columns:repeat(3,1fr);grid-template-rows:1fr 1fr;gap:8px 16px;height:100%}
+.g8{display:grid;grid-template-columns:repeat(4,1fr);grid-template-rows:1fr 1fr;gap:8px 14px;height:100%}
+.pan{display:flex;flex-direction:column;min-height:0;min-width:0}
+.pan .plot{flex:1;min-height:0}
+.chartwrap svg,.pan .plot svg{display:block}
+.dsl{font:600 10px/1 var(--mono);letter-spacing:.09em;text-transform:uppercase;color:var(--accent)}
+.legend.top{margin:2px 0 12px}
+svg .pt{font:600 9px var(--mono)}
+.body:has(>.legend.top){display:flex;flex-direction:column}
+.body:has(>.legend.top)>.g4,.body:has(>.legend.top)>.g6,.body:has(>.legend.top)>.cols{height:auto;flex:1;min-height:0}
+</style>
+</head>
+
+<body>
+<div class="stage" id="stage">
+
+<!-- ============ 1 — verdict ============ -->
+<section class="slide on">
+  <div class="eyebrow">DeltaTok tokenizer <span class="dim">— tc1536 · no bottleneck · sigreg 0.02 · warmup 0 · decnoise 0.8 detach · BSC 45727710 / 45725881</span></div>
+  <h1 style="font-size:33px">A 3× SIGReg pool <span style="color:var(--good)">frees the code</span> — and costs <span style="color:var(--crit)">+16–19%</span> recon.</h1>
+  <p class="sub">One change: <span class="mono">sigreg_pool_samples</span> 8192 → 24576. At pool 24576 <span class="mono">ZPartRank</span> leaves 1.0 at ep 6 and ends at 245 of 1536.
+  At pool 8192 it parks on 1.0 from ep 4, at a third of the control's weight. But the stuck arm reconstructs better.
+  Bars are pool 24576 against pool 8192 at ep 31; every one is a loss.</p>
+  <div class="body">
+    <div class="cols c58" style="height:100%">
+      <div class="chartwrap">
+        <div class="ptitle">POOL 24576 VS POOL 8192 AT EPOCH 31 <span>· longer is worse</span></div>
+        <div class="legend"><span><i class="sw" style="border-color:var(--s1)"></i>KITTI</span>
+          <span><i class="sw" style="border-color:var(--s1);opacity:.45"></i>nuScenes</span></div>
+        <div id="chBars" style="flex:1;min-height:0"></div>
+      </div>
+      <div class="tiles" style="grid-template-columns:1fr 1fr;grid-template-rows:auto auto;align-content:center">
+        <div class="tile"><div class="k">Eval LossRecon · ep 31 <span style="color:var(--muted)">· K / nuSc</span></div>
+          <div class="v" style="font-size:22px">0.0305 <span style="color:var(--muted);font-size:14px">/</span> 0.0211</div>
+          <div class="d">pool 8192 0.0263 / 0.0177 &nbsp;<span class="chip bad">+16.0 / +19.2%</span></div></div>
+        <div class="tile"><div class="k">Train ZRowMeanSquare <span style="color:var(--muted)">· ep 31</span></div>
+          <div class="v" style="font-size:22px">1.11</div>
+          <div class="d">pool 8192 734 &nbsp;<span class="chip good">on the anchor</span></div></div>
+        <div class="tile"><div class="k">Eval ZPartRank / Cz <span style="color:var(--muted)">· KITTI · ep 31</span></div>
+          <div class="v" style="font-size:22px">15.9<span style="font-size:14px">%</span></div>
+          <div class="d">pool 8192 0.07% &nbsp;<span class="chip good">off the floor</span> &nbsp;no sigreg 4.2%</div></div>
+        <div class="tile"><div class="k"><span style="text-transform:none">σ</span>=0.82 noise penalty <span style="color:var(--muted)">· K / nuSc</span></div>
+          <div class="v" style="font-size:22px">+49.5<span style="font-size:14px">%</span> <span style="color:var(--muted);font-size:14px">/</span> +57.3<span style="font-size:14px">%</span></div>
+          <div class="d">pool 8192 +71.9 / +87.6% &nbsp;<span class="chip good">flatter</span></div></div>
+      </div>
+    </div>
+  </div>
+  <div class="foot"><span>both sets held out · single seed · token bars at ep 31, decoded bars the ep 29–31 mean · both arms stopped cleanly at ep 31</span><span class="pageno">01 / 08</span></div>
+</section>
+
+<!-- ============ 2 — the four arms ============ -->
+<section class="slide">
+  <div class="eyebrow">the comparison <span class="dim">— one pair, three references</span></div>
+  <h2>One variable between the pair. Three reference arms beside it.</h2>
+  <p class="sub">The pair differs only in <span class="mono">sigreg_pool_samples</span> and the pool tag of <span class="mono">RUN_NAME</span>. The 0.06 control, the no-SIGReg arm and tc512 each differ from the pair in more than one knob, so read them as references, not as controls.</p>
+  <div class="body">
+    <div class="cols c58" style="height:100%">
+      <div style="display:flex;flex-direction:column;min-height:0">
+        <table style="font-size:12.5px">
+          <thead><tr><th>arm</th><th>job</th><th>pool</th><th>scale</th><th>sigreg</th><th>warmup</th><th>decnoise</th><th>epoch</th></tr></thead>
+          <tbody>
+            <tr class="hi"><td style="white-space:nowrap"><span class="sw" style="border-color:var(--s1)"></span> <b>pool 24576</b></td><td class="mono">45727710</td><td>24576</td><td>33.0</td><td>0.02</td><td>0</td><td style="white-space:nowrap">0.8 det</td><td style="white-space:nowrap">31 · done</td></tr>
+            <tr class="hi"><td style="white-space:nowrap"><span class="sw" style="border-color:var(--s5)"></span> <b>pool 8192</b></td><td class="mono">45725881</td><td>8192</td><td>11.7</td><td>0.02</td><td>0</td><td style="white-space:nowrap">0.8 det</td><td style="white-space:nowrap">31 · done</td></tr>
+            <tr><td style="white-space:nowrap"><span class="sw" style="border-color:var(--s2)"></span> dn control</td><td class="mono">45610897</td><td>8192</td><td>11.7</td><td>0.06</td><td>2000</td><td style="white-space:nowrap">0.8 det</td><td style="white-space:nowrap">32 · canc</td></tr>
+            <tr><td style="white-space:nowrap"><span class="sw" style="border-color:var(--s3)"></span> tc1536 no sigreg</td><td class="mono">44352020</td><td>–</td><td>–</td><td>0</td><td>–</td><td>off</td><td style="white-space:nowrap">48 · done</td></tr>
+            <tr><td style="white-space:nowrap"><span class="sw" style="border-color:var(--s4)"></span> detach tc512</td><td class="mono">45665286</td><td>8192</td><td>11.7</td><td>0.02</td><td>2000</td><td style="white-space:nowrap">0.8 det</td><td style="white-space:nowrap">99 · done</td></tr>
+          </tbody>
+        </table>
+        <div class="rulebar" style="margin-top:14px">tc1536 arms: no bottleneck, <span class="mono">sigreg_num_slices 3072</span>. tc512: native bottleneck, 1024 slices. All but no-SIGReg, which predates it: <span class="mono">compose_weight 1.0</span>. The four decnoise arms share <span class="mono">tau 0.8</span>, weight 1.0, warmup 2000.</div>
+        <div class="rulebar" style="margin-top:10px"><span class="mono">scale = n_pooled / n_live</span> (<span class="mono">deltatok_trainer.py:701</span>). The 2026-07-31 pool 32768 arm at scale 43.7 stalled at the untrained 0.126 loss. This arm runs at 33.0.</div>
+        <div class="rulebar" style="margin-top:10px">Why the pool: at S = 8192 SIGReg's finite-sample floor is <b>1.32e-4</b>, against a <b>1.65e-4</b> anisotropy signal at Cz = 1536. It can barely see a rank collapse.</div>
+      </div>
+      <div class="tiles" style="grid-template-rows:auto auto auto;align-content:start">
+        <div class="tile"><div class="k">the ep-4 stall guard</div>
+          <div class="v" style="font-size:20px;color:var(--good)">PASSED</div>
+          <div class="d">“kill it if 45727710 still sits near 0.126 at ep 4”. It read <b>0.1076</b> KITTI against pool 8192's 0.0690. Late, not stalled.</div></div>
+        <div class="tile"><div class="k">how both ended</div>
+          <div class="v" style="font-size:20px">ep 31 · 0:0</div>
+          <div class="d"><span class="mono">exit_before_time_limit</span> at 19.8 h of 20 h. <span class="mono">current.pth</span> and <span class="mono">epoch_30.pth</span> are on scratch. Neither is chained.</div></div>
+        <div class="tile"><div class="k">matched read epoch</div>
+          <div class="v" style="font-size:20px">31</div>
+          <div class="d">the pair's last epoch. Curves run to 32, the control's last; the no-SIGReg and tc512 arms are clipped there.</div></div>
+      </div>
+    </div>
+  </div>
+  <div class="foot"><span>configs grepped from each job's EXTRA_CFG line in the cached BSC stdout</span><span class="pageno">02 / 08</span></div>
+</section>
+
+<!-- ============ 3 — the code ============ -->
+<section class="slide">
+  <div class="eyebrow">what the pool changed <span class="dim">— z scale and z rank</span></div>
+  <h2>Pool 24576 escapes rank 1.0 at ep 6. Pool 8192 enters it at ep 4.</h2>
+  <p class="sub">Both arms start the same. Pool 24576 spikes to <span class="mono">ZRowMeanSquare</span> 2e4 at ep 1, then settles on the anchor by ep 5. Pool 8192 drifts into the sparse tail at ep 3–4 and joins the 0.06 control there. At ep 31 pool 24576's rank is <b>245 / 352</b> of 1536, 3.8× the no-SIGReg arm's 64 / 69.</p>
+  <div class="body">
+    <div class="legend top"><span><i class="sw" style="border-color:var(--s1)"></i>pool 24576 · sigreg 0.02</span><span><i class="sw" style="border-color:var(--s5)"></i>pool 8192 · sigreg 0.02</span><span><i class="sw" style="border-color:var(--s2)"></i>dn control · sigreg 0.06</span><span><i class="sw" style="border-color:var(--s3)"></i>tc1536 · no sigreg</span><span><i class="sw" style="border-color:var(--s4)"></i>detach tc512 · sigreg 0.02</span></div>
+    <div class="g4">
+      <div class="pan"><div class="ptitle">TRAIN ZRowMeanSquare <span>· log · target 1</span></div><div class="plot" id="p31"></div></div>
+      <div class="pan"><div class="ptitle">TRAIN ZMeanAbsMax <span>· log · the tail</span></div><div class="plot" id="p32"></div></div>
+      <div class="pan"><div class="ptitle">EVAL ZPartRank / Cz · KITTI <span>· % of own Cz</span></div><div class="plot" id="p33"></div></div>
+      <div class="pan"><div class="ptitle">EVAL ZPartRank / Cz · nuScenes <span>· % of own Cz</span></div><div class="plot" id="p34"></div></div>
+    </div>
+  </div>
+  <div class="foot"><span>no-SIGReg: no [Train] z line, and KITTI only (its nuScenes eval set differs) · floor 0.065% = rank 1.0 at Cz 1536 · tc512 is Cz 512</span><span class="pageno">03 / 08</span></div>
+</section>
+
+<!-- ============ 4 — token recon ============ -->
+<section class="slide">
+  <div class="eyebrow">what it cost <span class="dim">— token reconstruction</span></div>
+  <h2>The free code lands on the control's curve, far above no SIGReg's.</h2>
+  <p class="sub">Pool 24576 drops ~3 epochs late: <span class="mono">LossRecon</span> passes 0.05 at ep 9, pool 8192 at ep 6. It never catches up. At ep 31 it is <b>+16.0%</b> KITTI over pool 8192 and level with the 0.06 control (+3.0%). The stuck pool 8192 arm is <b>−11.1%</b> under the control. No SIGReg at all reaches 0.0167, and pool 24576 is +82.9% over it.</p>
+  <div class="body">
+    <div class="legend top"><span><i class="sw" style="border-color:var(--s1)"></i>pool 24576 · sigreg 0.02</span><span><i class="sw" style="border-color:var(--s5)"></i>pool 8192 · sigreg 0.02</span><span><i class="sw" style="border-color:var(--s2)"></i>dn control · sigreg 0.06</span><span><i class="sw" style="border-color:var(--s3)"></i>tc1536 · no sigreg</span><span><i class="sw" style="border-color:var(--s4)"></i>detach tc512 · sigreg 0.02</span></div>
+    <div class="g4">
+      <div class="pan"><div class="ptitle">LossRecon · KITTI <span>· teacher forcing</span></div><div class="plot" id="p41"></div></div>
+      <div class="pan"><div class="ptitle">LossRecon · nuScenes <span>· teacher forcing</span></div><div class="plot" id="p42"></div></div>
+      <div class="pan"><div class="ptitle">LossRecon_AR · KITTI <span>· rollout</span></div><div class="plot" id="p43"></div></div>
+      <div class="pan"><div class="ptitle">LossRecon_AR · nuScenes <span>· rollout</span></div><div class="plot" id="p44"></div></div>
+    </div>
+  </div>
+  <div class="foot"><span>log y · 206 windows per set, held out · no-SIGReg is KITTI only: its nuScenes eval set differs</span><span class="pageno">04 / 08</span></div>
+</section>
+
+<!-- ============ 5 — round trip ============ -->
+<section class="slide">
+  <div class="eyebrow">the decoded cost <span class="dim">— PredVsOrig, the tokenizer's own round trip</span></div>
+  <h2>Decoded, the gap to pool 8192 holds at +10–16%, and widens in the rollout.</h2>
+  <p class="sub"><span class="mono">PredVsOrig</span> compares the decode against the frozen teacher's own token, so no teacher error is folded in. Averaged over ep 29–31, pool 24576 is +10.0 to +16.4% over pool 8192 with teacher forcing and +14.6 to +24.4% in the rollout. It still beats the 0.06 control by 3–9%.</p>
+  <div class="body">
+    <div class="legend top"><span><i class="sw" style="border-color:var(--s1)"></i>pool 24576 · sigreg 0.02</span><span><i class="sw" style="border-color:var(--s5)"></i>pool 8192 · sigreg 0.02</span><span><i class="sw" style="border-color:var(--s2)"></i>dn control · sigreg 0.06</span><span><i class="sw" style="border-color:var(--s3)"></i>tc1536 · no sigreg</span><span><i class="sw" style="border-color:var(--s4)"></i>detach tc512 · sigreg 0.02</span></div>
+    <div class="g6">
+      <div class="pan"><div class="ptitle">DEPTH · KITTI</div><div class="plot" id="p51"></div></div>
+      <div class="pan"><div class="ptitle">POINTMAP · KITTI</div><div class="plot" id="p52"></div></div>
+      <div class="pan"><div class="ptitle">RAYMAP · KITTI</div><div class="plot" id="p53"></div></div>
+      <div class="pan"><div class="ptitle">DEPTH · nuScenes</div><div class="plot" id="p54"></div></div>
+      <div class="pan"><div class="ptitle">POINTMAP · nuScenes</div><div class="plot" id="p55"></div></div>
+      <div class="pan"><div class="ptitle">RAYMAP · nuScenes</div><div class="plot" id="p56"></div></div>
+    </div>
+  </div>
+  <div class="foot"><span>PredVsOrig · log y · ep 29–31 mean pointmap KITTI 0.437 · pool 8192 0.393 · no SIGReg 0.330 · no-SIGReg KITTI only</span><span class="pageno">05 / 08</span></div>
+</section>
+
+<!-- ============ 6 — against the teacher ============ -->
+<section class="slide">
+  <div class="eyebrow">against ground truth <span class="dim">— PredVsGT, with the teacher's own floor</span></div>
+  <h2>Against ground truth the four tc1536 arms sit on the teacher's floor. tc512 does not.</h2>
+  <p class="sub">The dashed line is <span class="mono">OrigVsGT</span>, what the frozen teacher's token already costs. At ep 29–31 the tc1536 arms are within <b>3.5%</b> of each other on every panel. This readout cannot rank the pair; the round trip on slide 5 can.</p>
+  <div class="body">
+    <div class="legend top"><span><i class="sw" style="border-color:var(--s1)"></i>pool 24576 · sigreg 0.02</span><span><i class="sw" style="border-color:var(--s5)"></i>pool 8192 · sigreg 0.02</span><span><i class="sw" style="border-color:var(--s2)"></i>dn control · sigreg 0.06</span><span><i class="sw" style="border-color:var(--s3)"></i>tc1536 · no sigreg</span><span><i class="sw" style="border-color:var(--s4)"></i>detach tc512 · sigreg 0.02</span><span><i class="sw" style="border-color:var(--muted);border-top-style:dashed"></i>teacher floor · OrigVsGT</span></div>
+    <div class="g4">
+      <div class="pan"><div class="ptitle">POINTMAP PredVsGT · KITTI <span>· floor 2.402</span></div><div class="plot" id="p61"></div></div>
+      <div class="pan"><div class="ptitle">POINTMAP PredVsGT · nuScenes <span>· floor 3.224</span></div><div class="plot" id="p62"></div></div>
+      <div class="pan"><div class="ptitle">DEPTH PredVsGT · KITTI <span>· floor 1.657</span></div><div class="plot" id="p63"></div></div>
+      <div class="pan"><div class="ptitle">DEPTH PredVsGT · nuScenes <span>· floor 2.532</span></div><div class="plot" id="p64"></div></div>
+    </div>
+  </div>
+  <div class="foot"><span>OrigVsGT: the frozen teacher's token vs GT · KITTI floor identical in all five runs · no-SIGReg KITTI only (its nuScenes floor is 3.322)</span><span class="pageno">06 / 08</span></div>
+</section>
+
+<!-- ============ 7 — the ladder ============ -->
+<section class="slide">
+  <div class="eyebrow">the noise ladder <span class="dim">— LossRecon at σ ∈ {0, 0.32, 0.55, 0.82}, ep 31</span></div>
+  <h2>At σ = 0.82 the two pool arms land on the same loss.</h2>
+  <p class="sub">Pool 24576 starts higher and pays less per unit of noise, so the pair meets at σ = 0.82: <b>0.0456 vs 0.0452</b> KITTI, <b>0.0332</b> on both for nuScenes. tc512 starts highest but rises least. tc128 ft10 rises most. These are token losses: on the decoded Waymo flow ladder, ft10’s raymap is flat (1.648 → 1.672) but its pointmap rises 6.5%, against 1.2% for tc512. Caveat: σ is absolute, and pool 8192’s RMS of 872 is a sparse tail.</p>
+  <div class="body">
+    <div class="legend top"><span><i class="sw" style="border-color:var(--s1)"></i>pool 24576 · sigreg 0.02</span><span><i class="sw" style="border-color:var(--s5)"></i>pool 8192 · sigreg 0.02</span><span><i class="sw" style="border-color:var(--s2)"></i>dn control · sigreg 0.06</span><span><i class="sw" style="border-color:var(--s4)"></i>detach tc512 · sigreg 0.02</span><span><i class="sw" style="border-color:var(--s6)"></i>tc128 ft10 · sigreg 0.005</span></div>
+    <div class="cols c2" style="flex:1;min-height:0">
+      <div class="pan"><div class="ptitle">LossRecon AT σ · KITTI <span>· ep 31</span></div>
+        <div class="plot" id="p71"></div></div>
+      <div class="pan"><div class="ptitle">LossRecon AT σ · nuScenes <span>· ep 31</span></div>
+        <div class="plot" id="p72"></div></div>
+    </div>
+  </div>
+  <div class="foot"><span>tc128 ft10 = eval-only BSC:45819072 on its ep-10 ckpt, 1 GPU (floor 2.3946 vs 2.4022) · no-SIGReg tc1536 has no ladder</span><span class="pageno">07 / 08</span></div>
+</section>
+
+<!-- ============ 8 — verdict ============ -->
+<section class="slide">
+  <div class="eyebrow">verdict <span class="dim">— what the pool pair settles</span></div>
+  <h2>The pool frees the code. Recon did not need it freed.</h2>
+  <p class="sub">The 09-11 read named two suspects for the stuck tc1536 code: SIGReg's sensitivity at a small pool, and the weight. This pair answers the first and narrows the second.</p>
+  <div class="body">
+    <div class="cols c2" style="height:100%">
+      <div style="display:flex;flex-direction:column;gap:10px;min-height:0">
+        <div class="takeaway"><div class="n">1</div><div class="tx"><b>The pool is the lever for rank.</b> Pool 24576 leaves <span class="mono">ZPartRank</span> 1.0 at ep 6 and ends at 15.9% / 22.9% of Cz, with train <span class="mono">ZRowMeanSquare</span> 1.11. No bottleneck, no norm on <span class="mono">z</span>.</div></div>
+        <div class="takeaway"><div class="n">2</div><div class="tx"><b>Cutting the weight to 0.02 did not free the code.</b> Pool 8192 at 0.02 enters rank 1.0 at ep 4 and stays there to ep 31, like the 0.06 control.</div></div>
+        <div class="takeaway"><div class="n">3</div><div class="tx"><b>The stuck code is the better code for recon.</b> Pool 8192 is −11.1% / −16.5% under the control, and +57.7% over no SIGReg on KITTI. Pool 24576 is +16.0% / +19.2% over pool 8192. <span class="mono">ZPartRank</span> 1.0 is a tail statistic; it does not measure what the decoder uses.</div></div>
+        <div class="takeaway"><div class="n">4</div><div class="tx"><b>No stall.</b> The 2026-07-31 pool failure did not reproduce at scale 33.0 with <span class="mono">sw0</span>. The cost is ~3 epochs of delay and a higher plateau.</div></div>
+      </div>
+      <div style="display:flex;flex-direction:column;gap:10px;min-height:0">
+        <div class="card"><div class="tag">open question</div>
+          <h3>Which code does the flow want?</h3>
+          <p style="font-size:13px;color:var(--ink2);margin-top:4px">The token loss prefers pool 8192. A flow model over a code with RMS 872 carried by a sparse tail is a different problem than one over unit-scale <span class="mono">z</span>. Only a flow read can pick between them.</p></div>
+        <div class="card"><div class="tag">state</div>
+          <h3>Both arms stopped at ep 31, not chained</h3>
+          <p style="font-size:13px;color:var(--ink2);margin-top:4px">Both COMPLETED <span class="mono">0:0</span> on 09-12 at ~11:20, 37 min/epoch. <span class="mono">current.pth</span> (ep 31) and <span class="mono">epoch_30.pth</span> are in each run's <span class="mono">ckpts/</span>. A plain relaunch of each resumes it.</p></div>
+        <div class="rulebar">Read at ep <b>31</b>. Single seed. The no-SIGReg reference also lacks compose and decnoise, so its gaps are not one-variable.</div>
+      </div>
+    </div>
+  </div>
+  <div class="foot"><span>plan: plan/2026-09-09_tc_width_decnoise_detach_tc1536.md · TODO 14 · thread tc_width</span><span class="pageno">08 / 08</span></div>
+</section>
+
+</div>
+
+<button class="arr" id="prev" aria-label="Previous slide">‹</button>
+<button class="arr" id="next" aria-label="Next slide">›</button>
+<div class="nav" id="nav" role="tablist" aria-label="Slides"></div>
+
+<script>
+/* ---------- deck nav ---------- */
+const stage=document.getElementById("stage");
+const slides=[...document.querySelectorAll(".slide")];
+const nav=document.getElementById("nav");
+let cur=0;
+slides.forEach((_,i)=>{
+  const b=document.createElement("button");
+  b.setAttribute("role","tab");b.setAttribute("aria-label","Slide "+(i+1));
+  b.addEventListener("click",()=>go(i));
+  nav.appendChild(b);
+});
+function go(i){
+  cur=Math.max(0,Math.min(slides.length-1,i));
+  slides.forEach((s,j)=>s.classList.toggle("on",j===cur));
+  [...nav.children].forEach((b,j)=>b.classList.toggle("cur",j===cur));
+}
+document.getElementById("prev").addEventListener("click",()=>go(cur-1));
+document.getElementById("next").addEventListener("click",()=>go(cur+1));
+addEventListener("keydown",e=>{
+  if(["ArrowRight","PageDown"," "].includes(e.key)){go(cur+1);e.preventDefault();}
+  else if(["ArrowLeft","PageUp"].includes(e.key)){go(cur-1);e.preventDefault();}
+  else if(e.key==="Home")go(0);
+  else if(e.key==="End")go(slides.length-1);
+});
+go(0);
+/* ---------- auto-scale ---------- */
+function fit(){
+  const s=Math.min(innerWidth/1300,(innerHeight-40)/730);
+  stage.style.transform=`translate(-50%,-50%) scale(${Math.min(s,1.4)})`;
+}
+addEventListener("resize",fit);fit();
+
+/* ---------- CSS var resolver (for SVG strokes) ---------- */
+const CV=n=>getComputedStyle(document.documentElement).getPropertyValue(n).trim();
+
+/* ---------- multi-series epoch line chart; data[i] is epoch xmin+i ---------- */
+function lineChart(el,cfg){
+  const W=cfg.W||600,H=cfg.H||300,L=cfg.L||44,R=cfg.R||52,T=cfg.T||10,B=cfg.B||26,
+        iw=W-L-R, ih=H-T-B;
+  const {ymin,ymax,yticks,xmax,xticks,log}=cfg, xmin=cfg.xmin||0, span=xmax-xmin;
+  const f=log?Math.log10:(v=>v), y0=f(ymin), y1=f(ymax);
+  const XE=e=>L+iw*((e-xmin)/span);
+  const Y=v=>T+ih*(1-(f(Math.min(Math.max(v,ymin),ymax))-y0)/(y1-y0));
+  const fmt=cfg.fmt||(t=>t.toFixed(4));
+  let s=`<svg viewBox="0 0 ${W} ${H}" width="100%" height="100%" preserveAspectRatio="xMidYMid meet">`;
+  yticks.forEach(t=>{const y=Y(t);
+    s+=`<line x1="${L}" y1="${y}" x2="${L+iw}" y2="${y}" stroke="${CV('--grid')}"/>`;
+    s+=`<text x="${L-6}" y="${y+3}" text-anchor="end" class="axl">${fmt(t)}</text>`;});
+  xticks.forEach(t=>s+=`<text x="${XE(t)}" y="${H-9}" text-anchor="middle" class="axl">${t}</text>`);
+  cfg.series.forEach(se=>{const c=CV(se.color);
+    const d=se.data.map((v,i)=>`${i?'L':'M'}${XE(xmin+i).toFixed(1)} ${Y(v).toFixed(1)}`).join(' ');
+    s+=`<path d="${d}" fill="none" stroke="${c}" stroke-width="${se.width||1.8}" opacity="${se.faint?.5:1}" ${se.dash?`stroke-dasharray="${se.dash}"`:''}/>`;
+    const n=se.data.length-1, lx=XE(xmin+n), ly=Y(se.data[n]);
+    s+=`<circle cx="${lx.toFixed(1)}" cy="${ly.toFixed(1)}" r="2.4" fill="${c}" opacity="${se.faint?.5:1}"/>`;
+    if(se.tag&&!se.faint) s+=`<text x="${lx+5}" y="${ly+3.5}" class="hll" fill="${c}" opacity="${se.faint?.6:1}">${se.tag}</text>`;});
+  s+=`<text x="${L+iw/2}" y="${H-0.5}" text-anchor="middle" class="axl">${cfg.xlab||'epoch'}</text></svg>`;
+  el.innerHTML=s;
+}
+
+/* ---------- diverging horizontal bars, zero-centred: one row per metric, n bars per row ---------- */
+function barsH(el,cfg){
+  const W=cfg.W||560,H=cfg.H||420,L=cfg.L||96,R=44,T=8,B=26, iw=W-L-R, ih=H-T-B;
+  const lo=cfg.lo!==undefined?cfg.lo:-cfg.lim, hi=cfg.hi!==undefined?cfg.hi:cfg.lim;
+  const X=v=>L+iw*(v-lo)/(hi-lo);                    // symmetric about zero unless lo/hi given
+  const x0=X(0), rowh=ih/cfg.rows.length;
+  let s=`<svg viewBox="0 0 ${W} ${H}" width="100%" height="100%" preserveAspectRatio="xMidYMid meet">`;
+  (cfg.xticks||[]).forEach(t=>{const x=X(t);
+    s+=`<line x1="${x}" y1="${T}" x2="${x}" y2="${T+ih}" stroke="${CV(t===0?'--axis':'--grid')}"/>`;
+    s+=`<text x="${x}" y="${H-9}" text-anchor="middle" class="axl">${t}%</text>`;});
+  cfg.rows.forEach((r,ri)=>{
+    const top=T+ri*rowh, nb=r.bars.length, bh=Math.min(11,(rowh-10)/nb), pad=(rowh-nb*bh-2)/2;
+    s+=`<text x="${L-8}" y="${top+rowh/2+3.5}" text-anchor="end" class="barlbl" style="font-size:11px">${r.l}</text>`;
+    r.bars.forEach((b,bi)=>{const y=top+pad+bi*bh, x=X(b.v), c=CV(b.color);
+      s+=`<rect x="${Math.min(x,x0).toFixed(1)}" y="${y.toFixed(1)}" width="${Math.abs(x0-x).toFixed(1)}" height="${(bh-1.6).toFixed(1)}" fill="${c}" opacity="${b.op||1}"/>`;
+      s+=`<text x="${(b.v<0?x-4:x+4).toFixed(1)}" y="${(y+bh-2).toFixed(1)}" text-anchor="${b.v<0?'end':'start'}" class="barval" style="opacity:${b.op||1}">${b.v.toFixed(1)}</text>`;});
+  });
+  s+=`</svg>`; el.innerHTML=s;
+}
+
+
+/* ================= DATA =================
+   Every scalar is grepped from the cached BSC stdout of each job
+   (../../../../monitor_jobs/data/logs/BSC/): deltatok_dn1536_pool24576_sw0_45727710.out,
+   deltatok_dn1536_sr0.02_sw0_45725881.out, deltatok_dn_dt1536_bsc_45610897.out,
+   no-SIGReg 44352020 from its BSC TB event file (KITTI only), deltatok_decnoise_dt_bsc_45578805.out +
+   _45665286.out. Index i is epoch i; series are
+   clipped at epoch 32, the control's last. _P24 pool 24576 · _P8 pool 8192 ·
+   _DN tc1536 control 0.06 · _PL tc1536 no sigreg · _D5 detach tc512. RK_* are ZPartRank as % of own Cz.
+   ============================================ */
+var LR_K_P24=[0.1403,0.1362,0.133,0.1219,0.1076,0.0874,0.0659,0.0555,0.0507,0.0465,0.0442,0.0416,0.0403,0.0389,0.0374,0.0367,0.0358,0.0349,0.0343,0.034,0.0334,0.0329,0.0326,0.0326,0.032,0.0317,0.0316,0.0311,0.0309,0.0307,0.0305,0.0305];
+var LR_K_P8=[0.1403,0.1372,0.128,0.1033,0.069,0.0526,0.0459,0.042,0.0398,0.0377,0.0365,0.0349,0.0337,0.0333,0.0327,0.032,0.0311,0.0308,0.0303,0.0297,0.0292,0.0292,0.0293,0.029,0.0284,0.028,0.0279,0.0274,0.0269,0.0266,0.0266,0.0263];
+var LR_K_DN=[0.1409,0.1381,0.1325,0.1184,0.1019,0.086,0.0697,0.0608,0.0529,0.0482,0.0453,0.0434,0.0414,0.04,0.0387,0.0376,0.0366,0.0354,0.0346,0.034,0.0334,0.0329,0.0325,0.0322,0.0316,0.0312,0.0308,0.0307,0.0302,0.0304,0.03,0.0296,0.0294];
+
+var LR_N_P24=[0.1036,0.0984,0.1005,0.0846,0.0756,0.0628,0.0503,0.04,0.0363,0.0333,0.0312,0.0292,0.0283,0.0274,0.0262,0.0258,0.0251,0.0245,0.0242,0.024,0.0235,0.0231,0.0228,0.0228,0.0223,0.0221,0.022,0.0217,0.0215,0.0213,0.0211,0.0211];
+var LR_N_P8=[0.1038,0.0977,0.0913,0.0734,0.0521,0.0381,0.0322,0.0291,0.0276,0.0259,0.0249,0.0238,0.0229,0.0227,0.0223,0.0217,0.021,0.0208,0.0205,0.0201,0.0198,0.0198,0.0199,0.0197,0.0192,0.0189,0.0188,0.0185,0.0182,0.018,0.0179,0.0177];
+var LR_N_DN=[0.104,0.0977,0.0921,0.0818,0.0715,0.0617,0.0516,0.0449,0.0389,0.0348,0.0327,0.0312,0.0298,0.0289,0.028,0.0271,0.0264,0.0257,0.025,0.0245,0.024,0.0236,0.0232,0.0231,0.0226,0.0225,0.0221,0.022,0.0217,0.0218,0.0215,0.0212,0.0211];
+
+var LRA_K_P24=[0.1538,0.1462,0.1431,0.1303,0.1166,0.0931,0.0703,0.0591,0.0551,0.049,0.0477,0.0441,0.0429,0.0415,0.0401,0.04,0.0381,0.0372,0.0371,0.0365,0.0356,0.0349,0.0347,0.0346,0.0339,0.0335,0.0337,0.0329,0.0329,0.0327,0.0326,0.0321];
+var LRA_K_P8=[0.1515,0.1459,0.1356,0.1093,0.0731,0.056,0.0485,0.0454,0.0426,0.0403,0.0395,0.0373,0.0363,0.0363,0.0353,0.0339,0.0329,0.0329,0.0325,0.0318,0.031,0.0311,0.0313,0.0308,0.0302,0.0299,0.0298,0.0291,0.0284,0.0283,0.0285,0.028];
+var LRA_K_DN=[0.1512,0.1453,0.1422,0.1274,0.1085,0.0914,0.0739,0.0651,0.0566,0.0516,0.0489,0.0464,0.0444,0.0432,0.0419,0.0407,0.039,0.0381,0.0372,0.0366,0.0356,0.0353,0.0352,0.0345,0.0338,0.0335,0.0331,0.0328,0.0325,0.0328,0.0322,0.0316,0.0314];
+
+var LRA_N_P24=[0.1164,0.1117,0.1129,0.095,0.0859,0.0704,0.056,0.0444,0.0411,0.0364,0.0349,0.0322,0.0314,0.0303,0.029,0.0292,0.0278,0.0272,0.0269,0.0269,0.026,0.0255,0.0251,0.0252,0.0246,0.0244,0.0244,0.0239,0.0238,0.0235,0.0233,0.0232];
+var LRA_N_P8=[0.1196,0.1101,0.1021,0.0817,0.0578,0.0423,0.0357,0.0329,0.0312,0.029,0.0281,0.0266,0.0256,0.0256,0.0251,0.0239,0.0233,0.0231,0.0228,0.0224,0.0219,0.0221,0.0221,0.0219,0.0212,0.0211,0.0211,0.0205,0.0201,0.0199,0.02,0.0197];
+var LRA_N_DN=[0.1164,0.1104,0.1033,0.0921,0.0801,0.0691,0.0573,0.0499,0.0436,0.0386,0.0365,0.0349,0.0331,0.0321,0.0314,0.0303,0.0293,0.0286,0.0279,0.0274,0.0265,0.0262,0.026,0.0258,0.025,0.0251,0.0246,0.0244,0.0242,0.0242,0.0239,0.0235,0.0233];
+
+var PM_K_P24=[22.8,5.724,7.092,7.225,2.159,1.312,0.7439,0.6974,0.6503,0.6252,0.6606,0.4761,0.4991,0.5931,0.5102,0.5539,0.4862,0.459,0.4909,0.5003,0.4919,0.4833,0.4134,0.4527,0.4466,0.4151,0.4586,0.3946,0.4654,0.4595,0.418,0.4347];
+var PM_K_P8=[21.64,7.683,12.17,2.146,0.8849,0.7924,0.5752,0.5511,0.4558,0.4486,0.4688,0.4738,0.4529,0.4736,0.4893,0.4547,0.4319,0.4965,0.4409,0.4347,0.4039,0.402,0.3918,0.4239,0.3758,0.3696,0.3908,0.3856,0.3758,0.3865,0.3899,0.4033];
+var PM_K_DN=[26.77,5.58,6.162,6.433,1.851,1.417,0.8353,0.6884,0.5846,0.6213,0.56,0.6134,0.5303,0.6967,0.6124,0.5451,0.4954,0.4642,0.5655,0.5648,0.4505,0.5018,0.4636,0.6099,0.5917,0.4552,0.459,0.4161,0.4662,0.4368,0.4541,0.5233,0.562];
+
+var PM_N_P24=[16.61,7.55,13.45,8.046,2.652,1.249,0.8778,0.677,0.5796,0.4635,0.549,0.4717,0.4249,0.459,0.4576,0.4214,0.447,0.399,0.4433,0.432,0.4054,0.4017,0.3903,0.3787,0.3776,0.3515,0.3962,0.3432,0.3955,0.3733,0.3791,0.3574];
+var PM_N_P8=[17.39,7.891,9.765,2.217,0.971,0.7362,0.4617,0.4837,0.4695,0.398,0.4588,0.4215,0.4053,0.3713,0.401,0.365,0.3989,0.3757,0.348,0.3344,0.3489,0.35,0.3211,0.3755,0.3462,0.3293,0.3489,0.3011,0.3167,0.3278,0.331,0.3225];
+var PM_N_DN=[19.49,6.461,8.196,7.061,2.046,1.443,0.9422,0.725,0.7553,0.5237,0.5831,0.4613,0.4718,0.5014,0.4644,0.45,0.4167,0.4532,0.4137,0.4111,0.3751,0.4143,0.3614,0.4122,0.3946,0.405,0.4019,0.4063,0.3714,0.3781,0.3723,0.3936,0.3857];
+
+var DP_K_P24=[3.4,2.814,2.638,1.871,1.266,0.8456,0.538,0.4759,0.4355,0.4086,0.5373,0.3605,0.3557,0.3999,0.3706,0.4049,0.3708,0.3303,0.3749,0.3536,0.3567,0.3309,0.315,0.3185,0.3257,0.2882,0.3304,0.2716,0.3585,0.3396,0.2995,0.3252];
+var DP_K_P8=[3.516,2.861,2.407,1.245,0.6306,0.5779,0.3923,0.4347,0.3113,0.3147,0.3348,0.3862,0.3074,0.3321,0.3456,0.3304,0.2921,0.3388,0.3216,0.2947,0.2932,0.286,0.2756,0.2848,0.2659,0.2696,0.2779,0.2788,0.2603,0.2757,0.2644,0.2884];
+var DP_K_DN=[3.711,2.724,2.599,1.667,1.141,0.8588,0.5426,0.4632,0.3972,0.4124,0.4159,0.4258,0.3823,0.4997,0.4466,0.405,0.3497,0.3398,0.4022,0.4159,0.3261,0.3665,0.3215,0.4254,0.4292,0.3222,0.326,0.303,0.3403,0.3148,0.3269,0.3841,0.4088];
+
+var DP_N_P24=[3.44,2.743,3.344,2.191,1.514,0.8957,0.6258,0.4762,0.4036,0.3235,0.3897,0.3284,0.2909,0.3039,0.3161,0.2997,0.3008,0.2694,0.3128,0.2869,0.2706,0.2697,0.2616,0.2566,0.2519,0.2374,0.2636,0.2328,0.2651,0.2534,0.2516,0.2431];
+var DP_N_P8=[3.607,2.822,2.598,1.383,0.6944,0.5338,0.3296,0.327,0.3204,0.2823,0.3085,0.2954,0.2754,0.2565,0.2662,0.2462,0.2752,0.2551,0.2399,0.2309,0.2315,0.2336,0.2179,0.2501,0.2337,0.2239,0.2352,0.2133,0.2118,0.2188,0.2219,0.219];
+var DP_N_DN=[3.833,2.671,2.61,1.916,1.299,0.9806,0.6512,0.52,0.5067,0.3668,0.3999,0.3358,0.3329,0.353,0.3296,0.3139,0.2956,0.3237,0.299,0.2916,0.2577,0.2892,0.2531,0.2865,0.2735,0.2785,0.2784,0.2799,0.2593,0.2604,0.247,0.2684,0.2561];
+
+var RM_K_P24=[20.39,4.918,6.077,6.659,1.396,0.746,0.4256,0.4015,0.3914,0.3944,0.3552,0.2508,0.2834,0.3557,0.2731,0.2954,0.2626,0.2528,0.2754,0.2768,0.2655,0.275,0.2191,0.2597,0.2376,0.2339,0.251,0.2131,0.2291,0.2438,0.2305,0.2266];
+var RM_K_P8=[19.04,6.904,11.44,1.359,0.5109,0.4575,0.3209,0.3123,0.2537,0.2577,0.2965,0.2377,0.2471,0.2654,0.2911,0.2509,0.255,0.2939,0.2313,0.2347,0.2128,0.2172,0.2122,0.2507,0.2032,0.1953,0.2157,0.2136,0.196,0.2149,0.2106,0.2118];
+var RM_K_DN=[23.65,4.614,5.113,6.025,1.127,0.8062,0.4887,0.4145,0.3576,0.3918,0.3336,0.3501,0.2972,0.3997,0.3274,0.3115,0.2904,0.2585,0.3032,0.2987,0.2455,0.2772,0.2654,0.3406,0.3018,0.2627,0.2468,0.2305,0.246,0.2381,0.2579,0.271,0.2965];
+
+var RM_N_P24=[13.15,5.863,10.56,6.131,1.722,0.6623,0.4272,0.336,0.2984,0.251,0.2736,0.2368,0.2302,0.2522,0.2369,0.2243,0.238,0.2221,0.2414,0.2469,0.2239,0.2219,0.2222,0.2078,0.2123,0.1925,0.2228,0.1881,0.2198,0.2005,0.2172,0.1967];
+var RM_N_P8=[14.56,6.144,7.531,1.361,0.4785,0.3454,0.2472,0.2707,0.2532,0.2103,0.257,0.2241,0.2154,0.1981,0.2253,0.2063,0.2184,0.2059,0.1903,0.1778,0.1952,0.1939,0.1795,0.2075,0.1929,0.1822,0.1923,0.1644,0.1795,0.1768,0.1886,0.1821];
+var RM_N_DN=[16.18,4.8,6.184,5.417,1.262,0.7446,0.4721,0.3681,0.3868,0.2756,0.2961,0.2379,0.2406,0.276,0.2436,0.2384,0.2172,0.2362,0.2143,0.2188,0.2067,0.2211,0.1969,0.2186,0.2083,0.2185,0.2114,0.2181,0.1985,0.2006,0.2117,0.2179,0.2119];
+
+var PMG_K_P24=[22.35,5.619,7.67,8.197,3.536,3.128,2.553,2.607,2.393,2.532,2.444,2.389,2.438,2.357,2.332,2.313,2.33,2.384,2.355,2.377,2.326,2.371,2.349,2.387,2.407,2.456,2.313,2.42,2.294,2.282,2.356,2.303];
+var PMG_K_P8=[21.16,7.811,12.87,3.795,2.456,2.203,2.312,2.367,2.423,2.478,2.473,2.287,2.491,2.325,2.429,2.387,2.462,2.347,2.318,2.356,2.382,2.373,2.426,2.378,2.388,2.381,2.436,2.375,2.39,2.407,2.425,2.333];
+var PMG_K_DN=[26.2,5.05,6.339,7.398,3.094,2.95,2.687,2.503,2.487,2.518,2.417,2.303,2.331,2.189,2.211,2.267,2.339,2.351,2.263,2.207,2.377,2.343,2.381,2.225,2.167,2.393,2.309,2.353,2.284,2.314,2.369,2.236,2.175];
+
+var PMG_N_P24=[16.83,8.29,14.01,9.036,4.559,3.7,3.546,3.473,3.434,3.352,3.369,3.34,3.329,3.369,3.355,3.34,3.345,3.334,3.343,3.367,3.349,3.352,3.318,3.332,3.331,3.305,3.342,3.306,3.331,3.32,3.345,3.323];
+var PMG_N_P8=[17.62,8.593,10.54,4.233,3.583,3.48,3.321,3.384,3.386,3.332,3.383,3.34,3.346,3.324,3.346,3.331,3.34,3.343,3.301,3.284,3.334,3.33,3.278,3.342,3.324,3.307,3.331,3.277,3.296,3.315,3.324,3.302];
+var PMG_N_DN=[19.66,7.222,8.939,8.231,4.113,3.886,3.58,3.467,3.54,3.374,3.431,3.352,3.352,3.364,3.352,3.35,3.338,3.342,3.332,3.332,3.318,3.346,3.315,3.345,3.313,3.353,3.338,3.338,3.313,3.338,3.332,3.345,3.342];
+
+var DPG_K_P24=[3.428,3.222,2.968,2.406,2.132,1.994,1.679,1.704,1.597,1.665,1.628,1.611,1.635,1.587,1.582,1.572,1.581,1.613,1.592,1.612,1.582,1.612,1.597,1.615,1.631,1.654,1.576,1.65,1.576,1.558,1.602,1.573];
+var DPG_K_P8=[3.508,3.201,2.769,2.251,1.633,1.492,1.568,1.59,1.633,1.651,1.633,1.56,1.68,1.586,1.623,1.611,1.647,1.576,1.583,1.604,1.613,1.607,1.64,1.607,1.623,1.62,1.643,1.608,1.633,1.625,1.645,1.589];
+var DPG_K_DN=[3.64,3.06,2.959,2.227,1.945,1.892,1.742,1.643,1.639,1.654,1.601,1.556,1.577,1.494,1.528,1.541,1.583,1.59,1.558,1.521,1.615,1.587,1.61,1.533,1.502,1.612,1.577,1.593,1.564,1.577,1.598,1.537,1.504];
+
+var DPG_N_P24=[4.265,3.783,4.245,3.436,3.133,2.812,2.709,2.663,2.639,2.594,2.606,2.585,2.581,2.595,2.607,2.598,2.586,2.578,2.591,2.593,2.587,2.594,2.572,2.577,2.579,2.572,2.587,2.567,2.579,2.577,2.589,2.579];
+var DPG_N_P8=[4.419,3.837,3.675,3.046,2.731,2.673,2.585,2.603,2.607,2.588,2.6,2.591,2.594,2.587,2.59,2.578,2.594,2.588,2.567,2.566,2.579,2.578,2.553,2.587,2.581,2.567,2.582,2.558,2.569,2.574,2.58,2.569];
+var DPG_N_DN=[4.604,3.728,3.686,3.255,2.962,2.896,2.726,2.667,2.695,2.606,2.637,2.602,2.6,2.602,2.601,2.597,2.589,2.595,2.589,2.588,2.575,2.595,2.575,2.589,2.572,2.597,2.588,2.591,2.576,2.586,2.578,2.591,2.584];
+
+var RMS_P24=[0.8239,20680.0,4930.0,576.4,173.7,2.423,1.536,1.156,1.171,1.171,1.163,1.157,1.152,1.151,1.15,1.144,1.142,1.138,1.135,1.139,1.137,1.129,1.122,1.128,1.119,1.114,1.115,1.109,1.11,1.106,1.108,1.114];
+var RMS_P8=[0.6127,1.159,1.317,3.5,33.75,4142.0,2183.0,291.2,147.5,185.9,149.9,136.8,113.3,154.8,122.1,95.23,89.91,108.8,82.61,120.7,138.3,159.0,198.1,192.3,287.5,294.0,379.0,415.3,495.2,495.2,673.5,734.3];
+var RMS_DN=[52770.0,96620.0,1152.0,254.1,142.3,34.74,79.46,173.3,262.6,448.3,539.9,584.5,846.4,1102.0,792.6,1262.0,908.9,1852.0,1629.0,1938.0,3018.0,3198.0,2781.0,1190.0,1211.0,917.4,869.5,1088.0,1489.0,906.6,1020.0,842.8,720.2];
+
+var ZMAM_P24=[0.0942,312.0,216.7,48.06,8.346,3.581,1.317,0.3148,0.3171,0.2108,0.2291,0.256,0.2833,0.2675,0.2238,0.1791,0.2434,0.1454,0.2112,0.1654,0.1972,0.1774,0.2148,0.2107,0.1807,0.1445,0.1783,0.1704,0.1293,0.1323,0.1231,0.1845];
+var ZMAM_P8=[0.0469,0.2911,0.6232,2.206,10.6,197.2,155.7,73.67,52.22,57.35,50.48,45.88,36.84,41.7,33.82,34.02,31.25,34.09,29.18,34.93,39.11,43.47,50.63,48.91,59.56,61.19,70.77,73.49,77.95,76.79,86.86,91.52];
+var ZMAM_DN=[949.3,1625.0,83.18,42.7,6.302,15.4,23.75,40.18,37.57,67.75,70.22,55.18,46.62,58.44,64.29,92.1,75.73,136.9,136.6,162.2,206.7,205.5,171.3,90.89,68.54,45.26,58.79,86.86,102.9,65.75,86.27,78.43,75.05];
+
+var SIG_P24=[0.1816,0.2176,0.0592,0.0436,0.0225,0.0088,0.0049,0.0033,0.0031,0.0029,0.0029,0.0027,0.0026,0.0024,0.0029,0.0029,0.0028,0.0023,0.0022,0.0022,0.0023,0.0021,0.0019,0.0021,0.0018,0.0019,0.0016,0.0017,0.0016,0.0015,0.0015,0.0018];
+var SIG_P8=[0.1631,0.0206,0.0168,0.0125,0.0059,0.0038,0.0035,0.0034,0.0034,0.0033,0.0032,0.0032,0.0037,0.0033,0.0032,0.0034,0.0034,0.003,0.0031,0.0031,0.0027,0.0026,0.0039,0.0033,0.0028,0.0025,0.0022,0.0023,0.002,0.002,0.0019,0.0019];
+var SIG_DN=[0.2374,0.0262,0.02,0.0148,0.0082,0.0048,0.0036,0.0029,0.0026,0.0025,0.0022,0.0022,0.0023,0.002,0.0021,0.0019,0.002,0.0018,0.0017,0.0016,0.0016,0.0016,0.0016,0.0014,0.0014,0.0014,0.0014,0.0014,0.0013,0.0014,0.0014,0.0014,0.0013];
+
+var TRC_P24=[0.1271,0.1064,0.1032,0.0966,0.0854,0.0724,0.0581,0.046,0.0391,0.0358,0.0333,0.0314,0.03,0.029,0.0278,0.0271,0.0266,0.0258,0.0254,0.0249,0.0247,0.0243,0.0239,0.0237,0.0234,0.0231,0.0228,0.0227,0.0223,0.0222,0.022,0.0221];
+var TRC_P8=[0.1272,0.1065,0.1016,0.0867,0.0649,0.045,0.0364,0.0318,0.0293,0.0277,0.0265,0.0254,0.0247,0.024,0.0234,0.023,0.0225,0.0221,0.0218,0.0214,0.021,0.0209,0.021,0.0207,0.0204,0.02,0.0197,0.0196,0.0192,0.0191,0.0188,0.0188];
+var TRC_DN=[0.127,0.1058,0.1021,0.0934,0.0814,0.0697,0.0588,0.0495,0.0428,0.0375,0.0347,0.0328,0.0313,0.0302,0.0293,0.0283,0.0277,0.0268,0.0261,0.0255,0.025,0.0247,0.0242,0.0239,0.0236,0.0233,0.023,0.023,0.0226,0.0225,0.0222,0.0222,0.0218];
+
+var RK_K_P24=[2.109,0.0651,0.1237,0.0651,0.1758,0.319,8.255,11.17,11.95,12.86,13.41,13.78,13.12,14.08,14.86,15.38,15.28,15.7,16.15,15.61,15.74,16.91,16.39,15.66,16.88,16.69,14.17,15.99,16.86,16.84,17.01,15.94];
+var RK_K_P8=[3.236,1.217,0.4883,0.08464,0.0651,0.0651,0.0651,0.0651,0.0651,0.0651,0.0651,0.0651,0.0651,0.0651,0.0651,0.0651,0.0651,0.0651,0.0651,0.0651,0.0651,0.0651,0.0651,0.0651,0.0651,0.0651,0.0651,0.0651,0.0651,0.0651,0.0651,0.0651];
+var RK_K_DN=[0.0651,0.0651,0.0651,0.07161,0.07161,0.07161,0.0651,0.0651,0.0651,0.0651,0.0651,0.0651,0.0651,0.0651,0.0651,0.0651,0.0651,0.0651,0.0651,0.0651,0.0651,0.0651,0.0651,0.0651,0.0651,0.0651,0.0651,0.0651,0.0651,0.0651,0.0651,0.0651,0.0651];
+
+var RK_N_P24=[2.116,0.0651,0.1367,0.0651,0.1693,0.2409,7.116,13.92,16.07,17.52,18.7,19.72,19.58,20.49,21.07,21.53,21.15,21.96,22.17,21.28,21.2,22.66,22.66,22.33,23.07,22.94,20.57,22.94,23.77,23.68,23.4,22.94];
+var RK_N_P8=[3.236,1.276,0.5924,0.07812,0.0651,0.0651,0.0651,0.0651,0.0651,0.0651,0.0651,0.0651,0.0651,0.0651,0.0651,0.0651,0.0651,0.0651,0.0651,0.0651,0.0651,0.0651,0.0651,0.0651,0.0651,0.0651,0.0651,0.0651,0.0651,0.0651,0.0651,0.0651];
+var RK_N_DN=[0.0651,0.0651,0.0651,0.0651,0.07161,0.07161,0.0651,0.0651,0.0651,0.0651,0.0651,0.0651,0.0651,0.0651,0.0651,0.0651,0.0651,0.0651,0.0651,0.0651,0.0651,0.0651,0.0651,0.0651,0.0651,0.0651,0.0651,0.0651,0.0651,0.0651,0.0651,0.07161,0.0651];
+
+var RK_T_P24=[3.027,0.1302,0.09115,0.1693,0.08464,0.2214,0.8333,11.74,15.61,17.01,18.27,19.21,19.82,20.09,20.76,21.23,20.8,21.49,21.95,22.08,21.73,22.32,22.12,22.77,22.47,23.27,23.21,21.99,23.41,23.29,23.95,20.38];
+var RK_T_P8=[3.952,2.109,1.289,0.1562,0.07812,0.0651,0.0651,0.0651,0.0651,0.0651,0.0651,0.0651,0.0651,0.0651,0.0651,0.0651,0.0651,0.0651,0.0651,0.0651,0.0651,0.0651,0.0651,0.0651,0.0651,0.0651,0.0651,0.0651,0.0651,0.0651,0.0651,0.0651];
+var RK_T_DN=[0.0651,0.07161,0.08464,0.07161,0.07161,0.07161,0.07161,0.07161,0.07161,0.07161,0.07161,0.07161,0.07161,0.07161,0.07161,0.07161,0.07161,0.0651,0.0651,0.0651,0.0651,0.0651,0.0651,0.0651,0.07161,0.07161,0.07161,0.07161,0.0651,0.07161,0.0651,0.0651,0.07161];
+
+
+var LR_K_D5=[0.1407,0.1367,0.1322,0.1208,0.1131,0.1071,0.1033,0.0981,0.0949,0.092,0.0895,0.087,0.0842,0.082,0.0791,0.0766,0.0754,0.0738,0.0727,0.0713,0.0699,0.0688,0.0675,0.0666,0.0656,0.0649,0.0642,0.0633,0.0627,0.0623,0.0617,0.0611,0.0606];
+var LR_N_D5=[0.1035,0.0987,0.0971,0.0836,0.0784,0.0743,0.0713,0.0681,0.0661,0.0642,0.0627,0.0612,0.0593,0.058,0.056,0.0539,0.0531,0.0517,0.0508,0.0497,0.0485,0.0474,0.0464,0.0459,0.0452,0.0446,0.044,0.0432,0.0428,0.0424,0.042,0.0417,0.0413];
+var LRA_K_D5=[0.1538,0.1505,0.2538,0.1309,0.1233,0.1175,0.113,0.1069,0.1033,0.1004,0.0977,0.095,0.0923,0.0897,0.0861,0.0835,0.0823,0.0808,0.0793,0.0775,0.076,0.0752,0.0737,0.0727,0.0716,0.0707,0.0697,0.0686,0.0685,0.0676,0.067,0.0666,0.0663];
+var LRA_N_D5=[0.1193,0.1137,0.118,0.0949,0.0893,0.0857,0.0812,0.0778,0.0751,0.0737,0.0719,0.0698,0.0678,0.0662,0.0637,0.0611,0.0603,0.0589,0.0577,0.0564,0.0547,0.0537,0.0526,0.0517,0.0509,0.0501,0.0494,0.0486,0.0484,0.0475,0.0471,0.0467,0.0467];
+var PM_K_D5=[17.2,6.475,13.13,7.738,3.016,2.272,2.002,1.994,1.499,1.617,1.399,1.169,1.296,1.263,1.385,1.109,1.046,0.9824,1.013,0.9341,1.071,0.9313,0.8689,0.7904,0.8965,0.8837,0.825,0.8154,0.8499,0.8151,0.7781,0.802,0.8228];
+var PM_N_D5=[22.45,7.786,12.77,8.064,3.821,2.656,2.152,1.905,1.858,1.576,1.572,1.433,1.41,1.343,1.319,1.006,1.082,0.8908,0.9067,0.9488,0.9026,0.8657,0.7569,0.7451,0.7312,0.6797,0.6822,0.7323,0.675,0.6443,0.6367,0.6051,0.6074];
+var DP_K_D5=[3.105,2.767,2.695,1.843,1.519,1.322,1.229,1.172,0.9533,0.9912,0.8565,0.7483,0.7981,0.7909,0.8368,0.6968,0.6613,0.6306,0.623,0.5852,0.6525,0.5923,0.5552,0.5145,0.5739,0.5543,0.5305,0.518,0.5261,0.5413,0.5033,0.5262,0.5228];
+var DP_N_D5=[3.845,2.821,3.143,2.208,1.638,1.537,1.389,1.192,1.17,1.043,1.02,0.9532,0.902,0.8709,0.861,0.6962,0.751,0.624,0.64,0.6572,0.6432,0.6055,0.5453,0.5472,0.5219,0.4983,0.5054,0.5325,0.4887,0.4793,0.4603,0.4532,0.4502];
+var RM_K_D5=[15.5,5.643,12.4,7.15,2.25,1.463,1.204,1.213,0.9055,0.9696,0.8244,0.671,0.7547,0.7306,0.7806,0.6459,0.6453,0.5729,0.597,0.5526,0.6272,0.5454,0.4891,0.4863,0.5078,0.5343,0.4918,0.4958,0.5327,0.4955,0.4708,0.497,0.4828];
+var RM_N_D5=[18.72,6.128,10.01,6.173,2.819,1.818,1.375,1.121,1.085,0.8922,0.898,0.7924,0.7708,0.7122,0.6872,0.5135,0.5311,0.4482,0.4452,0.4598,0.4328,0.4103,0.3668,0.3522,0.3538,0.33,0.3177,0.3348,0.3278,0.3027,0.3079,0.293,0.282];
+var PMG_K_D5=[16.81,6.443,13.9,8.63,4.225,3.522,3.338,3.735,3.233,3.403,3.187,2.865,3.047,3.11,3.271,2.949,2.907,2.856,2.908,2.833,2.987,2.851,2.749,2.724,2.83,2.827,2.75,2.75,2.809,2.754,2.728,2.746,2.792];
+var PMG_N_D5=[22.61,8.433,13.3,9.195,5.399,4.488,4.218,4.137,4.098,3.931,3.949,3.87,3.89,3.844,3.853,3.603,3.684,3.526,3.559,3.608,3.589,3.559,3.48,3.484,3.484,3.433,3.426,3.473,3.444,3.418,3.408,3.384,3.393];
+var DPG_K_D5=[3.228,3.09,2.974,2.321,2.319,2.15,2.11,2.26,2.042,2.126,2.0,1.85,1.929,1.976,2.06,1.879,1.839,1.839,1.856,1.814,1.899,1.831,1.783,1.751,1.827,1.81,1.777,1.763,1.79,1.775,1.759,1.763,1.799];
+var DPG_N_D5=[4.654,3.796,4.076,3.456,3.187,3.121,3.072,2.983,2.981,2.915,2.914,2.884,2.876,2.86,2.862,2.738,2.782,2.709,2.716,2.741,2.737,2.721,2.682,2.684,2.668,2.651,2.651,2.678,2.657,2.66,2.633,2.627,2.632];
+var RMS_D5=[0.9705,1.066,1.09,1.259,1.284,1.256,1.224,1.211,1.198,1.219,1.235,1.254,1.264,1.25,1.237,1.226,1.214,1.21,1.203,1.198,1.195,1.184,1.183,1.179,1.176,1.175,1.178,1.174,1.19,1.191,1.196,1.192,1.196];
+var ZMAM_D5=[0.0669,0.1709,0.1822,0.2097,0.2311,0.2081,0.1772,0.1683,0.1414,0.1268,0.1044,0.0998,0.0817,0.0854,0.0819,0.0883,0.074,0.0648,0.0678,0.0639,0.0654,0.0662,0.0627,0.0537,0.042,0.0407,0.0492,0.0601,0.0584,0.0482,0.0491,0.0504,0.0481];
+var SIG_D5=[0.0141,0.0203,0.0158,0.0145,0.0128,0.0114,0.01,0.009,0.0084,0.0082,0.0081,0.008,0.008,0.0075,0.007,0.0064,0.0062,0.0059,0.0057,0.0055,0.0053,0.0051,0.005,0.005,0.0049,0.0047,0.0047,0.0046,0.0046,0.0047,0.0048,0.0047,0.0047];
+var TRC_D5=[0.1268,0.1061,0.1027,0.0936,0.0863,0.0812,0.0773,0.0735,0.0709,0.0685,0.0667,0.065,0.0632,0.0613,0.0594,0.0572,0.0558,0.0544,0.0533,0.0522,0.0511,0.05,0.0487,0.0481,0.0474,0.0465,0.0458,0.0453,0.0445,0.044,0.0436,0.0433,0.0428];
+var RK_K_D5=[2.773,4.082,4.18,1.953,2.832,3.711,4.082,4.883,5.352,5.43,5.508,5.918,6.348,6.855,7.637,8.281,8.574,8.965,9.258,9.844,10.16,10.45,11.15,11.21,11.56,11.7,11.82,11.99,12.44,12.62,12.66,12.91,12.93];
+var RK_N_D5=[2.637,4.277,4.98,3.613,4.258,4.727,5.371,6.055,6.309,6.465,6.504,6.836,7.266,7.734,8.828,9.688,10.18,10.76,11.17,11.97,12.5,13.22,13.87,14.02,14.53,14.8,15.29,15.59,15.96,16.19,16.43,16.78,16.76];
+var RK_T_D5=[10.33,6.387,6.289,2.422,3.027,3.77,4.59,5.293,5.82,6.016,6.172,6.348,6.641,7.227,7.891,8.926,9.492,10.12,10.62,11.13,11.74,12.62,13.32,13.69,14.06,14.43,14.73,15.18,15.41,15.68,15.84,16.17,16.23];
+
+
+var LR_K_PL=[0.1411,0.1395,0.1374,0.1243,0.08406,0.05514,0.04484,0.03944,0.03371,0.03033,0.02818,0.02704,0.0254,0.02468,0.02375,0.02308,0.02228,0.02164,0.0211,0.02066,0.02009,0.01966,0.01925,0.01865,0.01839,0.01789,0.01757,0.01721,0.01741,0.01695,0.01671,0.01667,0.0168];
+var LRA_K_PL=[0.1577,0.1548,0.148,0.1348,0.08626,0.05578,0.04533,0.03979,0.03394,0.03053,0.02846,0.02725,0.0256,0.02477,0.02389,0.02332,0.02243,0.02171,0.02117,0.02074,0.02015,0.01974,0.01933,0.01874,0.01846,0.01795,0.01767,0.01727,0.01752,0.01699,0.01677,0.01673,0.01684];
+var PM_K_PL=[11.02,31.03,27.84,12.3,1.128,0.6317,0.5617,0.5066,0.5391,0.5155,0.4181,0.4224,0.3628,0.3383,0.3217,0.3732,0.3401,0.3688,0.3934,0.3635,0.3692,0.334,0.3472,0.3361,0.3797,0.382,0.3482,0.3644,0.345,0.359,0.3212,0.3103,0.3278];
+var DP_K_PL=[3.097,4.214,3.736,2.082,0.7696,0.4537,0.4262,0.3769,0.3749,0.3517,0.2975,0.3068,0.2621,0.2448,0.2221,0.2826,0.2563,0.2882,0.2938,0.291,0.2683,0.2317,0.2562,0.2541,0.2732,0.2826,0.2209,0.2551,0.2394,0.2567,0.236,0.2271,0.234];
+var RM_K_PL=[10.03,27.51,25.37,11.65,0.6768,0.3635,0.3385,0.2478,0.3067,0.2836,0.2253,0.2529,0.2199,0.1946,0.1986,0.2008,0.1937,0.1876,0.2078,0.1982,0.1999,0.1805,0.1914,0.1831,0.2126,0.1928,0.2061,0.1956,0.1958,0.196,0.1792,0.1666,0.1786];
+var PMG_K_PL=[10.81,30.28,27.55,13.45,2.811,2.442,2.395,2.378,2.235,2.231,2.328,2.368,2.4,2.366,2.424,2.342,2.353,2.326,2.271,2.296,2.332,2.367,2.387,2.361,2.299,2.246,2.44,2.266,2.339,2.299,2.336,2.352,2.337];
+var DPG_K_PL=[3.271,4.096,3.752,2.669,1.798,1.631,1.597,1.62,1.536,1.535,1.59,1.599,1.608,1.603,1.632,1.598,1.591,1.583,1.556,1.561,1.585,1.614,1.611,1.6,1.566,1.547,1.649,1.559,1.594,1.574,1.591,1.601,1.596];
+var RK_K_PL=[1.136,0.2899,0.2495,0.7391,1.293,2.714,3.789,5.121,6.976,5.165,5.256,6.0,7.807,6.094,6.516,6.983,7.13,7.375,5.985,7.139,5.188,5.845,7.094,7.129,5.892,5.509,6.075,5.503,3.687,4.668,4.812,4.157,4.03];
+
+
+/* ---------- x/y line chart for the noise ladder (explicit x values, not epochs) ---------- */
+function xyChart(el,cfg){
+  const W=cfg.W||560,H=cfg.H||300,L=46,R=52,T=10,B=30, iw=W-L-R, ih=H-T-B;
+  const {xmin,xmax,ymin,ymax,xticks,yticks}=cfg;
+  const xf=cfg.xfmt||(t=>t), yf=cfg.yfmt||(t=>t+'%');
+  const X=v=>L+iw*(v-xmin)/(xmax-xmin), Y=v=>T+ih*(1-(v-ymin)/(ymax-ymin));
+  let s=`<svg viewBox="0 0 ${W} ${H}" width="100%" height="100%" preserveAspectRatio="xMidYMid meet">`;
+  yticks.forEach(t=>{const y=Y(t);
+    s+=`<line x1="${L}" y1="${y}" x2="${L+iw}" y2="${y}" stroke="${CV('--grid')}"/>`;
+    s+=`<text x="${L-6}" y="${y+3}" text-anchor="end" class="axl">${yf(t)}</text>`;});
+  xticks.forEach(t=>s+=`<text x="${X(t)}" y="${H-12}" text-anchor="middle" class="axl">${xf(t)}</text>`);
+  cfg.series.forEach(se=>{const c=CV(se.color);
+    const d=se.pts.map((p,i)=>`${i?'L':'M'}${X(p[0]).toFixed(1)} ${Y(p[1]).toFixed(1)}`).join(' ');
+    s+=`<path d="${d}" fill="none" stroke="${c}" stroke-width="1.9"/>`;
+    se.pts.forEach(p=>s+=`<circle cx="${X(p[0]).toFixed(1)}" cy="${Y(p[1]).toFixed(1)}" r="2.6" fill="${c}"/>`);
+    const lp=se.pts[se.pts.length-1];
+    s+=`<text x="${(X(lp[0])+5).toFixed(1)}" y="${(Y(lp[1])+3.5).toFixed(1)}" class="hll" fill="${c}">${se.tag}</text>`;});
+  s+=`<text x="${L+iw/2}" y="${H-1}" text-anchor="middle" class="axl">${cfg.xlab||'σ'}</text></svg>`;
+  el.innerHTML=s;
+}
+
+/* ---------- panel plumbing ---------- */
+const COL={P24:'--s1',P8:'--s5',DN:'--s2',PL:'--s3',D5:'--s4'};
+const NAME={P24:'p24576',P8:'p8192',DN:'ctrl',PL:'nosig',D5:'tc512'};
+/* arms[] = which arms to draw; tags[] = which of them get an end-of-line tag (the rest
+   are carried by the legend — converging curves collide otherwise). x0 slices off the
+   first epochs where every arm's decoded error is still an order of magnitude high. */
+function panel(id,pre,o){
+  const arms=o.arms||['P24','P8','DN','PL','D5'], x0=o.x0||0;
+  const series=arms.map(a=>{
+    const v=window[pre+'_'+a]; if(!v) return null;
+    return {data:v.slice(x0),color:COL[a],tag:(o.tags||[]).includes(a)?NAME[a]:null,
+            faint:(o.faint||[]).includes(a)};
+  }).filter(Boolean);
+  lineChart(document.getElementById(id),Object.assign({
+    W:o.W||560,H:o.H||196,xmin:x0,xmax:32,xticks:o.xticks||[0,8,16,24,32],
+    log:o.log!==false,series,fmt:o.fmt||(t=>t<0.01?t.toExponential(0):(''+(+t.toPrecision(3))))
+  },{ymin:o.ymin,ymax:o.ymax,yticks:o.yticks}));
+}
+
+/* ---- 1 · pool 24576 vs pool 8192 at ep 31 (decoded rows: ep 29-31 mean) ---- */
+barsH(document.getElementById('chBars'),{
+  W:540,H:420,L:118,lo:0,hi:28,xticks:[0,5,10,15,20,25],
+  rows:[
+    {l:'LossRecon',            bars:[{v:16.0,color:'--s1'},{v:19.2,color:'--s1',op:.45}]},
+    {l:'LossRecon · AR',       bars:[{v:14.6,color:'--s1'},{v:17.8,color:'--s1',op:.45}]},
+    {l:'Depth PredVsOrig',     bars:[{v:16.4,color:'--s1'},{v:13.4,color:'--s1',op:.45}]},
+    {l:'Pointmap PredVsOrig',  bars:[{v:11.2,color:'--s1'},{v:13.1,color:'--s1',op:.45}]},
+    {l:'Raymap PredVsOrig',    bars:[{v:10.0,color:'--s1'},{v:12.2,color:'--s1',op:.45}]},
+    {l:'Pointmap PvO · AR',    bars:[{v:20.2,color:'--s1'},{v:16.7,color:'--s1',op:.45}]},
+  ]});
+
+/* ---- 3 · the code ---- */
+panel('p31','RMS',{arms:['P24','P8','DN','D5'],tags:['P24','P8'],ymin:.5,ymax:1e5,yticks:[1,100,1e4,1e5],
+  fmt:t=>t>=1e4?(t/1e3)+'k':''+t});
+panel('p32','ZMAM',{arms:['P24','P8','DN','D5'],tags:['P24','P8'],ymin:.03,ymax:2000,yticks:[0.05,1,50,2000],
+  fmt:t=>''+t});
+panel('p33','RK_K',{tags:['P24','PL'],ymin:.05,ymax:30,yticks:[0.065,0.5,4,25],fmt:t=>(+t.toPrecision(2))+'%'});
+panel('p34','RK_N',{tags:['P24','PL'],ymin:.05,ymax:30,yticks:[0.065,0.5,4,25],fmt:t=>(+t.toPrecision(2))+'%'});
+
+/* ---- 4 · token recon ---- */
+panel('p41','LR_K', {tags:['P24','P8'],x0:3,xticks:[3,10,18,26,32],ymin:.013,ymax:.13,yticks:[0.015,0.03,0.06,0.13]});
+panel('p42','LR_N', {tags:['P24','P8'],x0:3,xticks:[3,10,18,26,32],ymin:.016,ymax:.09,yticks:[0.017,0.035,0.07,0.09]});
+panel('p43','LRA_K',{tags:['P24','P8'],x0:3,xticks:[3,10,18,26,32],ymin:.013,ymax:.15,yticks:[0.015,0.03,0.07,0.15]});
+panel('p44','LRA_N',{tags:['P24','P8'],x0:3,xticks:[3,10,18,26,32],ymin:.018,ymax:.12,yticks:[0.019,0.04,0.08,0.12]});
+
+/* ---- 5 · round trip ---- */
+const RT={x0:3,xticks:[3,10,18,26,32],W:420,H:178,tags:[]};
+panel('p51','DP_K',Object.assign({ymin:.14,ymax:3, yticks:[0.15,0.5,1,3]},RT));
+panel('p52','PM_K',Object.assign({ymin:.2,ymax:10, yticks:[0.2,1,3,10]},RT));
+panel('p53','RM_K',Object.assign({ymin:.12,ymax:10,yticks:[0.15,0.5,2,10]},RT));
+panel('p54','DP_N',Object.assign({ymin:.2,ymax:4,  yticks:[0.2,0.5,1,4]},RT));
+panel('p55','PM_N',Object.assign({ymin:.3,ymax:12, yticks:[0.3,1,4,12]},RT));
+panel('p56','RM_N',Object.assign({ymin:.15,ymax:10,yticks:[0.2,1,3,10]},RT));
+
+/* ---- 6 · against the teacher, with its own floor as a dashed constant ---- */
+function floored(id,pre,floor,o){
+  const x0=o.x0||3, n=33-x0;
+  const series=['P24','P8','DN','PL','D5'].filter(a=>window[pre+'_'+a]).map(a=>({data:window[pre+'_'+a].slice(x0),color:COL[a],
+    tag:null}));
+  series.push({data:Array(n).fill(floor),color:'--ink2',dash:'5 4',width:1.4});
+  lineChart(document.getElementById(id),Object.assign({
+    W:560,H:196,xmin:x0,xmax:32,xticks:[3,10,18,26,32],series,
+    fmt:t=>''+(+t.toPrecision(3))},o));
+}
+floored('p61','PMG_K',2.4022,{log:true, ymin:2,  ymax:10, yticks:[2,4,6,10]});
+floored('p62','PMG_N',3.2243,{log:true, ymin:3,  ymax:10, yticks:[3,5,7,10]});
+floored('p63','DPG_K',1.6566,{log:false,ymin:1.4,ymax:2.5,yticks:[1.5,1.8,2.1,2.4]});
+floored('p64','DPG_N',2.5324,{log:false,ymin:2.5,ymax:3.5,yticks:[2.5,2.8,3.1,3.4]});
+
+/* ---- 7 · the noise ladder at ep 31, absolute LossRecon ---- */
+const LAD={W:520,H:330,xmin:0,xmax:0.9,xticks:[0,0.32,0.55,0.82],
+  yfmt:t=>t.toFixed(3),xlab:'σ (absolute, added to z before decode)'};
+xyChart(document.getElementById('p71'),Object.assign({ymin:0.02,ymax:0.085,yticks:[0.02,0.04,0.06,0.08],series:[
+  {pts:[[0,0.0263],[0.32,0.0302],[0.55,0.0364],[0.82,0.0452]],color:'--s5',tag:''},
+  {pts:[[0,0.0296],[0.32,0.0337],[0.55,0.0399],[0.82,0.0481]],color:'--s2',tag:'ctrl'},
+  {pts:[[0,0.0305],[0.32,0.0336],[0.55,0.0385],[0.82,0.0456]],color:'--s1',tag:'pools'},
+  {pts:[[0,0.0611],[0.32,0.0628],[0.55,0.0656],[0.82,0.0704]],color:'--s4',tag:'tc512'},
+  {pts:[[0,0.0484],[0.32,0.0589],[0.55,0.0685],[0.82,0.0818]],color:'--s6',tag:'ft10'}]},LAD));
+xyChart(document.getElementById('p72'),Object.assign({ymin:0.015,ymax:0.06,yticks:[0.015,0.03,0.045,0.06],series:[
+  {pts:[[0,0.0177],[0.32,0.0213],[0.55,0.0264],[0.82,0.0332]],color:'--s5',tag:''},
+  {pts:[[0,0.0212],[0.32,0.0246],[0.55,0.0293],[0.82,0.0353]],color:'--s2',tag:'ctrl'},
+  {pts:[[0,0.0211],[0.32,0.0238],[0.55,0.0278],[0.82,0.0332]],color:'--s1',tag:'pools'},
+  {pts:[[0,0.0417],[0.32,0.0431],[0.55,0.0453],[0.82,0.0492]],color:'--s4',tag:'tc512'},
+  {pts:[[0,0.0340],[0.32,0.0412],[0.55,0.0473],[0.82,0.0551]],color:'--s6',tag:'ft10'}]},LAD));
+</script>
+</body>
+</html>

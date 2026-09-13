@@ -1,0 +1,517 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>DeltaTok — tc512 decoder noise in the flow</title>
+<style>
+/* ---------- tokens · light only, white slides (no dark variant by request) ---------- */
+:root{
+  color-scheme: light only;
+  --backdrop:#e9e9e6; --page:#f7f7f6; --surface:#ffffff;
+  --ink:#0b0b0b; --ink2:#52514e; --muted:#83817c;
+  --grid:#e4e4de; --axis:#c3c2b7; --border:rgba(11,11,11,.12);
+  --s1:#2a78d6; --s2:#eb6834; --s3:#1baf7a; --s4:#eda100; --s5:#8a63c8;
+  --good:#0ca30c; --crit:#d03b3b; --serious:#ec835a;
+  --accent:var(--s1);
+  --serif:"Iowan Old Style","Palatino Linotype",Palatino,Georgia,serif;
+  --sans:system-ui,-apple-system,"Segoe UI",sans-serif;
+  --mono:ui-monospace,"Cascadia Code",Menlo,Consolas,monospace;
+}
+/* ---------- deck chrome ---------- */
+*{box-sizing:border-box;margin:0}
+html,body{height:100%}
+body{background:var(--backdrop);color:var(--ink);font:15px/1.45 var(--sans);overflow:hidden}
+.stage{position:absolute;left:50%;top:50%;width:1280px;height:720px;transform-origin:center center}
+.slide{position:absolute;inset:0;background:var(--surface);border:1px solid var(--border);
+  padding:46px 60px 40px;display:none;flex-direction:column}
+.slide.on{display:flex}
+.eyebrow{font:600 12px/1 var(--mono);letter-spacing:.14em;text-transform:uppercase;color:var(--accent);margin-bottom:12px}
+.eyebrow .dim{color:var(--muted)}
+.eyebrow .when{color:var(--ink);font-variant-numeric:tabular-nums;border-right:1px solid var(--axis);
+  padding-right:9px;margin-right:9px}
+h1{font:400 42px/1.14 var(--serif);letter-spacing:-.01em;text-wrap:balance}
+h2{font:400 29px/1.2 var(--serif);letter-spacing:-.005em;text-wrap:balance;margin-bottom:4px}
+.sub{color:var(--ink2);font-size:14.5px;max-width:80ch;margin-top:9px}
+.body{flex:1;min-height:0;margin-top:16px}
+.foot{display:flex;justify-content:space-between;align-items:baseline;color:var(--muted);
+  font:11px/1 var(--mono);letter-spacing:.06em;margin-top:12px;border-top:1px solid var(--grid);padding-top:10px}
+.pageno{font-variant-numeric:tabular-nums}
+/* nav */
+.nav{position:fixed;left:50%;bottom:14px;transform:translateX(-50%);display:flex;gap:8px;align-items:center;z-index:5}
+.nav button{width:9px;height:9px;border-radius:50%;border:1px solid var(--muted);background:transparent;cursor:pointer;padding:0}
+.nav button.cur{background:var(--accent);border-color:var(--accent)}
+.nav button:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+.arr{position:fixed;top:50%;transform:translateY(-50%);z-index:5;border:1px solid var(--border);
+  background:var(--surface);color:var(--ink2);width:34px;height:56px;cursor:pointer;font-size:18px;border-radius:4px}
+.arr:hover{color:var(--ink)}
+#prev{left:10px}#next{right:10px}
+/* ---------- shared bits ---------- */
+.mono{font-family:var(--mono)}
+.num{font-variant-numeric:tabular-nums}
+.chip{display:inline-block;font:600 10.5px/1 var(--mono);letter-spacing:.05em;padding:4px 7px;border-radius:3px;
+  border:1px solid var(--border);white-space:nowrap}
+.chip.good{color:var(--good);border-color:currentColor}
+.chip.bad{color:var(--crit);border-color:currentColor}
+.chip.hero{color:var(--accent);border-color:currentColor}
+.sw{display:inline-block;width:14px;height:0;border-top-width:3px;border-top-style:solid;vertical-align:4px}
+.cols{display:grid;gap:24px;min-height:0}
+.c2{grid-template-columns:1fr 1fr}
+.c58{grid-template-columns:1.32fr 1fr}
+.c85{grid-template-columns:1fr 1.28fr}
+.card{border:1px solid var(--grid);border-radius:6px;padding:14px 16px;background:var(--page)}
+.card h3{font:600 14px/1.3 var(--sans);margin:6px 0}
+.card .tag{font:600 10px/1 var(--mono);letter-spacing:.1em;text-transform:uppercase;color:var(--muted)}
+ul.tight{padding-left:18px;display:flex;flex-direction:column;gap:8px;font-size:13.5px;color:var(--ink2)}
+ul.tight li{padding-left:2px}
+ul.tight strong{color:var(--ink);font-weight:600}
+/* stat tiles */
+.tiles{display:grid;gap:12px}
+.tile{border:1px solid var(--grid);border-radius:6px;padding:12px 14px;background:var(--page)}
+.tile .v{font:600 25px/1.1 var(--sans);letter-spacing:-.01em;font-variant-numeric:tabular-nums}
+.tile .k{font:600 10px/1.4 var(--mono);letter-spacing:.1em;text-transform:uppercase;color:var(--muted);margin-bottom:5px}
+.tile .d{font-size:12.5px;color:var(--ink2);margin-top:5px}
+.rulebar{border:1px dashed var(--axis);border-radius:6px;padding:11px 15px;font-size:13.5px;color:var(--ink2)}
+.rulebar b{color:var(--ink)}
+/* tables */
+table{border-collapse:collapse;width:100%;font-size:13px;font-variant-numeric:tabular-nums}
+th,td{text-align:right;padding:5px 8px;border-bottom:1px solid var(--grid)}
+th:first-child,td:first-child{text-align:left}
+thead th{font:600 10px/1.3 var(--mono);letter-spacing:.08em;text-transform:uppercase;color:var(--muted);border-bottom:1px solid var(--axis)}
+tbody tr.hi td{background:#fff6f2}
+td.w{color:var(--crit);font-weight:600}
+td.g{color:var(--good);font-weight:600}
+/* charts */
+.legend{display:flex;flex-wrap:wrap;gap:5px 16px;font:12px/1 var(--sans);color:var(--ink2);margin-bottom:4px}
+.legend span{display:inline-flex;gap:7px;align-items:center}
+svg text{font:10.5px var(--sans);fill:var(--muted)}
+svg .axl{font:9.5px var(--mono);fill:var(--muted)}
+svg .hll{font:600 9.5px var(--mono)}
+svg .barlbl{font:600 12px var(--sans);fill:var(--ink)}
+svg .barval{font:11px var(--mono);fill:var(--ink2)}
+.chartwrap{display:flex;flex-direction:column;height:100%;min-height:0}
+.chartwrap svg{flex:1;min-height:0}
+.ptitle{font:600 12px/1.2 var(--mono);color:var(--ink2);letter-spacing:.02em;margin-bottom:2px}
+.ptitle span{color:var(--muted);font-weight:400}
+.takeaway{border:1px solid var(--grid);border-radius:6px;padding:12px 15px;background:var(--page);display:flex;gap:12px;align-items:flex-start}
+.takeaway .n{font:600 22px/1 var(--serif);color:var(--accent);flex:0 0 auto;width:24px}
+.takeaway .tx{font-size:13.5px;color:var(--ink2)}
+.takeaway .tx b{color:var(--ink)}
+@media (prefers-reduced-motion: no-preference){
+  .slide.on{animation:fadein .18s ease}
+  @keyframes fadein{from{opacity:.4}to{opacity:1}}
+}
+@media print{
+  body{overflow:visible;background:#fff}
+  .stage{position:static;transform:none!important;width:auto;height:auto}
+  .slide{display:flex;position:static;width:1280px;height:720px;page-break-after:always;margin:0 auto}
+  .nav,.arr{display:none}
+}
+/* ---------- small-multiple panel grids (this deck) ---------- */
+.g2{display:grid;grid-template-columns:1fr 1fr;gap:6px 22px;height:100%}
+.g4{display:grid;grid-template-columns:1fr 1fr;grid-template-rows:1fr 1fr;gap:8px 22px;height:100%}
+.g6{display:grid;grid-template-columns:repeat(3,1fr);grid-template-rows:1fr 1fr;gap:8px 16px;height:100%}
+.pan{display:flex;flex-direction:column;min-height:0;min-width:0}
+.pan .plot{flex:1;min-height:0}
+.chartwrap svg,.pan .plot svg{display:block}
+.dsl{font:600 10px/1 var(--mono);letter-spacing:.09em;text-transform:uppercase;color:var(--accent)}
+.legend.top{margin:0 0 8px}
+svg .pt{font:600 9px var(--mono)}
+/* ---------- AR rollout strips (image slides) ---------- */
+.arhead,.arstrip{display:grid;grid-template-columns:78px 1fr;gap:0 10px;align-items:center}
+.arhead .c4{display:grid;grid-template-columns:repeat(4,1fr)}
+.arhead .c4 b{font:600 11px/1.3 var(--mono);letter-spacing:.04em;text-align:center;color:var(--ink)}
+.arhead .c4 b.gt{color:var(--muted)}
+.arhead .c4 b.win{color:var(--s1)}
+.arstrip .rl{font:600 10px/1.2 var(--mono);color:var(--muted);text-align:right;letter-spacing:.05em}
+.arstrip img{width:100%;display:block;border:1px solid var(--grid)}
+.argrid{display:flex;flex-direction:column;gap:5px}
+/* ---------- L1 error maps: one fixed colour scale everywhere ---------- */
+.cbar{display:flex;align-items:center;gap:8px;font:600 10px/1 var(--mono);color:var(--muted);letter-spacing:.05em}
+.cbar .ramp{height:9px;width:150px;border:1px solid var(--border);border-radius:2px;
+  background:linear-gradient(90deg,rgb(0,0,3),rgb(32,12,74),rgb(87,15,109),rgb(137,34,105),
+  rgb(187,55,84),rgb(228,90,49),rgb(249,142,8),rgb(248,203,52),rgb(252,254,164))}
+.arhead .c3{display:grid;grid-template-columns:repeat(3,1fr)}
+.arhead .c3 b{font:600 11px/1.3 var(--mono);letter-spacing:.04em;text-align:center;color:var(--ink)}
+.arhead .c3 b.win{color:var(--s1)}
+.arhead .c3 b.win{color:var(--s1)}
+.slide.findings .takeaway .tx{font-size:12.2px}
+.slide.findings .takeaway{padding:9px 12px}
+.slide.findings .rulebar{font-size:11.8px;padding:9px 13px}
+.slide.findings .cols{gap:16px}
+</style>
+</head>
+
+<body>
+<div class="stage" id="stage">
+
+<section class="slide on">
+  <div class="eyebrow"><span class="when">2026-09-13</span>DeltaTok flow <span class="dim">— tc512 detached tokenizer BSC:45665286 epoch_100 · flow iter_100000 · 128 Waymo val seqs</span></div>
+  <h1 style="font-size:31px">The tc512 decoder shrugs off noise, yet more flow steps <span style="color:var(--crit)">still hurt</span> — best raymap <span class="mono">4.58</span> at N=2, <span style="color:var(--crit)">+21%</span> over tc128 ft10's 3.79 at N=20.</h1>
+  <p class="sub">Same flow recipe, tokenizer swapped for the detached tc512 arm. On isotropic noise its decoder is as flat as tc128's ft10 decoder.
+  But its step sweep has the shape of the tc128 <i>source</i> decoder: best at N=2, worse at every step after. ft10 alone improves with N.</p>
+  <div class="body">
+    <div class="cols c58" style="height:100%">
+      <div class="chartwrap">
+        <div class="ptitle">LossRaymap VS ODE STEPS <span>· lower is better</span></div>
+        <div class="legend"><span><i class="sw" style="border-color:var(--s5)"></i>tc512 detached</span>
+          <span><i class="sw" style="border-color:var(--s2)"></i>tc128 source decoder</span>
+          <span><i class="sw" style="border-color:var(--s1)"></i>tc128 ft10 decoder</span></div>
+        <div id="h1c" style="flex:1;min-height:0"></div>
+      </div>
+      <div class="tiles" style="grid-template-columns:1fr 1fr;grid-template-rows:auto auto;align-content:center">
+        <div class="tile"><div class="k">Best LossRaymap · any N</div>
+          <div class="v" style="font-size:22px">4.58 vs 3.79</div>
+          <div class="d">tc512 N=2 vs ft10 N=20 &nbsp;<span class="chip bad">+20.7%</span></div></div>
+        <div class="tile"><div class="k">Waymo ladder σ=0.82 · raymap</div>
+          <div class="v" style="font-size:22px">1.71 → 1.70</div>
+          <div class="d">tc512 detached; ft10 1.65 → 1.67 &nbsp;<span class="chip good">flat</span></div></div>
+        <div class="tile"><div class="k">MSEToken vs tc128</div>
+          <div class="v" style="font-size:22px">+4% → +13%</div>
+          <div class="d">N=1 → N=20 &nbsp;<span class="chip bad">grows with N</span></div></div>
+        <div class="tile"><div class="k">Training eval · ep 59 · N=20</div>
+          <div class="v" style="font-size:22px">6.46 vs 6.45</div>
+          <div class="d">raymap, tc512 vs tc128 flow &nbsp;<span class="chip">tie</span></div></div>
+      </div>
+    </div>
+  </div>
+  <div class="foot"><span>tc512 flow BSC:45819224 (N=2,4,8) + 45819762 (N=1,20) · ladder BSC:45818711–13 · tc128 BSC:45414635 / 45497311 / 45498382</span><span class="pageno">01 / 06</span></div>
+</section>
+
+<section class="slide">
+  <div class="eyebrow">The step sweep <span class="dim">— N = 1, 2, 4, 8, 20 on tc512 against the tc128 sweeps · same flow iter_100000 and seed</span></div>
+  <h2>tc512 has the <span style="color:var(--s2)">source decoder's shape</span>: best at N=2, then worse at every step. Only ft10 improves with N.</h2>
+  <p class="sub"><span class="mono">MSEToken</span> is the flow sample's error against the GT code. It grows with N at both widths, faster on tc512: +4.1% over tc128 at N=1, +12.6% at N=20.
+  The two tc128 decoders share one encoder, so they share one <span class="mono">MSEToken</span> curve.</p>
+  <div class="body"><div style="display:flex;flex-direction:column;height:100%;gap:6px">
+    <div class="legend top"><span><i class="sw" style="border-color:var(--s5)"></i>tc512 detached epoch_100</span>
+      <span><i class="sw" style="border-color:var(--s2)"></i>tc128 source decoder</span>
+      <span><i class="sw" style="border-color:var(--s1)"></i>tc128 ft10 decoder</span>
+      <span><i class="sw" style="border-color:var(--ink2)"></i>tc128 (MSEToken, both decoders)</span></div>
+    <div style="flex:1;min-height:0"><div class="g2" style="grid-template-columns:repeat(4,1fr);gap:6px 16px"><div class="pan"><div class="ptitle">MSEToken <span>· latent error</span></div><div class="plot" id="s2a"></div></div><div class="pan"><div class="ptitle">LossDepth</div><div class="plot" id="s2b"></div></div><div class="pan"><div class="ptitle">LossPointmap</div><div class="plot" id="s2c"></div></div><div class="pan"><div class="ptitle">LossRaymap</div><div class="plot" id="s2d"></div></div></div></div>
+    <div class="rulebar" style="font-size:12px"><b>Best against best:</b> raymap 4.58 (tc512, N=2) vs 3.79 (ft10, N=20), <b>+20.7%</b>; pointmap 7.00 (N=1) vs 6.61, <b>+5.8%</b>; depth 3.66 (N=2) vs 3.63 (source, N=1), +0.8%.
+    <b>At N ≤ 2 tc512 is the best of the three</b> on pointmap (7.00 vs source 7.27) and ties raymap (4.58 vs 4.60).</div>
+  </div></div>
+  <div class="foot"><span>tc512 BSC:45819224 + 45819762 · tc128 source BSC:45414635 · ft10 BSC:45497311 + 45498382 · all 1-GPU evals</span><span class="pageno">02 / 06</span></div>
+</section>
+
+<section class="slide">
+  <div class="eyebrow">The Waymo σ ladder <span class="dim">— GT code + σ·N(0,I) on the forecast slots, decoded · σ = 0 / 0.32 / 0.55 / 0.82</span></div>
+  <h2>Every tc512 decoder is <span style="color:var(--good)">as flat as ft10</span> on raymap — even the clean twin, which never saw noise.</h2>
+  <p class="sub">Raymap at σ = 0 → 0.82: detached epoch_100 1.71 → 1.70, detached epoch_80 1.73 → 1.74, clean twin epoch_80 1.71 → 1.90, ft10 1.65 → 1.67, tc128 source 1.68 → 19.09.
+  x is <span class="mono">MSEToken</span>, so the curves share an axis with the flow's own latent error.</p>
+  <div class="body"><div style="display:flex;flex-direction:column;height:100%;gap:6px">
+    <div class="legend top"><span><i class="sw" style="border-color:var(--s5)"></i>tc512 detached epoch_100</span>
+      <span><i class="sw" style="border-color:var(--s5);opacity:.5"></i>tc512 detached epoch_80</span>
+      <span><i class="sw" style="border-color:var(--s4)"></i>tc512 clean twin epoch_80</span>
+      <span><i class="sw" style="border-color:var(--s1)"></i>tc128 ft10</span>
+      <span><i class="sw" style="border-color:var(--s2)"></i>tc128 source</span></div>
+    <div style="flex:1;min-height:0"><div class="g2" style="grid-template-columns:repeat(3,1fr)"><div class="pan"><div class="ptitle">LossDepth <span>· log y</span></div><div class="plot" id="s3a"></div></div><div class="pan"><div class="ptitle">LossPointmap <span>· log y</span></div><div class="plot" id="s3b"></div></div><div class="pan"><div class="ptitle">LossRaymap <span>· log y</span></div><div class="plot" id="s3c"></div></div></div></div>
+    <div class="rulebar" style="font-size:12px"><b>ft10 is flat on raymap only.</b> On pointmap (+6.5%) and depth (+9.2%) it is steeper than detached tc512 (+1.2% / +2.2%), the same order as the KITTI token ladder (LossRecon +69% vs +15%, BSC:45819072).
+    <b>The flow's error is not this noise:</b> at <span class="mono">MSEToken</span> 0.695 the tc512 flow (N=1) decodes to raymap 4.60; isotropic noise at 0.672 decodes to 1.70.</div>
+  </div></div>
+  <div class="foot"><span>tc512 BSC:45818711 (detached ep100) · 45818712 (detached ep80) · 45818713 (twin ep80) · tc128 source + ft10 from the 2026-09-06 deck</span><span class="pageno">03 / 06</span></div>
+</section>
+
+<section class="slide">
+  <div class="eyebrow">The training runs <span class="dim">— each flow's own 4-GPU eval every epoch · N=20 · through its own frozen tokenizer</span></div>
+  <h2>At matched epoch the two flows <span style="color:var(--s4)">tie on decoded loss</span>, while tc512's latent error sits ~13% higher.</h2>
+  <p class="sub">tc128 compose flow BSC:45111164 (100 epochs) against the tc512 detached flow BSC:45736861, stopped at ep 59 and dropped.
+  Raymap moves ±0.5 between neighbouring epochs, so smaller gaps are not readable. Epochs 0–9 spike to raymap ~17 and are cut.</p>
+  <div class="body"><div style="display:flex;flex-direction:column;height:100%;gap:6px">
+    <div class="legend top"><span><i class="sw" style="border-color:var(--s2)"></i>tc128 flow · source decoder</span>
+      <span><i class="sw" style="border-color:var(--s5)"></i>tc512 flow · detached decoder</span></div>
+    <div style="flex:1;min-height:0"><div class="g2" style="grid-template-columns:repeat(3,1fr)"><div class="pan"><div class="ptitle">MSEToken</div><div class="plot" id="s4a"></div></div><div class="pan"><div class="ptitle">LossPointmap</div><div class="plot" id="s4b"></div></div><div class="pan"><div class="ptitle">LossRaymap</div><div class="plot" id="s4c"></div></div></div></div>
+    <div class="rulebar" style="font-size:12px">At ep 59: raymap <b>6.46 vs 6.45</b>, pointmap 9.32 vs 9.13, depth 3.96 vs 3.82, <span class="mono">MSEToken</span> <b>1.00 vs 0.87</b>.
+    The 2026-09-06 deck's 3.79 is the tc128 flow at iter_100000 read offline through ft10, not this log.</div>
+  </div></div>
+  <div class="foot"><span>training stdout · Eval/128 @ WaymoSeqMultiView · tc128 BSC:45111164 · tc512 BSC:45736861</span><span class="pageno">04 / 06</span></div>
+</section>
+
+<section class="slide">
+  <div class="eyebrow">Why it doesn't transfer <span class="dim">— an untested reading from the tokenizers' own z statistics</span></div>
+  <h2>σ was absolute. At tc512 it is <span style="color:var(--crit)">4 to 5× weaker</span> in the channels the decoder actually reads.</h2>
+  <p class="sub">Both decoders trained on z + σ·ε, σ ~ U(0, 0.8) per sample. The tc512 code packs its variance into ~84–98 of 512 channels, so the same σ barely perturbs the signal there.
+  Statistics are each tokenizer's KITTI / nuScenes eval; the Waymo spectrum was never logged.</p>
+  <div class="body">
+    <div class="cols c58" style="height:100%;align-content:start">
+      <div>
+        <div class="ptitle" style="margin-bottom:5px">z STATISTICS <span>· KITTI / nuScenes</span></div>
+        <table style="font-size:12.5px"><thead><tr><th></th><th>tc128 compose</th><th>tc512 detached</th></tr></thead>
+        <tbody>
+          <tr><td>Channels in use · <span class="mono">ZPartRank</span></td><td>91.8 / 95.7 of 128</td><td>83.8 / 97.5 of 512</td></tr>
+          <tr><td>Isotropic noise landing in them · PR / Cz</td><td>72% / 75%</td><td>16% / 19%</td></tr>
+          <tr><td>Signal variance per used channel · TotalVar / PR</td><td>1.81 / 1.28</td><td>8.42 / 5.48</td></tr>
+          <tr class="hi"><td>Max training noise σ² = 0.64 against that signal</td><td class="g">35% / 50%</td><td class="w">7.6% / 11.7%</td></tr>
+          <tr><td>Flow error · MSEToken × Cz / TotalVar, N=8, KITTI</td><td>65%</td><td>68%</td></tr>
+        </tbody></table>
+        <div class="rulebar" style="font-size:12.5px;margin-top:12px"><b>Read across:</b> the flow's error is the same share of the code at both widths. The training noise is not. If the flow's error sits in the used channels, the tc512 decoder has only seen perturbations ~5× smaller there.</div>
+      </div>
+      <div style="display:flex;flex-direction:column;gap:10px">
+        <div class="card"><div class="tag">Test 1 · shaped noise</div><h3>Waymo ladder with ε ~ N(0, Σ<sub>z</sub>) at matched MSEToken</h3>
+          <div style="font-size:13px;color:var(--ink2)">Prediction: the tc512 decoders then degrade like the tc128 source decoder, the clean twin more than detached.</div></div>
+        <div class="card"><div class="tag">Test 2 · where the flow error sits</div><h3>Project the flow error at N=1 and N=20 onto z's principal directions</h3>
+          <div style="font-size:13px;color:var(--ink2)">Prediction: most of its energy lies in the top ~90 directions, where isotropic noise puts ~17%.</div></div>
+        <div class="rulebar" style="font-size:12.5px"><b>Both need new eval code; neither is planned.</b> This is row 13's open "σ must go relative" item.</div>
+      </div>
+    </div>
+  </div>
+  <div class="foot"><span>tc128 tokenizer stats BSC:44846726 ep 99 · tc512 BSC:45665286 ep 100 · docs/research/todos.json row 13</span><span class="pageno">05 / 06</span></div>
+</section>
+
+<section class="slide findings">
+  <div class="eyebrow">Findings</div>
+  <h2>The tolerance is real on isotropic noise and <span style="color:var(--crit)">does not reach the flow</span>.</h2>
+  <div class="body">
+    <div class="cols c2" style="height:100%;align-content:start">
+      <div style="display:flex;flex-direction:column;gap:10px">
+        <div class="takeaway"><div class="n">1</div><div class="tx"><b>More steps only hurt tc512.</b> Raymap 4.60 / 4.58 / 5.18 / 5.82 / 6.38 at N = 1 / 2 / 4 / 8 / 20 — the tc128 source decoder's shape, not ft10's.</div></div>
+        <div class="takeaway"><div class="n">2</div><div class="tx"><b>Its decoders are flat on the ladder.</b> At σ = 0.82 detached raymap moves −0.3% and the clean twin +11%, against +1,039% for the tc128 source. The isotropic ladder cannot separate tc512 from ft10 on raymap.</div></div>
+        <div class="takeaway"><div class="n">3</div><div class="tx"><b>Best against best, ft10 at tc128 still wins:</b> tc512 is +20.7% raymap and +5.8% pointmap. At N ≤ 2 tc512 matches or beats both tc128 decoders.</div></div>
+        <div class="takeaway"><div class="n">4</div><div class="tx"><b>The flow error grows faster on tc512:</b> <span class="mono">MSEToken</span> +4.1% over tc128 at N=1, +12.6% at N=20. At matched training epoch the decoded losses tie.</div></div>
+      </div>
+      <div style="display:flex;flex-direction:column;gap:10px">
+        <div class="takeaway"><div class="n">5</div><div class="tx"><b>An earlier claim is retracted.</b> The KITTI token ladder suggested the tc512 decoder was less tolerant than ft10. Decoded on Waymo it is the flatter one on all three losses.</div></div>
+        <div class="rulebar"><b>Untested reading.</b> σ is absolute, and at tc512 σ² = 0.64 is 8–12% of the per-channel signal against 35–50% at tc128. The decoder never saw errors of the flow's size in the channels it reads (slide 05).</div>
+        <div class="rulebar"><b>Caveat.</b> These sweeps are 1-GPU evals. The tc512 N=20 point reads <span class="mono">MSEToken</span> 0.9968 / raymap 6.38 against the run's own 4-GPU ep-49 log 0.9954 / 6.19.</div>
+        <div class="rulebar"><b>Not done.</b> tc128 source was never run at N=8. The tc512 flow run was dropped at ep 59/100. Neither test on slide 05 is built. No decoded frames in this deck.</div>
+      </div>
+    </div>
+  </div>
+  <div class="foot"><span>docs/research/todos.json row 13 · README tc_width</span><span class="pageno">06 / 06</span></div>
+</section>
+
+</div>
+<button class="arr" id="prev" aria-label="Previous slide">&#8249;</button>
+<button class="arr" id="next" aria-label="Next slide">&#8250;</button>
+<div class="nav" id="nav" role="tablist"></div>
+
+<script>
+/* ---------- deck nav ---------- */
+const stage=document.getElementById("stage");
+const slides=[...document.querySelectorAll(".slide")];
+const nav=document.getElementById("nav");
+let cur=0;
+slides.forEach((_,i)=>{
+  const b=document.createElement("button");
+  b.setAttribute("role","tab");b.setAttribute("aria-label","Slide "+(i+1));
+  b.addEventListener("click",()=>go(i));
+  nav.appendChild(b);
+});
+function go(i){
+  cur=Math.max(0,Math.min(slides.length-1,i));
+  slides.forEach((s,j)=>s.classList.toggle("on",j===cur));
+  [...nav.children].forEach((b,j)=>b.classList.toggle("cur",j===cur));
+}
+document.getElementById("prev").addEventListener("click",()=>go(cur-1));
+document.getElementById("next").addEventListener("click",()=>go(cur+1));
+addEventListener("keydown",e=>{
+  if(["ArrowRight","PageDown"," "].includes(e.key)){go(cur+1);e.preventDefault();}
+  else if(["ArrowLeft","PageUp"].includes(e.key)){go(cur-1);e.preventDefault();}
+  else if(e.key==="Home")go(0);
+  else if(e.key==="End")go(slides.length-1);
+});
+go(0);
+/* ---------- auto-scale ---------- */
+function fit(){
+  const s=Math.min(innerWidth/1300,(innerHeight-40)/730);
+  stage.style.transform=`translate(-50%,-50%) scale(${Math.min(s,1.4)})`;
+}
+addEventListener("resize",fit);fit();
+
+/* ---------- CSS var resolver (for SVG strokes) ---------- */
+const CV=n=>getComputedStyle(document.documentElement).getPropertyValue(n).trim();
+
+/* ---------- multi-series epoch line chart; data[i] is epoch xmin+i ---------- */
+function lineChart(el,cfg){
+  const W=cfg.W||600,H=cfg.H||300,L=cfg.L||44,R=cfg.R||52,T=cfg.T||10,B=cfg.B||26,
+        iw=W-L-R, ih=H-T-B;
+  const {ymin,ymax,yticks,xmax,xticks,log}=cfg, xmin=cfg.xmin||0, span=xmax-xmin;
+  const f=log?Math.log10:(v=>v), y0=f(ymin), y1=f(ymax);
+  const XE=e=>L+iw*((e-xmin)/span);
+  const Y=v=>T+ih*(1-(f(Math.min(Math.max(v,ymin),ymax))-y0)/(y1-y0));
+  const fmt=cfg.fmt||(t=>t.toFixed(4));
+  let s=`<svg viewBox="0 0 ${W} ${H}" width="100%" height="100%" preserveAspectRatio="xMidYMid meet">`;
+  yticks.forEach(t=>{const y=Y(t);
+    s+=`<line x1="${L}" y1="${y}" x2="${L+iw}" y2="${y}" stroke="${CV('--grid')}"/>`;
+    s+=`<text x="${L-6}" y="${y+3}" text-anchor="end" class="axl">${fmt(t)}</text>`;});
+  xticks.forEach(t=>s+=`<text x="${XE(t)}" y="${H-9}" text-anchor="middle" class="axl">${t}</text>`);
+  cfg.series.forEach(se=>{const c=CV(se.color);
+    const d=se.data.map((v,i)=>`${i?'L':'M'}${XE(xmin+i).toFixed(1)} ${Y(v).toFixed(1)}`).join(' ');
+    s+=`<path d="${d}" fill="none" stroke="${c}" stroke-width="${se.width||1.8}" opacity="${se.faint?.5:1}" ${se.dash?`stroke-dasharray="${se.dash}"`:''}/>`;
+    const n=se.data.length-1, lx=XE(xmin+n), ly=Y(se.data[n]);
+    s+=`<circle cx="${lx.toFixed(1)}" cy="${ly.toFixed(1)}" r="2.4" fill="${c}" opacity="${se.faint?.5:1}"/>`;
+    if(se.tag&&!se.faint) s+=`<text x="${lx+5}" y="${ly+3.5}" class="hll" fill="${c}" opacity="${se.faint?.6:1}">${se.tag}</text>`;});
+  s+=`<text x="${L+iw/2}" y="${H-0.5}" text-anchor="middle" class="axl">${cfg.xlab||'epoch'}</text></svg>`;
+  el.innerHTML=s;
+}
+
+/* ---------- diverging horizontal bars, zero-centred ---------- */
+function barsH(el,cfg){
+  const W=cfg.W||560,H=cfg.H||420,L=cfg.L||96,R=44,T=8,B=26, iw=W-L-R, ih=H-T-B;
+  const lim=cfg.lim, X=v=>L+iw*(v+lim)/(2*lim);
+  const x0=X(0), rowh=ih/cfg.rows.length;
+  let s=`<svg viewBox="0 0 ${W} ${H}" width="100%" height="100%" preserveAspectRatio="xMidYMid meet">`;
+  (cfg.xticks||[]).forEach(t=>{const x=X(t);
+    s+=`<line x1="${x}" y1="${T}" x2="${x}" y2="${T+ih}" stroke="${CV(t===0?'--axis':'--grid')}"/>`;
+    s+=`<text x="${x}" y="${H-9}" text-anchor="middle" class="axl">${t}%</text>`;});
+  cfg.rows.forEach((r,ri)=>{
+    const top=T+ri*rowh, nb=r.bars.length, bh=Math.min(16,(rowh-12)/nb), pad=(rowh-nb*bh-2)/2;
+    s+=`<text x="${L-8}" y="${top+rowh/2+3.5}" text-anchor="end" class="barlbl" style="font-size:11.5px">${r.l}</text>`;
+    r.bars.forEach((b,bi)=>{const y=top+pad+bi*bh, x=X(b.v), c=CV(b.color);
+      s+=`<rect x="${Math.min(x,x0).toFixed(1)}" y="${y.toFixed(1)}" width="${Math.abs(x0-x).toFixed(1)}" height="${(bh-2).toFixed(1)}" fill="${c}" opacity="${b.op||1}"/>`;
+      s+=`<text x="${(b.v<0?x-4:x+4).toFixed(1)}" y="${(y+bh-3).toFixed(1)}" text-anchor="${b.v<0?'end':'start'}" class="barval">${b.v.toFixed(1)}</text>`;});
+  });
+  s+=`</svg>`; el.innerHTML=s;
+}
+
+/* ---------- explicit-x line chart: series[i].pts is [[x,y],...] ---------- */
+function xyChart(el,cfg){
+  const W=cfg.W||400,H=cfg.H||260,L=cfg.L||46,R=cfg.R||50,T=cfg.T||8,B=cfg.B||30, iw=W-L-R, ih=H-T-B;
+  const {xmin,xmax,ymin,ymax,yticks,xticks,log}=cfg;
+  const f=log?Math.log10:(v=>v), y0=f(ymin), y1=f(ymax);
+  const X=v=>L+iw*(v-xmin)/(xmax-xmin);
+  const Y=v=>T+ih*(1-(f(Math.min(Math.max(v,ymin),ymax))-y0)/(y1-y0));
+  const fmt=cfg.fmt||(t=>t.toFixed(2));
+  let s=`<svg viewBox="0 0 ${W} ${H}" width="100%" height="100%" preserveAspectRatio="xMidYMid meet">`;
+  yticks.forEach(t=>{const y=Y(t);
+    s+=`<line x1="${L}" y1="${y}" x2="${L+iw}" y2="${y}" stroke="${CV('--grid')}"/>`;
+    s+=`<text x="${L-6}" y="${y+3}" text-anchor="end" class="axl">${fmt(t)}</text>`;});
+  xticks.forEach(t=>s+=`<text x="${X(t)}" y="${H-13}" text-anchor="middle" class="axl">${t}</text>`);
+  cfg.series.forEach(se=>{const c=CV(se.color), op=se.faint?.5:1;
+    const d=se.pts.map((q,i)=>`${i?'L':'M'}${X(q[0]).toFixed(1)} ${Y(q[1]).toFixed(1)}`).join(' ');
+    s+=`<path d="${d}" fill="none" stroke="${c}" stroke-width="${se.width||1.8}" opacity="${op}" ${se.dash?`stroke-dasharray="${se.dash}"`:''}/>`;
+    se.pts.forEach(q=>{s+=`<circle cx="${X(q[0]).toFixed(1)}" cy="${Y(q[1]).toFixed(1)}" r="2.4" fill="${c}" opacity="${op}"/>`;});
+    const q=se.pts[se.pts.length-1];
+    if(se.tag) s+=`<text x="${(X(q[0])+5).toFixed(1)}" y="${(Y(q[1])+3.5).toFixed(1)}" class="hll" fill="${c}" opacity="${op}">${se.tag}</text>`;});
+  s+=`<text x="${L+iw/2}" y="${H-1}" text-anchor="middle" class="axl">${cfg.xlab||''}</text></svg>`;
+  el.innerHTML=s;
+}
+
+/* ---------- scatter with per-point labels ---------- */
+function scatter(el,cfg){
+  const W=cfg.W||560,H=cfg.H||420,L=48,R=24,T=14,B=34, iw=W-L-R, ih=H-T-B;
+  const {xmin,xmax,ymin,ymax,xticks,yticks}=cfg;
+  const xf=cfg.xfmt||(t=>t), yf=cfg.yfmt||(t=>t.toFixed(3));
+  const X=v=>L+iw*(v-xmin)/(xmax-xmin), Y=v=>T+ih*(1-(v-ymin)/(ymax-ymin));
+  const cid='clip'+Math.random().toString(36).slice(2,8);
+  let s=`<svg viewBox="0 0 ${W} ${H}" width="100%" height="100%" preserveAspectRatio="xMidYMid meet">`;
+  s+=`<clipPath id="${cid}"><rect x="${L}" y="${T}" width="${iw}" height="${ih}"/></clipPath>`;
+  yticks.forEach(t=>{const y=Y(t);
+    s+=`<line x1="${L}" y1="${y}" x2="${L+iw}" y2="${y}" stroke="${CV('--grid')}"/>`;
+    s+=`<text x="${L-6}" y="${y+3}" text-anchor="end" class="axl">${yf(t)}</text>`;});
+  xticks.forEach(t=>s+=`<text x="${X(t)}" y="${H-14}" text-anchor="middle" class="axl">${xf(t)}</text>`);
+  (cfg.vlines||[]).forEach(v=>{const x=X(v.x),c=CV(v.color||'--muted');
+    s+=`<line x1="${x}" y1="${T}" x2="${x}" y2="${T+ih}" stroke="${c}" stroke-dasharray="3 4"/>`;
+    s+=`<text x="${x-5}" y="${T+13}" text-anchor="end" class="hll" fill="${c}">${v.label}</text>`;});
+  // least-squares fit line through the plotted points
+  if(cfg.fit!==false){const n=cfg.pts.length, mx=cfg.pts.reduce((a,p)=>a+p.x,0)/n, my=cfg.pts.reduce((a,p)=>a+p.y,0)/n;
+  const b=cfg.pts.reduce((a,p)=>a+(p.x-mx)*(p.y-my),0)/cfg.pts.reduce((a,p)=>a+(p.x-mx)**2,0);
+  s+=`<line x1="${X(xmin)}" y1="${Y(my+b*(xmin-mx))}" x2="${X(xmax)}" y2="${Y(my+b*(xmax-mx))}"
+       stroke="${CV('--axis')}" stroke-dasharray="4 4" stroke-width="1.2" clip-path="url(#${cid})"/>`;}
+  if(cfg.link){const dd=cfg.link.map((i,j)=>`${j?'L':'M'}${X(cfg.pts[i].x).toFixed(1)} ${Y(cfg.pts[i].y).toFixed(1)}`).join(' ');
+    s+=`<path d="${dd}" fill="none" stroke="${CV('--axis')}" stroke-width="1.4"/>`;}
+  cfg.pts.forEach(p=>{const c=CV(p.color);
+    s+=`<circle cx="${X(p.x).toFixed(1)}" cy="${Y(p.y).toFixed(1)}" r="${p.r||5}" fill="${c}" opacity="${p.op||1}"/>`;
+    s+=`<text x="${(X(p.x)+(p.lx||8)).toFixed(1)}" y="${(Y(p.y)+(p.ly||3.5)).toFixed(1)}" class="pt" fill="${c}">${p.l}</text>`;});
+  s+=`<text x="${L+iw/2}" y="${H-1}" text-anchor="middle" class="axl">${cfg.xlab||'ZPartRank (of Cz)'}</text></svg>`;
+  el.innerHTML=s;
+}
+
+
+/* ================= DATA =================
+   Ladder and flow scalars grepped from the BSC eval stdout:
+     source decoder control  BSC:45414635  (flow iter_100000 through tokenizer epoch_100)
+     finetuned epoch_10      BSC:45497311 (flow N=1,20) + BSC:45497319 (sigma ladder)
+     finetuned epoch_5       BSC:45497830 + BSC:45497831
+   LAD_* are [MSEToken, loss] pairs; NSW_* are [N, loss]; FLW_* are [MSEToken, loss]. */
+const LAD_src_depth=[[0,2.7923],[0.1025,3.0104],[0.3027,3.3617],[0.6729,4.7519]];
+const FLW_src_depth=[[0.6677,3.6325],[0.7109,3.7372],[0.7554,3.7878],[0.7826,3.8187],[0.885,3.8819]];
+const LAD_src_pointmap=[[0,4.0557],[0.1025,4.3611],[0.3027,9.2042],[0.6729,18.4995]];
+const FLW_src_pointmap=[[0.6677,7.5305],[0.7109,7.2704],[0.7554,7.5426],[0.7826,7.6912],[0.885,8.6347]];
+const LAD_src_raymap=[[0,1.6763],[0.1025,1.8129],[0.3027,7.7481],[0.6729,19.0861]];
+const FLW_src_raymap=[[0.6677,5.0347],[0.7109,4.6035],[0.7554,4.8732],[0.7826,5.0081],[0.885,5.8777]];
+const LAD_ft10_depth=[[0,2.7548],[0.1025,2.8244],[0.3027,2.8892],[0.6729,3.0095]];
+const FLW_ft10_depth=[[0.6677,3.6765],[0.7109,3.7324],[0.7554,3.7423],[0.7826,3.7581],[0.8398,3.7802],[0.8638,3.7894],[0.885,3.7915]];
+const LAD_ft10_pointmap=[[0,3.9912],[0.1025,4.0606],[0.3027,4.1256],[0.6729,4.2507]];
+const FLW_ft10_pointmap=[[0.6677,8.2932],[0.7109,7.6756],[0.7554,7.3669],[0.7826,7.1248],[0.8398,6.7778],[0.8638,6.6715],[0.885,6.6117]];
+const LAD_ft10_raymap=[[0,1.6484],[0.1025,1.6506],[0.3027,1.6533],[0.6729,1.6715]];
+const FLW_ft10_raymap=[[0.6677,5.9274],[0.7109,5.1114],[0.7554,4.7003],[0.7826,4.4063],[0.8398,3.9965],[0.8638,3.863],[0.885,3.7936]];
+const LAD_ft5_depth=[[0,2.7563],[0.1025,2.8187],[0.3027,2.8818],[0.6729,3.0055]];
+const FLW_ft5_depth=[[0.6677,3.6744],[0.885,3.7768]];
+const LAD_ft5_pointmap=[[0,3.994],[0.1025,4.0534],[0.3027,4.109],[0.6729,4.2199]];
+const FLW_ft5_pointmap=[[0.6677,8.4315],[0.885,6.879]];
+const LAD_ft5_raymap=[[0,1.6482],[0.1025,1.6496],[0.3027,1.6424],[0.6729,1.6413]];
+const FLW_ft5_raymap=[[0.6677,6.0619],[0.885,4.0879]];
+const NSW_src_depth=[[1,3.6325],[2,3.7372],[3,3.7878],[4,3.8187],[20,3.8819]];
+const NSW_src_pointmap=[[1,7.5305],[2,7.2704],[3,7.5426],[4,7.6912],[20,8.6347]];
+const NSW_src_raymap=[[1,5.0347],[2,4.6035],[3,4.8732],[4,5.0081],[20,5.8777]];
+const NSW_ft10_depth=[[1,3.6765],[2,3.7324],[3,3.7423],[4,3.7581],[8,3.7802],[12,3.7894],[20,3.7915]];
+const NSW_ft10_pointmap=[[1,8.2932],[2,7.6756],[3,7.3669],[4,7.1248],[8,6.7778],[12,6.6715],[20,6.6117]];
+const NSW_ft10_raymap=[[1,5.9274],[2,5.1114],[3,4.7003],[4,4.4063],[8,3.9965],[12,3.863],[20,3.7936]];
+const NSW_ft5_depth=[[1,3.6744],[20,3.7768]];
+const NSW_ft5_pointmap=[[1,8.4315],[20,6.879]];
+const NSW_ft5_raymap=[[1,6.0619],[20,4.0879]];
+
+
+/* ---------- tc512 detached flow (this deck) ----------
+   step sweep BSC:45819224 (N=2,4,8) + BSC:45819762 (N=1,20); ladder BSC:45818711 (ep100) /
+   45818712 (ep80) / 45818713 (clean twin ep80); EP_* are training-log evals, index = epoch. */
+const NSW_t512_mse=[[1, 0.6949], [2, 0.739], [4, 0.8416], [8, 0.9305], [20, 0.9968]];
+const NSW_t512_depth=[[1, 3.6678], [2, 3.6633], [4, 3.7926], [8, 3.8837], [20, 3.9148]];
+const NSW_t512_pointmap=[[1, 6.9982], [2, 7.0024], [4, 7.6724], [8, 8.4677], [20, 9.039]];
+const NSW_t512_raymap=[[1, 4.5959], [2, 4.5807], [4, 5.1792], [8, 5.8207], [20, 6.3758]];
+const NSW_t128_mse=[[1, 0.6677], [2, 0.7109], [3, 0.7554], [4, 0.7826], [8, 0.8398], [12, 0.8638], [20, 0.885]];
+const LAD_d100_depth=[[0, 2.8196], [0.1024, 2.8373], [0.3025, 2.8535], [0.6725, 2.881]];
+const LAD_d100_pointmap=[[0, 4.1007], [0.1024, 4.1167], [0.3025, 4.1264], [0.6725, 4.1513]];
+const LAD_d100_raymap=[[0, 1.7062], [0.1024, 1.7057], [0.3025, 1.7019], [0.6725, 1.7019]];
+const LAD_d80_depth=[[0, 2.87], [0.1024, 2.8906], [0.3025, 2.9027], [0.6725, 2.9322]];
+const LAD_d80_pointmap=[[0, 4.1747], [0.1024, 4.1975], [0.3025, 4.2037], [0.6725, 4.2303]];
+const LAD_d80_raymap=[[0, 1.7334], [0.1024, 1.738], [0.3025, 1.736], [0.6725, 1.7364]];
+const LAD_tw80_depth=[[0, 2.788], [0.1024, 2.8098], [0.3025, 2.8498], [0.6725, 2.9721]];
+const LAD_tw80_pointmap=[[0, 4.0787], [0.1024, 4.1119], [0.3025, 4.1745], [0.6725, 4.3833]];
+const LAD_tw80_raymap=[[0, 1.7057], [0.1024, 1.7268], [0.3025, 1.7637], [0.6725, 1.8992]];
+const EP_tc128_mse=[1.1126, 1.0941, 1.0789, 1.0386, 1.0367, 0.9904, 1.0072, 0.9637, 1.0046, 0.9784, 0.9613, 0.9545, 0.9448, 0.9469, 0.9381, 0.9428, 0.9104, 0.9079, 0.9312, 0.9057, 0.9268, 0.9099, 0.8982, 0.9222, 0.9069, 0.9075, 0.9011, 0.9228, 0.8949, 0.9064, 0.9005, 0.8991, 0.8962, 0.901, 0.9243, 0.9046, 0.8822, 0.8831, 0.8799, 0.8827, 0.8915, 0.8851, 0.8732, 0.8808, 0.8722, 0.8801, 0.8795, 0.8873, 0.858, 0.8864, 0.8954, 0.8882, 0.8991, 0.8815, 0.8742, 0.8831, 0.8925, 0.8788, 0.8834, 0.872, 0.8887, 0.8942, 0.8909, 0.8832, 0.8878, 0.8867, 0.8847, 0.8772, 0.8747, 0.8927, 0.879, 0.8835, 0.8827, 0.879, 0.8994, 0.8801, 0.8793, 0.8697, 0.882, 0.8859, 0.8764, 0.8743, 0.8861, 0.8749, 0.8817, 0.9124, 0.8687, 0.874, 0.87, 0.8769, 0.8664, 0.8916, 0.9176, 0.8721, 0.8793, 0.884, 0.8842, 0.8926, 0.8605, 0.8844];
+const EP_tc128_pm=[12.4873, 15.862, 18.9434, 16.8978, 17.159, 11.5641, 13.7447, 13.9373, 13.7841, 12.39, 11.9829, 10.6756, 11.2678, 10.3507, 10.2189, 10.3611, 9.9641, 9.3094, 9.8363, 8.9169, 9.8006, 9.4314, 8.7286, 9.5961, 9.6946, 9.1708, 8.8107, 9.5185, 9.5439, 9.576, 9.3374, 9.2965, 9.3058, 9.3714, 9.2429, 9.4535, 8.7495, 8.7432, 9.0072, 9.1643, 8.7553, 8.7567, 8.4546, 8.7, 8.76, 9.0656, 9.0667, 9.0295, 8.5001, 8.7338, 8.882, 8.931, 8.9943, 8.4279, 8.7085, 9.0607, 8.9681, 8.9144, 9.0147, 9.1323, 8.8515, 8.7049, 9.0949, 8.8157, 9.1261, 9.0157, 8.9061, 8.5951, 9.0317, 8.7574, 8.5839, 8.9635, 8.5155, 8.7541, 9.5439, 8.5107, 8.7655, 8.7889, 8.628, 9.0703, 8.7821, 8.9631, 9.0241, 9.0363, 9.1967, 9.1926, 8.9245, 8.7942, 9.3816, 9.3604, 9.2846, 9.0079, 9.5313, 9.0714, 9.28, 9.2942, 9.0268, 9.2966, 8.9469, 9.233];
+const EP_tc128_dp=[4.3871, 4.2022, 4.089, 4.0413, 3.9304, 4.0513, 3.8802, 3.9076, 3.8695, 3.7761, 3.8395, 3.8371, 3.8116, 3.8294, 3.8305, 3.8743, 3.8717, 3.8171, 3.8208, 3.7896, 3.8454, 3.831, 3.8147, 3.8967, 3.9067, 3.8809, 3.8208, 3.8459, 3.8665, 3.9119, 3.8921, 3.8432, 3.8982, 3.8917, 3.8861, 3.9185, 3.7657, 3.8508, 3.8719, 3.8088, 3.8862, 3.8226, 3.7952, 3.8559, 3.8615, 3.8777, 3.8719, 3.8502, 3.8014, 3.869, 3.8952, 3.8909, 3.8347, 3.8551, 3.8476, 3.8958, 3.852, 3.887, 3.8647, 3.8211, 3.8834, 3.9055, 3.8738, 3.8497, 3.8384, 3.8437, 3.8359, 3.8519, 3.8416, 3.8746, 3.8596, 3.8435, 3.8669, 3.848, 3.8719, 3.855, 3.8649, 3.8589, 3.8292, 3.8849, 3.9119, 3.8332, 3.8571, 3.8446, 3.8568, 3.8754, 3.8684, 3.922, 3.8856, 3.899, 3.8638, 3.8814, 3.8738, 3.8851, 3.891, 3.9422, 3.8856, 3.894, 3.8419, 3.8764];
+const EP_tc128_rm=[10.5754, 14.7474, 17.8906, 15.5599, 15.4572, 9.0382, 11.7037, 12.0015, 11.881, 10.5411, 9.6907, 8.2403, 8.954, 7.7124, 7.6845, 7.7546, 7.4249, 6.6799, 7.1203, 6.3076, 7.1934, 6.7892, 6.0702, 6.9716, 6.85, 6.4749, 6.2092, 6.9212, 6.9232, 6.7571, 6.6898, 6.6367, 6.4773, 6.6514, 6.5316, 6.7861, 6.1791, 5.9601, 6.2764, 6.476, 6.0764, 6.1489, 5.7698, 6.0101, 6.0682, 6.3162, 6.3946, 6.2309, 5.834, 6.0224, 6.095, 6.1481, 6.353, 5.693, 5.9947, 6.3701, 6.2173, 6.1899, 6.366, 6.4513, 6.0512, 6.034, 6.3024, 6.2016, 6.4444, 6.2779, 6.1894, 5.907, 6.3834, 6.1241, 5.8889, 6.2872, 5.8921, 6.1221, 6.9248, 5.958, 6.1336, 6.1289, 5.9565, 6.2614, 5.9978, 6.2787, 6.3638, 6.3407, 6.4994, 6.564, 6.2393, 6.1079, 6.7648, 6.6403, 6.4594, 6.3469, 6.9088, 6.3425, 6.5587, 6.4569, 6.3602, 6.5551, 6.1734, 6.5326];
+const EP_tc512_mse=[1.2097, 1.2907, 1.2557, 1.1307, 1.1615, 1.0565, 1.1101, 1.1103, 1.0989, 1.1021, 1.0665, 1.0625, 1.0451, 1.0409, 1.0138, 1.0892, 1.0459, 1.0424, 1.0578, 1.0511, 1.0489, 1.0409, 1.0056, 1.0529, 1.0219, 1.0092, 1.0437, 1.0098, 1.0025, 1.0, 1.0338, 1.006, 1.0254, 1.0193, 1.0154, 1.0269, 1.0209, 1.0238, 1.0065, 1.0094, 1.0126, 1.0041, 1.0001, 1.0264, 1.002, 1.0116, 0.9988, 1.0216, 0.9997, 0.9954, 0.9938, 0.998, 0.996, 1.0155, 0.9926, 1.012, 0.9696, 0.9878, 1.0081, 0.9999];
+const EP_tc512_pm=[8.6221, 14.9677, 19.77, 17.6626, 17.7113, 14.0882, 16.1166, 14.7015, 13.9623, 14.7187, 12.1098, 12.1085, 10.2397, 10.936, 10.945, 12.3192, 11.5609, 10.6963, 11.2392, 11.3897, 11.1276, 10.8342, 9.546, 10.8201, 10.2661, 9.5312, 9.6286, 9.8488, 9.4894, 9.3148, 9.8777, 9.7942, 9.6144, 9.8016, 10.4312, 9.7769, 9.1528, 10.3973, 9.3213, 9.8104, 9.7557, 9.6916, 9.865, 9.0218, 9.3796, 9.0995, 9.6276, 9.6998, 9.0556, 9.0782, 8.8535, 9.49, 8.9381, 9.8927, 9.1525, 9.4109, 8.5945, 9.2249, 9.5271, 9.3223];
+const EP_tc512_dp=[4.4343, 4.3887, 4.2995, 4.1722, 4.1183, 4.0917, 4.0682, 4.1817, 4.0919, 4.057, 3.9606, 3.9985, 3.9673, 4.0103, 4.0263, 3.953, 3.9788, 3.9546, 3.9815, 3.9611, 3.889, 3.972, 4.0242, 3.9558, 3.9508, 3.9308, 3.921, 3.943, 3.9087, 3.9356, 3.9032, 3.9127, 3.9807, 3.9068, 4.019, 3.9274, 3.9525, 3.9446, 3.8925, 3.9196, 3.9273, 3.956, 3.9469, 3.9361, 3.9261, 3.9439, 3.9216, 4.0317, 3.9494, 3.9002, 3.8989, 3.9054, 3.863, 3.8832, 3.9196, 3.9222, 3.9025, 3.9365, 3.9322, 3.9636];
+const EP_tc512_rm=[6.5894, 13.5704, 19.2506, 16.611, 16.6881, 11.9677, 14.1164, 12.3827, 11.7061, 12.4487, 9.5196, 9.6446, 7.7009, 8.1786, 8.078, 9.8148, 8.7969, 7.8698, 8.6188, 8.5484, 8.6751, 7.9852, 6.8225, 7.9309, 7.4214, 6.7564, 7.0522, 6.9647, 6.7578, 6.4532, 7.1118, 6.9315, 6.8498, 6.9618, 7.6252, 6.9936, 6.4175, 7.5971, 6.752, 7.1616, 6.9753, 6.8063, 7.1705, 6.2537, 6.6689, 6.3899, 6.8436, 6.6687, 6.3503, 6.1933, 6.1168, 6.7702, 6.2766, 7.3507, 6.4598, 6.7636, 5.9188, 6.3363, 6.6995, 6.4624];
+
+/* ---------- render ---------- */
+const SW={L:44,R:52,T:8,B:30,xmin:0,xmax:21,xticks:[1,2,4,8,20],xlab:'ODE steps (N)'};
+xyChart(document.getElementById("h1c"),Object.assign({},SW,{W:620,H:380,L:48,R:92,ymin:3.6,ymax:6.6,yticks:[4,4.5,5,5.5,6,6.5],fmt:v=>v.toFixed(1),series:[
+  {pts:NSW_src_raymap,color:'--s2',tag:'tc128 source',width:1.9},{pts:NSW_ft10_raymap,color:'--s1',tag:'tc128 ft10',width:1.9},{pts:NSW_t512_raymap,color:'--s5',tag:'tc512',width:2.6}]}));
+xyChart(document.getElementById("s2a"),Object.assign({},SW,{W:320,H:300,ymin:0.64,ymax:1.02,yticks:[0.7,0.8,0.9,1.0],fmt:v=>v.toFixed(2),series:[
+  {pts:NSW_t128_mse,color:'--ink2',tag:'tc128',width:1.9},{pts:NSW_t512_mse,color:'--s5',tag:'tc512',width:2.2}]}));
+xyChart(document.getElementById("s2b"),Object.assign({},SW,{W:320,H:300,ymin:3.58,ymax:3.95,yticks:[3.6,3.7,3.8,3.9],fmt:v=>v.toFixed(1),series:[
+  {pts:NSW_src_depth,color:'--s2',tag:'source',width:1.9},{pts:NSW_ft10_depth,color:'--s1',tag:'ft10',width:1.9},{pts:NSW_t512_depth,color:'--s5',tag:'tc512',width:2.2}]}));
+xyChart(document.getElementById("s2c"),Object.assign({},SW,{W:320,H:300,ymin:6.4,ymax:9.2,yticks:[6.5,7.5,8.5],fmt:v=>v.toFixed(1),series:[
+  {pts:NSW_src_pointmap,color:'--s2',tag:'source',width:1.9},{pts:NSW_ft10_pointmap,color:'--s1',tag:'ft10',width:1.9},{pts:NSW_t512_pointmap,color:'--s5',tag:'tc512',width:2.2}]}));
+xyChart(document.getElementById("s2d"),Object.assign({},SW,{W:320,H:300,ymin:3.6,ymax:6.6,yticks:[4,5,6],fmt:v=>v.toFixed(1),series:[
+  {pts:NSW_src_raymap,color:'--s2',tag:'source',width:1.9},{pts:NSW_ft10_raymap,color:'--s1',tag:'ft10',width:1.9},{pts:NSW_t512_raymap,color:'--s5',tag:'tc512',width:2.2}]}));
+const LD={W:400,H:262,L:46,R:60,T:8,B:30,xmin:0,xmax:0.72,xticks:[0,0.2,0.4,0.6],log:true,fmt:v=>v.toFixed(1),xlab:'MSEToken (latent error)'};
+// top-level const is not a window property, so look the arrays up explicitly
+const LADS={src:{depth:LAD_src_depth,pointmap:LAD_src_pointmap,raymap:LAD_src_raymap},
+  ft10:{depth:LAD_ft10_depth,pointmap:LAD_ft10_pointmap,raymap:LAD_ft10_raymap},
+  tw80:{depth:LAD_tw80_depth,pointmap:LAD_tw80_pointmap,raymap:LAD_tw80_raymap},
+  d80:{depth:LAD_d80_depth,pointmap:LAD_d80_pointmap,raymap:LAD_d80_raymap},
+  d100:{depth:LAD_d100_depth,pointmap:LAD_d100_pointmap,raymap:LAD_d100_raymap}};
+const ladSeries=m=>[{pts:LADS.src[m],color:'--s2',tag:'source',width:1.9},{pts:LADS.ft10[m],color:'--s1',width:1.9},
+  {pts:LADS.tw80[m],color:'--s4',width:1.9},{pts:LADS.d80[m],color:'--s5',width:1.6,faint:true},{pts:LADS.d100[m],color:'--s5',width:2.2}];
+
+xyChart(document.getElementById("s3a"),Object.assign({},LD,{ymin:2.6,ymax:5.0,yticks:[2.7,3.2,3.9,4.8],series:ladSeries('depth')}));
+xyChart(document.getElementById("s3b"),Object.assign({},LD,{ymin:3.8,ymax:20,yticks:[4,6,10,19],series:ladSeries('pointmap')}));
+xyChart(document.getElementById("s3c"),Object.assign({},LD,{ymin:1.5,ymax:21,yticks:[1.6,3,7,20],series:ladSeries('raymap')}));
+const EPC={W:400,H:262,L:46,R:56,T:8,B:26,xmin:10,xmax:99,xticks:[10,30,50,70,99],xlab:'epoch'};
+lineChart(document.getElementById("s4a"),Object.assign({},EPC,{ymin:0.84,ymax:1.1,yticks:[0.85,0.95,1.05],fmt:v=>v.toFixed(2),series:[
+  {data:EP_tc128_mse.slice(10),color:'--s2',tag:'tc128'},{data:EP_tc512_mse.slice(10),color:'--s5',tag:'tc512',width:2.2}]}));
+lineChart(document.getElementById("s4b"),Object.assign({},EPC,{ymin:8.2,ymax:12.5,yticks:[8.5,10,11.5],fmt:v=>v.toFixed(1),series:[
+  {data:EP_tc128_pm.slice(10),color:'--s2',tag:'tc128'},{data:EP_tc512_pm.slice(10),color:'--s5',tag:'tc512',width:2.2}]}));
+lineChart(document.getElementById("s4c"),Object.assign({},EPC,{ymin:5.5,ymax:10,yticks:[6,7.5,9],fmt:v=>v.toFixed(1),series:[
+  {data:EP_tc128_rm.slice(10),color:'--s2',tag:'tc128'},{data:EP_tc512_rm.slice(10),color:'--s5',tag:'tc512',width:2.2}]}));
+</script>
+</body>
+</html>

@@ -1,0 +1,542 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>DeltaTok — shaped noise and where the flow errs</title>
+<style>
+/* ---------- tokens · light only, white slides (no dark variant by request) ---------- */
+:root{
+  color-scheme: light only;
+  --backdrop:#e9e9e6; --page:#f7f7f6; --surface:#ffffff;
+  --ink:#0b0b0b; --ink2:#52514e; --muted:#83817c;
+  --grid:#e4e4de; --axis:#c3c2b7; --border:rgba(11,11,11,.12);
+  --s1:#2a78d6; --s2:#eb6834; --s3:#1baf7a; --s4:#eda100; --s5:#8a63c8;
+  --good:#0ca30c; --crit:#d03b3b; --serious:#ec835a;
+  --accent:var(--s1);
+  --serif:"Iowan Old Style","Palatino Linotype",Palatino,Georgia,serif;
+  --sans:system-ui,-apple-system,"Segoe UI",sans-serif;
+  --mono:ui-monospace,"Cascadia Code",Menlo,Consolas,monospace;
+}
+/* ---------- deck chrome ---------- */
+*{box-sizing:border-box;margin:0}
+html,body{height:100%}
+body{background:var(--backdrop);color:var(--ink);font:15px/1.45 var(--sans);overflow:hidden}
+.stage{position:absolute;left:50%;top:50%;width:1280px;height:720px;transform-origin:center center}
+.slide{position:absolute;inset:0;background:var(--surface);border:1px solid var(--border);
+  padding:46px 60px 40px;display:none;flex-direction:column}
+.slide.on{display:flex}
+.eyebrow{font:600 12px/1 var(--mono);letter-spacing:.14em;text-transform:uppercase;color:var(--accent);margin-bottom:12px}
+.eyebrow .dim{color:var(--muted)}
+.eyebrow .when{color:var(--ink);font-variant-numeric:tabular-nums;border-right:1px solid var(--axis);
+  padding-right:9px;margin-right:9px}
+h1{font:400 42px/1.14 var(--serif);letter-spacing:-.01em;text-wrap:balance}
+h2{font:400 29px/1.2 var(--serif);letter-spacing:-.005em;text-wrap:balance;margin-bottom:4px}
+.sub{color:var(--ink2);font-size:14.5px;max-width:80ch;margin-top:9px}
+.body{flex:1;min-height:0;margin-top:16px}
+.foot{display:flex;justify-content:space-between;align-items:baseline;color:var(--muted);
+  font:11px/1 var(--mono);letter-spacing:.06em;margin-top:12px;border-top:1px solid var(--grid);padding-top:10px}
+.pageno{font-variant-numeric:tabular-nums}
+/* nav */
+.nav{position:fixed;left:50%;bottom:14px;transform:translateX(-50%);display:flex;gap:8px;align-items:center;z-index:5}
+.nav button{width:9px;height:9px;border-radius:50%;border:1px solid var(--muted);background:transparent;cursor:pointer;padding:0}
+.nav button.cur{background:var(--accent);border-color:var(--accent)}
+.nav button:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+.arr{position:fixed;top:50%;transform:translateY(-50%);z-index:5;border:1px solid var(--border);
+  background:var(--surface);color:var(--ink2);width:34px;height:56px;cursor:pointer;font-size:18px;border-radius:4px}
+.arr:hover{color:var(--ink)}
+#prev{left:10px}#next{right:10px}
+/* ---------- shared bits ---------- */
+.mono{font-family:var(--mono)}
+.num{font-variant-numeric:tabular-nums}
+.chip{display:inline-block;font:600 10.5px/1 var(--mono);letter-spacing:.05em;padding:4px 7px;border-radius:3px;
+  border:1px solid var(--border);white-space:nowrap}
+.chip.good{color:var(--good);border-color:currentColor}
+.chip.bad{color:var(--crit);border-color:currentColor}
+.chip.hero{color:var(--accent);border-color:currentColor}
+.sw{display:inline-block;width:14px;height:0;border-top-width:3px;border-top-style:solid;vertical-align:4px}
+.cols{display:grid;gap:24px;min-height:0}
+.c2{grid-template-columns:1fr 1fr}
+.c58{grid-template-columns:1.32fr 1fr}
+.c85{grid-template-columns:1fr 1.28fr}
+.card{border:1px solid var(--grid);border-radius:6px;padding:14px 16px;background:var(--page)}
+.card h3{font:600 14px/1.3 var(--sans);margin:6px 0}
+.card .tag{font:600 10px/1 var(--mono);letter-spacing:.1em;text-transform:uppercase;color:var(--muted)}
+ul.tight{padding-left:18px;display:flex;flex-direction:column;gap:8px;font-size:13.5px;color:var(--ink2)}
+ul.tight li{padding-left:2px}
+ul.tight strong{color:var(--ink);font-weight:600}
+/* stat tiles */
+.tiles{display:grid;gap:12px}
+.tile{border:1px solid var(--grid);border-radius:6px;padding:12px 14px;background:var(--page)}
+.tile .v{font:600 25px/1.1 var(--sans);letter-spacing:-.01em;font-variant-numeric:tabular-nums}
+.tile .k{font:600 10px/1.4 var(--mono);letter-spacing:.1em;text-transform:uppercase;color:var(--muted);margin-bottom:5px}
+.tile .d{font-size:12.5px;color:var(--ink2);margin-top:5px}
+.rulebar{border:1px dashed var(--axis);border-radius:6px;padding:11px 15px;font-size:13.5px;color:var(--ink2)}
+.rulebar b{color:var(--ink)}
+/* tables */
+table{border-collapse:collapse;width:100%;font-size:13px;font-variant-numeric:tabular-nums}
+th,td{text-align:right;padding:5px 8px;border-bottom:1px solid var(--grid)}
+th:first-child,td:first-child{text-align:left}
+thead th{font:600 10px/1.3 var(--mono);letter-spacing:.08em;text-transform:uppercase;color:var(--muted);border-bottom:1px solid var(--axis)}
+tbody tr.hi td{background:#fff6f2}
+td.w{color:var(--crit);font-weight:600}
+td.g{color:var(--good);font-weight:600}
+/* charts */
+.legend{display:flex;flex-wrap:wrap;gap:5px 16px;font:12px/1 var(--sans);color:var(--ink2);margin-bottom:4px}
+.legend span{display:inline-flex;gap:7px;align-items:center}
+svg text{font:10.5px var(--sans);fill:var(--muted)}
+svg .axl{font:9.5px var(--mono);fill:var(--muted)}
+svg .hll{font:600 9.5px var(--mono)}
+svg .barlbl{font:600 12px var(--sans);fill:var(--ink)}
+svg .barval{font:11px var(--mono);fill:var(--ink2)}
+.chartwrap{display:flex;flex-direction:column;height:100%;min-height:0}
+.chartwrap svg{flex:1;min-height:0}
+.ptitle{font:600 12px/1.2 var(--mono);color:var(--ink2);letter-spacing:.02em;margin-bottom:2px}
+.ptitle span{color:var(--muted);font-weight:400}
+.takeaway{border:1px solid var(--grid);border-radius:6px;padding:12px 15px;background:var(--page);display:flex;gap:12px;align-items:flex-start}
+.takeaway .n{font:600 22px/1 var(--serif);color:var(--accent);flex:0 0 auto;width:24px}
+.takeaway .tx{font-size:13.5px;color:var(--ink2)}
+.takeaway .tx b{color:var(--ink)}
+@media (prefers-reduced-motion: no-preference){
+  .slide.on{animation:fadein .18s ease}
+  @keyframes fadein{from{opacity:.4}to{opacity:1}}
+}
+@media print{
+  body{overflow:visible;background:#fff}
+  .stage{position:static;transform:none!important;width:auto;height:auto}
+  .slide{display:flex;position:static;width:1280px;height:720px;page-break-after:always;margin:0 auto}
+  .nav,.arr{display:none}
+}
+/* ---------- small-multiple panel grids (this deck) ---------- */
+.g2{display:grid;grid-template-columns:1fr 1fr;gap:6px 22px;height:100%}
+.g4{display:grid;grid-template-columns:1fr 1fr;grid-template-rows:1fr 1fr;gap:8px 22px;height:100%}
+.g6{display:grid;grid-template-columns:repeat(3,1fr);grid-template-rows:1fr 1fr;gap:8px 16px;height:100%}
+.pan{display:flex;flex-direction:column;min-height:0;min-width:0}
+.pan .plot{flex:1;min-height:0}
+.chartwrap svg,.pan .plot svg{display:block}
+.dsl{font:600 10px/1 var(--mono);letter-spacing:.09em;text-transform:uppercase;color:var(--accent)}
+.legend.top{margin:0 0 8px}
+svg .pt{font:600 9px var(--mono)}
+/* ---------- AR rollout strips (image slides) ---------- */
+.arhead,.arstrip{display:grid;grid-template-columns:78px 1fr;gap:0 10px;align-items:center}
+.arhead .c4{display:grid;grid-template-columns:repeat(4,1fr)}
+.arhead .c4 b{font:600 11px/1.3 var(--mono);letter-spacing:.04em;text-align:center;color:var(--ink)}
+.arhead .c4 b.gt{color:var(--muted)}
+.arhead .c4 b.win{color:var(--s1)}
+.arstrip .rl{font:600 10px/1.2 var(--mono);color:var(--muted);text-align:right;letter-spacing:.05em}
+.arstrip img{width:100%;display:block;border:1px solid var(--grid)}
+.argrid{display:flex;flex-direction:column;gap:5px}
+/* ---------- L1 error maps: one fixed colour scale everywhere ---------- */
+.cbar{display:flex;align-items:center;gap:8px;font:600 10px/1 var(--mono);color:var(--muted);letter-spacing:.05em}
+.cbar .ramp{height:9px;width:150px;border:1px solid var(--border);border-radius:2px;
+  background:linear-gradient(90deg,rgb(0,0,3),rgb(32,12,74),rgb(87,15,109),rgb(137,34,105),
+  rgb(187,55,84),rgb(228,90,49),rgb(249,142,8),rgb(248,203,52),rgb(252,254,164))}
+.arhead .c3{display:grid;grid-template-columns:repeat(3,1fr)}
+.arhead .c3 b{font:600 11px/1.3 var(--mono);letter-spacing:.04em;text-align:center;color:var(--ink)}
+.arhead .c3 b.win{color:var(--s1)}
+.arhead .c3 b.win{color:var(--s1)}
+.slide.findings .takeaway .tx{font-size:12.2px}
+.slide.findings .takeaway{padding:9px 12px}
+.slide.findings .rulebar{font-size:11.8px;padding:9px 13px}
+.slide.findings .cols{gap:16px}
+</style>
+</head>
+
+<body>
+<div class="stage" id="stage">
+
+<section class="slide on">
+  <div class="eyebrow"><span class="when">2026-09-13</span>DeltaTok flow <span class="dim">— Σ<sub>z</sub>-shaped noise ladder and the flow error's spectrum · tc512 detached vs tc128 source and ft10 · 128 Waymo val sequences</span></div>
+  <h1 style="font-size:31px">The isotropic ladder was the wrong test. Noise shaped like the code, at the same <span class="mono">MSEToken</span>, costs the tc512 decoder <span style="color:var(--crit)">+33% raymap</span>; ft10 reads <span style="color:var(--good)">−8%</span>.</h1>
+  <p class="sub">On Waymo the tc512 code lives in 128 of 512 directions, so isotropic noise spent 75% of its energy where there is no signal. The two flows put their error in the same directions at every N.
+  More steps only scale it, to ~100% of the signal energy at N = 20. The decoder's answer to that size is the whole difference.</p>
+  <div class="body">
+    <div class="cols c58" style="height:100%">
+      <div class="chartwrap">
+        <div class="ptitle">LossRaymap VS MSEToken <span>· log y · dashed = isotropic noise, solid = Σ<sub>z</sub>-shaped</span></div>
+        <div class="legend"><span><i class="sw" style="border-color:var(--s5)"></i>tc512 detached</span>
+          <span><i class="sw" style="border-color:var(--s1)"></i>tc128 ft10</span>
+          <span><i class="sw" style="border-color:var(--s2)"></i>tc128 source</span></div>
+        <div id="h1c" style="flex:1;min-height:0"></div>
+      </div>
+      <div class="tiles" style="grid-template-columns:1fr 1fr;grid-template-rows:auto auto;align-content:center">
+        <div class="tile"><div class="k">Directions holding the code · Waymo</div>
+          <div class="v" style="font-size:22px">128 of 512</div>
+          <div class="d">tc512 · SigShareTop128 = 0.9998; tc128 uses all 128 &nbsp;<span class="chip">rank 93 both</span></div></div>
+        <div class="tile"><div class="k">Isotropic σ=0.82 energy in them</div>
+          <div class="v" style="font-size:22px">15% vs 72%</div>
+          <div class="d">of the signal energy, tc512 vs tc128 &nbsp;<span class="chip bad">4.7× easier</span></div></div>
+        <div class="tile"><div class="k">Shaped σ=0.82 · pointmap / raymap</div>
+          <div class="v" style="font-size:22px">+16% / +33%</div>
+          <div class="d">tc512 detached; isotropic said +1% / 0% &nbsp;<span class="chip bad">not tolerant</span></div></div>
+        <div class="tile"><div class="k">Flow error profile · N = 1 → 20</div>
+          <div class="v" style="font-size:22px">Δ &lt; 0.01</div>
+          <div class="d">share in top-k directions, both widths &nbsp;<span class="chip good">size only</span></div></div>
+      </div>
+    </div>
+  </div>
+  <div class="foot"><span>BSC:45820899 / 45820913 / 45820911 (shaped) · isotropic from BSC:45818711 and the 2026-09-06 deck · spectra BSC:45820910 / 45820912</span><span class="pageno">01 / 06</span></div>
+</section>
+
+<section class="slide">
+  <div class="eyebrow">Why the isotropic ladder was easy <span class="dim">— cumulative share of z variance by eigen-direction · Waymo forecast slots, 16384 rows per tokenizer</span></div>
+  <h2>The tc512 code is <span style="color:var(--s5)">128-dimensional</span>. Isotropic noise puts 3/4 of its energy in the other 384 directions, which the decoder can ignore for free.</h2>
+  <p class="sub">Both codes have effective rank ~93 (<span class="mono">ZPartRank</span> 92.9 vs 94.2) and the same share curve over their first 128 directions. The difference is what isotropic noise does around them.
+  Dashed: where the same noise energy goes when it is isotropic, k/C.</p>
+  <div class="body"><div style="display:flex;flex-direction:column;height:100%;gap:6px">
+    <div style="flex:1;min-height:0"><div class="g2" style="grid-template-columns:1fr 1fr 1.05fr;gap:6px 16px">
+      <div class="pan"><div class="ptitle">tc512 detached <span>· 512 directions</span></div><div class="plot" id="s2a"></div></div>
+      <div class="pan"><div class="ptitle">tc128 source / ft10 <span>· 128 directions</span></div><div class="plot" id="s2b"></div></div>
+      <div style="display:flex;flex-direction:column;justify-content:center">
+        <table style="font-size:12.5px"><thead><tr><th></th><th>tc128</th><th>tc512</th></tr></thead><tbody>
+          <tr><td><span class="mono">ZPartRank</span> · <span class="mono">ZTotalVar</span></td><td>94.2 · 114</td><td>92.9 · 529</td></tr>
+          <tr><td>Variance in the top 128 directions</td><td>100%</td><td>99.98%</td></tr>
+          <tr><td>Signal per used direction · TotalVar / 128</td><td>0.89</td><td>4.13</td></tr>
+          <tr class="hi"><td>Isotropic σ = 0.82 · energy in those 128</td><td class="w">72%</td><td class="g">15%</td></tr>
+          <tr><td>Σ<sub>z</sub>-shaped σ = 0.82 · same MSEToken</td><td>72%</td><td>62%</td></tr>
+          <tr><td>Flow error · N = 1 / N = 20</td><td>84% / 100%</td><td>67% / 96%</td></tr>
+        </tbody></table>
+        <div class="rulebar" style="font-size:12px;margin-top:8px">Energies are relative to the signal energy in the used subspace. The tc512 decoder trained under 15%; the flow hands it 67–96%.</div>
+      </div></div></div>
+  </div></div>
+  <div class="foot"><span>z_basis pre-pass of BSC:45820899 (tc512) and 45820911 (tc128) · training τ = 0.8 → σ² ≤ 0.64</span><span class="pageno">02 / 06</span></div>
+</section>
+
+<section class="slide">
+  <div class="eyebrow">The shaped ladder <span class="dim">— GT code + ε, ε ~ N(0, Σ<sub>z</sub>·C/tr Σ<sub>z</sub>) on the forecast slots · σ = 0.32 / 0.55 / 0.82 · same MSEToken as the isotropic ladder</span></div>
+  <h2>At equal token error the tc512 decoder is now <span style="color:var(--crit)">less tolerant than ft10</span> on pointmap and raymap, the two metrics where the flow gap is largest.</h2>
+  <p class="sub">σ = 0 → 0.82, D / P / R: tc512 detached 2.82 / 4.10 / 1.71 → 3.02 / 4.76 / 2.27; ft10 2.75 / 3.99 / 1.65 → 3.28 / 4.29 / 1.51; tc128 source 2.79 / 4.06 / 1.68 → 5.41 / 18.17 / 18.16.
+  Faint dashed curves are the isotropic ladder of the same decoder.</p>
+  <div class="body"><div style="display:flex;flex-direction:column;height:100%;gap:6px">
+    <div class="legend top"><span><i class="sw" style="border-color:var(--s5)"></i>tc512 detached epoch_100</span>
+      <span><i class="sw" style="border-color:var(--s1)"></i>tc128 ft10</span>
+      <span><i class="sw" style="border-color:var(--s2)"></i>tc128 source</span>
+      <span><i class="sw" style="border-color:var(--muted);border-style:dashed"></i>same decoder, isotropic</span></div>
+    <div style="flex:1;min-height:0"><div class="g2" style="grid-template-columns:repeat(3,1fr)"><div class="pan"><div class="ptitle">LossDepth <span>· log y</span></div><div class="plot" id="s3a"></div></div><div class="pan"><div class="ptitle">LossPointmap <span>· log y</span></div><div class="plot" id="s3b"></div></div><div class="pan"><div class="ptitle">LossRaymap <span>· log y</span></div><div class="plot" id="s3c"></div></div></div></div>
+    <div class="rulebar" style="font-size:12px"><b>Shaped vs isotropic at σ = 0.82, tc512:</b> depth +7.0% vs +2.2%, pointmap +16.2% vs +1.2%, raymap +33% vs −0.2%. <b>ft10:</b> +19% vs +9.5%, +7.6% vs +6.5%, −8.4% vs +1.2% — raymap improves under shaped noise.
+    <b>tc128 source</b> is the same under both, as expected when the code fills its space. Checks: shaped <span class="mono">MSEToken</span> 0.1025 / 0.3028 / 0.6731 and ErrShare = SigShare to 4 decimals on every pass.</div>
+  </div></div>
+  <div class="foot"><span>shaped BSC:45820899 (tc512) · 45820913 (ft10) · 45820911 (source) · isotropic BSC:45818711 and the 2026-09-06 deck (BSC:45497319 / 45498382)</span><span class="pageno">03 / 06</span></div>
+</section>
+
+<section class="slide">
+  <div class="eyebrow">Where the flow errs <span class="dim">— E[(z_hat − z)²] per eigen-direction of Σ<sub>z</sub>, divided by that direction's variance · first 128 directions · N = 1 / 2 / 20</span></div>
+  <h2>Same profile at both widths and at every N: the top directions are half right, directions 16–128 are <span style="color:var(--crit)">worse than guessing zero</span>.</h2>
+  <p class="sub">Error / signal in the top 16: 0.47 (tc512) and 0.51 (tc128) at N = 20; in directions 16–128: 1.15 and 1.16. N = 1 → 20 scales the curve by 1.4× (tc512) and 1.2× (tc128) without changing its shape.
+  Dashed grey: what isotropic σ = 0.82 does per direction. Dashed amber: the shaped ladder at σ = 0.82, flat by construction.</p>
+  <div class="body"><div style="display:flex;flex-direction:column;height:100%;gap:6px">
+    <div class="legend top"><span><i class="sw" style="border-color:var(--s5)"></i>tc512 flow</span>
+      <span><i class="sw" style="border-color:var(--s2)"></i>tc128 flow</span>
+      <span><i class="sw" style="border-color:var(--ink2);opacity:.45"></i>N = 1 (faint) · N = 2 · N = 20 (bold)</span>
+      <span><i class="sw" style="border-color:var(--muted);border-style:dashed"></i>isotropic σ = 0.82</span>
+      <span><i class="sw" style="border-color:var(--s4);border-style:dashed"></i>shaped σ = 0.82</span></div>
+    <div style="flex:1;min-height:0"><div class="g2" style="grid-template-columns:1fr 1fr"><div class="pan"><div class="ptitle">tc512 detached flow <span>· error / signal per direction · log y</span></div><div class="plot" id="s4a"></div></div><div class="pan"><div class="ptitle">tc128 compose flow <span>· error / signal per direction · log y</span></div><div class="plot" id="s4b"></div></div></div></div>
+    <div class="rulebar" style="font-size:12px"><b>Read:</b> the isotropic ladder (grey) stays under the flow's error for the first ~110 directions at tc512 (~100 at tc128) and only crosses it in the tail, where the signal is near zero and the flow's error drops with it. The shaped ladder sits at 0.62 / 0.72 — inside the flow's range, which is why it separates the decoders.
+    Total error / signal: N = 1 <b>0.67 vs 0.84</b>, N = 20 <b>0.96 vs 1.00</b> (tc512 vs tc128): relative to its code the tc512 flow is the better of the two.</div>
+  </div></div>
+  <div class="foot"><span>BSC:45820910 (tc512) · 45820912 (tc128) · err_spectrum_*.pt under results/deltatok_flow_zshaped/</span><span class="pageno">04 / 06</span></div>
+</section>
+
+<section class="slide">
+  <div class="eyebrow">What is still confounded <span class="dim">— the decoders differ in training noise (15% vs 72%) and in recipe</span></div>
+  <h2>Width or recipe? The ft10 recipe on the tc512 tokenizer, run twice with only the noise changed, <span style="color:var(--s1)">separates them</span>.</h2>
+  <p class="sub">ft10 was a 10-epoch decoder-only finetune whose only loss was the noised decode. The tc512 detached decoder trained 100 epochs from scratch on a clean decode plus a noised one, encoder co-adapting.
+  Both arms below start from the detached <span class="mono">epoch_100.pth</span> with the encoder frozen, so the existing flow <span class="mono">iter_100000</span> reads them without retraining.</p>
+  <div class="body">
+    <div class="cols c2" style="height:100%;align-content:start">
+      <div style="display:flex;flex-direction:column;gap:10px">
+        <div class="card"><div class="tag">Arm A · recipe only</div><h3>ft10 verbatim on tc512: isotropic τ = 0.8, noise-only loss, 10 epochs</h3>
+          <div style="font-size:13px;color:var(--ink2)">Same 15% of signal energy in the used subspace as the detached run. Needs <span class="mono">training.clean_decode_weight=0</span> (deltatok-5e's tc1536 plan), since the current trainer always adds the clean decode.</div></div>
+        <div class="card"><div class="tag">Arm B · recipe + relative σ</div><h3>Same finetune, noise ~ N(0, Σ<sub>z</sub>·C/tr Σ<sub>z</sub>) at τ = 0.8</h3>
+          <div style="font-size:13px;color:var(--ink2)">62% of signal energy in the used subspace, close to ft10's 72%. Needs a <span class="mono">decode_noise_cov</span> file read by <span class="mono">noise_z</span>. No-code stand-in: isotropic τ ≈ 1.75, which also floods the empty directions.</div></div>
+        <div class="rulebar" style="font-size:12.5px">~5 h each on 4 GPUs, then the 5-point step sweep (~30 min). Both read through the same flow.</div>
+      </div>
+      <div>
+        <div class="ptitle" style="margin-bottom:5px">DECISION TABLE <span>· step sweep on the finetuned decoder</span></div>
+        <table style="font-size:12.5px"><thead><tr><th>Arm A</th><th>Arm B</th><th>Reading</th></tr></thead><tbody>
+          <tr><td>ft10 shape (improves with N)</td><td>—</td><td>Recipe alone. Width is not the issue.</td></tr>
+          <tr><td>source shape (worse with N)</td><td>ft10 shape</td><td>σ must be relative to the used subspace.</td></tr>
+          <tr><td>source shape</td><td>source shape</td><td>Something neither arm touches: the encoder's co-adaptation, or the decoder's 512-wide input.</td></tr>
+        </tbody></table>
+        <div class="rulebar" style="font-size:12.5px;margin-top:12px"><b>Not controlled:</b> ft10 started from a decoder that had never seen noise; both arms start from one that saw 100 epochs of it. The clean twin epoch_80 would match ft10's start but has no flow.</div>
+      </div>
+    </div>
+  </div>
+  <div class="foot"><span>docs/research/plan/2026-09-13_tc_width_pool24576_ft20_flow_tc1536.md (clean_decode_weight) · todos.json row 13</span><span class="pageno">05 / 06</span></div>
+</section>
+
+<section class="slide findings">
+  <div class="eyebrow">Findings</div>
+  <h2>The flows are the same. The decoders differ, and the isotropic ladder <span style="color:var(--crit)">could not see it</span>.</h2>
+  <div class="body">
+    <div class="cols c2" style="height:100%;align-content:start">
+      <div style="display:flex;flex-direction:column;gap:10px">
+        <div class="takeaway"><div class="n">1</div><div class="tx"><b>The tc512 code is 128-dimensional on Waymo.</b> SigShareTop128 = 0.9998 of 512, <span class="mono">ZPartRank</span> 92.9 vs 94.2 at tc128. Isotropic σ = 0.82 puts 15% of the signal energy into the used subspace at tc512, 72% at tc128.</div></div>
+        <div class="takeaway"><div class="n">2</div><div class="tx"><b>Shaped noise at the same MSEToken flips the ranking.</b> tc512 detached +16% pointmap / +33% raymap at σ = 0.82; ft10 +7.6% / −8.4%; tc128 source +348% / +984%. The earlier "tc512 decoders are flat" read was an artefact of the probe.</div></div>
+        <div class="takeaway"><div class="n">3</div><div class="tx"><b>The flow error's direction profile is width- and N-invariant.</b> ErrShareTop16 0.13 vs signal 0.25–0.27, top-16 error/signal ≈ 0.5, directions 16–128 above 1. N = 1 → 20 moves the shares by &lt; 0.01.</div></div>
+        <div class="takeaway"><div class="n">4</div><div class="tx"><b>More steps only scale the error</b>, to 0.96 / 1.00 of the signal energy at N = 20. Relative to its own code the tc512 flow is the better one (0.67 vs 0.84 at N = 1).</div></div>
+      </div>
+      <div style="display:flex;flex-direction:column;gap:10px">
+        <div class="takeaway"><div class="n">5</div><div class="tx"><b>So the step-sweep shape is the decoder's.</b> ft10 trained on noise up to 72% of the signal in its subspace and absorbs the flow's 100%; the tc512 detached decoder trained on 15% and breaks between shaped σ = 0.55 and 0.82.</div></div>
+        <div class="rulebar"><b>Open.</b> Whether 15% vs 72% is the width (isotropic τ is wasted at tc512) or the recipe (joint clean + noised vs noise-only finetune). Slide 05 separates them with two decoder-only finetunes on the tc512 tokenizer.</div>
+        <div class="rulebar"><b>Checks passed.</b> Every shaped pass: <span class="mono">MSEToken</span> within 0.1% of σ², ErrShare = SigShare to 4 decimals. All five jobs 1-GPU, ~5 min each.</div>
+        <div class="rulebar"><b>Not done.</b> No decoded frames. The tc512 clean twin was not run on the shaped ladder. Neither finetune arm on slide 05 exists yet; <span class="mono">clean_decode_weight</span> is planned but not implemented.</div>
+      </div>
+    </div>
+  </div>
+  <div class="foot"><span>docs/research/plan/2026-09-13_tc_width_zshaped_ladder_err_spectrum.md · todos.json row 13 · README tc_width</span><span class="pageno">06 / 06</span></div>
+</section>
+
+</div>
+<button class="arr" id="prev" aria-label="Previous slide">&#8249;</button>
+<button class="arr" id="next" aria-label="Next slide">&#8250;</button>
+<div class="nav" id="nav" role="tablist"></div>
+
+<script>
+/* ---------- deck nav ---------- */
+const stage=document.getElementById("stage");
+const slides=[...document.querySelectorAll(".slide")];
+const nav=document.getElementById("nav");
+let cur=0;
+slides.forEach((_,i)=>{
+  const b=document.createElement("button");
+  b.setAttribute("role","tab");b.setAttribute("aria-label","Slide "+(i+1));
+  b.addEventListener("click",()=>go(i));
+  nav.appendChild(b);
+});
+function go(i){
+  cur=Math.max(0,Math.min(slides.length-1,i));
+  slides.forEach((s,j)=>s.classList.toggle("on",j===cur));
+  [...nav.children].forEach((b,j)=>b.classList.toggle("cur",j===cur));
+}
+document.getElementById("prev").addEventListener("click",()=>go(cur-1));
+document.getElementById("next").addEventListener("click",()=>go(cur+1));
+addEventListener("keydown",e=>{
+  if(["ArrowRight","PageDown"," "].includes(e.key)){go(cur+1);e.preventDefault();}
+  else if(["ArrowLeft","PageUp"].includes(e.key)){go(cur-1);e.preventDefault();}
+  else if(e.key==="Home")go(0);
+  else if(e.key==="End")go(slides.length-1);
+});
+go(0);
+/* ---------- auto-scale ---------- */
+function fit(){
+  const s=Math.min(innerWidth/1300,(innerHeight-40)/730);
+  stage.style.transform=`translate(-50%,-50%) scale(${Math.min(s,1.4)})`;
+}
+addEventListener("resize",fit);fit();
+
+/* ---------- CSS var resolver (for SVG strokes) ---------- */
+const CV=n=>getComputedStyle(document.documentElement).getPropertyValue(n).trim();
+
+/* ---------- multi-series epoch line chart; data[i] is epoch xmin+i ---------- */
+function lineChart(el,cfg){
+  const W=cfg.W||600,H=cfg.H||300,L=cfg.L||44,R=cfg.R||52,T=cfg.T||10,B=cfg.B||26,
+        iw=W-L-R, ih=H-T-B;
+  const {ymin,ymax,yticks,xmax,xticks,log}=cfg, xmin=cfg.xmin||0, span=xmax-xmin;
+  const f=log?Math.log10:(v=>v), y0=f(ymin), y1=f(ymax);
+  const XE=e=>L+iw*((e-xmin)/span);
+  const Y=v=>T+ih*(1-(f(Math.min(Math.max(v,ymin),ymax))-y0)/(y1-y0));
+  const fmt=cfg.fmt||(t=>t.toFixed(4));
+  let s=`<svg viewBox="0 0 ${W} ${H}" width="100%" height="100%" preserveAspectRatio="xMidYMid meet">`;
+  yticks.forEach(t=>{const y=Y(t);
+    s+=`<line x1="${L}" y1="${y}" x2="${L+iw}" y2="${y}" stroke="${CV('--grid')}"/>`;
+    s+=`<text x="${L-6}" y="${y+3}" text-anchor="end" class="axl">${fmt(t)}</text>`;});
+  xticks.forEach(t=>s+=`<text x="${XE(t)}" y="${H-9}" text-anchor="middle" class="axl">${t}</text>`);
+  cfg.series.forEach(se=>{const c=CV(se.color);
+    const d=se.data.map((v,i)=>`${i?'L':'M'}${XE(xmin+i).toFixed(1)} ${Y(v).toFixed(1)}`).join(' ');
+    s+=`<path d="${d}" fill="none" stroke="${c}" stroke-width="${se.width||1.8}" opacity="${se.faint?.5:1}" ${se.dash?`stroke-dasharray="${se.dash}"`:''}/>`;
+    const n=se.data.length-1, lx=XE(xmin+n), ly=Y(se.data[n]);
+    s+=`<circle cx="${lx.toFixed(1)}" cy="${ly.toFixed(1)}" r="2.4" fill="${c}" opacity="${se.faint?.5:1}"/>`;
+    if(se.tag&&!se.faint) s+=`<text x="${lx+5}" y="${ly+3.5}" class="hll" fill="${c}" opacity="${se.faint?.6:1}">${se.tag}</text>`;});
+  s+=`<text x="${L+iw/2}" y="${H-0.5}" text-anchor="middle" class="axl">${cfg.xlab||'epoch'}</text></svg>`;
+  el.innerHTML=s;
+}
+
+/* ---------- diverging horizontal bars, zero-centred ---------- */
+function barsH(el,cfg){
+  const W=cfg.W||560,H=cfg.H||420,L=cfg.L||96,R=44,T=8,B=26, iw=W-L-R, ih=H-T-B;
+  const lim=cfg.lim, X=v=>L+iw*(v+lim)/(2*lim);
+  const x0=X(0), rowh=ih/cfg.rows.length;
+  let s=`<svg viewBox="0 0 ${W} ${H}" width="100%" height="100%" preserveAspectRatio="xMidYMid meet">`;
+  (cfg.xticks||[]).forEach(t=>{const x=X(t);
+    s+=`<line x1="${x}" y1="${T}" x2="${x}" y2="${T+ih}" stroke="${CV(t===0?'--axis':'--grid')}"/>`;
+    s+=`<text x="${x}" y="${H-9}" text-anchor="middle" class="axl">${t}%</text>`;});
+  cfg.rows.forEach((r,ri)=>{
+    const top=T+ri*rowh, nb=r.bars.length, bh=Math.min(16,(rowh-12)/nb), pad=(rowh-nb*bh-2)/2;
+    s+=`<text x="${L-8}" y="${top+rowh/2+3.5}" text-anchor="end" class="barlbl" style="font-size:11.5px">${r.l}</text>`;
+    r.bars.forEach((b,bi)=>{const y=top+pad+bi*bh, x=X(b.v), c=CV(b.color);
+      s+=`<rect x="${Math.min(x,x0).toFixed(1)}" y="${y.toFixed(1)}" width="${Math.abs(x0-x).toFixed(1)}" height="${(bh-2).toFixed(1)}" fill="${c}" opacity="${b.op||1}"/>`;
+      s+=`<text x="${(b.v<0?x-4:x+4).toFixed(1)}" y="${(y+bh-3).toFixed(1)}" text-anchor="${b.v<0?'end':'start'}" class="barval">${b.v.toFixed(1)}</text>`;});
+  });
+  s+=`</svg>`; el.innerHTML=s;
+}
+
+/* ---------- explicit-x line chart: series[i].pts is [[x,y],...] ---------- */
+function xyChart(el,cfg){
+  const W=cfg.W||400,H=cfg.H||260,L=cfg.L||46,R=cfg.R||50,T=cfg.T||8,B=cfg.B||30, iw=W-L-R, ih=H-T-B;
+  const {xmin,xmax,ymin,ymax,yticks,xticks,log}=cfg;
+  const f=log?Math.log10:(v=>v), y0=f(ymin), y1=f(ymax);
+  const X=v=>L+iw*(v-xmin)/(xmax-xmin);
+  const Y=v=>T+ih*(1-(f(Math.min(Math.max(v,ymin),ymax))-y0)/(y1-y0));
+  const fmt=cfg.fmt||(t=>t.toFixed(2));
+  let s=`<svg viewBox="0 0 ${W} ${H}" width="100%" height="100%" preserveAspectRatio="xMidYMid meet">`;
+  yticks.forEach(t=>{const y=Y(t);
+    s+=`<line x1="${L}" y1="${y}" x2="${L+iw}" y2="${y}" stroke="${CV('--grid')}"/>`;
+    s+=`<text x="${L-6}" y="${y+3}" text-anchor="end" class="axl">${fmt(t)}</text>`;});
+  xticks.forEach(t=>s+=`<text x="${X(t)}" y="${H-13}" text-anchor="middle" class="axl">${t}</text>`);
+  cfg.series.forEach(se=>{const c=CV(se.color), op=se.faint?.5:1;
+    const d=se.pts.map((q,i)=>`${i?'L':'M'}${X(q[0]).toFixed(1)} ${Y(q[1]).toFixed(1)}`).join(' ');
+    s+=`<path d="${d}" fill="none" stroke="${c}" stroke-width="${se.width||1.8}" opacity="${op}" ${se.dash?`stroke-dasharray="${se.dash}"`:''}/>`;
+    if(!se.nodots) se.pts.forEach(q=>{s+=`<circle cx="${X(q[0]).toFixed(1)}" cy="${Y(q[1]).toFixed(1)}" r="2.4" fill="${c}" opacity="${op}"/>`;});
+    const q=se.pts[se.pts.length-1];
+    if(se.tag) s+=`<text x="${(X(q[0])+5).toFixed(1)}" y="${(Y(q[1])+3.5).toFixed(1)}" class="hll" fill="${c}" opacity="${op}">${se.tag}</text>`;});
+  s+=`<text x="${L+iw/2}" y="${H-1}" text-anchor="middle" class="axl">${cfg.xlab||''}</text></svg>`;
+  el.innerHTML=s;
+}
+
+/* ---------- scatter with per-point labels ---------- */
+function scatter(el,cfg){
+  const W=cfg.W||560,H=cfg.H||420,L=48,R=24,T=14,B=34, iw=W-L-R, ih=H-T-B;
+  const {xmin,xmax,ymin,ymax,xticks,yticks}=cfg;
+  const xf=cfg.xfmt||(t=>t), yf=cfg.yfmt||(t=>t.toFixed(3));
+  const X=v=>L+iw*(v-xmin)/(xmax-xmin), Y=v=>T+ih*(1-(v-ymin)/(ymax-ymin));
+  const cid='clip'+Math.random().toString(36).slice(2,8);
+  let s=`<svg viewBox="0 0 ${W} ${H}" width="100%" height="100%" preserveAspectRatio="xMidYMid meet">`;
+  s+=`<clipPath id="${cid}"><rect x="${L}" y="${T}" width="${iw}" height="${ih}"/></clipPath>`;
+  yticks.forEach(t=>{const y=Y(t);
+    s+=`<line x1="${L}" y1="${y}" x2="${L+iw}" y2="${y}" stroke="${CV('--grid')}"/>`;
+    s+=`<text x="${L-6}" y="${y+3}" text-anchor="end" class="axl">${yf(t)}</text>`;});
+  xticks.forEach(t=>s+=`<text x="${X(t)}" y="${H-14}" text-anchor="middle" class="axl">${xf(t)}</text>`);
+  (cfg.vlines||[]).forEach(v=>{const x=X(v.x),c=CV(v.color||'--muted');
+    s+=`<line x1="${x}" y1="${T}" x2="${x}" y2="${T+ih}" stroke="${c}" stroke-dasharray="3 4"/>`;
+    s+=`<text x="${x-5}" y="${T+13}" text-anchor="end" class="hll" fill="${c}">${v.label}</text>`;});
+  // least-squares fit line through the plotted points
+  if(cfg.fit!==false){const n=cfg.pts.length, mx=cfg.pts.reduce((a,p)=>a+p.x,0)/n, my=cfg.pts.reduce((a,p)=>a+p.y,0)/n;
+  const b=cfg.pts.reduce((a,p)=>a+(p.x-mx)*(p.y-my),0)/cfg.pts.reduce((a,p)=>a+(p.x-mx)**2,0);
+  s+=`<line x1="${X(xmin)}" y1="${Y(my+b*(xmin-mx))}" x2="${X(xmax)}" y2="${Y(my+b*(xmax-mx))}"
+       stroke="${CV('--axis')}" stroke-dasharray="4 4" stroke-width="1.2" clip-path="url(#${cid})"/>`;}
+  if(cfg.link){const dd=cfg.link.map((i,j)=>`${j?'L':'M'}${X(cfg.pts[i].x).toFixed(1)} ${Y(cfg.pts[i].y).toFixed(1)}`).join(' ');
+    s+=`<path d="${dd}" fill="none" stroke="${CV('--axis')}" stroke-width="1.4"/>`;}
+  cfg.pts.forEach(p=>{const c=CV(p.color);
+    s+=`<circle cx="${X(p.x).toFixed(1)}" cy="${Y(p.y).toFixed(1)}" r="${p.r||5}" fill="${c}" opacity="${p.op||1}"/>`;
+    s+=`<text x="${(X(p.x)+(p.lx||8)).toFixed(1)}" y="${(Y(p.y)+(p.ly||3.5)).toFixed(1)}" class="pt" fill="${c}">${p.l}</text>`;});
+  s+=`<text x="${L+iw/2}" y="${H-1}" text-anchor="middle" class="axl">${cfg.xlab||'ZPartRank (of Cz)'}</text></svg>`;
+  el.innerHTML=s;
+}
+
+
+/* ================= DATA =================
+   Ladder and flow scalars grepped from the BSC eval stdout:
+     source decoder control  BSC:45414635  (flow iter_100000 through tokenizer epoch_100)
+     finetuned epoch_10      BSC:45497311 (flow N=1,20) + BSC:45497319 (sigma ladder)
+     finetuned epoch_5       BSC:45497830 + BSC:45497831
+   LAD_* are [MSEToken, loss] pairs; NSW_* are [N, loss]; FLW_* are [MSEToken, loss]. */
+const LAD_src_depth=[[0,2.7923],[0.1025,3.0104],[0.3027,3.3617],[0.6729,4.7519]];
+const FLW_src_depth=[[0.6677,3.6325],[0.7109,3.7372],[0.7554,3.7878],[0.7826,3.8187],[0.885,3.8819]];
+const LAD_src_pointmap=[[0,4.0557],[0.1025,4.3611],[0.3027,9.2042],[0.6729,18.4995]];
+const FLW_src_pointmap=[[0.6677,7.5305],[0.7109,7.2704],[0.7554,7.5426],[0.7826,7.6912],[0.885,8.6347]];
+const LAD_src_raymap=[[0,1.6763],[0.1025,1.8129],[0.3027,7.7481],[0.6729,19.0861]];
+const FLW_src_raymap=[[0.6677,5.0347],[0.7109,4.6035],[0.7554,4.8732],[0.7826,5.0081],[0.885,5.8777]];
+const LAD_ft10_depth=[[0,2.7548],[0.1025,2.8244],[0.3027,2.8892],[0.6729,3.0095]];
+const FLW_ft10_depth=[[0.6677,3.6765],[0.7109,3.7324],[0.7554,3.7423],[0.7826,3.7581],[0.8398,3.7802],[0.8638,3.7894],[0.885,3.7915]];
+const LAD_ft10_pointmap=[[0,3.9912],[0.1025,4.0606],[0.3027,4.1256],[0.6729,4.2507]];
+const FLW_ft10_pointmap=[[0.6677,8.2932],[0.7109,7.6756],[0.7554,7.3669],[0.7826,7.1248],[0.8398,6.7778],[0.8638,6.6715],[0.885,6.6117]];
+const LAD_ft10_raymap=[[0,1.6484],[0.1025,1.6506],[0.3027,1.6533],[0.6729,1.6715]];
+const FLW_ft10_raymap=[[0.6677,5.9274],[0.7109,5.1114],[0.7554,4.7003],[0.7826,4.4063],[0.8398,3.9965],[0.8638,3.863],[0.885,3.7936]];
+const LAD_ft5_depth=[[0,2.7563],[0.1025,2.8187],[0.3027,2.8818],[0.6729,3.0055]];
+const FLW_ft5_depth=[[0.6677,3.6744],[0.885,3.7768]];
+const LAD_ft5_pointmap=[[0,3.994],[0.1025,4.0534],[0.3027,4.109],[0.6729,4.2199]];
+const FLW_ft5_pointmap=[[0.6677,8.4315],[0.885,6.879]];
+const LAD_ft5_raymap=[[0,1.6482],[0.1025,1.6496],[0.3027,1.6424],[0.6729,1.6413]];
+const FLW_ft5_raymap=[[0.6677,6.0619],[0.885,4.0879]];
+const NSW_src_depth=[[1,3.6325],[2,3.7372],[3,3.7878],[4,3.8187],[20,3.8819]];
+const NSW_src_pointmap=[[1,7.5305],[2,7.2704],[3,7.5426],[4,7.6912],[20,8.6347]];
+const NSW_src_raymap=[[1,5.0347],[2,4.6035],[3,4.8732],[4,5.0081],[20,5.8777]];
+const NSW_ft10_depth=[[1,3.6765],[2,3.7324],[3,3.7423],[4,3.7581],[8,3.7802],[12,3.7894],[20,3.7915]];
+const NSW_ft10_pointmap=[[1,8.2932],[2,7.6756],[3,7.3669],[4,7.1248],[8,6.7778],[12,6.6715],[20,6.6117]];
+const NSW_ft10_raymap=[[1,5.9274],[2,5.1114],[3,4.7003],[4,4.4063],[8,3.9965],[12,3.863],[20,3.7936]];
+const NSW_ft5_depth=[[1,3.6744],[20,3.7768]];
+const NSW_ft5_pointmap=[[1,8.4315],[20,6.879]];
+const NSW_ft5_raymap=[[1,6.0619],[20,4.0879]];
+
+
+/* ---------- tc512 detached flow (this deck) ----------
+   step sweep BSC:45819224 (N=2,4,8) + BSC:45819762 (N=1,20); ladder BSC:45818711 (ep100) /
+   45818712 (ep80) / 45818713 (clean twin ep80); EP_* are training-log evals, index = epoch. */
+const NSW_t512_mse=[[1, 0.6949], [2, 0.739], [4, 0.8416], [8, 0.9305], [20, 0.9968]];
+const NSW_t512_depth=[[1, 3.6678], [2, 3.6633], [4, 3.7926], [8, 3.8837], [20, 3.9148]];
+const NSW_t512_pointmap=[[1, 6.9982], [2, 7.0024], [4, 7.6724], [8, 8.4677], [20, 9.039]];
+const NSW_t512_raymap=[[1, 4.5959], [2, 4.5807], [4, 5.1792], [8, 5.8207], [20, 6.3758]];
+const NSW_t128_mse=[[1, 0.6677], [2, 0.7109], [3, 0.7554], [4, 0.7826], [8, 0.8398], [12, 0.8638], [20, 0.885]];
+const LAD_d100_depth=[[0, 2.8196], [0.1024, 2.8373], [0.3025, 2.8535], [0.6725, 2.881]];
+const LAD_d100_pointmap=[[0, 4.1007], [0.1024, 4.1167], [0.3025, 4.1264], [0.6725, 4.1513]];
+const LAD_d100_raymap=[[0, 1.7062], [0.1024, 1.7057], [0.3025, 1.7019], [0.6725, 1.7019]];
+const LAD_d80_depth=[[0, 2.87], [0.1024, 2.8906], [0.3025, 2.9027], [0.6725, 2.9322]];
+const LAD_d80_pointmap=[[0, 4.1747], [0.1024, 4.1975], [0.3025, 4.2037], [0.6725, 4.2303]];
+const LAD_d80_raymap=[[0, 1.7334], [0.1024, 1.738], [0.3025, 1.736], [0.6725, 1.7364]];
+const LAD_tw80_depth=[[0, 2.788], [0.1024, 2.8098], [0.3025, 2.8498], [0.6725, 2.9721]];
+const LAD_tw80_pointmap=[[0, 4.0787], [0.1024, 4.1119], [0.3025, 4.1745], [0.6725, 4.3833]];
+const LAD_tw80_raymap=[[0, 1.7057], [0.1024, 1.7268], [0.3025, 1.7637], [0.6725, 1.8992]];
+const EP_tc128_mse=[1.1126, 1.0941, 1.0789, 1.0386, 1.0367, 0.9904, 1.0072, 0.9637, 1.0046, 0.9784, 0.9613, 0.9545, 0.9448, 0.9469, 0.9381, 0.9428, 0.9104, 0.9079, 0.9312, 0.9057, 0.9268, 0.9099, 0.8982, 0.9222, 0.9069, 0.9075, 0.9011, 0.9228, 0.8949, 0.9064, 0.9005, 0.8991, 0.8962, 0.901, 0.9243, 0.9046, 0.8822, 0.8831, 0.8799, 0.8827, 0.8915, 0.8851, 0.8732, 0.8808, 0.8722, 0.8801, 0.8795, 0.8873, 0.858, 0.8864, 0.8954, 0.8882, 0.8991, 0.8815, 0.8742, 0.8831, 0.8925, 0.8788, 0.8834, 0.872, 0.8887, 0.8942, 0.8909, 0.8832, 0.8878, 0.8867, 0.8847, 0.8772, 0.8747, 0.8927, 0.879, 0.8835, 0.8827, 0.879, 0.8994, 0.8801, 0.8793, 0.8697, 0.882, 0.8859, 0.8764, 0.8743, 0.8861, 0.8749, 0.8817, 0.9124, 0.8687, 0.874, 0.87, 0.8769, 0.8664, 0.8916, 0.9176, 0.8721, 0.8793, 0.884, 0.8842, 0.8926, 0.8605, 0.8844];
+const EP_tc128_pm=[12.4873, 15.862, 18.9434, 16.8978, 17.159, 11.5641, 13.7447, 13.9373, 13.7841, 12.39, 11.9829, 10.6756, 11.2678, 10.3507, 10.2189, 10.3611, 9.9641, 9.3094, 9.8363, 8.9169, 9.8006, 9.4314, 8.7286, 9.5961, 9.6946, 9.1708, 8.8107, 9.5185, 9.5439, 9.576, 9.3374, 9.2965, 9.3058, 9.3714, 9.2429, 9.4535, 8.7495, 8.7432, 9.0072, 9.1643, 8.7553, 8.7567, 8.4546, 8.7, 8.76, 9.0656, 9.0667, 9.0295, 8.5001, 8.7338, 8.882, 8.931, 8.9943, 8.4279, 8.7085, 9.0607, 8.9681, 8.9144, 9.0147, 9.1323, 8.8515, 8.7049, 9.0949, 8.8157, 9.1261, 9.0157, 8.9061, 8.5951, 9.0317, 8.7574, 8.5839, 8.9635, 8.5155, 8.7541, 9.5439, 8.5107, 8.7655, 8.7889, 8.628, 9.0703, 8.7821, 8.9631, 9.0241, 9.0363, 9.1967, 9.1926, 8.9245, 8.7942, 9.3816, 9.3604, 9.2846, 9.0079, 9.5313, 9.0714, 9.28, 9.2942, 9.0268, 9.2966, 8.9469, 9.233];
+const EP_tc128_dp=[4.3871, 4.2022, 4.089, 4.0413, 3.9304, 4.0513, 3.8802, 3.9076, 3.8695, 3.7761, 3.8395, 3.8371, 3.8116, 3.8294, 3.8305, 3.8743, 3.8717, 3.8171, 3.8208, 3.7896, 3.8454, 3.831, 3.8147, 3.8967, 3.9067, 3.8809, 3.8208, 3.8459, 3.8665, 3.9119, 3.8921, 3.8432, 3.8982, 3.8917, 3.8861, 3.9185, 3.7657, 3.8508, 3.8719, 3.8088, 3.8862, 3.8226, 3.7952, 3.8559, 3.8615, 3.8777, 3.8719, 3.8502, 3.8014, 3.869, 3.8952, 3.8909, 3.8347, 3.8551, 3.8476, 3.8958, 3.852, 3.887, 3.8647, 3.8211, 3.8834, 3.9055, 3.8738, 3.8497, 3.8384, 3.8437, 3.8359, 3.8519, 3.8416, 3.8746, 3.8596, 3.8435, 3.8669, 3.848, 3.8719, 3.855, 3.8649, 3.8589, 3.8292, 3.8849, 3.9119, 3.8332, 3.8571, 3.8446, 3.8568, 3.8754, 3.8684, 3.922, 3.8856, 3.899, 3.8638, 3.8814, 3.8738, 3.8851, 3.891, 3.9422, 3.8856, 3.894, 3.8419, 3.8764];
+const EP_tc128_rm=[10.5754, 14.7474, 17.8906, 15.5599, 15.4572, 9.0382, 11.7037, 12.0015, 11.881, 10.5411, 9.6907, 8.2403, 8.954, 7.7124, 7.6845, 7.7546, 7.4249, 6.6799, 7.1203, 6.3076, 7.1934, 6.7892, 6.0702, 6.9716, 6.85, 6.4749, 6.2092, 6.9212, 6.9232, 6.7571, 6.6898, 6.6367, 6.4773, 6.6514, 6.5316, 6.7861, 6.1791, 5.9601, 6.2764, 6.476, 6.0764, 6.1489, 5.7698, 6.0101, 6.0682, 6.3162, 6.3946, 6.2309, 5.834, 6.0224, 6.095, 6.1481, 6.353, 5.693, 5.9947, 6.3701, 6.2173, 6.1899, 6.366, 6.4513, 6.0512, 6.034, 6.3024, 6.2016, 6.4444, 6.2779, 6.1894, 5.907, 6.3834, 6.1241, 5.8889, 6.2872, 5.8921, 6.1221, 6.9248, 5.958, 6.1336, 6.1289, 5.9565, 6.2614, 5.9978, 6.2787, 6.3638, 6.3407, 6.4994, 6.564, 6.2393, 6.1079, 6.7648, 6.6403, 6.4594, 6.3469, 6.9088, 6.3425, 6.5587, 6.4569, 6.3602, 6.5551, 6.1734, 6.5326];
+const EP_tc512_mse=[1.2097, 1.2907, 1.2557, 1.1307, 1.1615, 1.0565, 1.1101, 1.1103, 1.0989, 1.1021, 1.0665, 1.0625, 1.0451, 1.0409, 1.0138, 1.0892, 1.0459, 1.0424, 1.0578, 1.0511, 1.0489, 1.0409, 1.0056, 1.0529, 1.0219, 1.0092, 1.0437, 1.0098, 1.0025, 1.0, 1.0338, 1.006, 1.0254, 1.0193, 1.0154, 1.0269, 1.0209, 1.0238, 1.0065, 1.0094, 1.0126, 1.0041, 1.0001, 1.0264, 1.002, 1.0116, 0.9988, 1.0216, 0.9997, 0.9954, 0.9938, 0.998, 0.996, 1.0155, 0.9926, 1.012, 0.9696, 0.9878, 1.0081, 0.9999];
+const EP_tc512_pm=[8.6221, 14.9677, 19.77, 17.6626, 17.7113, 14.0882, 16.1166, 14.7015, 13.9623, 14.7187, 12.1098, 12.1085, 10.2397, 10.936, 10.945, 12.3192, 11.5609, 10.6963, 11.2392, 11.3897, 11.1276, 10.8342, 9.546, 10.8201, 10.2661, 9.5312, 9.6286, 9.8488, 9.4894, 9.3148, 9.8777, 9.7942, 9.6144, 9.8016, 10.4312, 9.7769, 9.1528, 10.3973, 9.3213, 9.8104, 9.7557, 9.6916, 9.865, 9.0218, 9.3796, 9.0995, 9.6276, 9.6998, 9.0556, 9.0782, 8.8535, 9.49, 8.9381, 9.8927, 9.1525, 9.4109, 8.5945, 9.2249, 9.5271, 9.3223];
+const EP_tc512_dp=[4.4343, 4.3887, 4.2995, 4.1722, 4.1183, 4.0917, 4.0682, 4.1817, 4.0919, 4.057, 3.9606, 3.9985, 3.9673, 4.0103, 4.0263, 3.953, 3.9788, 3.9546, 3.9815, 3.9611, 3.889, 3.972, 4.0242, 3.9558, 3.9508, 3.9308, 3.921, 3.943, 3.9087, 3.9356, 3.9032, 3.9127, 3.9807, 3.9068, 4.019, 3.9274, 3.9525, 3.9446, 3.8925, 3.9196, 3.9273, 3.956, 3.9469, 3.9361, 3.9261, 3.9439, 3.9216, 4.0317, 3.9494, 3.9002, 3.8989, 3.9054, 3.863, 3.8832, 3.9196, 3.9222, 3.9025, 3.9365, 3.9322, 3.9636];
+const EP_tc512_rm=[6.5894, 13.5704, 19.2506, 16.611, 16.6881, 11.9677, 14.1164, 12.3827, 11.7061, 12.4487, 9.5196, 9.6446, 7.7009, 8.1786, 8.078, 9.8148, 8.7969, 7.8698, 8.6188, 8.5484, 8.6751, 7.9852, 6.8225, 7.9309, 7.4214, 6.7564, 7.0522, 6.9647, 6.7578, 6.4532, 7.1118, 6.9315, 6.8498, 6.9618, 7.6252, 6.9936, 6.4175, 7.5971, 6.752, 7.1616, 6.9753, 6.8063, 7.1705, 6.2537, 6.6689, 6.3899, 6.8436, 6.6687, 6.3503, 6.1933, 6.1168, 6.7702, 6.2766, 7.3507, 6.4598, 6.7636, 5.9188, 6.3363, 6.6995, 6.4624];
+
+
+/* ---------- shaped ladder + error spectrum (this deck) ----------
+   BSC:45820899 tc512 shaped ladder · 45820910 tc512 spectrum N=1/2/20 · 45820911 tc128 source shaped
+   ladder · 45820912 tc128 spectrum · 45820913 ft10 shaped ladder. x of SH_* = measured MSEToken. */
+const SH_d100_depth=[[0, 2.8196], [0.1025, 2.8737], [0.3028, 2.8743], [0.6731, 3.0164]];
+const SH_d100_pointmap=[[0, 4.1007], [0.1025, 4.1686], [0.3028, 4.1652], [0.6731, 4.764]];
+const SH_d100_raymap=[[0, 1.7062], [0.1025, 1.7201], [0.3028, 1.7165], [0.6731, 2.2701]];
+const SH_src_depth=[[0, 2.7923], [0.1026, 3.2308], [0.3031, 3.8096], [0.6737, 5.4077]];
+const SH_src_pointmap=[[0, 4.0557], [0.1026, 6.2751], [0.3031, 17.9948], [0.6737, 18.1713]];
+const SH_src_raymap=[[0, 1.6763], [0.1026, 3.9042], [0.3031, 18.3462], [0.6737, 18.1636]];
+const SH_ft10_depth=[[0, 2.7548], [0.1026, 2.8283], [0.3031, 2.9971], [0.6737, 3.2847]];
+const SH_ft10_pointmap=[[0, 3.9912], [0.1026, 4.055], [0.3031, 4.1998], [0.6737, 4.2948]];
+const SH_ft10_raymap=[[0, 1.6484], [0.1026, 1.6396], [0.3031, 1.6211], [0.6737, 1.5102]];
+const R512_n1=[[1, 0.0209], [2, 0.0376], [3, 0.1731], [4, 0.2519], [5, 0.1856], [6, 0.1984], [7, 0.2032], [8, 0.5113], [9, 0.2766], [10, 0.4066], [11, 0.7721], [12, 0.7894], [13, 0.686], [14, 0.701], [15, 0.7523], [16, 0.5251], [17, 0.7167], [18, 0.7994], [19, 0.7481], [20, 0.7563], [21, 0.7646], [22, 0.5654], [23, 0.82], [24, 0.757], [25, 0.7329], [26, 0.7575], [27, 0.7844], [28, 0.7978], [29, 0.7083], [30, 0.7825], [31, 0.8017], [32, 0.8101], [33, 0.8244], [34, 0.7811], [35, 0.7896], [36, 0.7822], [37, 0.7307], [38, 0.8183], [39, 0.8224], [40, 0.7858], [41, 0.6774], [42, 0.8188], [43, 0.8004], [44, 0.8123], [45, 0.8162], [46, 0.7412], [47, 0.8013], [48, 0.7982], [49, 0.8156], [50, 0.8437], [51, 0.8415], [52, 0.8205], [53, 0.8233], [54, 0.7837], [55, 0.7063], [56, 0.8142], [57, 0.8279], [58, 0.8333], [59, 0.8156], [60, 0.7826], [61, 0.8018], [62, 0.8399], [63, 0.798], [64, 0.8244], [65, 0.8052], [66, 0.828], [67, 0.8432], [68, 0.7848], [69, 0.8088], [70, 0.8234], [71, 0.799], [72, 0.8365], [73, 0.8148], [74, 0.8246], [75, 0.8587], [76, 0.8271], [77, 0.8058], [78, 0.8104], [79, 0.8326], [80, 0.8305], [81, 0.8235], [82, 0.7899], [83, 0.8039], [84, 0.834], [85, 0.8406], [86, 0.8067], [87, 0.8486], [88, 0.8263], [89, 0.8299], [90, 0.7953], [91, 0.8326], [92, 0.8546], [93, 0.8393], [94, 0.8312], [95, 0.8397], [96, 0.8276], [97, 0.8146], [98, 0.8305], [99, 0.8282], [100, 0.835], [101, 0.8432], [102, 0.8555], [103, 0.8356], [104, 0.8599], [105, 0.8411], [106, 0.8599], [107, 0.8185], [108, 0.8319], [109, 0.8598], [110, 0.8831], [111, 0.8195], [112, 0.846], [113, 0.8156], [114, 0.7598], [115, 0.7612], [116, 0.3881], [117, 0.2363], [118, 0.5631], [119, 0.3269], [120, 0.3898], [121, 0.0538], [122, 0.1234], [123, 0.1966], [124, 0.0886], [125, 0.0952], [126, 0.127], [127, 0.2151], [128, 0.2723]];
+const R128_n1=[[1, 0.0067], [2, 0.0094], [3, 0.0115], [4, 0.0231], [5, 0.0754], [6, 0.1354], [7, 0.1261], [8, 0.89], [9, 0.9263], [10, 0.9136], [11, 0.9574], [12, 0.9192], [13, 0.928], [14, 0.9542], [15, 0.9534], [16, 0.9565], [17, 0.9376], [18, 0.9038], [19, 0.9834], [20, 0.923], [21, 0.9359], [22, 0.9586], [23, 0.9608], [24, 0.9505], [25, 0.9932], [26, 0.972], [27, 0.8583], [28, 0.957], [29, 0.961], [30, 0.9617], [31, 0.9411], [32, 0.9557], [33, 0.994], [34, 0.9171], [35, 0.9117], [36, 0.9225], [37, 0.9442], [38, 0.937], [39, 0.9335], [40, 0.9501], [41, 0.9996], [42, 0.9656], [43, 0.9674], [44, 0.9743], [45, 0.9639], [46, 0.9985], [47, 0.9954], [48, 0.993], [49, 0.9599], [50, 0.9286], [51, 0.9643], [52, 1.0018], [53, 0.9691], [54, 1.005], [55, 0.9767], [56, 0.9947], [57, 0.9943], [58, 1.0316], [59, 1.0058], [60, 0.9881], [61, 1.0043], [62, 0.9995], [63, 1.0239], [64, 0.9569], [65, 0.9896], [66, 0.9895], [67, 0.9629], [68, 1.0034], [69, 1.0035], [70, 0.9944], [71, 1.0147], [72, 0.9771], [73, 1.005], [74, 0.9946], [75, 1.0101], [76, 0.9897], [77, 0.9967], [78, 0.9718], [79, 1.0314], [80, 0.9941], [81, 0.9774], [82, 0.946], [83, 0.9585], [84, 0.9859], [85, 0.9734], [86, 0.9681], [87, 0.939], [88, 1.0024], [89, 0.958], [90, 0.975], [91, 0.9924], [92, 0.9816], [93, 0.9452], [94, 0.8997], [95, 1.0249], [96, 0.943], [97, 1.0126], [98, 1.0205], [99, 0.9899], [100, 0.9216], [101, 0.9149], [102, 1.0291], [103, 0.8875], [104, 0.9932], [105, 0.8665], [106, 0.8384], [107, 0.9745], [108, 0.9768], [109, 0.8783], [110, 0.9156], [111, 0.8384], [112, 0.796], [113, 0.9549], [114, 0.8535], [115, 0.6778], [116, 0.4982], [117, 0.7155], [118, 0.4925], [119, 0.6383], [120, 0.7241], [121, 0.7826], [122, 0.85], [123, 1.0], [124, 0.9], [125, 1.0], [126, 1.1667], [127, 1.4], [128, 1.2]];
+const R512_n2=[[1, 0.0248], [2, 0.0427], [3, 0.1939], [4, 0.2674], [5, 0.197], [6, 0.2134], [7, 0.2183], [8, 0.536], [9, 0.294], [10, 0.4279], [11, 0.8062], [12, 0.8294], [13, 0.7174], [14, 0.7399], [15, 0.7913], [16, 0.5538], [17, 0.7567], [18, 0.8362], [19, 0.7802], [20, 0.7928], [21, 0.8042], [22, 0.5925], [23, 0.8515], [24, 0.8033], [25, 0.7728], [26, 0.8007], [27, 0.8251], [28, 0.8501], [29, 0.7496], [30, 0.8183], [31, 0.8519], [32, 0.8605], [33, 0.8692], [34, 0.8246], [35, 0.8329], [36, 0.8234], [37, 0.7718], [38, 0.8584], [39, 0.8743], [40, 0.8312], [41, 0.7143], [42, 0.8614], [43, 0.8465], [44, 0.866], [45, 0.864], [46, 0.7937], [47, 0.8453], [48, 0.8433], [49, 0.869], [50, 0.8971], [51, 0.8917], [52, 0.8739], [53, 0.873], [54, 0.8254], [55, 0.7506], [56, 0.8741], [57, 0.8766], [58, 0.8913], [59, 0.8653], [60, 0.8362], [61, 0.8496], [62, 0.8895], [63, 0.8462], [64, 0.8735], [65, 0.8519], [66, 0.884], [67, 0.904], [68, 0.8402], [69, 0.8609], [70, 0.8783], [71, 0.8606], [72, 0.8981], [73, 0.8584], [74, 0.8765], [75, 0.9282], [76, 0.8859], [77, 0.8611], [78, 0.8751], [79, 0.8844], [80, 0.8982], [81, 0.8908], [82, 0.8427], [83, 0.8569], [84, 0.8895], [85, 0.8975], [86, 0.8651], [87, 0.9087], [88, 0.8928], [89, 0.8926], [90, 0.8619], [91, 0.8991], [92, 0.9253], [93, 0.9071], [94, 0.8966], [95, 0.903], [96, 0.8892], [97, 0.8781], [98, 0.8889], [99, 0.895], [100, 0.8998], [101, 0.9005], [102, 0.9347], [103, 0.8849], [104, 0.9263], [105, 0.9209], [106, 0.9228], [107, 0.868], [108, 0.91], [109, 0.9233], [110, 0.9596], [111, 0.884], [112, 0.9255], [113, 0.9008], [114, 0.8456], [115, 0.8498], [116, 0.4335], [117, 0.2817], [118, 0.6334], [119, 0.3514], [120, 0.4189], [121, 0.053], [122, 0.1287], [123, 0.2395], [124, 0.0802], [125, 0.0908], [126, 0.1312], [127, 0.2338], [128, 0.2744]];
+const R128_n2=[[1, 0.0066], [2, 0.0094], [3, 0.0117], [4, 0.0238], [5, 0.078], [6, 0.1405], [7, 0.1307], [8, 0.9238], [9, 0.9605], [10, 0.945], [11, 0.9995], [12, 0.9551], [13, 0.9644], [14, 0.9964], [15, 0.993], [16, 1.0006], [17, 0.9766], [18, 0.9453], [19, 1.0228], [20, 0.9524], [21, 0.9745], [22, 0.9905], [23, 1.0093], [24, 0.9845], [25, 1.0314], [26, 1.0121], [27, 0.8874], [28, 0.9955], [29, 0.9916], [30, 0.9956], [31, 0.9792], [32, 0.9818], [33, 1.0342], [34, 0.9558], [35, 0.9444], [36, 0.9564], [37, 0.9782], [38, 0.9649], [39, 0.9698], [40, 0.9919], [41, 1.0412], [42, 1.0031], [43, 1.0115], [44, 1.0112], [45, 0.9953], [46, 1.035], [47, 1.0424], [48, 1.037], [49, 0.9906], [50, 0.9595], [51, 1.0082], [52, 1.0442], [53, 1.0042], [54, 1.0429], [55, 1.017], [56, 1.0302], [57, 1.029], [58, 1.0718], [59, 1.0414], [60, 1.025], [61, 1.041], [62, 1.0437], [63, 1.0778], [64, 0.986], [65, 1.0191], [66, 1.0209], [67, 1.0052], [68, 1.0512], [69, 1.0458], [70, 1.0298], [71, 1.0552], [72, 1.0129], [73, 1.0406], [74, 1.0348], [75, 1.0503], [76, 1.0188], [77, 1.0378], [78, 1.0086], [79, 1.0672], [80, 1.0272], [81, 1.0143], [82, 0.9772], [83, 0.9904], [84, 1.0219], [85, 1.0056], [86, 1.0038], [87, 0.971], [88, 1.0386], [89, 0.9909], [90, 1.0115], [91, 1.0281], [92, 1.0223], [93, 0.9718], [94, 0.9336], [95, 1.0604], [96, 0.9705], [97, 1.0574], [98, 1.0596], [99, 1.0314], [100, 0.9501], [101, 0.9404], [102, 1.0652], [103, 0.91], [104, 1.0372], [105, 0.9015], [106, 0.8658], [107, 1.0185], [108, 1.0163], [109, 0.9237], [110, 0.9607], [111, 0.8653], [112, 0.8202], [113, 0.9754], [114, 0.8715], [115, 0.6869], [116, 0.4875], [117, 0.681], [118, 0.4179], [119, 0.5745], [120, 0.6552], [121, 0.6957], [122, 0.7], [123, 0.8], [124, 0.8], [125, 0.8571], [126, 1.0], [127, 1.0], [128, 1.0]];
+const R512_n20=[[1, 0.0301], [2, 0.0536], [3, 0.2504], [4, 0.357], [5, 0.2629], [6, 0.2913], [7, 0.2942], [8, 0.6938], [9, 0.3944], [10, 0.5684], [11, 1.0416], [12, 1.0867], [13, 0.9217], [14, 0.9831], [15, 1.0406], [16, 0.7246], [17, 1.0055], [18, 1.0989], [19, 1.0264], [20, 1.0417], [21, 1.0586], [22, 0.7765], [23, 1.114], [24, 1.0752], [25, 1.0269], [26, 1.0678], [27, 1.0821], [28, 1.1455], [29, 1.0072], [30, 1.075], [31, 1.1426], [32, 1.1618], [33, 1.1494], [34, 1.0982], [35, 1.1082], [36, 1.0897], [37, 1.039], [38, 1.14], [39, 1.1837], [40, 1.1199], [41, 0.9528], [42, 1.1532], [43, 1.1354], [44, 1.1761], [45, 1.1647], [46, 1.08], [47, 1.1289], [48, 1.1332], [49, 1.1757], [50, 1.2119], [51, 1.2036], [52, 1.1899], [53, 1.1706], [54, 1.1158], [55, 1.0178], [56, 1.198], [57, 1.195], [58, 1.22], [59, 1.1655], [60, 1.1377], [61, 1.1472], [62, 1.1995], [63, 1.1329], [64, 1.1859], [65, 1.1604], [66, 1.1991], [67, 1.2287], [68, 1.1531], [69, 1.164], [70, 1.2033], [71, 1.1721], [72, 1.229], [73, 1.1509], [74, 1.1849], [75, 1.2883], [76, 1.2097], [77, 1.1694], [78, 1.2153], [79, 1.2029], [80, 1.2547], [81, 1.2261], [82, 1.1363], [83, 1.1693], [84, 1.2265], [85, 1.2353], [86, 1.1983], [87, 1.2464], [88, 1.237], [89, 1.2282], [90, 1.1976], [91, 1.2519], [92, 1.277], [93, 1.2574], [94, 1.2373], [95, 1.2526], [96, 1.2272], [97, 1.2245], [98, 1.2152], [99, 1.2552], [100, 1.2376], [101, 1.2273], [102, 1.3072], [103, 1.2039], [104, 1.2933], [105, 1.3028], [106, 1.2696], [107, 1.1945], [108, 1.291], [109, 1.2753], [110, 1.3389], [111, 1.2363], [112, 1.3026], [113, 1.2745], [114, 1.2045], [115, 1.2112], [116, 0.5912], [117, 0.3489], [118, 0.873], [119, 0.4681], [120, 0.5658], [121, 0.0602], [122, 0.163], [123, 0.2576], [124, 0.0892], [125, 0.0873], [126, 0.142], [127, 0.2722], [128, 0.3333]];
+const R128_n20=[[1, 0.007], [2, 0.0103], [3, 0.0131], [4, 0.0276], [5, 0.0935], [6, 0.1711], [7, 0.1568], [8, 1.0312], [9, 1.0742], [10, 1.0605], [11, 1.1306], [12, 1.0812], [13, 1.0922], [14, 1.1324], [15, 1.1203], [16, 1.1423], [17, 1.106], [18, 1.0745], [19, 1.1541], [20, 1.0742], [21, 1.1113], [22, 1.1174], [23, 1.152], [24, 1.1105], [25, 1.17], [26, 1.149], [27, 1.0036], [28, 1.1395], [29, 1.1207], [30, 1.1334], [31, 1.1129], [32, 1.1043], [33, 1.1743], [34, 1.0935], [35, 1.0694], [36, 1.0887], [37, 1.1121], [38, 1.0882], [39, 1.1065], [40, 1.1401], [41, 1.1912], [42, 1.1499], [43, 1.1615], [44, 1.1505], [45, 1.1302], [46, 1.1795], [47, 1.2031], [48, 1.1922], [49, 1.1243], [50, 1.0932], [51, 1.1646], [52, 1.2027], [53, 1.1457], [54, 1.1988], [55, 1.1737], [56, 1.1746], [57, 1.1827], [58, 1.2276], [59, 1.1904], [60, 1.1766], [61, 1.1894], [62, 1.207], [63, 1.2526], [64, 1.1325], [65, 1.1627], [66, 1.1669], [67, 1.1577], [68, 1.2207], [69, 1.2073], [70, 1.1812], [71, 1.2224], [72, 1.1686], [73, 1.2023], [74, 1.2], [75, 1.2098], [76, 1.1726], [77, 1.2027], [78, 1.1706], [79, 1.2315], [80, 1.1882], [81, 1.1734], [82, 1.1262], [83, 1.1433], [84, 1.1884], [85, 1.1637], [86, 1.1701], [87, 1.1287], [88, 1.2075], [89, 1.1501], [90, 1.1796], [91, 1.192], [92, 1.2009], [93, 1.1259], [94, 1.0882], [95, 1.2345], [96, 1.138], [97, 1.2473], [98, 1.2519], [99, 1.2182], [100, 1.1167], [101, 1.101], [102, 1.2684], [103, 1.0659], [104, 1.2539], [105, 1.0765], [106, 1.0288], [107, 1.2562], [108, 1.2523], [109, 1.2293], [110, 1.2197], [111, 1.1081], [112, 1.0167], [113, 1.153], [114, 1.0231], [115, 0.7477], [116, 0.5374], [117, 0.7069], [118, 0.3284], [119, 0.5319], [120, 0.5172], [121, 0.5217], [122, 0.55], [123, 0.4], [124, 0.6], [125, 0.5714], [126, 0.8333], [127, 0.6], [128, 0.6]];
+const ISO512=[[1, 0.042], [2, 0.0487], [3, 0.0495], [4, 0.06], [5, 0.0682], [6, 0.0703], [7, 0.0732], [8, 0.0766], [9, 0.0798], [10, 0.0819], [11, 0.0922], [12, 0.0934], [13, 0.0955], [14, 0.0988], [15, 0.0989], [16, 0.0998], [17, 0.1032], [18, 0.1035], [19, 0.1042], [20, 0.1064], [21, 0.1088], [22, 0.1092], [23, 0.1113], [24, 0.113], [25, 0.1153], [26, 0.1168], [27, 0.1171], [28, 0.1184], [29, 0.1191], [30, 0.1215], [31, 0.123], [32, 0.1245], [33, 0.125], [34, 0.1264], [35, 0.1272], [36, 0.1282], [37, 0.1295], [38, 0.1308], [39, 0.1312], [40, 0.1327], [41, 0.1339], [42, 0.1354], [43, 0.136], [44, 0.1382], [45, 0.139], [46, 0.1408], [47, 0.1413], [48, 0.1427], [49, 0.1444], [50, 0.1453], [51, 0.1456], [52, 0.147], [53, 0.1487], [54, 0.1505], [55, 0.1521], [56, 0.1528], [57, 0.1537], [58, 0.1543], [59, 0.1552], [60, 0.1571], [61, 0.1587], [62, 0.1599], [63, 0.1609], [64, 0.1643], [65, 0.1674], [66, 0.1684], [67, 0.1692], [68, 0.1715], [69, 0.1723], [70, 0.1753], [71, 0.176], [72, 0.178], [73, 0.1789], [74, 0.1813], [75, 0.1832], [76, 0.1848], [77, 0.1857], [78, 0.188], [79, 0.1908], [80, 0.1919], [81, 0.1935], [82, 0.1973], [83, 0.1997], [84, 0.2011], [85, 0.2044], [86, 0.2055], [87, 0.2111], [88, 0.213], [89, 0.2142], [90, 0.218], [91, 0.2197], [92, 0.2207], [93, 0.2237], [94, 0.2266], [95, 0.2293], [96, 0.2334], [97, 0.2368], [98, 0.2387], [99, 0.2437], [100, 0.2488], [101, 0.2531], [102, 0.2552], [103, 0.2593], [104, 0.2624], [105, 0.2699], [106, 0.2717], [107, 0.2722], [108, 0.2772], [109, 0.2947], [110, 0.303], [111, 0.31], [112, 0.3214], [113, 0.3454], [114, 0.4183], [115, 0.4495], [116, 0.8522], [117, 1.0604], [118, 1.2602], [119, 2.2666], [120, 4.3749], [121, 5.5715], [122, 9.6926], [123, 13.1363], [124, 20.6119], [125, 25.1671], [126, 26.6556], [127, 35.1262], [128, 45.977]];
+const ISO128=[[1, 0.2256], [2, 0.2415], [3, 0.2459], [4, 0.2799], [5, 0.3313], [6, 0.3598], [7, 0.3794], [8, 0.4339], [9, 0.4512], [10, 0.4559], [11, 0.4682], [12, 0.4701], [13, 0.4739], [14, 0.4826], [15, 0.4846], [16, 0.4898], [17, 0.4952], [18, 0.4981], [19, 0.5028], [20, 0.5069], [21, 0.5106], [22, 0.5151], [23, 0.5177], [24, 0.5207], [25, 0.524], [26, 0.5297], [27, 0.532], [28, 0.5362], [29, 0.5382], [30, 0.5426], [31, 0.5487], [32, 0.5532], [33, 0.5548], [34, 0.5586], [35, 0.5624], [36, 0.5655], [37, 0.5666], [38, 0.5691], [39, 0.5747], [40, 0.5827], [41, 0.5843], [42, 0.5878], [43, 0.5911], [44, 0.5975], [45, 0.6005], [46, 0.6036], [47, 0.6056], [48, 0.6119], [49, 0.6182], [50, 0.6229], [51, 0.6261], [52, 0.634], [53, 0.6378], [54, 0.6396], [55, 0.6431], [56, 0.6479], [57, 0.6518], [58, 0.6552], [59, 0.6607], [60, 0.6645], [61, 0.671], [62, 0.6756], [63, 0.6786], [64, 0.6863], [65, 0.6881], [66, 0.6949], [67, 0.7018], [68, 0.7028], [69, 0.7078], [70, 0.7163], [71, 0.7219], [72, 0.7284], [73, 0.7337], [74, 0.7407], [75, 0.7504], [76, 0.7548], [77, 0.7603], [78, 0.77], [79, 0.7789], [80, 0.7932], [81, 0.8024], [82, 0.8029], [83, 0.8195], [84, 0.8304], [85, 0.8442], [86, 0.8526], [87, 0.8686], [88, 0.8791], [89, 0.8842], [90, 0.8921], [91, 0.894], [92, 0.9039], [93, 0.933], [94, 0.9391], [95, 0.9594], [96, 0.9714], [97, 1.0121], [98, 1.0307], [99, 1.0351], [100, 1.0609], [101, 1.1357], [102, 1.1464], [103, 1.2172], [104, 1.2594], [105, 1.3434], [106, 1.3822], [107, 1.5804], [108, 1.6832], [109, 2.905], [110, 4.1462], [111, 9.7294], [112, 16.6537], [113, 87.4317], [114, 164.5244], [115, 194.5289], [116, 227.758], [117, 551.7241], [118, 955.2239], [119, 1361.7021], [120, 2206.8966], [121, 2782.6087], [122, 3200.0], [123, 6400.0], [124, 6400.0], [125, 9142.8571], [126, 10666.6667], [127, 12800.0], [128, 12800.0]];
+const CUM512=[[2, 0.0536], [4, 0.0983], [6, 0.1332], [8, 0.1656], [10, 0.1955], [12, 0.2216], [14, 0.2465], [16, 0.2709], [18, 0.2943], [20, 0.3173], [22, 0.3395], [24, 0.3611], [26, 0.3819], [28, 0.4025], [30, 0.4226], [32, 0.4422], [34, 0.4614], [36, 0.4804], [38, 0.499], [40, 0.5173], [42, 0.5353], [44, 0.553], [46, 0.5703], [48, 0.5873], [50, 0.604], [52, 0.6206], [54, 0.6368], [56, 0.6526], [58, 0.6683], [60, 0.6838], [62, 0.699], [64, 0.7139], [66, 0.7283], [68, 0.7426], [70, 0.7565], [72, 0.7702], [74, 0.7836], [76, 0.7967], [78, 0.8097], [80, 0.8224], [82, 0.8347], [84, 0.8468], [86, 0.8586], [88, 0.87], [90, 0.8812], [92, 0.8922], [94, 0.903], [96, 0.9134], [98, 0.9236], [100, 0.9335], [102, 0.943], [104, 0.9523], [106, 0.9612], [108, 0.97], [110, 0.9781], [112, 0.9858], [114, 0.9922], [116, 0.9963], [118, 0.9984], [120, 0.9992], [122, 0.9995], [124, 0.9997], [126, 0.9998], [128, 0.9998], [130, 0.9999], [132, 0.9999], [134, 0.9999], [136, 0.9999], [138, 0.9999], [140, 0.9999], [142, 1.0], [144, 1.0], [146, 1.0], [148, 1.0], [150, 1.0], [152, 1.0], [154, 1.0], [156, 1.0], [158, 1.0], [160, 1.0], [162, 1.0], [164, 1.0], [166, 1.0], [168, 1.0], [170, 1.0], [172, 1.0], [174, 1.0], [176, 1.0], [178, 1.0], [180, 1.0], [182, 1.0], [184, 1.0], [186, 1.0], [188, 1.0], [190, 1.0], [192, 1.0], [194, 1.0], [196, 1.0], [198, 1.0], [200, 1.0], [202, 1.0], [204, 1.0], [206, 1.0], [208, 1.0], [210, 1.0], [212, 1.0], [214, 1.0], [216, 1.0], [218, 1.0], [220, 1.0], [222, 1.0], [224, 1.0], [226, 1.0], [228, 1.0], [230, 1.0], [232, 1.0], [234, 1.0], [236, 1.0], [238, 1.0], [240, 1.0], [242, 1.0], [244, 1.0], [246, 1.0], [248, 1.0], [250, 1.0], [252, 1.0], [254, 1.0], [256, 1.0], [258, 1.0], [260, 1.0], [262, 1.0], [264, 1.0], [266, 1.0], [268, 1.0], [270, 1.0], [272, 1.0], [274, 1.0], [276, 1.0], [278, 1.0], [280, 1.0], [282, 1.0], [284, 1.0], [286, 1.0], [288, 1.0], [290, 1.0], [292, 1.0], [294, 1.0], [296, 1.0], [298, 1.0], [300, 1.0], [302, 1.0], [304, 1.0], [306, 1.0], [308, 1.0], [310, 1.0], [312, 1.0], [314, 1.0], [316, 1.0], [318, 1.0], [320, 1.0], [322, 1.0], [324, 1.0], [326, 1.0], [328, 1.0], [330, 1.0], [332, 1.0], [334, 1.0], [336, 1.0], [338, 1.0], [340, 1.0], [342, 1.0], [344, 1.0], [346, 1.0], [348, 1.0], [350, 1.0], [352, 1.0], [354, 1.0], [356, 1.0], [358, 1.0], [360, 1.0], [362, 1.0], [364, 1.0], [366, 1.0], [368, 1.0], [370, 1.0], [372, 1.0], [374, 1.0], [376, 1.0], [378, 1.0], [380, 1.0], [382, 1.0], [384, 1.0], [386, 1.0], [388, 1.0], [390, 1.0], [392, 1.0], [394, 1.0], [396, 1.0], [398, 1.0], [400, 1.0], [402, 1.0], [404, 1.0], [406, 1.0], [408, 1.0], [410, 1.0], [412, 1.0], [414, 1.0], [416, 1.0], [418, 1.0], [420, 1.0], [422, 1.0], [424, 1.0], [426, 1.0], [428, 1.0], [430, 1.0], [432, 1.0], [434, 1.0], [436, 1.0], [438, 1.0], [440, 1.0], [442, 1.0], [444, 1.0], [446, 1.0], [448, 1.0], [450, 1.0], [452, 1.0], [454, 1.0], [456, 1.0], [458, 1.0], [460, 1.0], [462, 1.0], [464, 1.0], [466, 1.0], [468, 1.0], [470, 1.0], [472, 1.0], [474, 1.0], [476, 1.0], [478, 1.0], [480, 1.0], [482, 1.0], [484, 1.0], [486, 1.0], [488, 1.0], [490, 1.0], [492, 1.0], [494, 1.0], [496, 1.0], [498, 1.0], [500, 1.0], [502, 1.0], [504, 1.0], [506, 1.0], [508, 1.0], [510, 1.0], [512, 1.0]];
+const CUM128=[[1, 0.025], [2, 0.0483], [3, 0.0712], [4, 0.0914], [5, 0.1084], [6, 0.1241], [7, 0.1389], [8, 0.1519], [9, 0.1644], [10, 0.1768], [11, 0.1888], [12, 0.2008], [13, 0.2127], [14, 0.2244], [15, 0.236], [16, 0.2475], [17, 0.2589], [18, 0.2702], [19, 0.2814], [20, 0.2925], [21, 0.3036], [22, 0.3145], [23, 0.3254], [24, 0.3362], [25, 0.347], [26, 0.3576], [27, 0.3682], [28, 0.3787], [29, 0.3892], [30, 0.3996], [31, 0.4098], [32, 0.42], [33, 0.4302], [34, 0.4403], [35, 0.4503], [36, 0.4603], [37, 0.4702], [38, 0.4801], [39, 0.4899], [40, 0.4996], [41, 0.5092], [42, 0.5188], [43, 0.5284], [44, 0.5378], [45, 0.5472], [46, 0.5565], [47, 0.5658], [48, 0.575], [49, 0.5842], [50, 0.5932], [51, 0.6022], [52, 0.6111], [53, 0.6199], [54, 0.6287], [55, 0.6375], [56, 0.6462], [57, 0.6548], [58, 0.6634], [59, 0.672], [60, 0.6805], [61, 0.6889], [62, 0.6972], [63, 0.7055], [64, 0.7137], [65, 0.7219], [66, 0.73], [67, 0.7381], [68, 0.7461], [69, 0.754], [70, 0.7619], [71, 0.7697], [72, 0.7774], [73, 0.7851], [74, 0.7927], [75, 0.8003], [76, 0.8077], [77, 0.8151], [78, 0.8225], [79, 0.8297], [80, 0.8368], [81, 0.8438], [82, 0.8508], [83, 0.8577], [84, 0.8645], [85, 0.8712], [86, 0.8778], [87, 0.8843], [88, 0.8907], [89, 0.8971], [90, 0.9034], [91, 0.9097], [92, 0.9159], [93, 0.922], [94, 0.928], [95, 0.9338], [96, 0.9396], [97, 0.9452], [98, 0.9507], [99, 0.9561], [100, 0.9614], [101, 0.9664], [102, 0.9713], [103, 0.9759], [104, 0.9804], [105, 0.9846], [106, 0.9887], [107, 0.9923], [108, 0.9956], [109, 0.9975], [110, 0.9989], [111, 0.9995], [112, 0.9998], [113, 0.9999], [114, 0.9999], [115, 0.9999], [116, 1.0], [117, 1.0], [118, 1.0], [119, 1.0], [120, 1.0], [121, 1.0], [122, 1.0], [123, 1.0], [124, 1.0], [125, 1.0], [126, 1.0], [127, 1.0], [128, 1.0]];
+const ISOCUM512=[[0, 0.0], [128, 0.25], [256, 0.5], [384, 0.75], [512, 1.0]];
+const ISOCUM128=[[0, 0.0], [32, 0.25], [64, 0.5], [96, 0.75], [128, 1.0]];
+const SHAPED512=0.62;
+const SHAPED128=0.721;
+
+/* ---------- render ---------- */
+const LD={W:400,H:262,L:46,R:60,T:8,B:30,xmin:0,xmax:0.72,xticks:[0,0.2,0.4,0.6],log:true,fmt:v=>v.toFixed(1),xlab:'MSEToken (latent error)'};
+const SH={d100:{depth:SH_d100_depth,pointmap:SH_d100_pointmap,raymap:SH_d100_raymap},ft10:{depth:SH_ft10_depth,pointmap:SH_ft10_pointmap,raymap:SH_ft10_raymap},src:{depth:SH_src_depth,pointmap:SH_src_pointmap,raymap:SH_src_raymap}};
+const IS={d100:{depth:LAD_d100_depth,pointmap:LAD_d100_pointmap,raymap:LAD_d100_raymap},ft10:{depth:LAD_ft10_depth,pointmap:LAD_ft10_pointmap,raymap:LAD_ft10_raymap},src:{depth:LAD_src_depth,pointmap:LAD_src_pointmap,raymap:LAD_src_raymap}};
+const shSeries=(m,tags)=>[{pts:IS.src[m],color:'--s2',width:1.4,faint:true,dash:'4 3'},{pts:IS.ft10[m],color:'--s1',width:1.4,faint:true,dash:'4 3'},{pts:IS.d100[m],color:'--s5',width:1.4,faint:true,dash:'4 3'},
+  {pts:SH.src[m],color:'--s2',width:1.9,tag:tags?'source':''},{pts:SH.ft10[m],color:'--s1',width:1.9,tag:tags?'ft10':''},{pts:SH.d100[m],color:'--s5',width:2.4,tag:tags?'tc512':''}];
+xyChart(document.getElementById("h1c"),Object.assign({},LD,{W:620,H:380,L:48,R:92,ymin:1.4,ymax:21,yticks:[1.5,2,3,5,10,20],series:shSeries('raymap',true)}));
+xyChart(document.getElementById("s3a"),Object.assign({},LD,{ymin:2.6,ymax:5.6,yticks:[2.7,3.2,3.9,4.8,5.5],series:shSeries('depth')}));
+xyChart(document.getElementById("s3b"),Object.assign({},LD,{ymin:3.8,ymax:20,yticks:[4,6,10,19],series:shSeries('pointmap')}));
+xyChart(document.getElementById("s3c"),Object.assign({},LD,{ymin:1.4,ymax:21,yticks:[1.5,3,7,20],series:shSeries('raymap')}));
+const CU={H:262,L:46,R:16,T:8,B:30,ymin:0,ymax:1,yticks:[0,0.25,0.5,0.75,1],fmt:v=>v.toFixed(2),xlab:'eigen-direction index (descending variance)'};
+xyChart(document.getElementById("s2a"),Object.assign({},CU,{W:380,xmin:0,xmax:512,xticks:[0,128,256,384,512],series:[
+  {pts:ISOCUM512,color:'--muted',width:1.4,dash:'4 3',nodots:true},{pts:CUM512,color:'--s5',width:2.2,nodots:true}]}));
+xyChart(document.getElementById("s2b"),Object.assign({},CU,{W:380,xmin:0,xmax:128,xticks:[0,32,64,96,128],series:[
+  {pts:ISOCUM128,color:'--muted',width:1.4,dash:'4 3',nodots:true},{pts:CUM128,color:'--s2',width:2.2,nodots:true}]}));
+const RS={W:560,H:300,L:46,R:16,T:8,B:30,xmin:1,xmax:128,xticks:[1,16,32,64,96,128],log:true,ymin:0.05,ymax:20,yticks:[0.1,0.3,1,3,10],fmt:v=>v<1?v.toFixed(1):v.toFixed(0),xlab:'eigen-direction index (descending variance)'};
+const flat=(v)=>[[1,v],[128,v]];
+xyChart(document.getElementById("s4a"),Object.assign({},RS,{series:[
+  {pts:ISO512,color:'--muted',width:1.4,dash:'4 3',nodots:true},{pts:flat(SHAPED512),color:'--s4',width:1.6,dash:'6 3',nodots:true},
+  {pts:R512_n1,color:'--s5',width:1.2,faint:true,nodots:true},{pts:R512_n2,color:'--s5',width:1.6,nodots:true},{pts:R512_n20,color:'--s5',width:2.6,nodots:true}]}));
+xyChart(document.getElementById("s4b"),Object.assign({},RS,{series:[
+  {pts:ISO128,color:'--muted',width:1.4,dash:'4 3',nodots:true},{pts:flat(SHAPED128),color:'--s4',width:1.6,dash:'6 3',nodots:true},
+  {pts:R128_n1,color:'--s2',width:1.2,faint:true,nodots:true},{pts:R128_n2,color:'--s2',width:1.6,nodots:true},{pts:R128_n20,color:'--s2',width:2.6,nodots:true}]}));
+</script>
+</body>
+</html>
