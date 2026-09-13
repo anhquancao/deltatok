@@ -72,6 +72,8 @@ class DeltaTokFlowMatchingTrainer(DeltaTokSharedMixin, Trainer):
         self._fixed_noise_cache = {}  # shape-key -> one cached noise draw (fixed_noise_mode probes)
         self._eval_noise_gen = None   # set during eval_one_epoch so every eval replays the same draws
         self._eval_t_gen = None       # separate stream: seeding t here leaves the noise draws byte-identical
+        self._z_basis = {}            # {test_name: (U (C,C) evecs desc, lam (C,))} of GT-z cov; set by the sampler script
+        self._err_spectrum = {}       # {test_name: (err_dir (C,) mean sq error per eigen-dir, lam)} written by eval_one_epoch
         # Overfit: memoize the frozen OccRAE+DeltaTok encode per data item so the
         # ~1B backbone runs once per unique sample (item-key -> (tokens, feat0, z, H, W)).
         self._cache_frozen_encode = bool(self.cfg.training.get("cache_frozen_encode", False))
@@ -730,6 +732,8 @@ class DeltaTokFlowMatchingTrainer(DeltaTokSharedMixin, Trainer):
         # GT + isotropic noise, so decoded losses read as a function of MSEToken.
         noise_probe_sigma = self.cfg.training.get("eval_noise_probe_sigma", None)
         noise_probe_sigma = None if noise_probe_sigma is None else float(noise_probe_sigma)
+        noise_probe_shaped = bool(self.cfg.training.get("eval_noise_probe_shaped", False))
+        assert not noise_probe_shaped or self._z_basis, "eval_noise_probe_shaped needs --z_basis (sampler script)"
         if noise_probe_sigma is not None and self.is_master:
             print(f"[INFO] eval_noise_probe_sigma={noise_probe_sigma} "
                   f"(z_hat := z + sigma*N(0,I) on forecast slots)", flush=True)
@@ -753,6 +757,9 @@ class DeltaTokFlowMatchingTrainer(DeltaTokSharedMixin, Trainer):
                 items_seen = 0  # all items (drives the eval-item budget)
                 gt_items = 0    # items with GT only (metric denominator)
                 num_vis = 0
+                basis = self._z_basis.get(test_name)                        # (U, lam) or None
+                err_dir = None                                              # (C,) sum of squared error per eigen-dir
+                err_rows = 0
 
                 # Pin the eval loader to epoch 0 so each eval pass sees the same
                 # samples in the same order.
@@ -827,10 +834,13 @@ class DeltaTokFlowMatchingTrainer(DeltaTokSharedMixin, Trainer):
                         # seeded eval generator. Context slots stay GT, as in a normal sample.
                         z_hat = z.clone()                                                        # (B, T-1, N, K, C)
                         fc = z_hat[:, self.n_ctx:]                                               # (B, T-1-n_ctx, N, K, C) forecast view
-                        fc += noise_probe_sigma * torch.randn(
-                            fc.shape, generator=self._eval_noise_gen,
-                            device=z.device, dtype=z.dtype,
-                        )
+                        eps = torch.randn(fc.shape, generator=self._eval_noise_gen,
+                                          device=z.device, dtype=torch.float32)          # (B, F, N, K, C) isotropic
+                        if noise_probe_shaped:
+                            U, lam = basis
+                            # scale eigen-coords so per-element variance stays 1, rotate back: cov = Σ_z·C/tr Σ_z
+                            eps = (eps * (lam * lam.numel() / lam.sum()).sqrt()) @ U.T   # (B, F, N, K, C)
+                        fc += noise_probe_sigma * eps.to(fc.dtype)
 
                     if "gt_mask" in batch:
                         height, width = batch["output_resolution_hw"]
@@ -898,6 +908,13 @@ class DeltaTokFlowMatchingTrainer(DeltaTokSharedMixin, Trainer):
                         batch_losses["MSEToken"] = F.mse_loss(
                             z_hat[:, self.n_ctx:].float(), z[:, self.n_ctx:].float()
                         ).item()
+                        if basis is not None:
+                            U, _ = basis
+                            e = (z_hat[:, self.n_ctx:] - z[:, self.n_ctx:]).float()                  # (B, F, N, K, C)
+                            e = e.reshape(-1, e.shape[-1]) @ U                                      # (rows, C) eigen-coords
+                            sq = e.square().sum(0).double()                                         # (C,)
+                            err_dir = sq if err_dir is None else err_dir + sq
+                            err_rows += e.shape[0]
 
                         if self.is_master and num_vis < eval_num_visualizations:
                             # Decode once per visualized batch (skipped on non-viz
@@ -1053,6 +1070,20 @@ class DeltaTokFlowMatchingTrainer(DeltaTokSharedMixin, Trainer):
                     if not sanity_check:
                         for key, val in results.items():
                             self.log_add_scalar(f"Eval/{test_name}/{key}", val, self.cfg.training.iter)
+
+                if basis is not None and err_dir is not None:
+                    if self.distributed:
+                        dist.all_reduce(err_dir)
+                    U, lam = basis
+                    err_dir = err_dir / max(err_rows * self.world_size, 1)                          # (C,) mean sq error per dir
+                    self._err_spectrum[test_name] = (err_dir.float().cpu(), lam.float().cpu())
+                    if self.is_master:
+                        tot_e, tot_s = float(err_dir.sum()), float(lam.sum())
+                        shares = "  ".join(
+                            f"ErrShareTop{k}: {float(err_dir[:k].sum()) / tot_e:.4f} "
+                            f"SigShareTop{k}: {float(lam[:k].sum()) / tot_s:.4f}"
+                            for k in (16, 32, 64, 96, 128) if k < lam.numel())
+                        print(f"[Eval/{test_name}] ErrSpectrum  {shares}", flush=True)
 
         final_loss = overall_loss / overall_n if overall_n > 0 else 0.0
 

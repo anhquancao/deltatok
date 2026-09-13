@@ -108,6 +108,12 @@ def get_args_parser() -> argparse.ArgumentParser:
              "Empty = use training.eval_noise_probe_sigma (null = normal sampling).",
     )
     parser.add_argument(
+        "--z_basis", action="store_true",
+        help="Pre-pass: bank the GT-z covariance of each eval loader (forecast slots) and hand its "
+             "eigenbasis to the trainer. Enables training.eval_noise_probe_shaped and the "
+             "ErrSpectrum line (error share per eigen-direction) on every pass.",
+    )
+    parser.add_argument(
         "--viz_rgb", action="store_true",
         help="Keep the MAE image decoder loaded so the eval panels get RGB columns. "
              "Needs training.eval_num_visualizations > 0 to produce anything.",
@@ -143,6 +149,33 @@ def _build_test_loaders(cfg):
             drop_last=False,
         )
     return loaders
+
+
+@torch.no_grad()
+def _bank_z_basis(trainer, cfg):
+    """Σ_z of the GT deltas on each eval loader's forecast slots -> trainer._z_basis[test] = (U, lam)."""
+    from occrae.z_spread import ZSpreadStats
+    n_items = int(cfg.training.get("eval_num_items", 256))
+    for test_name, loader in trainer.test_loaders.items():
+        # same pinning as eval_one_epoch so the basis comes from the items the passes score
+        for obj in (getattr(loader, "sampler", None), getattr(loader, "dataset", None)):
+            if obj is not None and hasattr(obj, "set_epoch"):
+                obj.set_epoch(0)
+        acc = ZSpreadStats(trainer.device)
+        seen = 0
+        for batch in loader:
+            if seen >= n_items:
+                break
+            batch = trainer._normalize_batch(batch)
+            imgs = batch["imgs"].to(trainer.device, non_blocking=True)            # (B, V, 3, H, W)
+            _, _, z, _, _ = trainer._encode_inputs(batch, imgs, int(batch.get("num_cameras", 1)), want_tokens=False)
+            acc.update(z[:, trainer.n_ctx:])                                      # (B, F, N, K, C) forecast slots only
+            seen += imgs.shape[0]
+        s = acc.summary(distributed=False, full=True)
+        U, lam = s["evecs"].float().to(trainer.device), s["evals"].float().to(trainer.device)
+        trainer._z_basis[test_name] = (U, lam)                                    # (C, C), (C,)
+        print(f"[INFO] z_basis {test_name}: rows={s['rows']} Cz={s['cz']} ZPartRank={s['part_rank']:.1f} "
+              f"ZTotalVar={s['total_var']:.2f}", flush=True)
 
 
 def main() -> None:
@@ -207,6 +240,8 @@ def main() -> None:
 
     # eval_one_epoch iterates trainer.test_loaders (normally built in fit()).
     trainer.test_loaders = _build_test_loaders(cfg)
+    if args.z_basis:
+        _bank_z_basis(trainer, cfg)
 
     modes = [m.strip() for m in args.step_modes.split(",") if m.strip()]
     # Empty --num_steps keeps the single-pass behaviour at the config's eval_num_steps.
@@ -232,6 +267,9 @@ def main() -> None:
                 loss = trainer.eval_one_epoch()  # prints the [Eval/...] metric line itself
                 print(f"[INFO] steps={n_steps} sampler_step_mode={mode} sigma={sigma}: "
                       f"Eval loss (flow) = {float(loss):.4f}")
+                if trainer._err_spectrum:
+                    out = os.path.join(output_dir, f"err_spectrum_{mode}_steps{n_steps}_sigma{sigma}.pt")
+                    torch.save({k: {"err_dir": e, "lam": l} for k, (e, l) in trainer._err_spectrum.items()}, out)
 
     print(f"\n[INFO] Done. Viz (if any) under {output_dir}")
 

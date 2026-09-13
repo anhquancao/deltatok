@@ -131,6 +131,9 @@ training:
   # Decoder noise-tolerance probe: replace the sampled z_hat with z + sigma*N(0,I)
   # on forecast slots. null = off (normal eval).
   eval_noise_probe_sigma: null
+  # true: the probe's noise is N(0, Σ_z) rescaled to per-element variance 1 (same MSEToken as isotropic).
+  # Needs the Σ_z basis the sampler script banks (eval_deltatok_flow_sampler.py --z_basis).
+  eval_noise_probe_shaped: false
   eval_num_visualizations: 8
   sanity_check_num_items: 2
   # Stop cleanly after an epoch ckpt when the SLURM wall is near (chain-resume

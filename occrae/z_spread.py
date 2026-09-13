@@ -84,7 +84,11 @@ class ZSpreadStats:
         cov = outer / n - torch.outer(mean, mean)                      # (Cz, Cz) covariance
         cov = 0.5 * (cov + cov.T)                                      # eigvalsh needs exact symmetry
         cov = cov.cpu()                                                # cuSOLVER handle OOMs at 57 GB peak
-        evals = torch.linalg.eigvalsh(cov).flip(0).clamp_min(0)        # (Cz,) descending
+        if full:
+            evals, evecs = torch.linalg.eigh(cov)                          # ascending; evecs columns
+            evals, evecs = evals.flip(0).clamp_min(0), evecs.flip(1)       # (Cz,), (Cz, Cz) descending
+        else:
+            evals = torch.linalg.eigvalsh(cov).flip(0).clamp_min(0)        # (Cz,) descending
         tot = float(evals.sum())                                       # = trace(cov)
         if tot <= 0.0:
             part_rank = 0.0
@@ -102,6 +106,7 @@ class ZSpreadStats:
         if full:
             out["evals"] = evals.cpu()                                 # (Cz,) descending eigenvalues
             out["std"] = cov.diagonal().clamp_min(0).sqrt().cpu()      # (Cz,) per-channel std
+            out["evecs"] = evecs.cpu()                                 # (Cz, Cz) eigenvectors, column i <-> evals[i]
             p = evals / tot if tot > 0 else torch.zeros_like(evals)
             out["shares"] = p.cpu()                                    # (Cz,) variance shares
         return out
