@@ -45,6 +45,7 @@ export RUN_NAME=deltatok_l12_dtok64_tc1536_nozn_maxgap9_vpt1to2_sigreg${SIGREG_W
 EXTRA_CFG_ARGS=(
     model.deltatok.num_delta_tokens=64         # K delta tokens/camera (~12:1 compression at full res)
     model.deltatok.target_channels=1536        # == hidden_size -> no z_proj_down/up built
+    model.deltatok.force_bottleneck=false     # raw z: keeps this arm's ckpts resumable
     model.deltatok.z_norm=false                # decoder + SIGReg both see raw z
     model.deltatok.use_camera_rope=false       # layer-12 no-rope run
     model.deltatok.norm_affine=false           # inert at z_norm=false; kept for name parity

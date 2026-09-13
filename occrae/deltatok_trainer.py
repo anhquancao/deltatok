@@ -886,8 +886,11 @@ class DeltaTokTrainer(DeltaTokSharedMixin, Trainer):
             # prefix match covers both Linear (z_proj_down.weight) and MLP (z_proj_down.0.weight) keys.
             has_bneck = (any(k.startswith("z_proj_down") for k in new_state_dict)
                          and any(k.startswith("z_proj_up") for k in new_state_dict))
-            if not has_bneck and self.is_master:
-                print("[warn] ckpt has no z bottleneck projections — they stay randomly initialized")
+            if not has_bneck:
+                msg = "ckpt has no z bottleneck projections — they stay randomly initialized"
+                assert not restore_train_state, msg + "; resume needs model.deltatok.force_bottleneck=false"
+                if self.is_master:
+                    print(f"[warn] {msg}")
         if self.is_master:
             print(f"Load ckpt from: {path}")
 
