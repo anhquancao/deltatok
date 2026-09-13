@@ -119,6 +119,7 @@ training:
   sigreg_warmup: 0  # linear ramp of sigreg_weight over N iters (0 = constant from step 0)
   decode_noise_warmup: 0  # linear ramp of decode_noise_tau over N iters (0 = constant)
   decode_noise_weight: 1.0  # loss weight of that detached noised decode
+  clean_decode_weight: 1.0  # weight of the clean decode(s); 0 = noise-only (needs freeze_except_decoder)
   # Rolling FIFO pool of recent z rows the estimator runs over, as a GLOBAL row count
   # (each rank holds 1/world_size of it; the CF all-reduce pools ranks). Sized to clear the
   # finite-sample floor -- ~0.0085 at S=128,C=768, which buries a rank-290 collapse. Pressure

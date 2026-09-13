@@ -790,12 +790,17 @@ class DeltaTokTrainer(DeltaTokSharedMixin, Trainer):
         self._decode_noise_tau = 0.0
         self._decode_noise_warmup = int(self.cfg.training.get("decode_noise_warmup", 0))
         self._decode_noise_weight = float(self.cfg.training.get("decode_noise_weight", 1.0))
+        # Clean decode(s) weight; 0 with freeze_except_decoder = noise-only decoder finetune.
+        self._clean_decode_weight = float(self.cfg.training.get("clean_decode_weight", 1.0))
+        assert self._clean_decode_weight > 0 or bool(self.cfg.training.get("freeze_except_decoder", False)), \
+            "clean_decode_weight=0 leaves a trainable encoder with no recon gradient"
 
         if self.is_master:
             # A silently-unset knob otherwise reads as a null result.
             print(f"decode_noise_tau={self._decode_noise_tau_cfg} "
                   f"decode_noise_warmup={self._decode_noise_warmup} "
-                  f"decode_noise_weight={self._decode_noise_weight}")
+                  f"decode_noise_weight={self._decode_noise_weight} "
+                  f"clean_decode_weight={self._clean_decode_weight}")
             _print_param_breakdown(model, archi)
 
         model = model.to(self.device)
@@ -1091,7 +1096,7 @@ class DeltaTokTrainer(DeltaTokSharedMixin, Trainer):
             if self._compose_weight > 0:
                 # Triplet: 3 timesteps, 2 hops encoded, z_a+z_b decoded, both losses
                 loss, loss_compose, loss_dn, loss_dn_comp, z_compose, step_t = self._compose_forward(imgs, num_cameras)
-                loss_total = loss + self._compose_weight * loss_compose
+                loss_total = self._clean_decode_weight * (loss + self._compose_weight * loss_compose)
                 # SIGReg z: all three streams (flag on) or one random hop (flag off)
                 if self.sigreg is not None:
                     if self._sigreg_compose_z:
@@ -1128,7 +1133,7 @@ class DeltaTokTrainer(DeltaTokSharedMixin, Trainer):
                 with torch.autocast(device_type="cuda", enabled=False):
                     loss = _log_cosh(x_hat.float(), x.detach().float()).mean()
 
-                loss_total = loss
+                loss_total = self._clean_decode_weight * loss
 
                 # Second decode of the same pair, noised and detached: decoder-only gradient.
                 loss_dn = self._detached_noise_loss(x_prev, x, H, W, num_cameras, z_bneck)
