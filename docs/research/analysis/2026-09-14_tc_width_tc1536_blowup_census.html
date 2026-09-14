@@ -1,0 +1,320 @@
+<!doctype html>
+<!-- thread tc_width · 2026-09-14 · prior cycle: analysis/2026-09-14_tc_width_forced_bneck_stall.md -->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>tc_width: which tc1536 z blow-ups recover, and why the norm on z was added</title>
+<style>
+  :root{
+    --bg:#ffffff; --fg:#1b1f24; --muted:#5b6570; --line:#e3e8ee;
+    --card:#f7f9fb; --accent:#2f6feb; --code:#f0f3f7;
+    --ok:#1a7f37; --warn:#9a6700; --add:#1a7f37; --del:#b42318;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--fg);
+    font:15px/1.6 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;}
+  .wrap{max-width:1180px;margin:0 auto;padding:32px 20px 80px;}
+  h1{font-size:26px;margin:0 0 4px;letter-spacing:-.01em}
+  h2{font-size:19px;margin:38px 0 10px;padding-bottom:6px;border-bottom:1px solid var(--line)}
+  h3{font-size:15px;margin:22px 0 6px}
+  .sub{color:var(--muted);margin:0 0 6px}
+  code{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:13px;
+    background:var(--code);padding:1px 5px;border-radius:4px;overflow-wrap:anywhere}
+  table{border-collapse:collapse;width:100%;margin:10px 0;font-size:13px;display:block;overflow-x:auto}
+  th,td{border:1px solid var(--line);padding:6px 8px;text-align:left;vertical-align:top}
+  th{background:var(--card);font-weight:600;white-space:nowrap}
+  td code{white-space:nowrap}
+  tr.grp td{background:var(--card);font-weight:700}
+  .meta{display:flex;flex-wrap:wrap;gap:8px 18px;color:var(--muted);font-size:13px;margin:10px 0 0}
+  .meta b{color:var(--fg);font-weight:600}
+  .card{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:14px 16px;margin:12px 0}
+  .card.warn{border-color:var(--warn)}
+  .card.ok{border-color:var(--ok)}
+  ul,ol{margin:6px 0 6px 4px;padding-left:20px}
+  li{margin:5px 0}
+  .small{color:var(--muted);font-size:12.5px}
+  .num{font-variant-numeric:tabular-nums}
+  .nw{white-space:nowrap}
+  .add{color:var(--add);font-weight:600}
+  .del{color:var(--del);font-weight:600}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>tc1536: which z blow-ups recover, and why the norm on z was added</h1>
+  <p class="sub">Every tc1536 tokenizer arm with z statistics in its log, read for blow-up and recovery. Also the
+  history of the <code>LayerNorm</code> + bottleneck decision that the blow-ups led to.</p>
+  <div class="meta">
+    <span><b>Date</b> 2026-09-14</span>
+    <span><b>Thread</b> <code>tc_width</code></span>
+    <span><b>Code</b> <code>8037cbf</code>, <code>2e6cb23</code>, <code>795e971</code></span>
+  </div>
+  <div class="meta">
+    <span><b>Arms</b> <code>BSC:44465439</code>, <code>44465440</code>, <code>44465441</code>,
+      <code>44587238</code>&rarr;<code>44590128</code>, <code>45610897</code>, <code>45725881</code>,
+      <code>45727710</code>, <code>45678654</code>, <code>45831175</code>, <code>45831174</code>;
+      no SIGReg <code>44351974</code>, <code>44351975</code>, <code>44352020</code>, <code>44578425</code></span>
+  </div>
+  <div class="meta">
+    <span><b>Shared by every arm</b> tc1536 (<code>target_channels=1536</code>), dtok64 (K = 64),
+      <code>z_norm=false</code>, lr 1e-3, grad clip 0.1, effective batch 16, 3072 SIGReg slices when SIGReg is on</span>
+  </div>
+  <div class="meta">
+    <span><b>Prior</b> <a href="2026-09-14_tc_width_forced_bneck_stall.md">analysis/2026-09-14_tc_width_forced_bneck_stall.md</a>,
+      <a href="2026-09-13_tc_width_tc1536_rank.md">analysis/2026-09-13_tc_width_tc1536_rank.md</a></span>
+  </div>
+
+  <h2>Answer</h2>
+  <div class="card ok">
+    <ul style="margin:0">
+      <li><b>Three tc1536 no-bottleneck arms blew up and never recovered.</b>
+        <ul>
+          <li><code>44465440</code>: SIGReg 0.01, pool 8192, warmup 2000, no compose, no noised decode, bsize 4.
+            Diverged and never trained.</li>
+          <li><code>45610897</code>: SIGReg 0.06, pool 8192, warmup 2000, compose 1.0, noised decode &tau; 0.8
+            detached, bsize 2.</li>
+          <li><code>45725881</code>: SIGReg 0.02, pool 8192, warmup 0, compose 1.0, noised decode &tau; 0.8
+            detached, bsize 2.</li>
+        </ul>
+        The last two sit at <code>ZPartRank</code> 1.0 on a tail but still train.</li>
+      <li><b>Three tc1536 no-bottleneck arms blew up and recovered by ep 4&ndash;6.</b>
+        <ul>
+          <li><code>44587238</code>&rarr;<code>44590128</code>: SIGReg 0.005, pool 8192, warmup 2000, compose 1.0,
+            no noised decode, bsize 2. Recovered at ep 4.</li>
+          <li><code>44465441</code>: SIGReg 0.02, pool 8192, warmup 2000, no compose, no noised decode, bsize 4.
+            Recovered at ep 5.</li>
+          <li><code>45727710</code>: SIGReg 0.02, pool 24576, warmup 0, compose 1.0, noised decode &tau; 0.8
+            detached, bsize 2. Recovered at ep 6.</li>
+        </ul></li>
+      <li><b>Onset does not separate the groups.</b> All three recovered arms blew up at ep 1. The stuck arms blew up
+        at ep 1 (<code>44465440</code>), ep 0 (<code>45610897</code>) and ep 3 (<code>45725881</code>).</li>
+      <li><b>The direction of the scale does, in the four arms that log the SIGReg statistic.</b> In
+        <code>45727710</code> and <code>44590128</code> the scale and the statistic fall together. In
+        <code>45610897</code> and <code>45725881</code> the statistic collapses while the scale stays high or climbs.</li>
+      <li><b>Why each arm lands on its side is untested.</b> One seed per arm. At pool 8192, warmup 2000, no compose
+        and no noised decode, SIGReg 0.005 / 0.01 / 0.02 give never / stuck / recovered.</li>
+      <li><b>The forced bottleneck (tc1536, <code>LayerNorm(1536)</code> + square <code>Linear(1536,1536)</code>)
+        never blows up.</b> All three forced arms stall at the ~0.13 copy plateau instead.</li>
+    </ul>
+  </div>
+
+  <h2>1 Why the LayerNorm + bottleneck exists</h2>
+  <table>
+    <thead><tr><th>date</th><th>commit / doc</th><th>decision</th><th>evidence at the time</th></tr></thead>
+    <tbody>
+      <tr><td class="nw">2026-07-24</td><td><code>8037cbf</code>,
+        <a href="2026-07-24_tc_width_bottleneck_diagnosis.html">analysis/2026-07-24_tc_width_bottleneck_diagnosis.html</a></td>
+        <td>Affine <code>pre_bottleneck_norm</code> before <code>z_proj_down</code>, at tc768 (a real 1536 &rarr; 768
+          bottleneck)</td>
+        <td>The non-affine LN after the bottleneck amplified the backward gradient ~60&times;. The pre-norm gave
+          ~15% lower eval and steadier training. The doc: it "fixes gradients, not capacity".</td></tr>
+      <tr><td class="nw">2026-07-26</td><td><a href="2026-07-26_sigreg_layernorm_geometry.html">analysis/2026-07-26_sigreg_layernorm_geometry.html</a></td>
+        <td>Keep it at tc768. Drop the post-bottleneck LN (<code>z_norm=false</code>)</td>
+        <td>A non-affine LN pins &Vert;z&Vert; = &radic;768, which SIGReg's N(0, I) target cannot reach.
+          <code>pre_bottleneck_norm</code> already fills upstream DeltaTok's terminal-norm role.</td></tr>
+      <tr><td class="nw">2026-09-10</td><td><a href="../results/2026-09-10_tc_width_decnoise_detach_tc1536_read_slides.html">results/2026-09-10_tc_width_decnoise_detach_tc1536_read_slides.html</a>, slide 5</td>
+        <td>Diagnosis: nothing normalises z at tc1536</td>
+        <td><code>45610897</code> (tc1536, no bottleneck, SIGReg 0.06, pool 8192, warmup 2000, compose 1.0, noised
+          decode &tau; 0.8) at <code>ZPartRank</code> 1.0, one channel holding 99.1% of the variance. The norm and
+          projections were built only when <code>z_dim != hidden_size</code>, so never at tc1536.</td></tr>
+      <tr><td class="nw">2026-09-10</td><td><code>2e6cb23</code>,
+        <a href="../plan/2026-09-10_tc_width_bneck_sw0_tc1536.md">plan/2026-09-10_tc_width_bneck_sw0_tc1536.md</a></td>
+        <td><code>force_bottleneck</code> knob. Arm <code>45678654</code>: tc1536, forced bottleneck, SIGReg 0.06,
+          pool 8192, warmup 0, compose 1.0, noised decode &tau; 0.8</td>
+        <td>"Give tc1536 the one thing tc512 has." Two knobs moved against <code>45610897</code>: the bottleneck, and
+          SIGReg warmup 2000 &rarr; 0.</td></tr>
+      <tr><td class="nw">2026-09-11</td><td><a href="../results/2026-09-11_tc_width_bneck_sw0_tc1536_read_slides.html">results/2026-09-11_tc_width_bneck_sw0_tc1536_read_slides.html</a></td>
+        <td>&mdash;</td>
+        <td><code>45678654</code> against <code>45610897</code> at ep 22: scale fixed, <code>ZRowMeanSquare</code>
+          1.13 vs 2781. Token <code>LossRecon</code> 3.2&times; worse. The plan's outcome: "the missing norm was not
+          the cause", because <code>44590128</code> (SIGReg 0.005, no norm) recovers on its own.</td></tr>
+      <tr><td class="nw">2026-09-13</td><td><code>795e971</code>,
+        <a href="2026-09-13_tc_width_tc1536_rank.md">analysis/2026-09-13_tc_width_tc1536_rank.md</a></td>
+        <td><code>force_bottleneck: true</code> by default</td>
+        <td>In <code>45725881</code> (tc1536, no bottleneck, SIGReg 0.02, pool 8192, warmup 0, compose 1.0, noised
+          decode &tau; 0.8), slot <code>k=44</code> is a massive activation born in encoder block 0. The pre-norm
+          residual stream is never normalised, and SIGReg cannot pull back a 1.6% tail.</td></tr>
+      <tr><td class="nw">2026-09-14</td><td><a href="2026-09-14_tc_width_forced_bneck_stall.md">analysis/2026-09-14_tc_width_forced_bneck_stall.md</a></td>
+        <td>Recommends dropping the square projections at tc1536</td>
+        <td>All three forced arms (<code>45678654</code>, <code>45831175</code>, <code>45831174</code>) stall at the
+          copy plateau. Encoder &divide; decoder gradient 0.006 in <code>45831175</code> vs 0.131 in the no-bottleneck
+          <code>45727710</code>.</td></tr>
+    </tbody>
+  </table>
+  <div class="card warn">
+    <p style="margin:0"><b>The 60&times; reason may no longer hold.</b> It assumed a LayerNorm after the bottleneck.
+    <code>z_norm=false</code> removed that norm. This is inferred from the code, not measured.</p>
+  </div>
+
+  <h2>2 Census of tc1536 arms</h2>
+  <p>KITTI eval, from the <code>[Eval/&hellip; @ KittiSeqMultiView]</code> z lines of every cached BSC log with
+  <code>target_channels=1536</code>. Chained jobs are joined. Settings are read from each log's resolved
+  <code>Config:</code> dump. <b>Blown</b> means <code>ZPartRank</code> &le; 1.5 or <code>ZRowMeanSquare</code> &gt; 10.
+  All arms start after <code>1ecb17c</code> (2026-08-02).</p>
+  <table>
+    <thead><tr><th>job</th><th>tc</th><th>bottleneck</th><th>SIGReg weight</th><th>SIGReg pool</th><th>SIGReg warmup</th>
+      <th>compose</th><th>noised decode</th><th>bsize</th><th>max_gap</th>
+      <th>blown epochs</th><th>peak KITTI RMS</th><th>recovered</th><th>last epoch: PR / RMS</th></tr></thead>
+    <tbody>
+      <tr class="grp"><td colspan="14">Blew up, never recovered</td></tr>
+      <tr><td><code>44465440</code></td><td>1536</td><td>none</td><td class="num">0.01</td><td class="num">8192</td><td class="num">2000</td>
+        <td>off</td><td>off</td><td class="num">4</td><td class="num">9</td>
+        <td class="num">1 &rarr; 30</td><td class="num nw">3.4e11 @ ep 9</td><td class="del">no</td><td class="num nw">ep 30: 1.1 / 5.8e9</td></tr>
+      <tr><td><code>45610897</code></td><td>1536</td><td>none</td><td class="num">0.06</td><td class="num">8192</td><td class="num">2000</td>
+        <td>1.0</td><td class="nw">&tau; 0.8 det</td><td class="num">2</td><td class="num">9</td>
+        <td class="num">0 &rarr; 32</td><td class="num nw">4.2e5 @ ep 0</td><td class="del">no</td><td class="num nw">ep 32: 1.0 / 442</td></tr>
+      <tr><td><code>45725881</code></td><td>1536</td><td>none</td><td class="num">0.02</td><td class="num">8192</td><td class="num">0</td>
+        <td>1.0</td><td class="nw">&tau; 0.8 det</td><td class="num">2</td><td class="num">9</td>
+        <td class="num">3 &rarr; 31</td><td class="num nw">981 @ ep 30</td><td class="del">no</td><td class="num nw">ep 31: 1.0 / 872</td></tr>
+      <tr class="grp"><td colspan="14">Blew up, recovered</td></tr>
+      <tr><td class="nw"><code>44587238</code>&rarr;<code>44590128</code></td><td>1536</td><td>none</td><td class="num">0.005</td><td class="num">8192</td><td class="num">2000</td>
+        <td>1.0</td><td>off</td><td class="num">2</td><td class="num">9</td>
+        <td class="num">1&ndash;3</td><td class="num nw">5479 @ ep 1</td><td class="add">ep 4</td><td class="num nw">ep 43: 163 / 1.25</td></tr>
+      <tr><td><code>44465441</code></td><td>1536</td><td>none</td><td class="num">0.02</td><td class="num">8192</td><td class="num">2000</td>
+        <td>off</td><td>off</td><td class="num">4</td><td class="num">9</td>
+        <td class="num">1, 3&ndash;4</td><td class="num nw">7832 @ ep 3</td><td class="add">ep 5</td><td class="num nw">ep 48: 283 / 1.07</td></tr>
+      <tr><td><code>45727710</code></td><td>1536</td><td>none</td><td class="num">0.02</td><td class="num">24576</td><td class="num">0</td>
+        <td>1.0</td><td class="nw">&tau; 0.8 det</td><td class="num">2</td><td class="num">9</td>
+        <td class="num">1, 3</td><td class="num nw">7856 @ ep 1</td><td class="add">ep 6</td><td class="num nw">ep 31: 245 / 1.34</td></tr>
+      <tr class="grp"><td colspan="14">Never blew up</td></tr>
+      <tr><td><code>44465439</code></td><td>1536</td><td>none</td><td class="num">0.005</td><td class="num">8192</td><td class="num">2000</td>
+        <td>off</td><td>off</td><td class="num">4</td><td class="num">9</td>
+        <td>none</td><td class="num nw">1.20 @ ep 1</td><td>&mdash;</td><td class="num nw">ep 48: 183 / 1.00</td></tr>
+      <tr><td><code>45678654</code></td><td>1536</td><td>forced</td><td class="num">0.06</td><td class="num">8192</td><td class="num">0</td>
+        <td>1.0</td><td class="nw">&tau; 0.8 det</td><td class="num">2</td><td class="num">9</td>
+        <td>none</td><td class="num nw">1.32 @ ep 21</td><td>&mdash;</td><td class="num">ep 23: 37 / 1.23, stalled</td></tr>
+      <tr><td class="nw"><code>45831175</code> raw recon</td><td>1536</td><td>forced</td><td class="num">0.02</td><td class="num">24576</td><td class="num">0</td>
+        <td>1.0</td><td>off</td><td class="num">2</td><td class="num">9</td>
+        <td>none</td><td>&asymp; 1 (prior cycle)</td><td>&mdash;</td><td>stalled at the copy plateau</td></tr>
+      <tr><td class="nw"><code>45831174</code> whitened recon &alpha; 0.5</td><td>1536</td><td>forced</td><td class="num">0.02</td><td class="num">24576</td><td class="num">0</td>
+        <td>1.0</td><td>off</td><td class="num">2</td><td class="num">9</td>
+        <td>none</td><td>&asymp; 1 (prior cycle)</td><td>&mdash;</td><td>stalled at the copy plateau</td></tr>
+      <tr class="grp"><td colspan="14">No SIGReg</td></tr>
+      <tr><td><code>44351974</code></td><td>1536</td><td>none</td><td class="num">0</td><td>&mdash;</td><td>&mdash;</td>
+        <td>off</td><td>off</td><td class="num">4</td><td class="num">6</td>
+        <td class="num">RMS &gt; 10 from ep 4</td><td class="num nw">215 @ ep 48</td><td>&mdash;</td><td class="num nw">ep 48: 93 / 215</td></tr>
+      <tr><td><code>44351975</code></td><td>1536</td><td>none</td><td class="num">0</td><td>&mdash;</td><td>&mdash;</td>
+        <td>off</td><td>off</td><td class="num">4</td><td class="num">8</td>
+        <td class="num">RMS &gt; 10 from ep 6</td><td class="num nw">128 @ ep 47</td><td>&mdash;</td><td class="num nw">ep 48: 51 / 126</td></tr>
+      <tr><td><code>44352020</code></td><td>1536</td><td>none</td><td class="num">0</td><td>&mdash;</td><td>&mdash;</td>
+        <td>off</td><td>off</td><td class="num">4</td><td class="num">9</td>
+        <td class="num">RMS &gt; 10 from ep 6</td><td class="num nw">201 @ ep 43</td><td>&mdash;</td><td class="num nw">ep 48: 66 / 189</td></tr>
+      <tr><td><code>44578425</code></td><td>1536</td><td>none</td><td class="num">0</td><td>&mdash;</td><td>&mdash;</td>
+        <td>1.0</td><td>off</td><td class="num">2</td><td class="num">9</td>
+        <td>none in 3 epochs</td><td class="num nw">3.81 @ ep 2</td><td>&mdash;</td><td class="num nw">ep 2: 7 / 3.81</td></tr>
+    </tbody>
+  </table>
+  <p class="small">&ldquo;forced&rdquo; = <code>force_bottleneck=true</code>: <code>LayerNorm(1536)</code> + square
+  <code>Linear(1536,1536)</code> down and up. &ldquo;&tau; 0.8 det&rdquo; = <code>decode_noise_tau=0.8</code>,
+  <code>decode_noise_weight=1.0</code>, detached second decode. bsize 4 and bsize 2 both reach effective batch 16.
+  <code>45831175</code> / <code>45831174</code> settings are from the prior cycle, section 1.</p>
+  <ul>
+    <li><b><code>44465440</code> (SIGReg 0.01, pool 8192, no compose) is a different failure.</b> Its
+      <code>Eval</code> is 0.1198 at ep 30, the copy level. It never trained. Whether its blow-up is a tail or broad
+      was not checked.</li>
+    <li><b>The two stuck compose 1.0 + &tau; 0.8 arms still train.</b> <code>Eval</code> is 0.0220 for
+      <code>45725881</code> (SIGReg 0.02, pool 8192, warmup 0) at ep 31 and 0.0252 for <code>45610897</code>
+      (SIGReg 0.06, pool 8192, warmup 2000) at ep 32. The recovered <code>45727710</code> (SIGReg 0.02, pool 24576,
+      warmup 0) reads 0.0258 at ep 31.</li>
+    <li><b>The SIGReg 0 arms are not a tail.</b> Their scale drifts up for 48 epochs with PR 51&ndash;93. Nothing
+      anchors it.</li>
+  </ul>
+
+  <h2>3 Scale against the SIGReg statistic, ep 0&ndash;6</h2>
+  <p>The four arms that print the raw SIGReg statistic in <code>[KEpoch</code>. All four are tc1536, no bottleneck,
+  compose 1.0, bsize 2. RMS is train <code>ZRowMeanSquare</code>, except <code>44587238</code>, which predates the
+  <code>[Train]</code> z line and shows KITTI eval. PR is KITTI eval <code>ZPartRank</code>. All values are epoch
+  means.</p>
+  <table>
+    <thead><tr><th>job and settings</th><th>row</th><th>ep 0</th><th>ep 1</th><th>ep 2</th><th>ep 3</th><th>ep 4</th><th>ep 5</th><th>ep 6</th></tr></thead>
+    <tbody>
+      <tr class="grp"><td colspan="9">Recovered</td></tr>
+      <tr><td rowspan="3"><code>45727710</code><br>SIGReg 0.02<br>pool 24576<br>warmup 0<br>noised decode &tau; 0.8</td><td>RMS</td>
+        <td class="num">0.82</td><td class="num del">20684</td><td class="num">4930</td><td class="num">576</td><td class="num">174</td><td class="num">2.42</td><td class="num">1.54</td></tr>
+      <tr><td>SIGReg</td><td class="num">0.182</td><td class="num">0.218</td><td class="num">0.059</td><td class="num">0.044</td><td class="num">0.023</td><td class="num">0.009</td><td class="num">0.005</td></tr>
+      <tr><td>PR</td><td class="num">32.4</td><td class="num">1.0</td><td class="num">1.9</td><td class="num">1.0</td><td class="num">2.7</td><td class="num">4.9</td><td class="num add">126.8</td></tr>
+      <tr><td rowspan="3"><code>44587238</code>&rarr;<code>44590128</code><br>SIGReg 0.005<br>pool 8192<br>warmup 2000<br>no noised decode</td><td class="nw">RMS (KITTI)</td>
+        <td class="num">0.0028</td><td class="num del">5479</td><td class="num">223</td><td class="num">177</td><td class="num">1.36</td><td class="num">1.64</td><td class="num">1.53</td></tr>
+      <tr><td>SIGReg</td><td class="num">0.402</td><td class="num">0.326</td><td class="num">0.073</td><td class="num">0.032</td><td class="num">0.013</td><td class="num">0.0065</td><td class="num">0.0043</td></tr>
+      <tr><td>PR</td><td class="num">23</td><td class="num">1</td><td class="num">1</td><td class="num">1</td><td class="num add">44</td><td class="num">113</td><td class="num">172</td></tr>
+      <tr class="grp"><td colspan="9">Stuck</td></tr>
+      <tr><td rowspan="3"><code>45610897</code><br>SIGReg 0.06<br>pool 8192<br>warmup 2000<br>noised decode &tau; 0.8</td><td>RMS</td>
+        <td class="num del">52770</td><td class="num del">96619</td><td class="num">1152</td><td class="num">254</td><td class="num">142</td><td class="num">34.7</td><td class="num">79.5</td></tr>
+      <tr><td>SIGReg</td><td class="num">0.237</td><td class="num">0.026</td><td class="num">0.020</td><td class="num">0.015</td><td class="num">0.008</td><td class="num">0.005</td><td class="num">0.004</td></tr>
+      <tr><td>PR</td><td class="num">1</td><td class="num">1</td><td class="num">1</td><td class="num">1</td><td class="num">1</td><td class="num">1</td><td class="num">1</td></tr>
+      <tr><td rowspan="3"><code>45725881</code><br>SIGReg 0.02<br>pool 8192<br>warmup 0<br>noised decode &tau; 0.8</td><td>RMS</td>
+        <td class="num">0.61</td><td class="num">1.16</td><td class="num">1.32</td><td class="num">3.50</td><td class="num">33.7</td><td class="num del">4142</td><td class="num">2183</td></tr>
+      <tr><td>SIGReg</td><td class="num">0.163</td><td class="num">0.021</td><td class="num">0.017</td><td class="num">0.013</td><td class="num">0.006</td><td class="num">0.004</td><td class="num">0.0035</td></tr>
+      <tr><td>PR</td><td class="num">49.7</td><td class="num">18.7</td><td class="num">7.5</td><td class="num">1.3</td><td class="num">1.0</td><td class="num">1.0</td><td class="num">1.0</td></tr>
+    </tbody>
+  </table>
+  <ul>
+    <li><b>Recovered: the scale and the statistic fall together.</b> <code>45727710</code> (SIGReg 0.02, pool 24576)
+      reads 0.218 at RMS 20684, then both fall every epoch. <code>44590128</code> (SIGReg 0.005, pool 8192) reads
+      0.326 at KITTI RMS 5479, then both fall.</li>
+    <li><b><code>45610897</code> (SIGReg 0.06, pool 8192, warmup 2000): the statistic collapses first.</b> It drops
+      9&times; from ep 0 to ep 1 (0.237 &rarr; 0.026) while the scale nearly doubles (52770 &rarr; 96619). A broad
+      start alone did not make it recover.</li>
+    <li><b><code>45725881</code> (SIGReg 0.02, pool 8192, warmup 0): the scale climbs after the statistic has
+      settled.</b> The statistic is 0.021 at ep 1 at unit scale. The scale then climbs to 4142 by ep 5 while the
+      statistic keeps falling.</li>
+    <li><b>Reading, inferred.</b> A falling statistic next to a large scale means SIGReg has fitted the bulk rows. The
+      scale is then carried by a few rows. The 2026-09-13 analysis found exactly that in <code>45725881</code>:
+      slot <code>k=44</code>, 1.56% of rows, +2000 to +7000 on channel 1109. Past an amplitude of ~100 the SIGReg
+      restoring force no longer points home.</li>
+    <li><b>A high statistic is not one-sided.</b> <code>44587238</code> reads 0.402 at ep 0 with a scale of 0.0028.
+      The statistic flags "far from N(0, I)" in either direction.</li>
+  </ul>
+
+  <h2>4 Patterns (one seed each)</h2>
+  <ul>
+    <li><b>tc1536, no bottleneck, compose 1.0, noised decode &tau; 0.8: pool 8192 got stuck in 2 of 2.</b>
+      <code>45610897</code> is SIGReg 0.06 / warmup 2000. <code>45725881</code> is SIGReg 0.02 / warmup 0. Pool 24576
+      at SIGReg 0.02 / warmup 0 (<code>45727710</code>) recovered. Only <code>45725881</code> vs <code>45727710</code>
+      differ in one knob: the pool.</li>
+    <li><b>tc1536, no bottleneck, pool 8192, warmup 2000, no compose, no noised decode, bsize 4: SIGReg weight does
+      not order the outcomes.</b> 0.005 (<code>44465439</code>) never blew up. 0.01 (<code>44465440</code>) diverged
+      for good. 0.02 (<code>44465441</code>) recovered by ep 5.</li>
+    <li><b>Pool candidate, untested.</b> Pool 24576 runs <code>scale</code> 33.0 against 11.7 at pool 8192
+      (<code>occrae/deltatok_trainer.py:749</code>) and holds 3&times; the detached rows. At ep 1 the statistic of
+      <code>45727710</code> rose 0.182 &rarr; 0.218 while that of <code>45725881</code> fell 0.163 &rarr; 0.021.</li>
+    <li><b>Without any norm on z, 4 of 7 tc1536 SIGReg arms end with a healthy code.</b> <code>44465439</code> never
+      blew up. <code>44590128</code>, <code>44465441</code> and <code>45727710</code> recovered. <code>44465440</code>,
+      <code>45610897</code> and <code>45725881</code> stayed stuck.</li>
+  </ul>
+
+  <h2>Implications (untested)</h2>
+  <ul>
+    <li><b>The default is the stalling setup.</b> <code>configs/deltatok/train_deltatok.yaml:69</code> sets
+      <code>force_bottleneck: true</code>. All three tc1536 forced arms stalled: <code>45678654</code> (SIGReg 0.06,
+      pool 8192, &tau; 0.8), <code>45831175</code> and <code>45831174</code> (SIGReg 0.02, pool 24576, no noised
+      decode). A new tc1536 arm that does not pin <code>force_bottleneck=false</code> inherits that.</li>
+    <li><b>A LayerNorm on z at tc1536 without the square projection is untested.</b> The prior cycle blames the square
+      <code>Linear(1536,1536)</code> for the stall, not the LayerNorm.</li>
+    <li><b>Read SIGReg next to the scale in the first 5 epochs, not <code>ZPartRank</code> alone.</b> In the four arms
+      of section 3, a scale that holds or climbs while the statistic falls marked the stuck ones.</li>
+  </ul>
+
+  <h2>Caveats and not done</h2>
+  <ul>
+    <li><b>One seed per arm.</b> The recovered-vs-stuck split in section 3 rests on four arms.</li>
+    <li><b>No z dumps during the blow-ups.</b> Per-slot dumps exist only at ep 10/20/30 of <code>45725881</code> and
+      ep 30 of <code>45727710</code>. "Bulk fitted, tail left" is inferred from epoch means.</li>
+    <li><b>The August no-compose arms print no SIGReg statistic.</b> Section 3 cannot be read for
+      <code>44465439</code>, <code>44465440</code> or <code>44465441</code>.</li>
+    <li><b>Batch layout differs.</b> No-compose arms run bsize 4, compose arms bsize 2, both at effective batch 16.
+      The census does not compare <code>Eval</code> across the two for that reason.</li>
+    <li><b>The forced arms <code>45831175</code> / <code>45831174</code> are filed under project <code>OccAny</code></b>
+      in <code>monitor_jobs.json</code>, and their logs are not cached. Their settings and z scale come from the prior
+      cycle.</li>
+    <li><b>Not covered.</b> Jean Zay has no tc1536 log with z lines. Arms that predate the z statistics are absent.
+      <code>45608142</code> failed after 43 min under <code>45610897</code>'s run name and adds no epochs.</li>
+  </ul>
+  <p class="small">Source logs: <code>../monitor_jobs/data/logs/BSC/</code> &mdash;
+  <code>deltatok_bsc_{44351974,44351975,44352020,44578425,44587238,44590128,44465439,44465440,44465441}.out</code>,
+  <code>deltatok_dn_dt1536_bsc_45610897.out</code>, <code>deltatok_dn1536_sr0.02_sw0_45725881.out</code>,
+  <code>deltatok_dn1536_pool24576_sw0_45727710.out</code>, <code>deltatok_bn_dt1536_bsc_45678654.out</code>.</p>
+</div>
+</body>
+</html>

@@ -1,0 +1,476 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>DeltaTok — can the decoder-noise arm catch its clean twin?</title>
+<style>
+/* ---------- tokens · light only, white slides (no dark variant by request) ---------- */
+:root{
+  color-scheme: light only;
+  --backdrop:#e9e9e6; --page:#f7f7f6; --surface:#ffffff;
+  --ink:#0b0b0b; --ink2:#52514e; --muted:#83817c;
+  --grid:#e4e4de; --axis:#c3c2b7; --border:rgba(11,11,11,.12);
+  --s1:#2a78d6; --s2:#eb6834; --s3:#1baf7a; --s4:#eda100; --s5:#8a63c8;
+  --good:#0ca30c; --crit:#d03b3b; --serious:#ec835a;
+  --accent:var(--s1);
+  --serif:"Iowan Old Style","Palatino Linotype",Palatino,Georgia,serif;
+  --sans:system-ui,-apple-system,"Segoe UI",sans-serif;
+  --mono:ui-monospace,"Cascadia Code",Menlo,Consolas,monospace;
+}
+/* ---------- deck chrome ---------- */
+*{box-sizing:border-box;margin:0}
+html,body{height:100%}
+body{background:var(--backdrop);color:var(--ink);font:15px/1.45 var(--sans);overflow:hidden}
+.stage{position:absolute;left:50%;top:50%;width:1280px;height:720px;transform-origin:center center}
+.slide{position:absolute;inset:0;background:var(--surface);border:1px solid var(--border);
+  padding:46px 60px 40px;display:none;flex-direction:column}
+.slide.on{display:flex}
+.eyebrow{font:600 12px/1 var(--mono);letter-spacing:.14em;text-transform:uppercase;color:var(--accent);margin-bottom:12px}
+.eyebrow .dim{color:var(--muted)}
+h1{font:400 42px/1.14 var(--serif);letter-spacing:-.01em;text-wrap:balance}
+h2{font:400 29px/1.2 var(--serif);letter-spacing:-.005em;text-wrap:balance;margin-bottom:4px}
+.sub{color:var(--ink2);font-size:14.5px;max-width:80ch;margin-top:9px}
+.body{flex:1;min-height:0;margin-top:16px}
+.foot{display:flex;justify-content:space-between;align-items:baseline;color:var(--muted);
+  font:11px/1 var(--mono);letter-spacing:.06em;margin-top:12px;border-top:1px solid var(--grid);padding-top:10px}
+.pageno{font-variant-numeric:tabular-nums}
+/* nav */
+.nav{position:fixed;left:50%;bottom:14px;transform:translateX(-50%);display:flex;gap:8px;align-items:center;z-index:5}
+.nav button{width:9px;height:9px;border-radius:50%;border:1px solid var(--muted);background:transparent;cursor:pointer;padding:0}
+.nav button.cur{background:var(--accent);border-color:var(--accent)}
+.nav button:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+.arr{position:fixed;top:50%;transform:translateY(-50%);z-index:5;border:1px solid var(--border);
+  background:var(--surface);color:var(--ink2);width:34px;height:56px;cursor:pointer;font-size:18px;border-radius:4px}
+.arr:hover{color:var(--ink)}
+#prev{left:10px}#next{right:10px}
+/* ---------- shared bits ---------- */
+.mono{font-family:var(--mono)}
+.num{font-variant-numeric:tabular-nums}
+.chip{display:inline-block;font:600 10.5px/1 var(--mono);letter-spacing:.05em;padding:4px 7px;border-radius:3px;
+  border:1px solid var(--border);white-space:nowrap}
+.chip.good{color:var(--good);border-color:currentColor}
+.chip.bad{color:var(--crit);border-color:currentColor}
+.chip.hero{color:var(--accent);border-color:currentColor}
+.sw{display:inline-block;width:14px;height:0;border-top-width:3px;border-top-style:solid;vertical-align:4px}
+.cols{display:grid;gap:24px;min-height:0}
+.c2{grid-template-columns:1fr 1fr}
+.c58{grid-template-columns:1.32fr 1fr}
+.c85{grid-template-columns:1fr 1.28fr}
+.card{border:1px solid var(--grid);border-radius:6px;padding:14px 16px;background:var(--page)}
+.card h3{font:600 14px/1.3 var(--sans);margin:6px 0}
+.card .tag{font:600 10px/1 var(--mono);letter-spacing:.1em;text-transform:uppercase;color:var(--muted)}
+ul.tight{padding-left:18px;display:flex;flex-direction:column;gap:8px;font-size:13.5px;color:var(--ink2)}
+ul.tight li{padding-left:2px}
+ul.tight strong{color:var(--ink);font-weight:600}
+/* stat tiles */
+.tiles{display:grid;gap:12px}
+.tile{border:1px solid var(--grid);border-radius:6px;padding:12px 14px;background:var(--page)}
+.tile .v{font:600 25px/1.1 var(--sans);letter-spacing:-.01em;font-variant-numeric:tabular-nums}
+.tile .k{font:600 10px/1.4 var(--mono);letter-spacing:.1em;text-transform:uppercase;color:var(--muted);margin-bottom:5px}
+.tile .d{font-size:12.5px;color:var(--ink2);margin-top:5px}
+.rulebar{border:1px dashed var(--axis);border-radius:6px;padding:11px 15px;font-size:13.5px;color:var(--ink2)}
+.rulebar b{color:var(--ink)}
+/* tables */
+table{border-collapse:collapse;width:100%;font-size:13px;font-variant-numeric:tabular-nums}
+th,td{text-align:right;padding:5px 8px;border-bottom:1px solid var(--grid)}
+th:first-child,td:first-child{text-align:left}
+thead th{font:600 10px/1.3 var(--mono);letter-spacing:.08em;text-transform:uppercase;color:var(--muted);border-bottom:1px solid var(--axis)}
+tbody tr.hi td{background:#fff6f2}
+td.w{color:var(--crit);font-weight:600}
+td.g{color:var(--good);font-weight:600}
+/* charts */
+.legend{display:flex;flex-wrap:wrap;gap:5px 16px;font:12px/1 var(--sans);color:var(--ink2);margin-bottom:4px}
+.legend span{display:inline-flex;gap:7px;align-items:center}
+svg text{font:10.5px var(--sans);fill:var(--muted)}
+svg .axl{font:9.5px var(--mono);fill:var(--muted)}
+svg .hll{font:600 9.5px var(--mono)}
+svg .barlbl{font:600 12px var(--sans);fill:var(--ink)}
+svg .barval{font:11px var(--mono);fill:var(--ink2)}
+.chartwrap{display:flex;flex-direction:column;height:100%;min-height:0}
+svg{display:block}
+.chartwrap svg{flex:1;min-height:0}
+.ptitle{font:600 12px/1.2 var(--mono);color:var(--ink2);letter-spacing:.02em;margin-bottom:2px}
+.ptitle span{color:var(--muted);font-weight:400}
+.takeaway{border:1px solid var(--grid);border-radius:6px;padding:12px 15px;background:var(--page);display:flex;gap:12px;align-items:flex-start}
+.takeaway .n{font:600 22px/1 var(--serif);color:var(--accent);flex:0 0 auto;width:24px}
+.takeaway .tx{font-size:13.5px;color:var(--ink2)}
+.takeaway .tx b{color:var(--ink)}
+@media (prefers-reduced-motion: no-preference){
+  .slide.on{animation:fadein .18s ease}
+  @keyframes fadein{from{opacity:.4}to{opacity:1}}
+}
+@media print{
+  body{overflow:visible;background:#fff}
+  .stage{position:static;transform:none!important;width:auto;height:auto}
+  .slide{display:flex;position:static;width:1280px;height:720px;page-break-after:always;margin:0 auto}
+  .nav,.arr{display:none}
+}
+
+/* ---------- plot-first additions ---------- */
+.grid3{display:grid;grid-template-columns:repeat(3,1fr);grid-auto-rows:1fr;gap:8px 14px}
+.grid2{display:grid;grid-template-columns:1fr 1fr;grid-auto-rows:1fr;gap:8px 18px}
+.grid3>*,.grid2>*{min-height:0;min-width:0}
+.cap{font-size:12.5px;color:var(--ink2);border-top:1px solid var(--grid);padding-top:8px}
+.cap b{color:var(--ink)}
+.stack{display:flex;flex-direction:column;gap:9px;height:100%;min-height:0}
+.ptitle.sm{font-size:11px;margin-bottom:0}
+</style>
+</head>
+<body>
+<div class="stage" id="stage">
+
+<!-- ============ 1 — verdict ============ -->
+<section class="slide on">
+  <div class="eyebrow">DeltaTok tc512 compose <span class="dim">— decode_noise_tau 0.8 vs 0 · the only knob that differs · read at ep 37 of 100</span></div>
+  <h1>Recon never catches up. Geometry nearly has.</h1>
+  <div class="body">
+    <div class="stack">
+      <div class="tiles" style="grid-template-columns:repeat(4,1fr)">
+        <div class="tile"><div class="k">Eval/Loss · matched ep 37</div><div class="v" style="color:var(--crit)">+28.0%</div><div class="d">0.0629 vs 0.0491</div></div>
+        <div class="tile"><div class="k">projected @ ep 100</div><div class="v" style="color:var(--crit)">0.050 / 0.042</div><div class="d">~20% short</div></div>
+        <div class="tile"><div class="k">depth vs twin's <i>final</i></div><div class="v" style="color:var(--good)">+8.3%</div><div class="d">pooled, dn ep 37 vs base ep 81</div></div>
+        <div class="tile"><div class="k">ZPartRank · matched</div><div class="v" style="color:var(--crit)">40 vs 79</div><div class="d">of 512 · rank halved</div></div>
+      </div>
+      <div class="legend"><span><i class="sw" style="border-color:var(--s1)"></i>clean twin <span style="color:var(--muted)">BSC 45296347 · ep 0–81</span></span><span><i class="sw" style="border-color:var(--s2)"></i>decnoise 0.8 <span style="color:var(--muted)">BSC 45529827 · ep 0–37</span></span><span><i class="sw" style="border-color:var(--muted);border-top-style:dashed"></i>projected</span></div>
+      <div class="chartwrap" style="flex:1;min-height:0">
+        <div class="ptitle">EVAL/LOSS <span>· pooled KITTI + Occ3D-nuScenes · log y · dashed = calibrated power-law extrapolation</span></div>
+        <div id="chProj" style="flex:1;min-height:0"></div>
+      </div>
+      <div class="cap"><b>The fit is calibrated.</b> Run it forward on the twin and it predicts 0.0400 at ep 81 against an actual 0.0433 — 8% optimistic. Both corrections for that put decnoise at 0.050–0.052.</div>
+    </div>
+  </div>
+  <div class="foot"><span>BSC 45529827 vs 45296347 · same LR schedule iteration for iteration</span><span class="pageno">01 / 07</span></div>
+</section>
+
+<!-- ============ 2 — recon small multiples ============ -->
+<section class="slide">
+  <div class="eyebrow">latent reconstruction · every readout, both eval sets</div>
+  <h2>The orange line is above the blue one in all six panels, and the distance is growing.</h2>
+  <div class="body">
+    <div class="stack">
+      <div class="legend"><span><i class="sw" style="border-color:var(--s1)"></i>clean twin <span style="color:var(--muted)">BSC 45296347 · ep 0–81</span></span><span><i class="sw" style="border-color:var(--s2)"></i>decnoise 0.8 <span style="color:var(--muted)">BSC 45529827 · ep 0–37</span></span></div>
+      <div class="grid3" style="flex:1;min-height:0">
+  <div class="chartwrap"><div class="ptitle sm">KITTI · single-step</div><div id="pRK" style="flex:1;min-height:0"></div></div>
+  <div class="chartwrap"><div class="ptitle sm">KITTI · autoregressive</div><div id="pRAK" style="flex:1;min-height:0"></div></div>
+  <div class="chartwrap"><div class="ptitle sm">KITTI · composed</div><div id="pRCK" style="flex:1;min-height:0"></div></div>
+  <div class="chartwrap"><div class="ptitle sm">nuScenes · single-step</div><div id="pRN" style="flex:1;min-height:0"></div></div>
+  <div class="chartwrap"><div class="ptitle sm">nuScenes · autoregressive</div><div id="pRAN" style="flex:1;min-height:0"></div></div>
+  <div class="chartwrap"><div class="ptitle sm">nuScenes · composed</div><div id="pRCN" style="flex:1;min-height:0"></div></div>
+</div>
+
+      <div class="cap"><b>Matched epoch, log y, shared scale per column.</b> Gap at ep 37: +28% single-step, +31% AR, +32% composed. Both eval sets are held out.</div>
+    </div>
+  </div>
+  <div class="foot"><span>Eval/206 @ {KittiSeqMultiView, Occ3dNuscenesSeqMultiView} / LossRecon{,_AR,_Comp}</span><span class="pageno">02 / 07</span></div>
+</section>
+
+<!-- ============ 3 — geometry small multiples ============ -->
+<section class="slide">
+  <div class="eyebrow">decoded geometry · what the flow actually consumes</div>
+  <h2>Same two runs, opposite verdict: the lines converge.</h2>
+  <div class="body">
+    <div class="stack">
+      <div class="legend"><span><i class="sw" style="border-color:var(--s1)"></i>clean twin <span style="color:var(--muted)">BSC 45296347 · ep 0–81</span></span><span><i class="sw" style="border-color:var(--s2)"></i>decnoise 0.8 <span style="color:var(--muted)">BSC 45529827 · ep 0–37</span></span></div>
+      <div class="grid3" style="flex:1;min-height:0">
+  <div class="chartwrap"><div class="ptitle sm">KITTI · depth PredVsGT</div><div id="pDK" style="flex:1;min-height:0"></div></div>
+  <div class="chartwrap"><div class="ptitle sm">KITTI · pointmap PredVsGT</div><div id="pPK" style="flex:1;min-height:0"></div></div>
+  <div class="chartwrap"><div class="ptitle sm">KITTI · raymap PredVsGT</div><div id="pYK" style="flex:1;min-height:0"></div></div>
+  <div class="chartwrap"><div class="ptitle sm">nuScenes · depth PredVsGT</div><div id="pDN" style="flex:1;min-height:0"></div></div>
+  <div class="chartwrap"><div class="ptitle sm">nuScenes · pointmap PredVsGT</div><div id="pPN" style="flex:1;min-height:0"></div></div>
+  <div class="chartwrap"><div class="ptitle sm">nuScenes · raymap PredVsGT</div><div id="pYN" style="flex:1;min-height:0"></div></div>
+</div>
+
+      <div class="cap"><b>From ep 5; earlier epochs are transient blow-ups.</b> These metrics are teacher-ceiling-bound — DA3's own error dominates, which compresses the gap that latent recon shows in full.</div>
+    </div>
+  </div>
+  <div class="foot"><span>log y on pointmap and raymap · shared scale across each metric's two panels</span><span class="pageno">03 / 07</span></div>
+</section>
+
+<!-- ============ 4 — the gap ============ -->
+<section class="slide">
+  <div class="eyebrow">matched-epoch gap · one number per metric per epoch</div>
+  <h2>Recon's gap grew to +33% and stalled. Every geometry gap is falling.</h2>
+  <div class="body">
+    <div class="stack">
+      <div class="grid2" style="flex:1;min-height:0">
+        <div class="chartwrap"><div class="ptitle sm">EVAL/LOSS GAP <span>· 100·(dn / twin − 1)</span></div><div id="chGap" style="flex:1;min-height:0"></div></div>
+        <div class="chartwrap"><div class="ptitle sm">GAP BY METRIC <span>· pooled both sets · ep 7 → 37</span></div><div id="chGeo" style="flex:1;min-height:0"></div></div>
+      </div>
+      <table style="flex:0 0 auto">
+        <thead><tr><th>metric</th><th>ep 9</th><th>ep 19</th><th>ep 29</th><th>ep 37</th><th>vs twin's final ep 81</th></tr></thead>
+        <tbody>
+          <tr><td>LossRecon</td><td class="w">+19.4</td><td class="w">+27.8</td><td class="w">+32.9</td><td class="w">+28.1</td><td class="w">+45.4%</td></tr>
+          <tr><td>Raymap PredVsGT</td><td>+43.7</td><td>+27.6</td><td>+22.6</td><td>+18.6</td><td>+21.9%</td></tr>
+          <tr><td>Pointmap PredVsGT</td><td>+20.7</td><td>+17.6</td><td>+14.1</td><td>+10.4</td><td>+12.7%</td></tr>
+          <tr class="hi"><td>Depth PredVsGT</td><td>+11.4</td><td>+13.1</td><td>+10.1</td><td class="g">+6.7</td><td class="g">+8.3%</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+  <div class="foot"><span>the noisy arm tracks twin(0.42·e) across ep 14–37 — a multiplicative lag, not an offset</span><span class="pageno">04 / 07</span></div>
+</section>
+
+<!-- ============ 5 — rank and scale ============ -->
+<section class="slide">
+  <div class="eyebrow">the plan's rank question · answered negative</div>
+  <h2>The noisy channel halves usable rank. The encoder answered it with gain instead.</h2>
+  <div class="body">
+    <div class="stack">
+      <div class="legend">
+        <span><i class="sw" style="border-color:var(--s1)"></i>twin · KITTI</span>
+        <span><i class="sw" style="border-color:var(--s1);border-top-style:dashed"></i>twin · nuScenes</span>
+        <span><i class="sw" style="border-color:var(--s2)"></i>decnoise · KITTI</span>
+        <span><i class="sw" style="border-color:var(--s2);border-top-style:dashed"></i>decnoise · nuScenes</span>
+      </div>
+      <div class="grid2" style="flex:1;min-height:0">
+        <div class="chartwrap"><div class="ptitle sm">ZPARTRANK <span>· participation ratio of z, out of Cz = 512</span></div><div id="chRank" style="flex:1;min-height:0"></div></div>
+        <div class="chartwrap"><div class="ptitle sm">Z ROW MEAN SQUARE <span>· E[z²] per row · SIGReg's target is 1.0</span></div><div id="chScale" style="flex:1;min-height:0"></div></div>
+      </div>
+      <div class="tiles" style="grid-template-columns:repeat(3,1fr);flex:0 0 auto">
+        <div class="tile"><div class="k">rank @ matched ep 37 · KITTI / nuScenes</div><div class="v" style="color:var(--crit)">40 / 47 vs 79 / 90</div><div class="d">twin plateaus at 92 / 96</div></div>
+        <div class="tile"><div class="k">z scale @ ep 37 · KITTI</div><div class="v" style="color:var(--crit)">2.55 vs 1.33</div><div class="d">1.91× · ZTotalVar 1306 vs 682</div></div>
+        <div class="tile"><div class="k">effective noise ratio</div><div class="v">0.50 vs 0.69</div><div class="d">σ / RMS(z) — 28% below the configured τ</div></div>
+      </div>
+    </div>
+  </div>
+  <div class="foot"><span>the fix is a relative σ · rank was already falsified by ../plan/2026-09-02_sigreg_cov_penalty.md</span><span class="pageno">05 / 07</span></div>
+</section>
+
+<!-- ============ 6 — the ladder ============ -->
+<section class="slide">
+  <div class="eyebrow">the plan's tolerance question · answered positive</div>
+  <h2>The eval ladder is flat: σ = 0.82 costs +2.8%.</h2>
+  <div class="body">
+    <div class="stack">
+      <div class="legend">
+        <span><i class="sw" style="border-color:var(--s3)"></i>σ = 0.32</span>
+        <span><i class="sw" style="border-color:var(--s4)"></i>σ = 0.55</span>
+        <span><i class="sw" style="border-color:var(--s2)"></i>σ = 0.82</span>
+      </div>
+      <div class="cols c58" style="flex:1;min-height:0">
+        <div class="chartwrap"><div class="ptitle sm">LADDER PENALTY <span>· KITTI · 100·(LossRecon at σ / clean − 1)</span></div><div id="chLad" style="flex:1;min-height:0"></div></div>
+        <div style="display:flex;flex-direction:column;gap:12px;min-height:0;justify-content:center">
+          <table>
+            <thead><tr><th>eval noise level</th><th>KITTI</th><th>penalty</th><th>nuScenes</th><th>penalty</th></tr></thead>
+            <tbody>
+              <tr><td>0 (clean)</td><td>0.0742</td><td>—</td><td>0.0516</td><td>—</td></tr>
+              <tr><td>0.32</td><td>0.0745</td><td class="g">+0.4%</td><td>0.0519</td><td class="g">+0.6%</td></tr>
+              <tr><td>0.55</td><td>0.0751</td><td class="g">+1.2%</td><td>0.0525</td><td class="g">+1.7%</td></tr>
+              <tr class="hi"><td>0.82</td><td>0.0763</td><td class="g">+2.8%</td><td>0.0536</td><td class="g">+3.9%</td></tr>
+            </tbody>
+          </table>
+          <div class="cap" style="border-top:none;padding-top:0"><b>Discount it.</b> The code is 1.91× larger, so a fixed σ is a smaller relative perturbation here than on the twin. The clean control ladder on the twin's <span class="mono">epoch_80.pth</span> has not been run.</div>
+        </div>
+      </div>
+    </div>
+  </div>
+  <div class="foot"><span>eval decodes z + σ·ε with a seeded generator; the module is in eval mode, so no double-noising</span><span class="pageno">06 / 07</span></div>
+</section>
+
+<!-- ============ 7 — next ============ -->
+<section class="slide">
+  <div class="eyebrow">what to do with it</div>
+  <h2>Stop measuring it with the tokenizer. One flow job settles it.</h2>
+  <div class="body">
+    <div style="display:flex;flex-direction:column;gap:16px;height:100%;justify-content:center">
+      <div class="takeaway"><div class="n">1</div><div class="tx">Chain <b>one</b> job to ~ep 66, not three to ep 100. The extrapolation already says it lands 18–24% short.</div></div>
+      <div class="takeaway"><div class="n">2</div><div class="tx">Train the flow on this arm's <span class="mono">epoch_60</span> and read decoded raymap / pointmap against the flow on the twin's <span class="mono">epoch_80</span>. That is the question the arm exists for.</div></div>
+      <div class="takeaway"><div class="n">3</div><div class="tx">Run the control ladder — <span class="mono">EVAL_ONLY=1 DECNOISE_TAU=0</span> on the twin's <span class="mono">epoch_80.pth</span>, one <span class="mono">acc_debug</span> hour. Slide 6 has no null without it.</div></div>
+      <div class="takeaway"><div class="n">4</div><div class="tx">Before any re-run, make σ <b>relative</b> — <span class="mono">σ · RMS(z)</span>. As configured the encoder buys its way out with scale and the rank hypothesis is never tested.</div></div>
+      <div class="takeaway" style="border-style:dashed;border-color:var(--axis)"><div class="n">5</div><div class="tx">Hold <span class="mono">decnoise_openscene_tc512</span>. It inherits the same absolute-σ loophole.</div></div>
+    </div>
+  </div>
+  <div class="foot"><span>../plan/2026-09-07_tc_width_decnoise_e2e_tc512.md · read at ep 37 of 100</span><span class="pageno">07 / 07</span></div>
+</section>
+
+</div>
+<button class="arr" id="prev" aria-label="Previous slide">&lsaquo;</button>
+<button class="arr" id="next" aria-label="Next slide">&rsaquo;</button>
+<div class="nav" id="nav" role="tablist"></div>
+<script>
+/* ---------- deck nav ---------- */
+const stage=document.getElementById("stage");
+const slides=[...document.querySelectorAll(".slide")];
+const nav=document.getElementById("nav");
+let cur=0;
+slides.forEach((_,i)=>{
+  const b=document.createElement("button");
+  b.setAttribute("role","tab");b.setAttribute("aria-label","Slide "+(i+1));
+  b.addEventListener("click",()=>go(i));
+  nav.appendChild(b);
+});
+function go(i){
+  cur=Math.max(0,Math.min(slides.length-1,i));
+  slides.forEach((s,j)=>s.classList.toggle("on",j===cur));
+  [...nav.children].forEach((b,j)=>b.classList.toggle("cur",j===cur));
+}
+document.getElementById("prev").addEventListener("click",()=>go(cur-1));
+document.getElementById("next").addEventListener("click",()=>go(cur+1));
+addEventListener("keydown",e=>{
+  if(["ArrowRight","PageDown"," "].includes(e.key)){go(cur+1);e.preventDefault();}
+  else if(["ArrowLeft","PageUp"].includes(e.key)){go(cur-1);e.preventDefault();}
+  else if(e.key==="Home")go(0);
+  else if(e.key==="End")go(slides.length-1);
+});
+go(0);
+/* ---------- auto-scale ---------- */
+function fit(){
+  const s=Math.min(innerWidth/1300,(innerHeight-40)/730);
+  stage.style.transform=`translate(-50%,-50%) scale(${Math.min(s,1.4)})`;
+}
+addEventListener("resize",fit);fit();
+
+/* ---------- CSS var resolver (for SVG strokes) ---------- */
+const CV=n=>getComputedStyle(document.documentElement).getPropertyValue(n).trim();
+
+/* multi-series epoch line chart. se.x0 shifts a series' first point right,
+   so a projection can start at the epoch it branches from. */
+function lineChart(el,cfg){
+  const W=cfg.W||600,H=cfg.H||300,L=cfg.L||52,R=cfg.R||70,T=12,B=30, iw=W-L-R, ih=H-T-B;
+  const {ymin,ymax,yticks,xmax,xticks,log}=cfg;
+  const f=log?Math.log10:(v=>v), y0=f(ymin), y1=f(ymax);
+  const X=i=>L+iw*(i/xmax);
+  const Y=v=>T+ih*(1-(f(Math.min(Math.max(v,ymin),ymax))-y0)/(y1-y0));
+  const fmt=cfg.fmt||(t=>t.toFixed(4));
+  let s=`<svg viewBox="0 0 ${W} ${H}" width="100%" height="100%" preserveAspectRatio="xMidYMid meet">`;
+  yticks.forEach(t=>{const y=Y(t);
+    s+=`<line x1="${L}" y1="${y}" x2="${L+iw}" y2="${y}" stroke="${CV('--grid')}"/>`;
+    s+=`<text x="${L-7}" y="${y+3}" text-anchor="end" class="axl">${fmt(t)}</text>`;});
+  xticks.forEach(t=>{const x=X(t);
+    s+=`<text x="${x}" y="${H-11}" text-anchor="middle" class="axl">${t}</text>`;});
+  (cfg.hlines||[]).forEach(h=>{const y=Y(h.y),c=CV(h.color||'--muted');
+    s+=`<line x1="${L}" y1="${y}" x2="${L+iw}" y2="${y}" stroke="${c}" stroke-dasharray="2 3" stroke-width="1.1"/>`;
+    s+=`<text x="${h.right?L+iw-4:L+4}" y="${y-4}" text-anchor="${h.right?'end':'start'}" class="hll" fill="${c}">${h.label}</text>`;});
+  (cfg.vlines||[]).forEach(v=>{const x=X(v.x),c=CV(v.color||'--axis');
+    s+=`<line x1="${x}" y1="${T}" x2="${x}" y2="${T+ih}" stroke="${c}" stroke-dasharray="2 4" stroke-width="1.1"/>`;
+    s+=`<text x="${x+4}" y="${T+11}" class="hll" fill="${c}">${v.label}</text>`;});
+  cfg.series.forEach(se=>{const c=CV(se.color), o=se.x0||0;
+    const d=se.data.map((v,i)=>`${i?'L':'M'}${X(i+o).toFixed(1)} ${Y(v).toFixed(1)}`).join(' ');
+    s+=`<path d="${d}" fill="none" stroke="${c}" stroke-width="${se.width||1.9}" opacity="${se.faint?.55:1}" ${se.dash?`stroke-dasharray="${se.dash}"`:''}/>`;
+    const n=se.data.length-1, lx=X(n+o), ly=Y(se.data[n]);
+    s+=`<circle cx="${lx.toFixed(1)}" cy="${ly.toFixed(1)}" r="2.6" fill="${c}" opacity="${se.faint?.55:1}"/>`;
+    if(se.tag) s+=`<text x="${lx+6}" y="${ly+3.5}" class="hll" fill="${c}">${se.tag}</text>`;});
+  s+=`<text x="${L+iw/2}" y="${H-1}" text-anchor="middle" class="axl">epoch</text>`;
+  s+=`</svg>`;
+  el.innerHTML=s;
+}
+
+/* ================= DATA =================
+   Scalars walked out of both runs' TensorBoard event files with the seek-skip TFRecord
+   reader (skip any record > 8 KB — those are images). Index i == epoch i; eval tags are
+   logged at iteration (i+1)*1125.
+   twin  BSC:45296347  ep 0..81 (stopped)     noisy BSC:45529827  ep 0..37 (mirror snapshot) */
+const EVAL_B=[0.1225,0.1183,0.1093,0.1012,0.0948,0.0889,0.0848,0.081,0.0787,0.0754,0.0728,0.0709,0.0693,0.0677,0.0662,0.0643,0.063,0.0616,0.0604,0.0597,0.0577,0.057,0.0563,0.0557,0.0551,0.0545,0.0536,0.0531,0.0525,0.0521,0.0517,0.0514,0.0511,0.0507,0.0501,0.0497,0.0495,0.0491,0.049,0.0488,0.0485,0.0483,0.048,0.0478,0.0475,0.0473,0.0471,0.047,0.047,0.0467,0.0465,0.0464,0.0462,0.0462,0.046,0.0456,0.0454,0.0453,0.0452,0.0451,0.0449,0.0448,0.0446,0.0445,0.0444,0.0444,0.0443,0.0442,0.0441,0.044,0.0439,0.0439,0.0438,0.0437,0.0437,0.0436,0.0435,0.0435,0.0434,0.0434,0.0433,0.0433];
+const EVAL_D=[0.121,0.1174,0.1183,0.1181,0.1062,0.1019,0.0983,0.0952,0.0928,0.09,0.0884,0.0863,0.0854,0.0837,0.0827,0.0812,0.0799,0.0785,0.0772,0.0762,0.0749,0.0744,0.0736,0.0731,0.0723,0.0717,0.071,0.0703,0.0697,0.0691,0.0685,0.0674,0.067,0.0661,0.0652,0.0643,0.0636,0.0629];
+const LossRecon_K_B=[0.1406,0.1383,0.1284,0.1195,0.1119,0.105,0.1003,0.0955,0.0928,0.0886,0.0857,0.0834,0.0815,0.0797,0.0783,0.0757,0.0741,0.0726,0.0713,0.0707,0.068,0.0671,0.0663,0.0656,0.065,0.0644,0.0631,0.0624,0.0616,0.0613,0.0609,0.0606,0.0603,0.0598,0.059,0.0585,0.0583,0.0578,0.0577,0.0575,0.0573,0.0569,0.0566,0.0563,0.0559,0.0558,0.0555,0.0554,0.0557,0.0551,0.0548,0.0548,0.0546,0.0547,0.0543,0.0539,0.0537,0.0534,0.0532,0.0533,0.0529,0.0527,0.0526,0.0525,0.0523,0.0522,0.0521,0.052,0.052,0.0519,0.0517,0.0517,0.0516,0.0515,0.0515,0.0514,0.0513,0.0512,0.0512,0.0511,0.0511,0.051];
+const LossRecon_K_D=[0.1404,0.1367,0.1358,0.1333,0.1251,0.1203,0.1162,0.1126,0.1095,0.1065,0.1046,0.102,0.101,0.0991,0.0978,0.096,0.0944,0.0927,0.0912,0.09,0.0884,0.0878,0.0869,0.0861,0.0853,0.0845,0.0837,0.0828,0.0822,0.0816,0.0809,0.0794,0.0791,0.078,0.0769,0.0758,0.0751,0.0742];
+const LossRecon_AR_K_B=[0.1627,0.1474,0.137,0.1285,0.1224,0.1149,0.1102,0.1045,0.1023,0.0969,0.0938,0.0917,0.0892,0.087,0.0856,0.0831,0.0812,0.0794,0.078,0.077,0.0738,0.073,0.0726,0.0716,0.0706,0.0701,0.0688,0.0684,0.067,0.0665,0.0659,0.0656,0.0653,0.0652,0.0639,0.0635,0.063,0.0629,0.0622,0.0621,0.0618,0.0612,0.0613,0.0609,0.0603,0.0605,0.0598,0.0597,0.06,0.0595,0.0593,0.0592,0.059,0.059,0.0585,0.058,0.058,0.0576,0.0574,0.0573,0.0569,0.0569,0.0565,0.0567,0.0562,0.0563,0.056,0.056,0.0559,0.0558,0.0558,0.0558,0.0555,0.0554,0.0555,0.0553,0.0551,0.055,0.0551,0.055,0.055,0.0548];
+const LossRecon_AR_K_D=[0.1538,0.1462,0.519,0.3662,0.1404,0.1312,0.1274,0.1231,0.1204,0.1166,0.1146,0.1131,0.1117,0.1098,0.1085,0.1065,0.1047,0.103,0.1015,0.1003,0.0985,0.0979,0.0966,0.0964,0.095,0.0943,0.0929,0.0924,0.091,0.0904,0.0898,0.0882,0.0875,0.0863,0.0852,0.0844,0.0828,0.0823];
+const LossRecon_Comp_K_B=[0.148,0.1461,0.1358,0.1281,0.1209,0.1142,0.1099,0.1051,0.1017,0.0973,0.0933,0.0908,0.0892,0.0869,0.085,0.0821,0.0807,0.0787,0.0771,0.0759,0.0737,0.0724,0.0715,0.0707,0.0701,0.0691,0.0678,0.0671,0.0661,0.0656,0.0655,0.0647,0.0641,0.0641,0.063,0.0628,0.0624,0.0619,0.0621,0.0617,0.0615,0.0611,0.0607,0.0602,0.06,0.06,0.0599,0.0594,0.0596,0.0591,0.059,0.0588,0.0589,0.0586,0.0579,0.0581,0.058,0.0573,0.0575,0.0573,0.0572,0.0573,0.057,0.0564,0.0564,0.0568,0.0565,0.0561,0.0562,0.0562,0.0565,0.0561,0.0567,0.0567,0.0565,0.056,0.0566,0.0568,0.0564,0.0555,0.0559,0.0563];
+const LossRecon_Comp_K_D=[0.1477,0.1448,0.1442,0.1427,0.134,0.13,0.126,0.1229,0.1208,0.1172,0.1155,0.1139,0.1124,0.1103,0.1088,0.1077,0.1053,0.1037,0.1014,0.1005,0.0992,0.0978,0.0973,0.0964,0.0958,0.0955,0.0936,0.0929,0.092,0.0912,0.0904,0.0888,0.0879,0.0869,0.0859,0.0848,0.0831,0.0826];
+const LossDepth_PredVsGT_K_B=[3.3,3.235,2.798,2.322,2.288,2.192,2.229,2.244,1.983,1.887,1.955,1.842,1.887,1.857,1.868,1.86,1.868,1.768,1.811,1.772,1.787,1.833,1.77,1.721,1.732,1.751,1.756,1.754,1.752,1.752,1.735,1.702,1.776,1.757,1.74,1.735,1.694,1.733,1.714,1.722,1.669,1.8,1.742,1.75,1.755,1.705,1.749,1.731,1.715,1.751,1.767,1.688,1.702,1.706,1.721,1.74,1.683,1.764,1.712,1.693,1.716,1.697,1.685,1.705,1.723,1.729,1.704,1.708,1.735,1.715,1.711,1.718,1.706,1.7,1.684,1.689,1.71,1.701,1.72,1.707,1.701,1.713];
+const LossDepth_PredVsGT_K_D=[3.135,3.139,3.483,3.165,2.647,2.528,2.513,2.397,2.307,2.216,2.296,2.256,2.085,2.257,2.25,2.092,2.321,2.052,2.177,2.186,2.055,2.087,2.049,2.089,2.048,2.064,2.028,1.937,1.998,2.011,1.993,1.922,1.866,1.935,1.874,1.928,1.903,1.863];
+const LossPointmap_PredVsGT_K_B=[18.326,5.509,12.521,6.877,4.098,3.569,3.576,3.62,3.113,3.017,3.123,2.885,2.958,2.858,2.94,2.916,2.915,2.722,2.796,2.742,2.751,2.858,2.746,2.669,2.67,2.704,2.715,2.714,2.71,2.707,2.689,2.615,2.744,2.686,2.693,2.663,2.574,2.654,2.62,2.623,2.528,2.762,2.678,2.686,2.699,2.615,2.674,2.645,2.619,2.666,2.721,2.55,2.594,2.584,2.619,2.666,2.556,2.67,2.607,2.568,2.607,2.559,2.556,2.585,2.618,2.61,2.584,2.598,2.639,2.603,2.597,2.617,2.592,2.573,2.541,2.561,2.596,2.582,2.614,2.599,2.577,2.603];
+const LossPointmap_PredVsGT_K_D=[14.975,6.779,17.334,12.068,9.767,6.766,6.024,4.666,4.156,3.84,3.836,3.719,3.384,3.691,3.682,3.4,3.782,3.25,3.487,3.514,3.288,3.352,3.279,3.394,3.236,3.316,3.197,3.036,3.179,3.201,3.195,3.035,2.95,3.04,2.937,3.038,3.035,2.957];
+const LossRaymap_PredVsGT_K_B=[16.665,4.507,11.223,5.917,2.765,1.981,1.939,1.943,1.63,1.625,1.668,1.519,1.54,1.475,1.545,1.51,1.5,1.384,1.421,1.417,1.388,1.467,1.4,1.366,1.357,1.373,1.383,1.379,1.38,1.37,1.369,1.319,1.384,1.327,1.369,1.339,1.273,1.325,1.311,1.3,1.251,1.377,1.344,1.353,1.35,1.313,1.33,1.316,1.303,1.317,1.367,1.25,1.288,1.264,1.292,1.332,1.262,1.31,1.291,1.264,1.288,1.248,1.257,1.27,1.289,1.268,1.268,1.284,1.303,1.279,1.28,1.294,1.278,1.261,1.242,1.259,1.281,1.272,1.287,1.286,1.266,1.281];
+const LossRaymap_PredVsGT_K_D=[13.871,5.804,16.037,11.042,8.418,5.245,4.644,3.287,2.694,2.363,2.227,2.056,1.875,2.032,2.003,1.871,2.054,1.747,1.858,1.885,1.755,1.81,1.741,1.833,1.685,1.763,1.681,1.582,1.679,1.685,1.715,1.592,1.56,1.579,1.533,1.583,1.618,1.566];
+const ZPartRank_K_B=[26.9,23.6,12.5,11.6,18.7,23.6,25.9,30.7,32.3,36.8,40.3,42.5,44.6,46.5,50.3,52.0,54.5,56.0,57.7,59.8,63.3,64.9,65.1,65.6,66.6,68.1,71.4,72.4,73.5,74.0,73.5,74.8,74.7,75.6,77.1,77.1,78.3,78.7,79.0,79.2,79.3,79.8,80.2,81.3,82.3,83.1,83.2,83.4,83.2,83.4,84.9,84.5,85.0,84.7,85.1,81.8,86.7,86.7,87.6,86.9,87.9,88.3,88.2,88.2,88.6,88.8,89.0,89.2,89.5,90.0,89.5,90.0,91.1,90.9,90.0,91.1,91.2,91.5,91.4,91.7,91.9,92.0];
+const ZPartRank_K_D=[10.9,29.6,19.8,26.0,11.3,11.2,12.2,13.5,13.9,15.5,15.4,16.2,16.3,16.6,17.3,18.1,19.5,20.7,21.7,23.0,23.6,23.9,23.8,24.4,25.0,25.2,26.0,27.0,28.0,28.9,29.8,31.4,32.2,33.9,35.0,37.1,38.5,40.3];
+const ZRowMeanSquare_K_B=[1.029,1.013,1.191,1.494,1.515,1.547,1.631,1.633,1.693,1.604,1.537,1.488,1.628,1.515,1.454,1.45,1.536,1.547,1.513,1.388,1.453,1.489,1.41,1.315,1.478,1.281,1.41,1.362,1.385,1.481,1.253,1.505,1.393,1.468,1.408,1.172,1.354,1.333,1.435,1.284,1.416,1.307,1.3,1.311,1.464,1.418,1.359,1.43,1.262,1.248,1.244,1.238,1.275,1.13,1.313,1.421,1.284,1.268,1.249,1.142,1.276,1.213,1.429,1.331,1.206,1.283,1.339,1.225,1.307,1.395,1.106,1.411,1.379,1.269,1.108,1.25,1.256,1.369,1.233,1.222,1.316,1.288];
+const ZRowMeanSquare_K_D=[1.113,0.992,1.332,1.259,1.428,1.503,1.578,1.668,1.757,1.854,1.958,1.869,1.992,2.095,1.962,2.151,2.177,2.372,2.413,2.181,2.303,2.34,2.332,2.171,2.312,2.402,2.478,2.448,2.604,2.414,2.464,2.68,2.528,2.536,2.625,2.349,2.917,2.552];
+const LossRecon_N_B=[0.1044,0.0982,0.0902,0.0829,0.0778,0.0729,0.0692,0.0665,0.0646,0.0621,0.0599,0.0584,0.0571,0.0556,0.054,0.0529,0.0518,0.0506,0.0495,0.0487,0.0475,0.0468,0.0463,0.0458,0.0451,0.0446,0.0442,0.0438,0.0433,0.043,0.0425,0.0423,0.0419,0.0417,0.0412,0.0409,0.0406,0.0404,0.0402,0.0401,0.0398,0.0397,0.0395,0.0393,0.039,0.0389,0.0386,0.0385,0.0384,0.0383,0.0381,0.038,0.0379,0.0378,0.0376,0.0374,0.0372,0.0372,0.0371,0.0369,0.0369,0.0368,0.0367,0.0366,0.0365,0.0365,0.0364,0.0363,0.0363,0.0362,0.0361,0.0361,0.036,0.036,0.0359,0.0358,0.0358,0.0357,0.0357,0.0356,0.0356,0.0356];
+const LossRecon_N_D=[0.1016,0.0982,0.1008,0.1029,0.0872,0.0834,0.0804,0.0777,0.076,0.0735,0.0723,0.0706,0.0697,0.0683,0.0675,0.0664,0.0653,0.0643,0.0632,0.0623,0.0615,0.0611,0.0604,0.06,0.0592,0.0589,0.0583,0.0578,0.0572,0.0567,0.056,0.0554,0.0548,0.0541,0.0535,0.0528,0.0521,0.0516];
+const LossRecon_AR_N_B=[0.1257,0.1123,0.1014,0.0939,0.0892,0.0831,0.0795,0.076,0.0746,0.0709,0.0686,0.0664,0.0649,0.063,0.0614,0.0601,0.0591,0.0575,0.0562,0.0555,0.0535,0.0529,0.0525,0.0518,0.0509,0.0503,0.0498,0.0496,0.0489,0.0483,0.0477,0.0474,0.0471,0.047,0.0463,0.0459,0.0455,0.0453,0.045,0.045,0.0446,0.0444,0.0442,0.0441,0.0436,0.0437,0.0433,0.0431,0.043,0.0429,0.0426,0.0426,0.0425,0.0422,0.0419,0.0417,0.0415,0.0416,0.0413,0.0412,0.041,0.0411,0.0408,0.0408,0.0405,0.0407,0.0405,0.0405,0.0404,0.0402,0.0402,0.0402,0.0401,0.04,0.0399,0.0398,0.0398,0.0397,0.0397,0.0396,0.0396,0.0394];
+const LossRecon_AR_N_D=[0.1161,0.1126,0.1968,0.1169,0.0997,0.0949,0.0916,0.0887,0.087,0.0842,0.0824,0.081,0.0797,0.0783,0.0777,0.0761,0.0751,0.074,0.0728,0.0719,0.0707,0.0707,0.0694,0.0694,0.0681,0.0678,0.0671,0.0666,0.0657,0.0651,0.0642,0.0634,0.0629,0.0622,0.0611,0.0605,0.0598,0.0592];
+const LossRecon_Comp_N_B=[0.1115,0.1073,0.0987,0.0917,0.0871,0.0818,0.0784,0.0754,0.0732,0.0706,0.0676,0.0663,0.0649,0.063,0.0608,0.0596,0.0582,0.057,0.0554,0.0544,0.0528,0.0521,0.0516,0.051,0.0501,0.0496,0.0491,0.0487,0.0481,0.0476,0.0471,0.0468,0.0465,0.046,0.0456,0.0453,0.0448,0.0445,0.0443,0.0446,0.0438,0.0438,0.0434,0.0433,0.0431,0.0428,0.0427,0.0424,0.0423,0.0423,0.0421,0.042,0.0417,0.0417,0.0414,0.0412,0.0408,0.0408,0.0409,0.0406,0.0407,0.0405,0.0402,0.0402,0.0402,0.0401,0.04,0.0401,0.0398,0.0398,0.0399,0.0397,0.0397,0.0397,0.0395,0.0394,0.0395,0.0394,0.0393,0.0394,0.0392,0.0392];
+const LossRecon_Comp_N_D=[0.1092,0.1066,0.1093,0.11,0.0972,0.0931,0.0902,0.0877,0.0863,0.0836,0.0821,0.0807,0.0796,0.0784,0.0774,0.0767,0.075,0.074,0.0724,0.0719,0.0705,0.0699,0.0698,0.069,0.0679,0.0678,0.067,0.0666,0.0654,0.065,0.0643,0.0637,0.0629,0.062,0.0613,0.0604,0.0593,0.0586];
+const LossDepth_PredVsGT_N_B=[4.381,3.844,3.7,3.34,3.209,3.058,3.043,3.002,2.975,2.904,2.864,2.846,2.808,2.804,2.792,2.783,2.781,2.707,2.707,2.685,2.693,2.709,2.633,2.646,2.699,2.674,2.691,2.699,2.666,2.671,2.639,2.617,2.648,2.654,2.619,2.651,2.673,2.637,2.616,2.613,2.659,2.652,2.618,2.656,2.634,2.622,2.604,2.638,2.608,2.605,2.597,2.603,2.603,2.617,2.618,2.616,2.607,2.592,2.598,2.618,2.604,2.601,2.606,2.604,2.603,2.594,2.6,2.585,2.618,2.592,2.597,2.596,2.577,2.596,2.588,2.594,2.594,2.59,2.597,2.598,2.593,2.596];
+const LossDepth_PredVsGT_N_D=[4.171,3.967,4.412,4.68,3.586,3.379,3.31,3.252,3.163,3.12,3.1,3.058,3.053,3.026,2.974,3.031,2.963,2.958,2.932,2.957,2.967,2.952,2.905,2.885,2.932,2.949,2.89,2.902,2.866,2.83,2.851,2.825,2.819,2.817,2.822,2.812,2.794,2.799];
+const LossPointmap_PredVsGT_N_B=[18.57,8.58,11.156,7.329,5.111,4.326,4.154,4.055,4.05,3.919,3.861,3.815,3.75,3.728,3.743,3.701,3.707,3.557,3.571,3.513,3.573,3.573,3.417,3.431,3.516,3.469,3.514,3.538,3.462,3.473,3.402,3.369,3.415,3.427,3.374,3.425,3.473,3.418,3.376,3.367,3.451,3.419,3.386,3.441,3.391,3.379,3.344,3.403,3.361,3.348,3.338,3.343,3.352,3.375,3.388,3.371,3.361,3.332,3.344,3.383,3.357,3.355,3.368,3.355,3.361,3.346,3.356,3.318,3.382,3.336,3.356,3.36,3.311,3.353,3.333,3.349,3.34,3.335,3.359,3.353,3.351,3.354];
+const LossPointmap_PredVsGT_N_D=[14.44,10.301,16.239,19.075,9.601,7.396,6.102,5.213,4.964,4.534,4.468,4.418,4.268,4.175,4.146,4.243,4.046,4.082,4.0,4.065,4.082,4.051,3.981,3.911,4.033,4.043,3.916,3.989,3.862,3.795,3.886,3.804,3.769,3.781,3.791,3.814,3.741,3.749];
+const LossRaymap_PredVsGT_N_B=[14.617,5.965,7.925,4.904,3.098,2.235,1.916,1.85,1.805,1.709,1.625,1.594,1.557,1.535,1.547,1.502,1.507,1.426,1.433,1.371,1.409,1.377,1.314,1.302,1.318,1.302,1.323,1.348,1.299,1.316,1.271,1.255,1.262,1.268,1.252,1.275,1.288,1.276,1.255,1.252,1.281,1.249,1.265,1.283,1.25,1.258,1.231,1.263,1.254,1.235,1.238,1.231,1.246,1.257,1.264,1.248,1.243,1.228,1.244,1.252,1.239,1.249,1.253,1.243,1.245,1.239,1.248,1.222,1.252,1.231,1.246,1.253,1.217,1.247,1.23,1.245,1.236,1.231,1.254,1.244,1.25,1.249];
+const LossRaymap_PredVsGT_N_D=[10.894,7.372,12.53,15.106,6.994,4.979,3.941,3.084,2.871,2.427,2.3,2.262,2.138,1.999,1.984,1.975,1.861,1.863,1.785,1.813,1.81,1.758,1.738,1.721,1.747,1.73,1.651,1.706,1.605,1.564,1.629,1.581,1.553,1.548,1.536,1.564,1.522,1.519];
+const ZPartRank_N_B=[28.9,24.8,21.7,20.9,26.7,29.5,32.1,35.8,37.7,41.1,44.6,46.7,49.5,52.1,56.3,58.9,61.2,63.5,66.8,69.1,72.4,74.1,75.7,76.9,78.0,79.0,80.9,82.4,83.4,83.9,84.8,84.9,85.5,86.1,86.9,87.4,88.8,89.5,90.0,90.3,91.0,91.3,91.9,91.8,93.0,93.6,93.2,93.6,94.1,94.6,94.2,95.6,95.3,96.0,96.1,84.4,95.9,96.0,96.4,97.1,97.3,97.0,97.5,97.2,97.8,97.9,97.8,98.0,97.6,97.7,97.6,97.3,97.4,97.6,97.2,97.7,97.1,97.1,96.8,96.0,96.2,96.2];
+const ZPartRank_N_D=[11.7,31.6,21.5,27.5,18.9,19.6,20.5,21.3,20.8,21.3,21.0,21.4,21.3,21.4,22.1,22.8,23.7,25.5,27.1,28.3,29.1,28.8,28.9,29.4,30.1,30.6,31.0,32.1,33.1,34.2,35.5,36.6,37.8,39.7,41.1,43.5,45.0,46.9];
+const ZRowMeanSquare_N_B=[1.025,1.007,0.976,0.957,0.949,0.969,0.973,0.978,1.014,0.985,0.95,0.93,1.013,0.953,0.96,0.952,0.988,1.038,1.017,0.94,0.979,1.031,1.004,0.943,1.033,0.928,0.994,0.959,0.969,1.019,0.897,1.079,1.014,0.996,1.027,0.895,1.029,0.995,1.037,0.947,0.991,0.935,0.959,0.912,1.042,1.037,0.975,1.037,0.962,0.931,0.986,0.968,0.964,0.908,0.98,1.076,0.976,0.986,0.979,0.944,0.974,0.958,1.047,1.018,0.932,0.99,0.985,0.935,1.011,1.005,0.918,1.078,1.028,0.996,0.952,0.984,0.957,1.013,0.986,0.989,1.049,1.006];
+const ZRowMeanSquare_N_D=[1.097,0.979,1.222,1.28,1.073,1.001,1.0,1.042,1.037,1.077,1.102,1.045,1.096,1.123,1.085,1.115,1.162,1.235,1.247,1.134,1.199,1.217,1.232,1.127,1.213,1.243,1.272,1.255,1.331,1.265,1.263,1.411,1.33,1.312,1.372,1.269,1.472,1.3];
+const LAD032=[-0.02,-0.04,0.05,-0.01,0.05,0.03,0.07,0.07,0.05,0.02,0.06,0.13,0.1,0.08,0.13,0.16,0.17,0.15,0.12,0.17,0.17,0.15,0.13,0.19,0.23,0.16,0.17,0.26,0.23,0.19,0.32,0.24,0.34,0.31,0.37,0.46,0.38,0.42];
+const LAD055=[-0.02,-0.06,0.1,0.0,0.07,0.05,0.11,0.14,0.15,0.17,0.22,0.33,0.33,0.31,0.38,0.4,0.45,0.41,0.39,0.5,0.5,0.48,0.47,0.55,0.59,0.53,0.58,0.68,0.67,0.68,0.85,0.75,0.91,0.94,1.0,1.26,1.08,1.27];
+const LAD082=[-0.01,-0.13,0.2,0.01,0.12,0.1,0.24,0.29,0.36,0.42,0.49,0.69,0.73,0.71,0.85,0.85,0.97,0.93,0.94,1.14,1.15,1.15,1.17,1.32,1.31,1.28,1.37,1.53,1.53,1.6,1.88,1.74,2.03,2.16,2.22,2.76,2.36,2.87];
+const GAP=[-1.2,-0.8,8.2,16.7,12.0,14.6,15.9,17.5,17.9,19.4,21.4,21.7,23.2,23.6,24.9,26.3,26.8,27.4,27.8,27.6,29.8,30.5,30.7,31.2,31.2,31.6,32.5,32.4,32.8,32.6,32.5,31.1,31.1,30.4,30.1,29.4,28.5,28.1];
+const GAP_RECON=[17.5,17.9,19.4,21.5,21.7,23.2,23.7,24.9,26.3,26.8,27.4,27.8,27.6,29.8,30.7,30.8,31.1,31.2,31.6,32.3,32.4,32.9,32.6,32.4,31.0,31.0,30.1,30.1,29.4,28.6,28.1];
+const GAP_DEPTH=[7.7,10.3,11.4,12.0,13.4,9.4,13.3,12.1,10.3,13.7,12.0,13.1,15.4,12.1,10.9,12.5,13.9,12.4,13.3,10.6,8.7,10.1,9.5,10.7,9.9,5.9,7.7,7.7,8.1,7.6,6.7];
+const GAP_POINT=[28.7,27.3,20.7,18.9,21.4,14.1,19.4,17.1,15.5,18.2,16.8,17.6,21.2,16.5,15.1,17.8,19.8,17.5,19.2,14.2,12.4,14.1,13.2,16.3,14.3,9.1,11.6,10.9,12.5,12.1,10.4];
+const GAP_RAY=[68.0,62.0,43.7,37.5,38.7,29.6,33.9,28.9,27.7,30.2,28.5,27.6,32.6,27.5,25.5,28.2,33.2,28.3,30.6,23.1,20.6,22.6,21.0,26.7,23.3,17.6,20.5,17.1,20.4,22.6,18.6];
+const PROJ_D=[0.0629,0.0626,0.0623,0.062,0.0617,0.0614,0.0611,0.0608,0.0606,0.0603,0.0601,0.0598,0.0596,0.0593,0.0591,0.0589,0.0587,0.0585,0.0583,0.0581,0.0579,0.0577,0.0575,0.0573,0.0571,0.0569,0.0568,0.0566,0.0564,0.0563,0.0561,0.0559,0.0558,0.0556,0.0555,0.0553,0.0552,0.055,0.0549,0.0547,0.0546,0.0545,0.0543,0.0542,0.0541,0.0539,0.0538,0.0537,0.0536,0.0535,0.0533,0.0532,0.0531,0.053,0.0529,0.0528,0.0526,0.0525,0.0524,0.0523,0.0522,0.0521,0.052,0.0519];
+const PROJ_B=[0.0433,0.0432,0.0431,0.043,0.043,0.0429,0.0428,0.0427,0.0427,0.0426,0.0425,0.0424,0.0424,0.0423,0.0422,0.0421,0.0421,0.042,0.0419,0.0419];
+const CH=(id,cfg)=>lineChart(document.getElementById(id),cfg);
+/* small-multiple geometry: viewBox sized so axis type renders near 1:1 at ~360 px wide */
+const SM={W:390,H:238,L:44,R:12};
+const X37={xmax:37,xticks:[0,10,20,30,37]};
+const X81={xmax:81,xticks:[0,20,40,60,81]};
+const pair=(B,D,x0)=>[{data:B,color:'--s1',width:1.9,x0:x0||0},{data:D,color:'--s2',width:1.9,x0:x0||0}];
+const from=(a,e)=>a.slice(e);
+
+/* 1 — measured + projected */
+CH('chProj',{xmax:100,xticks:[0,20,40,60,80,100],log:true,W:1080,H:320,L:70,R:80,
+  ymin:0.040,ymax:0.125,yticks:[0.042,0.050,0.060,0.075,0.095,0.125],fmt:t=>t.toFixed(3),
+  vlines:[{x:37,label:'dn now'}],
+  series:[{data:EVAL_B,color:'--s1',width:2.1},
+          {data:PROJ_B,color:'--s1',dash:'5 4',x0:81,tag:'0.042',width:1.8},
+          {data:EVAL_D,color:'--s2',width:2.1},
+          {data:PROJ_D,color:'--s2',dash:'5 4',x0:37,tag:'0.052',width:1.8}]});
+
+/* 2 — recon, 3 readouts x 2 sets, shared scale per column */
+const RE={...SM,...X81,log:true,ymin:0.034,ymax:0.135,yticks:[0.035,0.05,0.07,0.10,0.135],fmt:t=>t.toFixed(3)};
+CH('pRK', {...RE,series:pair(LossRecon_K_B,LossRecon_K_D)});
+CH('pRAK',{...RE,series:pair(LossRecon_AR_K_B,LossRecon_AR_K_D)});
+CH('pRCK',{...RE,series:pair(LossRecon_Comp_K_B,LossRecon_Comp_K_D)});
+CH('pRN', {...RE,series:pair(LossRecon_N_B,LossRecon_N_D)});
+CH('pRAN',{...RE,series:pair(LossRecon_AR_N_B,LossRecon_AR_N_D)});
+CH('pRCN',{...RE,series:pair(LossRecon_Comp_N_B,LossRecon_Comp_N_D)});
+
+/* 3 — geometry from ep 5, shared scale across each metric's two panels */
+const GD={...SM,...X81,ymin:1.6,ymax:3.5,yticks:[1.6,2.0,2.5,3.0,3.5],fmt:t=>t.toFixed(1)};
+const GP={...SM,...X81,log:true,ymin:2.4,ymax:7.6,yticks:[2.5,3.5,5.0,7.5],fmt:t=>t.toFixed(1)};
+const GY={...SM,...X81,log:true,ymin:1.15,ymax:5.6,yticks:[1.2,1.8,2.8,4.2,5.6],fmt:t=>t.toFixed(1)};
+CH('pDK',{...GD,series:pair(from(LossDepth_PredVsGT_K_B,5),from(LossDepth_PredVsGT_K_D,5),5)});
+CH('pDN',{...GD,series:pair(from(LossDepth_PredVsGT_N_B,5),from(LossDepth_PredVsGT_N_D,5),5)});
+CH('pPK',{...GP,series:pair(from(LossPointmap_PredVsGT_K_B,5),from(LossPointmap_PredVsGT_K_D,5),5)});
+CH('pPN',{...GP,series:pair(from(LossPointmap_PredVsGT_N_B,5),from(LossPointmap_PredVsGT_N_D,5),5)});
+CH('pYK',{...GY,series:pair(from(LossRaymap_PredVsGT_K_B,5),from(LossRaymap_PredVsGT_K_D,5),5)});
+CH('pYN',{...GY,series:pair(from(LossRaymap_PredVsGT_N_B,5),from(LossRaymap_PredVsGT_N_D,5),5)});
+
+/* 4 — gaps */
+CH('chGap',{...X37,W:440,H:270,L:46,R:52,ymin:-5,ymax:40,yticks:[0,10,20,30,40],fmt:t=>t.toFixed(0)+'%',
+  hlines:[{y:0,label:'parity',color:'--axis',right:true}],
+  series:[{data:GAP,color:'--s2',tag:'+28.1%',width:2.2}]});
+CH('chGeo',{xmax:37,xticks:[7,15,25,37],W:440,H:270,L:46,R:58,
+  ymin:0,ymax:70,yticks:[0,20,40,60],fmt:t=>t.toFixed(0)+'%',
+  series:[{data:GAP_RECON,color:'--s1',x0:7,tag:'recon',width:2.2},
+          {data:GAP_RAY,color:'--s2',x0:7,tag:'ray',width:1.9},
+          {data:GAP_POINT,color:'--s3',x0:7,tag:'point',width:1.9},
+          {data:GAP_DEPTH,color:'--s4',x0:7,tag:'depth',width:1.9}]});
+
+/* 5 — rank and scale */
+CH('chRank',{...X81,W:440,H:290,L:44,R:40,ymin:0,ymax:100,yticks:[0,25,50,75,100],fmt:t=>t.toFixed(0),
+  series:[{data:ZPartRank_K_B,color:'--s1',width:2.0},
+          {data:ZPartRank_N_B,color:'--s1',dash:'5 3',tag:'96',width:1.8},
+          {data:ZPartRank_K_D,color:'--s2',width:2.0},
+          {data:ZPartRank_N_D,color:'--s2',dash:'5 3',tag:'47',width:1.8}]});
+CH('chScale',{...X81,W:440,H:290,L:44,R:40,ymin:0.8,ymax:3.0,yticks:[1.0,1.5,2.0,2.5,3.0],fmt:t=>t.toFixed(1),
+  hlines:[{y:1.0,color:'--axis',label:''}],
+  series:[{data:ZRowMeanSquare_K_B,color:'--s1',width:2.0},
+          {data:ZRowMeanSquare_N_B,color:'--s1',dash:'5 3',width:1.8},
+          {data:ZRowMeanSquare_K_D,color:'--s2',tag:'2.55',width:2.0},
+          {data:ZRowMeanSquare_N_D,color:'--s2',dash:'5 3',width:1.8}]});
+
+/* 6 — ladder */
+CH('chLad',{...X37,H:400,ymin:-0.15,ymax:3.2,yticks:[0,1,2,3],fmt:t=>t.toFixed(0)+'%',
+  series:[{data:LAD082,color:'--s2',tag:'2.8%',width:2.1},
+          {data:LAD055,color:'--s4',tag:'1.2%',width:1.9},
+          {data:LAD032,color:'--s3',tag:'0.4%',width:1.9}]});
+</script>
+</body>
+</html>

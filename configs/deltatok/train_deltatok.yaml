@@ -67,6 +67,7 @@ model:
     target_channels: 0  # z channel bottleneck (0 = off; e.g. 768 projects z 1536->768 at encode, back at decode)
     bottleneck_mlp: false  # bottleneck only: 2-layer SiLU MLP down/up instead of single Linear (beats linear-768 variance cap)
     force_bottleneck: true  # LN+Linear on z even at target_channels == hidden_size; false = raw z
+    num_registers: 0  # extra encoder/decoder slots never read as z: a free home for the attention sink
     use_delta: true
     use_swiglu: true
     use_qk_norm: true

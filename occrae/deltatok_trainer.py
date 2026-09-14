@@ -78,12 +78,14 @@ class DeltaTokModule(nn.Module):
         target_channels: int = 0,
         bottleneck_mlp: bool = False,
         force_bottleneck: bool = False,
+        num_registers: int = 0,
     ):
         super().__init__()
         # Delta tokens per camera per transition (1 = max compression). K query
         # tokens compress a frame pair's P patches into K latents; raise it to
         # reduce compression.
         self.num_delta_tokens = int(num_delta_tokens)
+        self.num_registers = int(num_registers)              # R register slots per camera, never read as z
         # Compressed z channel dim (0 = off -> z stays at hidden_size). When on,
         # encode projects z hidden_size->z_dim before the final norm and decode
         # projects it back, adding a second compression axis besides K.
@@ -126,6 +128,14 @@ class DeltaTokModule(nn.Module):
         nn.init.trunc_normal_(self.z_embed.weight, std=cfg.initializer_range)
         self.xy_embed = nn.Embedding(2, cfg.hidden_size)
         nn.init.trunc_normal_(self.xy_embed.weight, std=cfg.initializer_range)
+        if self.num_registers > 0:
+            self.enc_reg_embed = nn.Embedding(self.num_registers, cfg.hidden_size)   # (R, C) encoder registers
+            self.dec_reg_embed = nn.Embedding(self.num_registers, cfg.hidden_size)   # (R, C) decoder registers
+            nn.init.trunc_normal_(self.enc_reg_embed.weight, std=cfg.initializer_range)
+            nn.init.trunc_normal_(self.dec_reg_embed.weight, std=cfg.initializer_range)
+        else:
+            self.enc_reg_embed = None                         # absent at R=0 so old ckpts load strict
+            self.dec_reg_embed = None
 
         self.encoder_blocks = nn.ModuleList(
             [DINOv3ViTLayer(cfg) for _ in range(num_hidden_layers)]
@@ -321,10 +331,14 @@ class DeltaTokModule(nn.Module):
             ``num_tokens - num_patches`` tokens).
         """
         M, N, P, C = x_prev.shape
-        K = self.num_delta_tokens                          # delta tokens per camera
+        K = self.num_delta_tokens + self.num_registers     # slots per camera through the blocks: K z + R registers
 
-        # N*K z tokens (K per camera); all initialized from the shared z_embed.
-        z = self.z_embed.weight[None, None].expand(M, N, K, C).contiguous()  # (M, N, K, C)
+        # N*K prefix tokens per camera: K z slots from z_embed, then R register slots from enc_reg_embed.
+        z = self.z_embed.weight[None, None].expand(M, N, self.num_delta_tokens, C)  # (M, N, K, C)
+        if self.enc_reg_embed is not None:
+            reg = self.enc_reg_embed.weight[None, None].expand(M, N, self.num_registers, C)  # (M, N, R, C)
+            z = torch.cat([z, reg], dim=2)                 # (M, N, K+R, C)
+        z = z.contiguous()
 
         prev_spatials = x_prev + self.xy_embed.weight[0]   # (M, N, P, C)
         next_spatials = x + self.xy_embed.weight[1]        # (M, N, P, C)
@@ -359,6 +373,9 @@ class DeltaTokModule(nn.Module):
                 z = hidden[:, :, :K]
                 prev_spatials = hidden[:, :, K : K + P]
                 next_spatials = hidden[:, :, K + P :]
+
+        self._enc_row_absmax = z.detach().float().abs().amax(-1)   # (M, N, K+R) pre-LN |h| max per slot, sink probe
+        z = z[:, :, : self.num_delta_tokens]               # (M, N, K, C) registers dropped, never read
 
         if self.z_proj_down is not None:
             z = self.pre_bottleneck_norm(z)    # (M, N, K, C) unit-var before down-proj (no post-norm grad blow-up)
@@ -401,6 +418,9 @@ class DeltaTokModule(nn.Module):
 
         if self.z_proj_up is not None:
             z = self.z_proj_up(z)          # (M, N, K, C) back to hidden_size
+        if self.dec_reg_embed is not None:
+            reg = self.dec_reg_embed.weight[None, None].expand(M, N, self.num_registers, C)  # (M, N, R, C)
+            z = torch.cat([z, reg], dim=2)                 # (M, N, K+R, C) registers ride along, never read
         z = z.contiguous()                 # native (M, N, K, C)
         K = z.shape[2]                     # delta tokens per camera
         spatials = x_prev  # (M, N, P, C)
@@ -519,6 +539,8 @@ def _print_param_breakdown(model: nn.Module, archi: str) -> None:
     if model.z_proj_down is not None:
         components += [("pre_bottleneck_norm", model.pre_bottleneck_norm),
                        ("z_proj_down", model.z_proj_down), ("z_proj_up", model.z_proj_up)]
+    if model.enc_reg_embed is not None:
+        components += [("enc_reg_embed", model.enc_reg_embed), ("dec_reg_embed", model.dec_reg_embed)]
 
     grand_total, grand_train = _count(model)
     print(f"Parameter breakdown for {archi}:")
@@ -1136,6 +1158,7 @@ class DeltaTokTrainer(DeltaTokSharedMixin, Trainer):
 
             batch = self._normalize_batch(batch)
             num_batches += 1
+            net = self._unwrapped_tokenizer()                       # sink probe reads net._enc_row_absmax
             update_grad = (num_batches % self.grad_cum) == 0
 
             self.adapt_learning_rate()
@@ -1269,7 +1292,11 @@ class DeltaTokTrainer(DeltaTokSharedMixin, Trainer):
             # Update the console meters every batch (matches OccAny) so the first
             # log_every line at step 0 has populated `loss`/`lr` meters.
             if self.is_master:
-                metric_logger.update(loss=loss_val, lr=self.optim.param_groups[0]['lr'])
+                rm = net._enc_row_absmax                            # (M, N, K+R) from the last encode this step
+                zrow_max = float(rm[:, :, : net.num_delta_tokens].max())
+                reg_max = float(rm[:, :, net.num_delta_tokens :].max()) if net.num_registers else 0.0
+                metric_logger.update(loss=loss_val, lr=self.optim.param_groups[0]['lr'],
+                                     zrow_max=zrow_max, reg_max=reg_max)
 
             if update_grad:
                 if self.distributed:
@@ -1293,6 +1320,8 @@ class DeltaTokTrainer(DeltaTokSharedMixin, Trainer):
                     self.log_add_scalar('Train/LossDecNoiseComp', loss_dn_comp if loss_dn_comp is not None else 0.0, self.cfg.training.iter)
                     self.log_add_scalar('Train/LossTot', mini_batch_loss, self.cfg.training.iter)
                     self.log_add_scalar('Train/SpeedSamplesPerSec', speed_samples_per_sec, self.cfg.training.iter)
+                    self.log_add_scalar('Train/EncRowAbsMaxZ', zrow_max, self.cfg.training.iter)
+                    self.log_add_scalar('Train/EncRowAbsMaxReg', reg_max, self.cfg.training.iter)
 
                 if self._recon_acc is not None:
                     self._recon_acc_steps += 1

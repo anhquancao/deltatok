@@ -482,7 +482,7 @@ class DeltaTokSharedMixin:
         from occrae.deltatok_trainer import DeltaTokModule
 
         deltatok_cfg = self.cfg.model.get("deltatok", {})
-        return DeltaTokModule(
+        net = DeltaTokModule(
             hidden_size=int(backbone.embed_dim),
             num_heads=int(backbone.num_heads),
             patch_size=int(backbone.patch_size),
@@ -502,7 +502,11 @@ class DeltaTokSharedMixin:
             target_channels=int(deltatok_cfg.get("target_channels", 0)),
             bottleneck_mlp=bool(deltatok_cfg.get("bottleneck_mlp", False)),
             force_bottleneck=bool(deltatok_cfg.get("force_bottleneck", False)),
+            num_registers=int(deltatok_cfg.get("num_registers", 0)),
         )
+        if self.is_master:
+            print(f"[INFO] DeltaTok num_registers={net.num_registers}", flush=True)  # stale trainer prints 0
+        return net
 
     def _build_occ_rae(self):
         self.occ_rae = OccRAE(

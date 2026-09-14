@@ -1,0 +1,547 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>DeltaTok — tc1536 without a bottleneck: width wins, the noise recipe costs</title>
+<style>
+/* ---------- tokens · light only, white slides (no dark variant by request) ---------- */
+:root{
+  color-scheme: light only;
+  --backdrop:#e9e9e6; --page:#f7f7f6; --surface:#ffffff;
+  --ink:#0b0b0b; --ink2:#52514e; --muted:#83817c;
+  --grid:#e4e4de; --axis:#c3c2b7; --border:rgba(11,11,11,.12);
+  --s1:#2a78d6; --s2:#eb6834; --s3:#1baf7a; --s4:#eda100; --s5:#8a63c8;
+  --good:#0ca30c; --crit:#d03b3b; --serious:#ec835a;
+  --accent:var(--s1);
+  --serif:"Iowan Old Style","Palatino Linotype",Palatino,Georgia,serif;
+  --sans:system-ui,-apple-system,"Segoe UI",sans-serif;
+  --mono:ui-monospace,"Cascadia Code",Menlo,Consolas,monospace;
+}
+/* ---------- deck chrome ---------- */
+*{box-sizing:border-box;margin:0}
+html,body{height:100%}
+body{background:var(--backdrop);color:var(--ink);font:15px/1.45 var(--sans);overflow:hidden}
+.stage{position:absolute;left:50%;top:50%;width:1280px;height:720px;transform-origin:center center}
+.slide{position:absolute;inset:0;background:var(--surface);border:1px solid var(--border);
+  padding:46px 60px 40px;display:none;flex-direction:column}
+.slide.on{display:flex}
+.eyebrow{font:600 12px/1 var(--mono);letter-spacing:.14em;text-transform:uppercase;color:var(--accent);margin-bottom:12px}
+.eyebrow .dim{color:var(--muted)}
+h1{font:400 42px/1.14 var(--serif);letter-spacing:-.01em;text-wrap:balance}
+h2{font:400 29px/1.2 var(--serif);letter-spacing:-.005em;text-wrap:balance;margin-bottom:4px}
+.sub{color:var(--ink2);font-size:14.5px;max-width:80ch;margin-top:9px}
+.body{flex:1;min-height:0;margin-top:16px}
+.foot{display:flex;justify-content:space-between;align-items:baseline;color:var(--muted);
+  font:11px/1 var(--mono);letter-spacing:.06em;margin-top:12px;border-top:1px solid var(--grid);padding-top:10px}
+.pageno{font-variant-numeric:tabular-nums}
+/* nav */
+.nav{position:fixed;left:50%;bottom:14px;transform:translateX(-50%);display:flex;gap:8px;align-items:center;z-index:5}
+.nav button{width:9px;height:9px;border-radius:50%;border:1px solid var(--muted);background:transparent;cursor:pointer;padding:0}
+.nav button.cur{background:var(--accent);border-color:var(--accent)}
+.nav button:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+.arr{position:fixed;top:50%;transform:translateY(-50%);z-index:5;border:1px solid var(--border);
+  background:var(--surface);color:var(--ink2);width:34px;height:56px;cursor:pointer;font-size:18px;border-radius:4px}
+.arr:hover{color:var(--ink)}
+#prev{left:10px}#next{right:10px}
+/* ---------- shared bits ---------- */
+.mono{font-family:var(--mono)}
+.num{font-variant-numeric:tabular-nums}
+.chip{display:inline-block;font:600 10.5px/1 var(--mono);letter-spacing:.05em;padding:4px 7px;border-radius:3px;
+  border:1px solid var(--border);white-space:nowrap}
+.chip.good{color:var(--good);border-color:currentColor}
+.chip.bad{color:var(--crit);border-color:currentColor}
+.chip.hero{color:var(--accent);border-color:currentColor}
+.sw{display:inline-block;width:14px;height:0;border-top-width:3px;border-top-style:solid;vertical-align:4px}
+.cols{display:grid;gap:24px;min-height:0}
+.c2{grid-template-columns:1fr 1fr}
+.c58{grid-template-columns:1.32fr 1fr}
+.c85{grid-template-columns:1fr 1.28fr}
+.card{border:1px solid var(--grid);border-radius:6px;padding:14px 16px;background:var(--page)}
+.card h3{font:600 14px/1.3 var(--sans);margin:6px 0}
+.card .tag{font:600 10px/1 var(--mono);letter-spacing:.1em;text-transform:uppercase;color:var(--muted)}
+ul.tight{padding-left:18px;display:flex;flex-direction:column;gap:8px;font-size:13.5px;color:var(--ink2)}
+ul.tight li{padding-left:2px}
+ul.tight strong{color:var(--ink);font-weight:600}
+/* stat tiles */
+.tiles{display:grid;gap:12px}
+.tile{border:1px solid var(--grid);border-radius:6px;padding:12px 14px;background:var(--page)}
+.tile .v{font:600 25px/1.1 var(--sans);letter-spacing:-.01em;font-variant-numeric:tabular-nums}
+.tile .k{font:600 10px/1.4 var(--mono);letter-spacing:.1em;text-transform:uppercase;color:var(--muted);margin-bottom:5px}
+.tile .d{font-size:12.5px;color:var(--ink2);margin-top:5px}
+.rulebar{border:1px dashed var(--axis);border-radius:6px;padding:11px 15px;font-size:13.5px;color:var(--ink2)}
+.rulebar b{color:var(--ink)}
+/* tables */
+table{border-collapse:collapse;width:100%;font-size:13px;font-variant-numeric:tabular-nums}
+th,td{text-align:right;padding:5px 8px;border-bottom:1px solid var(--grid)}
+th:first-child,td:first-child{text-align:left}
+thead th{font:600 10px/1.3 var(--mono);letter-spacing:.08em;text-transform:uppercase;color:var(--muted);border-bottom:1px solid var(--axis)}
+tbody tr.hi td{background:#fff6f2}
+td.w{color:var(--crit);font-weight:600}
+td.g{color:var(--good);font-weight:600}
+/* charts */
+.legend{display:flex;flex-wrap:wrap;gap:5px 16px;font:12px/1 var(--sans);color:var(--ink2);margin-bottom:4px}
+.legend span{display:inline-flex;gap:7px;align-items:center}
+svg text{font:10.5px var(--sans);fill:var(--muted)}
+svg .axl{font:9.5px var(--mono);fill:var(--muted)}
+svg .hll{font:600 9.5px var(--mono)}
+svg .barlbl{font:600 12px var(--sans);fill:var(--ink)}
+svg .barval{font:11px var(--mono);fill:var(--ink2)}
+.chartwrap{display:flex;flex-direction:column;height:100%;min-height:0}
+svg{display:block}
+.chartwrap svg{flex:1;min-height:0}
+.ptitle{font:600 12px/1.2 var(--mono);color:var(--ink2);letter-spacing:.02em;margin-bottom:2px}
+.ptitle span{color:var(--muted);font-weight:400}
+.takeaway{border:1px solid var(--grid);border-radius:6px;padding:12px 15px;background:var(--page);display:flex;gap:12px;align-items:flex-start}
+.takeaway .n{font:600 22px/1 var(--serif);color:var(--accent);flex:0 0 auto;width:24px}
+.takeaway .tx{font-size:13.5px;color:var(--ink2)}
+.takeaway .tx b{color:var(--ink)}
+@media (prefers-reduced-motion: no-preference){
+  .slide.on{animation:fadein .18s ease}
+  @keyframes fadein{from{opacity:.4}to{opacity:1}}
+}
+@media print{
+  body{overflow:visible;background:#fff}
+  .stage{position:static;transform:none!important;width:auto;height:auto}
+  .slide{display:flex;position:static;width:1280px;height:720px;page-break-after:always;margin:0 auto}
+  .nav,.arr{display:none}
+}
+
+/* ---------- plot-first additions ---------- */
+.grid3{display:grid;grid-template-columns:repeat(3,1fr);grid-auto-rows:1fr;gap:8px 14px}
+.grid2{display:grid;grid-template-columns:1fr 1fr;grid-auto-rows:1fr;gap:8px 18px}
+.grid3>*,.grid2>*{min-height:0;min-width:0}
+.cap{font-size:12.5px;color:var(--ink2);border-top:1px solid var(--grid);padding-top:8px}
+.cap b{color:var(--ink)}
+.stack{display:flex;flex-direction:column;gap:9px;height:100%;min-height:0}
+.ptitle.sm{font-size:11px;margin-bottom:0}
+</style>
+</head>
+<body>
+<div class="stage" id="stage">
+<!-- ============ 1 — verdict ============ -->
+<section class="slide on">
+  <div class="eyebrow">DeltaTok tc1536 <span class="dim">— no channel bottleneck · detached decoder noise · vs the tc512 twin and the plain tc1536 reference · matched 31 epochs</span></div>
+  <h1>Width wins. The noise recipe costs, and the code is stuck.</h1>
+  <div class="body">
+    <div class="stack">
+      <div class="tiles" style="grid-template-columns:repeat(4,1fr)">
+        <div class="tile"><div class="k">vs tc512 twin · LossRecon</div><div class="v" style="color:var(--good)">&minus;51.6%</div><div class="d">0.0296 vs 0.0611 KITTI · &minus;49.2% nuScenes</div></div>
+        <div class="tile"><div class="k">vs plain tc1536 · LossRecon</div><div class="v" style="color:var(--crit)">+17.0%</div><div class="d">0.0296 vs 0.0253 KITTI · <b>+25.4%</b> nuScenes</div></div>
+        <div class="tile"><div class="k">ZPartRank · KITTI / nuSc</div><div class="v" style="color:var(--crit)">1.0 / 1.1</div><div class="d">plain tc1536 <b>272.7 / 372.1</b> · tc512 66.1 / 85.9</div></div>
+        <div class="tile"><div class="k">z scale · ZRowMeanSquare</div><div class="v" style="color:var(--crit)">872 / 796</div><div class="d">both references sit on the anchor, <b>~1.2</b></div></div>
+      </div>
+      <div class="cols c2" style="flex:1;min-height:0">
+        <div class="card">
+          <div class="tag">the three arms</div>
+          <h3>One width axis, one recipe axis.</h3>
+          <ul class="tight">
+            <li><b>tc512 detach · BSC:45578805</b> — the control. Linear 1536&rarr;512 bottleneck, sigreg 0.02, ns1024, decnoise 0.8 detached.</li>
+            <li><b>tc1536 detach · BSC:45610897</b> — this run. No <span class="mono">z_proj_down/up</span> is built at all; sigreg 0.06 (&prop;&nbsp;Cz), ns3072 (2&middot;Cz).</li>
+            <li><b>tc1536 plain · BSC:44590128</b> — the old dtok64 reference. Same width, <b>no decnoise</b>, sigreg 0.005. Still the best recon here.</li>
+          </ul>
+        </div>
+        <div class="card">
+          <div class="tag">verdict</div>
+          <h3>The bottleneck was the cost. The noise recipe is a new one.</h3>
+          <ul class="tight">
+            <li><b>Removing the tc512 bottleneck halves the loss</b> and tc512 cannot close it with 2&times; the epochs — its ep&nbsp;61 (0.0542) is still 1.83&times; this arm's ep&nbsp;31.</li>
+            <li><b>But the plain tc1536 arm beats this one at every epoch.</b> So the width buys the 2&times;; the decnoise + 12&times; sigreg recipe gives 17&ndash;25% of it back.</li>
+            <li><b>The z code is stuck in a state the plain arm escaped at ep&nbsp;4</b> — see slides 5 and 6. SIGReg reports success throughout and cannot see it.</li>
+          </ul>
+        </div>
+      </div>
+    </div>
+  </div>
+  <div class="foot"><span>../plan/2026-09-09_tc_width_decnoise_detach_tc1536.md · BSC:45610897 ep 31, still running</span><span class="pageno">01 / 08</span></div>
+</section>
+
+<!-- ============ 2 — Eval/Loss ============ -->
+<section class="slide">
+  <div class="eyebrow">Eval/Loss <span class="dim">— mean of the two held-out sets, log axis · all three arms post-1ecb17c</span></div>
+  <h2>Two steps down from tc512. The plain arm takes both.</h2>
+  <div class="body">
+    <div class="stack">
+      <div class="legend">
+        <span><i class="sw" style="border-color:var(--s1)"></i> tc512 detach · sigreg <b>0.02</b> · ns1024 · compose 1.0 · BSC:45578805</span>
+        <span><i class="sw" style="border-color:var(--s2)"></i> tc1536 detach · sigreg <b>0.06</b> · ns3072 · compose 1.0 · BSC:45610897</span>
+        <span><i class="sw" style="border-color:var(--s3)"></i> tc1536 plain, no decnoise · sigreg <b>0.005</b> · ns3072 · compose 1.0 · BSC:44590128</span>
+      </div>
+      <div class="chartwrap" style="flex:1"><div id="chEval" style="flex:1;min-height:0"></div></div>
+      <div class="cap"><b>The width gap opens at ep 4 and never closes.</b> At matched ep 31 Eval/Loss is 0.0254 (tc1536 detach) against 0.0433 (tc512) and 0.0204 (tc1536 plain). The two tc1536 arms separate from tc512 at exactly the epoch the plain arm's <span class="mono">z</span> escapes its warmup transient (slide 5), and they separate from <i>each other</i> at the same point. <b>Comparability check:</b> all three runs post-date <span class="mono">1ecb17c</span> (2026-08-02, consecutive windows), so their eval losses are on the same footing, and the teacher ceiling <span class="mono">Loss*_OrigVsGT</span> is byte-identical across all three (depth 1.6566 / pointmap 2.4022 / raymap 1.0837 on KITTI, same row counts) — the eval pool is the same pool.</div>
+    </div>
+  </div>
+  <div class="foot"><span>stdout KEpoch lines · ../monitor_jobs/data/logs/BSC/</span><span class="pageno">02 / 08</span></div>
+</section>
+
+<!-- ============ 3 — token recon ============ -->
+<section class="slide">
+  <div class="eyebrow">Token reconstruction <span class="dim">— three readouts &times; two eval sets · one shared log scale</span></div>
+  <h2>The ordering is the same in all six panels.</h2>
+  <div class="body">
+    <div class="stack">
+      <div class="legend">
+        <span><i class="sw" style="border-color:var(--s1)"></i> tc512 detach · sigreg 0.02</span>
+        <span><i class="sw" style="border-color:var(--s2)"></i> tc1536 detach · sigreg 0.06</span>
+        <span><i class="sw" style="border-color:var(--s3)"></i> tc1536 plain · sigreg 0.005</span>
+        <span style="color:var(--muted)">all three: <b>compose 1.0</b>, SIGReg on, pool 8192, warmup 2000, dtok64, maxgap9, <span class="mono">z_norm=false</span></span>
+      </div>
+      <div class="grid3" style="flex:1;min-height:0">
+        <div class="chartwrap"><div class="ptitle sm">LossRecon <span>· KITTI</span></div><div id="pRK" style="flex:1;min-height:0"></div></div>
+        <div class="chartwrap"><div class="ptitle sm">LossRecon_AR <span>· KITTI</span></div><div id="pRAK" style="flex:1;min-height:0"></div></div>
+        <div class="chartwrap"><div class="ptitle sm">LossRecon_Comp <span>· KITTI</span></div><div id="pRCK" style="flex:1;min-height:0"></div></div>
+        <div class="chartwrap"><div class="ptitle sm">LossRecon <span>· nuScenes</span></div><div id="pRN" style="flex:1;min-height:0"></div></div>
+        <div class="chartwrap"><div class="ptitle sm">LossRecon_AR <span>· nuScenes</span></div><div id="pRAN" style="flex:1;min-height:0"></div></div>
+        <div class="chartwrap"><div class="ptitle sm">LossRecon_Comp <span>· nuScenes</span></div><div id="pRCN" style="flex:1;min-height:0"></div></div>
+      </div>
+      <div class="cap"><b>No readout reverses the ranking.</b> At matched ep 31 the tc1536 detach arm beats tc512 by 51.6 / 53.7 / 52.6% (clean / compose / AR, KITTI) and loses to the plain tc1536 arm by 17.0 / 17.6 / 18.4%. Composability is the one place the new arm looks good in <i>ratio</i> terms — <span class="mono">Comp/clean</span> is 1.017 against tc512's 1.064 — but the plain arm is 1.012, so that too is a width effect and not something the noise recipe bought.</div>
+    </div>
+  </div>
+  <div class="foot"><span>[Eval/206 @ &hellip;] lines · epochs 0&ndash;61 / 0&ndash;31 / 0&ndash;43</span><span class="pageno">03 / 08</span></div>
+</section>
+
+<!-- ============ 4 — round-trip geometry ============ -->
+<section class="slide">
+  <div class="eyebrow">Round-trip geometry <span class="dim">— PredVsOrig, decoded against the teacher's own tokens · log axis</span></div>
+  <h2>Geometry says the same thing, harder.</h2>
+  <div class="body">
+    <div class="stack">
+      <div class="legend">
+        <span><i class="sw" style="border-color:var(--s1)"></i> tc512 detach · sigreg 0.02</span>
+        <span><i class="sw" style="border-color:var(--s2)"></i> tc1536 detach · sigreg 0.06</span>
+        <span><i class="sw" style="border-color:var(--s3)"></i> tc1536 plain · sigreg 0.005</span>
+        <span style="color:var(--muted)">all three: <b>compose 1.0</b>, SIGReg on, pool 8192, warmup 2000, dtok64, maxgap9, <span class="mono">z_norm=false</span></span>
+      </div>
+      <div class="grid3" style="flex:1;min-height:0">
+        <div class="chartwrap"><div class="ptitle sm">LossDepth <span>· KITTI</span></div><div id="pDK" style="flex:1;min-height:0"></div></div>
+        <div class="chartwrap"><div class="ptitle sm">LossPointmap <span>· KITTI</span></div><div id="pPK" style="flex:1;min-height:0"></div></div>
+        <div class="chartwrap"><div class="ptitle sm">LossRaymap <span>· KITTI</span></div><div id="pYK" style="flex:1;min-height:0"></div></div>
+        <div class="chartwrap"><div class="ptitle sm">LossDepth <span>· nuScenes</span></div><div id="pDN" style="flex:1;min-height:0"></div></div>
+        <div class="chartwrap"><div class="ptitle sm">LossPointmap <span>· nuScenes</span></div><div id="pPN" style="flex:1;min-height:0"></div></div>
+        <div class="chartwrap"><div class="ptitle sm">LossRaymap <span>· nuScenes</span></div><div id="pYN" style="flex:1;min-height:0"></div></div>
+      </div>
+      <div class="cap"><b>Round-trip geometry spreads the arms further than token loss does</b> — at ep 31 KITTI, tc1536 detach is &minus;27.0 / &minus;34.8 / &minus;45.5% against tc512 (depth / pointmap / raymap) but +55 / +52 / +47% against the plain arm. <b>Do not read PredVsGT here:</b> the teacher ceiling is <span class="mono">OrigVsGT</span> depth 1.657 KITTI and 2.532 nuScenes, so on nuScenes every arm's <span class="mono">LossDepth_PredVsGT</span> lands within 2.4% of the ceiling and the column is uninformative by construction.</div>
+    </div>
+  </div>
+  <div class="foot"><span>PredVsOrig isolates the tokenizer; PredVsGT adds the frozen teacher's own error</span><span class="pageno">04 / 08</span></div>
+</section>
+
+<!-- ============ 5 — the z diagnostic ============ -->
+<section class="slide">
+  <div class="eyebrow">z spread <span class="dim">— participation ratio and row scale · both tc1536 arms enter the same state</span></div>
+  <h2>The plain arm escapes at ep 4. Neither tc1536 arm is stable.</h2>
+  <div class="body">
+    <div class="stack">
+      <div class="cols c2" style="flex:1;min-height:0">
+        <div class="chartwrap"><div class="ptitle">ZPartRank <span>· effective dims of Cz · solid KITTI, dashed nuScenes</span></div><div id="chRank" style="flex:1;min-height:0"></div></div>
+        <div class="chartwrap"><div class="ptitle">ZRowMeanSquare <span>· log axis · dashed rule = the SIGReg anchor, 1.0</span></div><div id="chScale" style="flex:1;min-height:0"></div></div>
+      </div>
+      <div class="cap"><b>This is a shared transient, not a width property — and at tc1536 nothing normalises <span class="mono">z</span>.</b> <span class="mono">pre_bottleneck_norm</span> and <span class="mono">z_proj_down</span> are built only when <span class="mono">z_dim != hidden_size</span> (<span class="mono">deltatok_trainer.py:151</span>), and all three arms run <span class="mono">z_norm=false</span>, which makes the final norm an <span class="mono">Identity</span> (<span class="mono">:184</span>). So tc512 keeps a LayerNorm pinning <span class="mono">z_proj_down</span>’s input to unit variance and <b>tc1536 has no norm on <span class="mono">z</span> at all</b> — SIGReg is its only anchor. Both tc1536 arms therefore blow up during warmup, while the sigreg ramp is still near 0. The plain arm snaps back at ep 4 (PR 1.0&nbsp;&rarr;&nbsp;44.2, row scale 177&nbsp;&rarr;&nbsp;1.36); the detach arm gets to 26 and then <i>climbs away again</i> to 872 (peak 5069 at ep 21). <b>But the plain arm is only un-blown-up, not stable:</b> past ep 10 its rank swings <b>16.4%</b> epoch-to-epoch against tc512’s 2.4%, it ends at <b>72%</b> of its own peak (163 at ep 43 vs 279 at ep 30) while tc512 is at 97% and still climbing, and its channel offset rises monotonically 0.59&nbsp;&rarr;&nbsp;2.37 while tc512’s falls. Only its row scale is anchored. <b>tc512 is the one arm here with a stable code, and the one arm with a norm on z.</b> Which knob drives the detach arm out — <b>sigreg 0.06 vs 0.005</b> or <b>the detached noise decode</b> — this read cannot say.</div>
+    </div>
+  </div>
+  <div class="foot"><span>occrae/z_spread.py · covariance is mean-centred, so PR = 1 is a real spectral reading</span><span class="pageno">05 / 08</span></div>
+</section>
+
+<!-- ============ 6 — what PR=1 means ============ -->
+<section class="slide">
+  <div class="eyebrow">Diagnosing PR = 1 <span class="dim">— measured off both checkpoints, <span class="mono">compute_deltatok_z_spread.py --full</span>, BSC:45669626</span></div>
+  <h2>Measured: one channel holds 99.1% of the variance.</h2>
+  <div class="body">
+    <div class="cols c58" style="height:100%">
+      <div class="stack">
+        <table>
+          <thead><tr><th>epoch_30.pth · 51 200 KITTI val rows each</th><th>dn detach</th><th>plain</th><th>perfect N(0,I)</th></tr></thead>
+          <tbody>
+            <tr class="hi"><td><b>top-1 eigenvalue share</b></td><td class="w"><b>0.991</b></td><td>0.025</td><td>0.0007</td></tr>
+            <tr class="hi"><td><b>n99</b> — dims holding 99% of variance</td><td class="w"><b>1</b></td><td>576</td><td>~1520</td></tr>
+            <tr><td>ZPartRank</td><td class="w">1.0</td><td>255.0</td><td>1491 (ceiling)</td></tr>
+            <tr><td>per-channel std ratio max/min</td><td class="w">2156×</td><td>27.2×</td><td>~1×</td></tr>
+            <tr class="hi"><td><b>per-channel std</b> p50 / p99 / <b>p100</b></td><td class="w">3.9 / 109 / <b>657</b></td><td>1.15 / 1.71 / 2.76</td><td>1 / 1 / 1</td></tr>
+            <tr><td>row mean-square</td><td class="w">786</td><td>1.26</td><td>1.0</td></tr>
+            <tr><td>|channel mean| max</td><td class="w">81.9</td><td>1.56</td><td>~0.02</td></tr>
+            <tr><td>marginal-only flow loss floor</td><td class="w">2.245</td><td>1.002</td><td>—</td></tr>
+          </tbody>
+        </table>
+        <div class="rulebar"><b>The runaway direction is axis-concentrated, not random.</b> Per-channel std = &radic;&lambda;&#8321;&middot;|u<sub>c</sub>| for the top direction u, and &radic;&lambda;&#8321; = 1086, so the peak channel carries <b>|u<sub>c</sub>| = 0.605</b>. A random unit vector in 1536-d reaches at most ~0.098 — the measured channel is <b>6.2&times;</b> past that, with the median channel 7&times; <i>below</i> random. One channel, plus a sparse handful above p99.</div>
+      </div>
+      <div class="stack">
+        <div class="card">
+          <div class="tag">is it a bug? four checks say no</div>
+          <h3>One is an average, the other is a second moment.</h3>
+          <ul class="tight">
+            <li><b>Confirmed on the checkpoint, not just in the logs.</b> An independent <span class="mono">--full</span> read at <span class="mono">epoch_30.pth</span> reproduces every scalar. <span class="mono">ZRowMeanSquare</span> is also accumulated off the covariance path entirely (<span class="mono">z_spread.py:48</span>, no <span class="mono">eigvalsh</span>) and agrees.</li>
+            <li><b>Not undersampling either.</b> 51 200 rows against Cz = 1536 is <b>33 per dimension</b>, and the train accumulator banks <b>1.67M</b> (1085/dim) for the same reading. The ceiling is 1491, so a healthy code reads ~1491, not 1.</li>
+          </ul>
+        </div>
+        <div class="rulebar"><b>And SIGReg cannot pull it back — escape radius |p| &asymp; 100.</b> Its restoring force stays coherent for |p| &lesssim; 30, but a &plusmn;5% jitter in the radius cancels <b>97.5%</b> of it at |p| = 100 and <b>99.99%</b> at 1000 — the phase wraps faster than an optimiser step. Past it a row is free whatever <span class="mono">sigreg_weight</span> says.</div>
+        <div class="takeaway"><div class="n">!</div><div class="tx"><b>The tail must be a small fraction of ROWS.</b> Mean per-channel variance is 774, so a random slice projection has std 27.8 — if every row sat there SIGReg would read <b>1.26</b>. It reads <b>0.0014</b>. That is only possible if the variance comes from a sparse set of rows: the measurement forces the account, it does not weaken it.</div></div>
+      </div>
+    </div>
+  </div>
+  <div class="foot"><span>BSC:45669626 · acc_debug · both arms paired on identical batches, epoch_30.pth</span><span class="pageno">06 / 08</span></div>
+</section>
+
+<!-- ============ 7 — the ladder ============ -->
+<section class="slide">
+  <div class="eyebrow">Decoder noise ladder <span class="dim">— eval-time <span class="mono">z + &sigma;&middot;&epsilon;</span>, penalty relative to each arm's own &sigma; = 0</span></div>
+  <h2>The one thing the recipe is for, it does worse.</h2>
+  <div class="body">
+    <div class="cols c85" style="height:100%">
+      <div class="stack">
+        <div class="card">
+          <div class="tag">what this measures</div>
+          <h3>Tolerance to latent error, the flow's failure mode.</h3>
+          <ul class="tight">
+            <li><b>tc512 detach</b> degrades +15.2% (KITTI) and +18.0% (nuScenes) at &sigma; = 0.82.</li>
+            <li><b>tc1536 detach</b> degrades <b>+62.5%</b> and <b>+66.5%</b> — 4.1&times; and 3.7&times; the twin's penalty, at the same &tau; = 0.8 and the same detached recipe.</li>
+            <li>Absolute loss is still lower at every &sigma; (0.0481 vs 0.0704 at &sigma; = 0.82, KITTI). It is the <i>slope</i> that inverts.</li>
+            <li>The plain tc1536 arm has no ladder — it was trained before <span class="mono">decode_noise_tau</span> existed.</li>
+          </ul>
+        </div>
+        <div class="rulebar">A code whose rows span 10<sup>0</sup> to 10<sup>4</sup> cannot be robust to a <b>fixed absolute</b> &sigma;: the same &sigma; is negligible for the tail rows and overwhelming for the bulk. This is the <b>"&sigma; must go relative"</b> finding from the ep-37 read, arriving by a second route.</div>
+        <div class="rulebar"><b>Caveat.</b> Both arms are read at ep 31 from their own in-run eval, not from a shared <span class="mono">--eval-only</span> pass on matched checkpoints with one seeded &epsilon; — so treat the ratio as the sign and the size, not a precise figure.</div>
+      </div>
+      <div class="chartwrap"><div class="ptitle">relative penalty <span>· solid KITTI, dashed nuScenes</span></div><div id="chLad" style="flex:1;min-height:0"></div></div>
+    </div>
+  </div>
+  <div class="foot"><span>LossRecon_noise{0.32,0.55,0.82} at ep 31, in-run eval ladder</span><span class="pageno">07 / 08</span></div>
+</section>
+
+<!-- ============ 8 — reading ============ -->
+<section class="slide">
+  <div class="eyebrow">Reading <span class="dim">— what this settles, what it does not, and the guard the plan asked for</span></div>
+  <h2>Three findings, one of them the plan did not ask about.</h2>
+  <div class="body">
+    <div class="stack">
+      <div class="cols c2" style="flex:1;min-height:0">
+        <div class="card">
+          <div class="tag">answered</div>
+          <h3>The plan's two questions.</h3>
+          <ul class="tight">
+            <li><b>Does the noise-tolerant decoder hold at full width?</b> <span class="chip bad">no</span> The ladder is 3.7&ndash;4.1&times; steeper than at tc512 (slide 7).</li>
+            <li><b>Does &prop; Cz put sigreg 0.06 inside the plateau at 1536?</b> <span class="chip good">guard passes</span> The tc512 0.08 break signature does not appear: train recon is <b>0.51&times;</b> the twin's, not 1.8&times;, and the raw SIGReg residual descends monotonically to 0.0014.</li>
+            <li><b>But the guard was the wrong instrument.</b> It passes while <span class="mono">z</span> sits at PR 1.0 — both of its conditions are ones SIGReg can see, and this failure is one it cannot.</li>
+          </ul>
+        </div>
+        <div class="card">
+          <div class="tag">not answered</div>
+          <h3>What this read cannot separate.</h3>
+          <ul class="tight">
+            <li><b>sigreg 0.06 vs the decnoise term.</b> Both differ from the plain tc1536 arm. The clean split is a tc1536 detach arm at sigreg 0.005, or a plain tc1536 arm at 0.06.</li>
+            <li><b>Whether the tail is really sparse.</b> Slide 6 is a simulation that fits three scalars, not a checkpoint read. <span class="mono">compute_deltatok_z_spread.py</span> with <span class="mono">full=True</span> settles it in one short job.</li>
+            <li><b>ep 31 is not convergence.</b> tc512 ran to 61 and the plain arm to 43; this arm is still training, and BSC:45665286 is queued to extend tc512.</li>
+          </ul>
+        </div>
+      </div>
+      <div class="takeaway"><div class="n">&rarr;</div><div class="tx"><b>The headline is that the tc512 bottleneck costs ~2&times; in recon, and that removing it is worth more than anything on the sigreg or noise axes so far.</b> The headline is <i>not</i> that this arm is the new best — the 2026-08 plain tc1536 run beats it at every epoch on every readout measured here, without a noise term and at 1/12 the sigreg weight. Before another tc1536 arm is launched, the PR = 1 state needs a mechanism, and SIGReg is not the tool that will find it.</div></div>
+    </div>
+  </div>
+  <div class="foot"><span>next: separate the two knobs · offline z_spread dump · relative &sigma;</span><span class="pageno">08 / 08</span></div>
+</section>
+</div>
+<button class="arr" id="prev" aria-label="Previous slide">&lsaquo;</button>
+<button class="arr" id="next" aria-label="Next slide">&rsaquo;</button>
+<div class="nav" id="nav" role="tablist"></div>
+<script>
+/* ---------- deck nav ---------- */
+const stage=document.getElementById("stage");
+const slides=[...document.querySelectorAll(".slide")];
+const nav=document.getElementById("nav");
+let cur=0;
+slides.forEach((_,i)=>{
+  const b=document.createElement("button");
+  b.setAttribute("role","tab");b.setAttribute("aria-label","Slide "+(i+1));
+  b.addEventListener("click",()=>go(i));
+  nav.appendChild(b);
+});
+function go(i){
+  cur=Math.max(0,Math.min(slides.length-1,i));
+  slides.forEach((s,j)=>s.classList.toggle("on",j===cur));
+  [...nav.children].forEach((b,j)=>b.classList.toggle("cur",j===cur));
+}
+document.getElementById("prev").addEventListener("click",()=>go(cur-1));
+document.getElementById("next").addEventListener("click",()=>go(cur+1));
+addEventListener("keydown",e=>{
+  if(["ArrowRight","PageDown"," "].includes(e.key)){go(cur+1);e.preventDefault();}
+  else if(["ArrowLeft","PageUp"].includes(e.key)){go(cur-1);e.preventDefault();}
+  else if(e.key==="Home")go(0);
+  else if(e.key==="End")go(slides.length-1);
+});
+go(0);
+/* ---------- auto-scale ---------- */
+function fit(){
+  const s=Math.min(innerWidth/1300,(innerHeight-40)/730);
+  stage.style.transform=`translate(-50%,-50%) scale(${Math.min(s,1.4)})`;
+}
+addEventListener("resize",fit);fit();
+
+/* ---------- CSS var resolver (for SVG strokes) ---------- */
+const CV=n=>getComputedStyle(document.documentElement).getPropertyValue(n).trim();
+
+/* multi-series epoch line chart. se.x0 shifts a series' first point right,
+   so a projection can start at the epoch it branches from. */
+function lineChart(el,cfg){
+  const W=cfg.W||600,H=cfg.H||300,L=cfg.L||52,R=cfg.R||70,T=12,B=30, iw=W-L-R, ih=H-T-B;
+  const {ymin,ymax,yticks,xmax,xticks,log}=cfg;
+  const f=log?Math.log10:(v=>v), y0=f(ymin), y1=f(ymax);
+  const X=i=>L+iw*(i/xmax);
+  const Y=v=>T+ih*(1-(f(Math.min(Math.max(v,ymin),ymax))-y0)/(y1-y0));
+  const fmt=cfg.fmt||(t=>t.toFixed(4));
+  let s=`<svg viewBox="0 0 ${W} ${H}" width="100%" height="100%" preserveAspectRatio="xMidYMid meet">`;
+  yticks.forEach(t=>{const y=Y(t);
+    s+=`<line x1="${L}" y1="${y}" x2="${L+iw}" y2="${y}" stroke="${CV('--grid')}"/>`;
+    s+=`<text x="${L-7}" y="${y+3}" text-anchor="end" class="axl">${fmt(t)}</text>`;});
+  const xf=cfg.xfmt||(t=>t);
+  xticks.forEach(t=>{const x=X(t);
+    s+=`<text x="${x}" y="${H-11}" text-anchor="middle" class="axl">${xf(t)}</text>`;});
+  (cfg.hlines||[]).forEach(h=>{const y=Y(h.y),c=CV(h.color||'--muted');
+    s+=`<line x1="${L}" y1="${y}" x2="${L+iw}" y2="${y}" stroke="${c}" stroke-dasharray="2 3" stroke-width="1.1"/>`;
+    s+=`<text x="${h.right?L+iw-4:L+4}" y="${y-4}" text-anchor="${h.right?'end':'start'}" class="hll" fill="${c}">${h.label}</text>`;});
+  (cfg.vlines||[]).forEach(v=>{const x=X(v.x),c=CV(v.color||'--axis');
+    s+=`<line x1="${x}" y1="${T}" x2="${x}" y2="${T+ih}" stroke="${c}" stroke-dasharray="2 4" stroke-width="1.1"/>`;
+    s+=`<text x="${x+4}" y="${T+11}" class="hll" fill="${c}">${v.label}</text>`;});
+  cfg.series.forEach(se=>{const c=CV(se.color), o=se.x0||0, xv=i=>se.xs?se.xs[i]:i+o;
+    const d=se.data.map((v,i)=>`${i?'L':'M'}${X(xv(i)).toFixed(1)} ${Y(v).toFixed(1)}`).join(' ');
+    s+=`<path d="${d}" fill="none" stroke="${c}" stroke-width="${se.width||1.9}" opacity="${se.faint?.55:1}" ${se.dash?`stroke-dasharray="${se.dash}"`:''}/>`;
+    if(se.dots) se.data.forEach((v,i)=>{
+      s+=`<circle cx="${X(xv(i)).toFixed(1)}" cy="${Y(v).toFixed(1)}" r="2.4" fill="${c}"/>`;});
+    const n=se.data.length-1, lx=X(xv(n)), ly=Y(se.data[n]);
+    s+=`<circle cx="${lx.toFixed(1)}" cy="${ly.toFixed(1)}" r="2.6" fill="${c}" opacity="${se.faint?.55:1}"/>`;
+    if(se.tag) s+=`<text x="${lx+6}" y="${ly+3.5}" class="hll" fill="${c}">${se.tag}</text>`;});
+  s+=`<text x="${L+iw/2}" y="${H-1}" text-anchor="middle" class="axl">${cfg.xlabel||'epoch'}</text>`;
+  s+=`</svg>`;
+  el.innerHTML=s;
+}
+
+
+/* ================= DATA =================
+   Per-epoch scalars parsed from each run's stdout KEpoch / [Eval/206 @ ...] lines.
+   Index i == epoch i.  _T5  tc512 detach  BSC:45578805  ep 0..61
+                       _T15 tc1536 detach BSC:45610897  ep 0..31 (running)
+                       _OLD tc1536 plain  BSC:44587238 + BSC:44590128 ep 0..43
+   All three post-date 1ecb17c, so Eval/Loss is comparable; Loss*_OrigVsGT is
+   byte-identical across the three, which confirms one shared eval pool. */
+const LossRecon_K_T5=[0.1407,0.1367,0.1322,0.1208,0.1131,0.1071,0.1033,0.0981,0.0949,0.092,0.0895,0.087,0.0842,0.082,0.0791,0.0766,0.0754,0.0738,0.0727,0.0713,0.0699,0.0688,0.0675,0.0666,0.0656,0.0649,0.0642,0.0633,0.0627,0.0623,0.0617,0.0611,0.0606,0.0604,0.0601,0.0595,0.0591,0.0588,0.0586,0.0583,0.0581,0.0579,0.0578,0.0574,0.0571,0.057,0.0568,0.0565,0.0563,0.0562,0.0559,0.0558,0.0555,0.0553,0.0552,0.055,0.0548,0.0546,0.0545,0.0544,0.0543,0.0542];
+const LossRecon_Comp_K_T5=[0.1481,0.1453,0.1402,0.129,0.122,0.1166,0.1134,0.1079,0.104,0.1003,0.0979,0.0955,0.0923,0.0895,0.0864,0.0833,0.0818,0.0797,0.0785,0.0769,0.0751,0.0739,0.0726,0.0714,0.0704,0.0696,0.0688,0.0675,0.067,0.0668,0.0658,0.065,0.0652,0.0652,0.0647,0.0639,0.0635,0.0626,0.063,0.0626,0.0628,0.0624,0.0621,0.0614,0.0615,0.0618,0.0623,0.0615,0.0612,0.0609,0.0611,0.0612,0.0611,0.0596,0.0608,0.0603,0.0603,0.0602,0.0595,0.0608,0.0612,0.0608];
+const LossRecon_AR_K_T5=[0.1538,0.1505,0.2538,0.1309,0.1233,0.1175,0.113,0.1069,0.1033,0.1004,0.0977,0.095,0.0923,0.0897,0.0861,0.0835,0.0823,0.0808,0.0793,0.0775,0.076,0.0752,0.0737,0.0727,0.0716,0.0707,0.0697,0.0686,0.0685,0.0676,0.067,0.0666,0.0663,0.0656,0.0651,0.0652,0.0641,0.0638,0.0636,0.063,0.0628,0.0626,0.0633,0.0626,0.0619,0.0617,0.0615,0.0614,0.0609,0.0607,0.0606,0.0602,0.0599,0.06,0.0596,0.0595,0.0596,0.0593,0.0587,0.0588,0.0585,0.0587];
+const LossDepth_PredVsOrig_K_T5=[3.1052,2.7669,2.6954,1.8429,1.5194,1.3216,1.2286,1.1723,0.9533,0.9912,0.8565,0.7483,0.7981,0.7909,0.8368,0.6968,0.6613,0.6306,0.623,0.5852,0.6525,0.5923,0.5552,0.5145,0.5739,0.5543,0.5305,0.518,0.5261,0.5413,0.5033,0.5262,0.5228,0.53,0.477,0.4797,0.4627,0.477,0.4868,0.486,0.4625,0.479,0.4859,0.4942,0.4513,0.4871,0.4471,0.4332,0.4733,0.4207,0.4389,0.4575,0.4144,0.4384,0.4386,0.4217,0.4273,0.4434,0.4305,0.4263,0.4211,0.4217];
+const LossPointmap_PredVsOrig_K_T5=[17.2005,6.4751,13.1301,7.738,3.0161,2.2715,2.0018,1.9938,1.4993,1.6174,1.3988,1.1685,1.2965,1.263,1.3846,1.1094,1.0455,0.9824,1.0132,0.9341,1.0715,0.9313,0.8689,0.7904,0.8965,0.8837,0.825,0.8154,0.8499,0.8151,0.7781,0.802,0.8228,0.8533,0.7239,0.7404,0.7045,0.6977,0.7684,0.7262,0.6994,0.7435,0.7493,0.8017,0.682,0.7828,0.7156,0.6691,0.7596,0.658,0.6831,0.7525,0.6178,0.6875,0.6981,0.6842,0.6339,0.7097,0.6811,0.6714,0.6746,0.6576];
+const LossRaymap_PredVsOrig_K_T5=[15.5038,5.6433,12.4018,7.1497,2.2496,1.4629,1.2037,1.2134,0.9055,0.9696,0.8244,0.671,0.7547,0.7306,0.7806,0.6459,0.6453,0.5729,0.597,0.5526,0.6272,0.5454,0.4891,0.4863,0.5078,0.5343,0.4918,0.4958,0.5327,0.4955,0.4708,0.497,0.4828,0.5126,0.4364,0.4532,0.4365,0.4167,0.481,0.4533,0.445,0.4512,0.4764,0.488,0.4179,0.4862,0.4531,0.4082,0.4688,0.4004,0.4374,0.4635,0.3864,0.4221,0.4143,0.4206,0.393,0.4428,0.4262,0.4302,0.4373,0.41];
+const ZPartRank_K_T5=[14.2,20.9,21.4,10,14.5,19,20.9,25,27.4,27.8,28.2,30.3,32.5,35.1,39.1,42.4,43.9,45.9,47.4,50.4,52,53.5,57.1,57.4,59.2,59.9,60.5,61.4,63.7,64.6,64.8,66.1,66.2,68.6,68.9,67.6,70,70.2,71.5,70.2,70.9,72.2,72.1,71.1,71.7,73.2,72.7,74.4,74,74.5,74.1,75.2,76,75.6,76.8,77,77.5,77.9,78.7,79.5,80.5,79.8];
+const ZRowMeanSquare_K_T5=[1.1336,1.125,1.1163,1.5976,1.4328,1.6469,1.6248,1.6745,1.6494,1.7182,1.7417,1.7001,1.8781,1.7602,1.6659,1.6768,1.8035,1.7956,1.7945,1.5783,1.5901,1.4246,1.5683,1.3675,1.6732,1.3553,1.4206,1.4087,1.5685,1.6602,1.3073,1.3151,1.3923,1.8082,1.6406,1.043,1.6668,1.529,1.7739,1.3499,1.6123,1.4053,1.2846,1.1913,1.2285,1.6182,1.2785,1.3598,1.362,1.586,1.3859,1.6228,1.6389,1.2134,1.5912,1.4613,1.4186,1.4345,1.4296,1.2821,1.7643,1.2153];
+const LossRecon_N_T5=[0.1035,0.0987,0.0971,0.0836,0.0784,0.0743,0.0713,0.0681,0.0661,0.0642,0.0627,0.0612,0.0593,0.058,0.056,0.0539,0.0531,0.0517,0.0508,0.0497,0.0485,0.0474,0.0464,0.0459,0.0452,0.0446,0.044,0.0432,0.0428,0.0424,0.042,0.0417,0.0413,0.0411,0.0407,0.0404,0.0402,0.0399,0.0397,0.0395,0.0394,0.0392,0.0392,0.0389,0.0388,0.0387,0.0386,0.0385,0.0383,0.0382,0.038,0.0379,0.0377,0.0377,0.0376,0.0374,0.0372,0.0372,0.037,0.0369,0.0368,0.0367];
+const LossRecon_Comp_N_T5=[0.1097,0.1071,0.1053,0.0931,0.0882,0.0838,0.0805,0.0774,0.0751,0.073,0.0715,0.0696,0.0671,0.0657,0.0631,0.0608,0.0595,0.058,0.0568,0.055,0.0539,0.0529,0.0515,0.0508,0.0498,0.0493,0.0485,0.0476,0.0472,0.0466,0.0461,0.0457,0.0455,0.0449,0.0447,0.0444,0.044,0.0437,0.0435,0.0432,0.0431,0.043,0.0429,0.0425,0.0426,0.0424,0.0422,0.0422,0.0419,0.0417,0.0415,0.0415,0.0412,0.0415,0.0411,0.0408,0.0407,0.0406,0.0405,0.0402,0.0403,0.0401];
+const LossRecon_AR_N_T5=[0.1193,0.1137,0.118,0.0949,0.0893,0.0857,0.0812,0.0778,0.0751,0.0737,0.0719,0.0698,0.0678,0.0662,0.0637,0.0611,0.0603,0.0589,0.0577,0.0564,0.0547,0.0537,0.0526,0.0517,0.0509,0.0501,0.0494,0.0486,0.0484,0.0475,0.0471,0.0467,0.0467,0.0461,0.0456,0.0456,0.045,0.0448,0.0446,0.0443,0.044,0.044,0.0441,0.0437,0.0435,0.0434,0.0433,0.0433,0.0429,0.0427,0.0426,0.0424,0.0421,0.0421,0.0418,0.0418,0.0417,0.0417,0.0413,0.0412,0.041,0.0411];
+const LossDepth_PredVsOrig_N_T5=[3.8449,2.821,3.1428,2.2076,1.6383,1.5366,1.3886,1.1916,1.1698,1.0433,1.0195,0.9532,0.902,0.8709,0.861,0.6962,0.751,0.624,0.64,0.6572,0.6432,0.6055,0.5453,0.5472,0.5219,0.4983,0.5054,0.5325,0.4887,0.4793,0.4603,0.4532,0.4502,0.4439,0.4407,0.445,0.4307,0.4442,0.4435,0.4207,0.4296,0.4184,0.4206,0.4318,0.4301,0.4197,0.4107,0.4079,0.3993,0.403,0.4078,0.4016,0.3943,0.39,0.3728,0.3792,0.3882,0.3832,0.3893,0.402,0.3829,0.3953];
+const LossPointmap_PredVsOrig_N_T5=[22.455,7.7858,12.7652,8.0644,3.8207,2.6561,2.1524,1.9048,1.8579,1.5757,1.5717,1.4332,1.4103,1.3426,1.319,1.0056,1.0816,0.8908,0.9067,0.9488,0.9026,0.8657,0.7569,0.7451,0.7312,0.6797,0.6822,0.7323,0.675,0.6443,0.6367,0.6051,0.6074,0.6195,0.6006,0.5948,0.5799,0.6011,0.6086,0.5696,0.5969,0.5796,0.5812,0.5874,0.6013,0.5767,0.5603,0.5525,0.546,0.5513,0.5581,0.5484,0.5528,0.531,0.5107,0.5156,0.5261,0.5269,0.5335,0.5533,0.5233,0.5527];
+const LossRaymap_PredVsOrig_N_T5=[18.7238,6.1278,10.0063,6.173,2.8193,1.8176,1.3746,1.1212,1.0848,0.8922,0.898,0.7924,0.7708,0.7122,0.6872,0.5135,0.5311,0.4482,0.4452,0.4598,0.4328,0.4103,0.3668,0.3522,0.3538,0.33,0.3177,0.3348,0.3278,0.3027,0.3079,0.293,0.282,0.3026,0.2868,0.2828,0.2782,0.2936,0.2971,0.2685,0.2903,0.2828,0.2831,0.2756,0.295,0.2794,0.2726,0.2578,0.2604,0.2647,0.2696,0.2635,0.2733,0.2639,0.2492,0.2448,0.2504,0.2588,0.2595,0.2703,0.2609,0.2694];
+const ZPartRank_N_T5=[13.5,21.9,25.5,18.5,21.8,24.2,27.5,31,32.3,33.1,33.3,35,37.2,39.6,45.2,49.6,52.1,55.1,57.2,61.3,64,67.7,71,71.8,74.4,75.8,78.3,79.8,81.7,82.9,84.1,85.9,85.8,86.3,88,88.4,89.7,89,90.4,90.1,90.9,91.4,92,91.5,91.8,92.1,92,92.5,93.3,93.3,93.8,94.8,94.4,94.2,96.2,96.5,97.2,96.8,97.6,97.9,98,97.6];
+const ZRowMeanSquare_N_T5=[1.1571,1.0615,1.003,0.9903,0.9066,1.0596,0.9926,1.0109,1.0083,1.0127,1.0074,0.9365,1.0625,0.9811,0.9469,0.9612,1.061,1.035,1.0511,0.9487,0.9739,0.9708,1.0276,0.9634,1.1549,0.9714,1.0302,1.0674,1.0989,1.1174,0.9736,0.9756,1.0064,1.0988,1.1267,0.8826,1.1878,1.1123,1.2193,0.9852,1.0913,1.0378,0.9757,1.0026,1.0354,1.117,0.9546,0.9753,1.0438,1.1468,1.0628,1.1089,1.1174,0.9969,1.0681,1.0832,1.0103,1.0169,1.0539,0.9066,1.1406,0.9232];
+const LossRecon_K_T15=[0.1409,0.1381,0.1325,0.1184,0.1019,0.086,0.0697,0.0608,0.0529,0.0482,0.0453,0.0434,0.0414,0.04,0.0387,0.0376,0.0366,0.0354,0.0346,0.034,0.0334,0.0329,0.0325,0.0322,0.0316,0.0312,0.0308,0.0307,0.0302,0.0304,0.03,0.0296];
+const LossRecon_Comp_K_T15=[0.1473,0.1464,0.1413,0.1257,0.1086,0.0915,0.0741,0.0633,0.0545,0.0494,0.0462,0.0445,0.0423,0.0408,0.0396,0.0382,0.0373,0.0362,0.0352,0.0346,0.034,0.0334,0.0331,0.0327,0.0322,0.0316,0.0313,0.0312,0.0307,0.0314,0.0306,0.0301];
+const LossRecon_AR_K_T15=[0.1512,0.1453,0.1422,0.1274,0.1085,0.0914,0.0739,0.0651,0.0566,0.0516,0.0489,0.0464,0.0444,0.0432,0.0419,0.0407,0.039,0.0381,0.0372,0.0366,0.0356,0.0353,0.0352,0.0345,0.0338,0.0335,0.0331,0.0328,0.0325,0.0328,0.0322,0.0316];
+const LossDepth_PredVsOrig_K_T15=[3.7109,2.7239,2.5992,1.6673,1.1405,0.8588,0.5426,0.4632,0.3972,0.4124,0.4159,0.4258,0.3823,0.4997,0.4466,0.405,0.3497,0.3398,0.4022,0.4159,0.3261,0.3665,0.3215,0.4254,0.4292,0.3222,0.326,0.303,0.3403,0.3148,0.3269,0.3841];
+const LossPointmap_PredVsOrig_K_T15=[26.7688,5.5799,6.1615,6.4328,1.851,1.4169,0.8353,0.6884,0.5846,0.6213,0.56,0.6134,0.5303,0.6967,0.6124,0.5451,0.4954,0.4642,0.5655,0.5648,0.4505,0.5018,0.4636,0.6099,0.5917,0.4552,0.459,0.4161,0.4662,0.4368,0.4541,0.5233];
+const LossRaymap_PredVsOrig_K_T15=[23.6484,4.6144,5.1132,6.0248,1.1268,0.8062,0.4887,0.4145,0.3576,0.3918,0.3336,0.3501,0.2972,0.3997,0.3274,0.3115,0.2904,0.2585,0.3032,0.2987,0.2455,0.2772,0.2654,0.3406,0.3018,0.2627,0.2468,0.2305,0.246,0.2381,0.2579,0.271];
+const ZPartRank_K_T15=[1,1,1,1.1,1.1,1.1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1];
+const ZRowMeanSquare_K_T15=[422610,1190.54,40.0967,55.0714,26.0839,56.7874,95.197,162.175,348.134,476.698,613.067,664.759,1342.36,760.982,1379.28,1050.2,1531.55,1945.43,916.441,2438.98,2044.15,5069.34,725.332,1699.55,960.011,539.377,1426.6,1756.38,2081.34,786.586,1157.22,872.255];
+const LossRecon_N_T15=[0.104,0.0977,0.0921,0.0818,0.0715,0.0617,0.0516,0.0449,0.0389,0.0348,0.0327,0.0312,0.0298,0.0289,0.028,0.0271,0.0264,0.0257,0.025,0.0245,0.024,0.0236,0.0232,0.0231,0.0226,0.0225,0.0221,0.022,0.0217,0.0218,0.0215,0.0212];
+const LossRecon_Comp_N_T15=[0.111,0.1065,0.1018,0.0906,0.0794,0.0683,0.0572,0.0485,0.0414,0.0366,0.0344,0.0329,0.0313,0.0303,0.0293,0.0284,0.0276,0.0268,0.026,0.0255,0.0251,0.0246,0.0242,0.0241,0.0236,0.0235,0.023,0.0228,0.0227,0.0228,0.0224,0.0221];
+const LossRecon_AR_N_T15=[0.1164,0.1104,0.1033,0.0921,0.0801,0.0691,0.0573,0.0499,0.0436,0.0386,0.0365,0.0349,0.0331,0.0321,0.0314,0.0303,0.0293,0.0286,0.0279,0.0274,0.0265,0.0262,0.026,0.0258,0.025,0.0251,0.0246,0.0244,0.0242,0.0242,0.0239,0.0235];
+const LossDepth_PredVsOrig_N_T15=[3.8328,2.6711,2.6096,1.9163,1.2988,0.9806,0.6512,0.52,0.5067,0.3668,0.3999,0.3358,0.3329,0.353,0.3296,0.3139,0.2956,0.3237,0.299,0.2916,0.2577,0.2892,0.2531,0.2865,0.2735,0.2785,0.2784,0.2799,0.2593,0.2604,0.247,0.2684];
+const LossPointmap_PredVsOrig_N_T15=[19.4919,6.4613,8.1961,7.0605,2.0461,1.4426,0.9422,0.725,0.7553,0.5237,0.5831,0.4613,0.4718,0.5014,0.4644,0.45,0.4167,0.4532,0.4137,0.4111,0.3751,0.4143,0.3614,0.4122,0.3946,0.405,0.4019,0.4063,0.3714,0.3781,0.3723,0.3936];
+const LossRaymap_PredVsOrig_N_T15=[16.1796,4.7995,6.1843,5.4168,1.2621,0.7446,0.4721,0.3681,0.3868,0.2756,0.2961,0.2379,0.2406,0.276,0.2436,0.2384,0.2172,0.2362,0.2143,0.2188,0.2067,0.2211,0.1969,0.2186,0.2083,0.2185,0.2114,0.2181,0.1985,0.2006,0.2117,0.2179];
+const ZPartRank_N_T15=[1,1,1,1,1.1,1.1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1.1];
+const ZRowMeanSquare_N_T15=[421999,1464.32,59.3365,54.6419,19.9582,47.6666,99.9401,195.557,344.17,477.704,603.026,593.457,1457.79,828.921,1262.19,1077.62,1614.08,1860.17,919.308,2567.48,1723.52,4313.63,820.389,1980.41,709.229,704.529,936.33,1269.22,1510.73,715.797,955.746,796.12];
+const LossRecon_K_OLD=[0.1404,0.1379,0.1333,0.1183,0.0859,0.0582,0.048,0.0434,0.041,0.0386,0.0375,0.0359,0.0346,0.0338,0.0337,0.0336,0.0319,0.0314,0.0304,0.0301,0.0294,0.0291,0.0283,0.028,0.0277,0.0273,0.0272,0.0265,0.0262,0.0259,0.0256,0.0253,0.0257,0.0253,0.025,0.0248,0.0243,0.0243,0.0244,0.0238,0.0237,0.0236,0.0238,0.0239];
+const LossRecon_Comp_K_OLD=[0.1475,0.1463,0.1431,0.1254,0.0914,0.0602,0.0489,0.0444,0.0419,0.0394,0.038,0.0365,0.0352,0.0345,0.0346,0.0345,0.0326,0.0321,0.0309,0.0307,0.0298,0.0295,0.0288,0.0284,0.0283,0.0279,0.0277,0.027,0.0266,0.0264,0.026,0.0256,0.0263,0.0257,0.0256,0.0253,0.0248,0.0246,0.0249,0.0243,0.0241,0.024,0.0241,0.0243];
+const LossRecon_AR_K_OLD=[0.1637,0.148,0.1444,0.125,0.0907,0.0619,0.0505,0.0457,0.0435,0.0408,0.0401,0.038,0.0366,0.0362,0.0363,0.036,0.0342,0.0334,0.0323,0.0323,0.0312,0.0312,0.0302,0.0297,0.0294,0.0291,0.0289,0.0282,0.0278,0.0275,0.0271,0.0267,0.0273,0.027,0.0265,0.0264,0.0258,0.0258,0.026,0.0252,0.0252,0.0251,0.0254,0.0253];
+const LossDepth_PredVsOrig_K_OLD=[3.3011,2.748,2.7887,1.6753,0.773,0.4754,0.3922,0.3501,0.3504,0.325,0.4026,0.3338,0.3237,0.3749,0.3302,0.3092,0.3348,0.2895,0.3247,0.3211,0.3035,0.4133,0.2873,0.3564,0.2924,0.2841,0.2965,0.2886,0.2914,0.2662,0.2767,0.2474,0.2834,0.2513,0.286,0.2756,0.2344,0.2429,0.2686,0.2457,0.2474,0.2707,0.2446,0.247];
+const LossPointmap_PredVsOrig_K_OLD=[23.407,6.4445,8.5066,5.5532,1.2468,0.6872,0.553,0.479,0.4972,0.5004,0.5176,0.4723,0.4498,0.5229,0.4453,0.4071,0.4424,0.403,0.4646,0.4132,0.423,0.5631,0.4078,0.4579,0.3891,0.3922,0.4276,0.4242,0.3927,0.3791,0.379,0.3452,0.434,0.3657,0.3995,0.3885,0.3467,0.3537,0.3699,0.3701,0.3637,0.412,0.36,0.3508];
+const LossRaymap_PredVsOrig_K_OLD=[21.3746,5.4182,7.5056,5.2614,0.7255,0.4108,0.3196,0.2761,0.2903,0.2842,0.2853,0.2569,0.2408,0.287,0.2276,0.2185,0.2407,0.2181,0.2539,0.2085,0.236,0.295,0.2185,0.2203,0.2111,0.2076,0.2288,0.2292,0.208,0.1982,0.1924,0.1839,0.239,0.1943,0.214,0.2115,0.1865,0.1907,0.1949,0.2072,0.2131,0.2312,0.2113,0.194];
+const ZPartRank_K_OLD=[23,1,1,1,44.2,112.8,172.4,196.2,151.4,201.9,150.1,217.6,232.1,216.6,157.8,149.5,191.1,197.7,219.8,226.6,231.4,236,240.7,260.3,213,237,190.3,241.4,255.6,255.2,279.2,272.7,184.5,227.7,179.8,209.4,264,152.6,156.4,259.1,262,231.1,140.6,162.9];
+const ZRowMeanSquare_K_OLD=[0.0028,5479.02,223.016,177.43,1.3565,1.636,1.5293,1.4411,1.3927,1.3471,1.3304,1.3491,1.372,1.2943,1.3816,1.4135,1.2815,1.3259,1.3114,1.3397,1.3015,1.3437,1.2763,1.2794,1.312,1.3327,1.3412,1.2723,1.267,1.2586,1.2565,1.2927,1.3629,1.2576,1.3272,1.266,1.2701,1.2436,1.3677,1.2134,1.2328,1.2374,1.266,1.2486];
+const LossRecon_N_OLD=[0.103,0.0975,0.0953,0.0825,0.0625,0.0425,0.0345,0.0304,0.028,0.0262,0.0254,0.0241,0.0233,0.0227,0.0227,0.0227,0.0214,0.0211,0.0204,0.0203,0.0197,0.0195,0.019,0.0189,0.0186,0.0183,0.0183,0.0178,0.0175,0.0173,0.0171,0.0169,0.0172,0.0168,0.0167,0.0166,0.0162,0.0162,0.0163,0.0159,0.0158,0.0158,0.0159,0.0159];
+const LossRecon_Comp_N_OLD=[0.1099,0.1065,0.1046,0.0909,0.0695,0.0456,0.0362,0.0317,0.0294,0.0272,0.0264,0.025,0.0241,0.0237,0.0238,0.0238,0.0223,0.022,0.0212,0.0211,0.0204,0.0203,0.0197,0.0195,0.0193,0.019,0.019,0.0185,0.0182,0.018,0.0177,0.0175,0.0178,0.0175,0.0172,0.0172,0.0168,0.0168,0.0169,0.0165,0.0163,0.0163,0.0165,0.0165];
+const LossRecon_AR_N_OLD=[0.1231,0.1111,0.1074,0.0916,0.069,0.0472,0.0378,0.0336,0.0312,0.0289,0.0283,0.0266,0.0257,0.0252,0.0254,0.0253,0.0238,0.0233,0.0225,0.0227,0.0218,0.0218,0.021,0.0209,0.0206,0.0203,0.0204,0.0197,0.0194,0.0192,0.0188,0.0186,0.019,0.0187,0.0184,0.0185,0.018,0.0179,0.0181,0.0176,0.0174,0.0174,0.0177,0.0176];
+const LossDepth_PredVsOrig_N_OLD=[3.6034,2.7686,2.9008,1.9977,0.888,0.4913,0.368,0.3298,0.2822,0.27,0.3268,0.2626,0.2531,0.2763,0.2942,0.2551,0.261,0.2408,0.2388,0.2579,0.2375,0.2552,0.219,0.2622,0.228,0.2224,0.2509,0.2184,0.2385,0.2116,0.2328,0.2088,0.2082,0.2013,0.2071,0.2416,0.2011,0.1978,0.196,0.2113,0.1979,0.1924,0.2139,0.1897];
+const LossPointmap_PredVsOrig_N_OLD=[17.1277,7.1935,9.7684,6.9965,1.2723,0.6821,0.5038,0.4735,0.4163,0.3934,0.4676,0.3784,0.3674,0.3996,0.4355,0.373,0.388,0.3608,0.3599,0.3766,0.3597,0.3762,0.3336,0.3898,0.3281,0.3394,0.3672,0.3339,0.3661,0.3119,0.3576,0.3129,0.3166,0.3115,0.3156,0.353,0.3083,0.2942,0.2913,0.3291,0.3,0.2931,0.3268,0.2898];
+const LossRaymap_PredVsOrig_N_OLD=[14.0633,5.4523,7.2887,5.263,0.6724,0.3535,0.2682,0.249,0.2261,0.2111,0.2479,0.2067,0.2005,0.2157,0.2335,0.203,0.2177,0.2021,0.2044,0.2012,0.2103,0.2024,0.1936,0.2222,0.1765,0.1936,0.1972,0.1885,0.2114,0.171,0.2066,0.1778,0.1771,0.1837,0.1822,0.1993,0.1813,0.1671,0.1705,0.1914,0.1733,0.1662,0.188,0.1646];
+const ZPartRank_N_OLD=[11.3,1,1,1,34.7,91.4,186.4,251.2,222.7,264.6,204.9,289.5,312.8,302,178.6,193.7,262.6,271.4,322.4,273.7,327.5,324.3,323.4,342.8,269.2,318.9,269.3,328.9,349.2,353,375.1,372.1,230,292.1,224.8,258.9,351.8,229.7,219.6,353.5,337.4,302.4,188.2,195.2];
+const ZRowMeanSquare_N_OLD=[0.0025,5271.64,468.505,192.9,0.9523,1.1234,1.1097,1.0958,1.0918,1.0695,1.0649,1.0886,1.1218,1.0495,1.1535,1.1689,1.0415,1.0808,1.062,1.1073,1.062,1.1016,1.0679,1.0733,1.0864,1.0966,1.1245,1.0714,1.0732,1.0699,1.0629,1.1068,1.135,1.0745,1.0976,1.0485,1.073,1.0681,1.1538,1.0477,1.0832,1.0574,1.0826,1.0917];
+const EVAL_T5=[0.1221,0.1177,0.1147,0.1022,0.0958,0.0907,0.0873,0.0831,0.0805,0.0781,0.0761,0.0741,0.0718,0.07,0.0676,0.0652,0.0643,0.0628,0.0618,0.0605,0.0592,0.0581,0.057,0.0562,0.0554,0.0547,0.0541,0.0532,0.0527,0.0524,0.0518,0.0514,0.051,0.0507,0.0504,0.05,0.0496,0.0494,0.0492,0.0489,0.0488,0.0486,0.0485,0.0482,0.0479,0.0479,0.0477,0.0475,0.0473,0.0472,0.047,0.0468,0.0466,0.0465,0.0464,0.0462,0.046,0.0459,0.0458,0.0456,0.0455,0.0455];
+const SIG_T5=[0.0141,0.0203,0.0158,0.0145,0.0128,0.0114,0.01,0.009,0.0084,0.0082,0.0081,0.008,0.008,0.0075,0.007,0.0064,0.0062,0.0059,0.0057,0.0055,0.0053,0.0051,0.005,0.005,0.0049,0.0047,0.0047,0.0046,0.0046,0.0047,0.0048,0.0047,0.0047,0.0047,0.0047,0.0049,0.0048,0.0048,0.0049,0.005,0.0049,0.005,0.005,0.0048,0.005,0.005,0.005,0.0052,0.0054,0.005,0.0052,0.0055,0.0051,0.0053,0.0054,0.0053,0.0053,0.0053,0.0054,0.0053,0.0054,0.0053];
+const TRECON_T5=[0.1268,0.1061,0.1027,0.0936,0.0863,0.0812,0.0773,0.0735,0.0709,0.0685,0.0667,0.065,0.0632,0.0613,0.0594,0.0572,0.0558,0.0544,0.0533,0.0522,0.0511,0.05,0.0487,0.0481,0.0474,0.0465,0.0458,0.0453,0.0445,0.044,0.0436,0.0433,0.0428,0.0427,0.0423,0.042,0.0414,0.0414,0.0411,0.0408,0.0407,0.0405,0.0404,0.0401,0.04,0.0399,0.0398,0.0396,0.0393,0.0392,0.039,0.0389,0.0388,0.0386,0.0384,0.0383,0.0381,0.0379,0.0378,0.0377,0.0376,0.0375];
+const EVAL_T15=[0.1225,0.1179,0.1123,0.1001,0.0867,0.0738,0.0607,0.0528,0.0459,0.0415,0.039,0.0373,0.0356,0.0345,0.0334,0.0323,0.0315,0.0305,0.0298,0.0293,0.0287,0.0283,0.0278,0.0276,0.0271,0.0268,0.0265,0.0263,0.026,0.0261,0.0258,0.0254];
+const SIG_T15=[0.2374,0.0262,0.02,0.0148,0.0082,0.0048,0.0036,0.0029,0.0026,0.0025,0.0022,0.0022,0.0023,0.002,0.0021,0.0019,0.002,0.0018,0.0017,0.0016,0.0016,0.0016,0.0016,0.0014,0.0014,0.0014,0.0014,0.0014,0.0013,0.0014,0.0014,0.0014];
+const TRECON_T15=[0.127,0.1058,0.1021,0.0934,0.0814,0.0697,0.0588,0.0495,0.0428,0.0375,0.0347,0.0328,0.0313,0.0302,0.0293,0.0283,0.0277,0.0268,0.0261,0.0255,0.025,0.0247,0.0242,0.0239,0.0236,0.0233,0.023,0.023,0.0226,0.0225,0.0222,0.0222];
+const EVAL_OLD=[0.1217,0.1177,0.1143,0.1004,0.0742,0.0504,0.0412,0.0369,0.0345,0.0324,0.0314,0.03,0.0289,0.0283,0.0282,0.0281,0.0267,0.0263,0.0254,0.0252,0.0245,0.0243,0.0236,0.0234,0.0231,0.0228,0.0227,0.0222,0.0219,0.0216,0.0213,0.0211,0.0215,0.021,0.0208,0.0207,0.0203,0.0203,0.0204,0.0199,0.0198,0.0197,0.0199,0.0199];
+const SIG_OLD=[0.4018,0.3256,0.0726,0.032,0.013,0.0065,0.0043,0.0029,0.0026,0.0033,0.0034,0.0026,0.0025,0.0027,0.0027,0.004,0.0046,0.003,0.0027,0.0025,0.0029,0.0025,0.0025,0.0025,0.0037,0.0026,0.0026,0.0034,0.0024,0.0024,0.0026,0.0022,0.0031,0.0035,0.0048,0.0029,0.0024,0.0025,0.0028,0.0025,0.0022,0.0031,0.0034,0.0057];
+const TRECON_OLD=[0.1272,0.1057,0.1025,0.0967,0.0759,0.053,0.0392,0.0334,0.0303,0.0286,0.0272,0.026,0.025,0.0244,0.0238,0.0234,0.0231,0.0225,0.022,0.0214,0.0211,0.0207,0.0203,0.02,0.0198,0.0195,0.0191,0.0191,0.0186,0.0184,0.0182,0.018,0.018,0.0179,0.0179,0.0176,0.0173,0.0172,0.0171,0.017,0.0168,0.0169,0.0169,0.0168];
+const CH=(id,cfg)=>lineChart(document.getElementById(id),cfg);
+const SM={W:390,H:196,L:46,R:14};
+const X61={xmax:61,xticks:[0,15,31,45,61]};
+/* solid = KITTI, dashed = nuScenes; s1 tc512, s2 tc1536 detach, s3 tc1536 plain */
+const tri=(a,b,c,tags)=>[
+  {data:a,color:'--s1',width:1.9,tag:tags&&tags[0]},
+  {data:c,color:'--s3',width:1.9,tag:tags&&tags[2]},
+  {data:b,color:'--s2',width:2.1,tag:tags&&tags[1]}];
+
+/* 2 — Eval/Loss */
+CH('chEval',{...X61,log:true,W:1120,H:340,L:66,R:80,
+  ymin:0.019,ymax:0.125,yticks:[0.019,0.026,0.036,0.052,0.075,0.125],fmt:t=>t.toFixed(3),
+  vlines:[{x:31,label:'matched ep 31'}],
+  series:[{data:EVAL_T5,color:'--s1',width:2.1,tag:'0.0433'},
+          {data:EVAL_OLD,color:'--s3',width:2.1,tag:'0.0199'},
+          {data:EVAL_T15,color:'--s2',width:2.2,tag:'0.0254'}]});
+
+/* 3 — token recon, one shared log scale across all six */
+const RE={...SM,...X61,log:true,ymin:0.015,ymax:0.155,yticks:[0.016,0.026,0.043,0.070,0.115],fmt:t=>t.toFixed(3)};
+CH('pRK', {...RE,series:tri(LossRecon_K_T5,LossRecon_K_T15,LossRecon_K_OLD)});
+CH('pRAK',{...RE,series:tri(LossRecon_AR_K_T5,LossRecon_AR_K_T15,LossRecon_AR_K_OLD)});
+CH('pRCK',{...RE,series:tri(LossRecon_Comp_K_T5,LossRecon_Comp_K_T15,LossRecon_Comp_K_OLD)});
+CH('pRN', {...RE,series:tri(LossRecon_N_T5,LossRecon_N_T15,LossRecon_N_OLD)});
+CH('pRAN',{...RE,series:tri(LossRecon_AR_N_T5,LossRecon_AR_N_T15,LossRecon_AR_N_OLD)});
+CH('pRCN',{...RE,series:tri(LossRecon_Comp_N_T5,LossRecon_Comp_N_T15,LossRecon_Comp_N_OLD)});
+
+/* 4 — round-trip geometry, shared log scale; the ep 0-3 transients clamp at the top */
+const GE={...SM,...X61,log:true,ymin:0.15,ymax:6.0,yticks:[0.16,0.35,0.75,1.6,3.5],fmt:t=>t.toFixed(2)};
+CH('pDK',{...GE,series:tri(LossDepth_PredVsOrig_K_T5,LossDepth_PredVsOrig_K_T15,LossDepth_PredVsOrig_K_OLD)});
+CH('pPK',{...GE,series:tri(LossPointmap_PredVsOrig_K_T5,LossPointmap_PredVsOrig_K_T15,LossPointmap_PredVsOrig_K_OLD)});
+CH('pYK',{...GE,series:tri(LossRaymap_PredVsOrig_K_T5,LossRaymap_PredVsOrig_K_T15,LossRaymap_PredVsOrig_K_OLD)});
+CH('pDN',{...GE,series:tri(LossDepth_PredVsOrig_N_T5,LossDepth_PredVsOrig_N_T15,LossDepth_PredVsOrig_N_OLD)});
+CH('pPN',{...GE,series:tri(LossPointmap_PredVsOrig_N_T5,LossPointmap_PredVsOrig_N_T15,LossPointmap_PredVsOrig_N_OLD)});
+CH('pYN',{...GE,series:tri(LossRaymap_PredVsOrig_N_T5,LossRaymap_PredVsOrig_N_T15,LossRaymap_PredVsOrig_N_OLD)});
+
+/* 5 — rank and scale, both log. nuScenes tags suppressed except where the arms separate. */
+const RS={...X61,W:530,H:400,L:52,R:52,log:true};
+CH('chRank',{...RS,ymin:0.85,ymax:450,yticks:[1,3,10,32,100,320],fmt:t=>t.toFixed(0),
+  series:[{data:ZPartRank_K_T5,color:'--s1',width:1.9},
+          {data:ZPartRank_N_T5,color:'--s1',dash:'5 3',width:1.7,tag:'86'},
+          {data:ZPartRank_K_OLD,color:'--s3',width:1.9},
+          {data:ZPartRank_N_OLD,color:'--s3',dash:'5 3',width:1.7,tag:'372'},
+          {data:ZPartRank_K_T15,color:'--s2',width:2.2,tag:'1.0'},
+          {data:ZPartRank_N_T15,color:'--s2',dash:'5 3',width:1.8}]});
+CH('chScale',{...RS,ymin:0.8,ymax:9000,yticks:[1,10,100,1000,8000],fmt:t=>t.toFixed(0),
+  hlines:[{y:1.0,color:'--axis',label:''}],
+  series:[{data:ZRowMeanSquare_K_T5,color:'--s1',width:1.9},
+          {data:ZRowMeanSquare_N_T5,color:'--s1',dash:'5 3',width:1.7},
+          {data:ZRowMeanSquare_K_OLD,color:'--s3',width:1.9},
+          {data:ZRowMeanSquare_N_OLD,color:'--s3',dash:'5 3',width:1.7},
+          {data:ZRowMeanSquare_K_T15,color:'--s2',width:2.2,tag:'872'},
+          {data:ZRowMeanSquare_N_T15,color:'--s2',dash:'5 3',width:1.8}]});
+
+/* 7 — the ladder at ep 31, x is sigma; y is the penalty relative to each arm's own sigma=0 */
+const SIG=[0,0.32,0.55,0.82];
+const LAD_K_T5=[0,2.8,7.4,15.2], LAD_N_T5=[0,3.4,8.6,18.0];
+const LAD_K_T15=[0,13.9,34.8,62.5], LAD_N_T15=[0,16.0,38.2,66.5];
+CH('chLad',{xmax:0.82,xticks:SIG,xfmt:t=>t.toFixed(2),xlabel:'σ added to z at eval',
+  W:560,H:400,L:54,R:58,ymin:-2,ymax:72,yticks:[0,20,40,60],fmt:t=>t.toFixed(0)+'%',
+  series:[{data:LAD_K_T5,xs:SIG,dots:1,color:'--s1',width:2.1,tag:'+15%'},
+          {data:LAD_N_T5,xs:SIG,dots:1,color:'--s1',dash:'5 3',width:1.9,tag:'+18%'},
+          {data:LAD_K_T15,xs:SIG,dots:1,color:'--s2',width:2.2,tag:'+63%'},
+          {data:LAD_N_T15,xs:SIG,dots:1,color:'--s2',dash:'5 3',width:2.0,tag:'+67%'}]});
+
+</script>
+</body>
+</html>
