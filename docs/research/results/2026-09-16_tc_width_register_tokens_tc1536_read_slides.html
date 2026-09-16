@@ -1,0 +1,471 @@
+<!doctype html>
+<!-- thread tc_width · 2026-09-16 · prior cycle: plan/2026-09-14_tc_width_register_tokens.md -->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>DeltaTok — do register slots stop the tc1536 z blow-up?</title>
+<style>
+/* ---------- tokens · light only, white slides (no dark variant by request) ---------- */
+:root{
+  color-scheme: light only;
+  --backdrop:#e9e9e6; --page:#f7f7f6; --surface:#ffffff;
+  --ink:#0b0b0b; --ink2:#52514e; --muted:#83817c;
+  --grid:#e4e4de; --axis:#c3c2b7; --border:rgba(11,11,11,.12);
+  --s1:#2a78d6; --s2:#eb6834; --s3:#1baf7a; --s4:#eda100; --s5:#8a63c8; --s6:#c2407a; --s7:#0f8b8d; --s8:#8c6d46;
+  --good:#0ca30c; --crit:#d03b3b; --serious:#ec835a;
+  --accent:var(--s1);
+  --serif:"Iowan Old Style","Palatino Linotype",Palatino,Georgia,serif;
+  --sans:system-ui,-apple-system,"Segoe UI",sans-serif;
+  --mono:ui-monospace,"Cascadia Code",Menlo,Consolas,monospace;
+}
+/* ---------- deck chrome ---------- */
+*{box-sizing:border-box;margin:0}
+html,body{height:100%}
+body{background:var(--backdrop);color:var(--ink);font:15px/1.45 var(--sans);overflow:hidden}
+.stage{position:absolute;left:50%;top:50%;width:1280px;height:720px;transform-origin:center center}
+.slide{position:absolute;inset:0;background:var(--surface);border:1px solid var(--border);
+  padding:46px 60px 40px;display:none;flex-direction:column}
+.slide.on{display:flex}
+.eyebrow{font:600 12px/1 var(--mono);letter-spacing:.14em;text-transform:uppercase;color:var(--accent);margin-bottom:12px}
+.eyebrow .dim{color:var(--muted)}
+h1{font:400 42px/1.14 var(--serif);letter-spacing:-.01em;text-wrap:balance}
+h2{font:400 29px/1.2 var(--serif);letter-spacing:-.005em;text-wrap:balance;margin-bottom:4px}
+.sub{color:var(--ink2);font-size:14.5px;max-width:80ch;margin-top:9px}
+.body{flex:1;min-height:0;margin-top:16px}
+.foot{display:flex;justify-content:space-between;align-items:baseline;color:var(--muted);
+  font:11px/1 var(--mono);letter-spacing:.06em;margin-top:12px;border-top:1px solid var(--grid);padding-top:10px}
+.pageno{font-variant-numeric:tabular-nums}
+/* nav */
+.nav{position:fixed;left:50%;bottom:14px;transform:translateX(-50%);display:flex;gap:8px;align-items:center;z-index:5}
+.nav button{width:9px;height:9px;border-radius:50%;border:1px solid var(--muted);background:transparent;cursor:pointer;padding:0}
+.nav button.cur{background:var(--accent);border-color:var(--accent)}
+.nav button:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+.arr{position:fixed;top:50%;transform:translateY(-50%);z-index:5;border:1px solid var(--border);
+  background:var(--surface);color:var(--ink2);width:34px;height:56px;cursor:pointer;font-size:18px;border-radius:4px}
+.arr:hover{color:var(--ink)}
+#prev{left:10px}#next{right:10px}
+/* ---------- shared bits ---------- */
+.mono{font-family:var(--mono)}
+.num{font-variant-numeric:tabular-nums}
+.chip{display:inline-block;font:600 10.5px/1 var(--mono);letter-spacing:.05em;padding:4px 7px;border-radius:3px;
+  border:1px solid var(--border);white-space:nowrap}
+.chip.good{color:var(--good);border-color:currentColor}
+.chip.bad{color:var(--crit);border-color:currentColor}
+.chip.hero{color:var(--accent);border-color:currentColor}
+.sw{display:inline-block;width:14px;height:0;border-top-width:3px;border-top-style:solid;vertical-align:4px}
+.cols{display:grid;gap:24px;min-height:0}
+.c2{grid-template-columns:1fr 1fr}
+.c58{grid-template-columns:1.32fr 1fr}
+.c85{grid-template-columns:1fr 1.28fr}
+.card{border:1px solid var(--grid);border-radius:6px;padding:14px 16px;background:var(--page)}
+.card h3{font:600 14px/1.3 var(--sans);margin:6px 0}
+.card .tag{font:600 10px/1 var(--mono);letter-spacing:.1em;text-transform:uppercase;color:var(--muted)}
+ul.tight{padding-left:18px;display:flex;flex-direction:column;gap:8px;font-size:13.5px;color:var(--ink2)}
+ul.tight li{padding-left:2px}
+ul.tight strong{color:var(--ink);font-weight:600}
+/* stat tiles */
+.tiles{display:grid;gap:12px}
+.tile{border:1px solid var(--grid);border-radius:6px;padding:12px 14px;background:var(--page)}
+.tile .v{font:600 25px/1.1 var(--sans);letter-spacing:-.01em;font-variant-numeric:tabular-nums}
+.tile .k{font:600 10px/1.4 var(--mono);letter-spacing:.1em;text-transform:uppercase;color:var(--muted);margin-bottom:5px}
+.tile .d{font-size:12.5px;color:var(--ink2);margin-top:5px}
+.rulebar{border:1px dashed var(--axis);border-radius:6px;padding:11px 15px;font-size:13.5px;color:var(--ink2)}
+.rulebar b{color:var(--ink)}
+/* tables */
+table{border-collapse:collapse;width:100%;font-size:13px;font-variant-numeric:tabular-nums}
+th,td{text-align:right;padding:5px 8px;border-bottom:1px solid var(--grid)}
+th:first-child,td:first-child{text-align:left}
+thead th{font:600 10px/1.3 var(--mono);letter-spacing:.08em;text-transform:uppercase;color:var(--muted);border-bottom:1px solid var(--axis)}
+tbody tr.hi td{background:#fff6f2}
+td.w{color:var(--crit);font-weight:600}
+td.g{color:var(--good);font-weight:600}
+/* charts */
+.legend{display:flex;flex-wrap:wrap;gap:7px 28px;font:12px/1 var(--sans);color:var(--ink2);margin-bottom:4px}
+.legend span{display:inline-flex;gap:7px;align-items:center}
+svg text{font:10.5px var(--sans);fill:var(--muted)}
+svg .axl{font:9.5px var(--mono);fill:var(--muted)}
+svg .hll{font:600 9.5px var(--mono)}
+svg .barlbl{font:600 12px var(--sans);fill:var(--ink)}
+svg .barval{font:11px var(--mono);fill:var(--ink2)}
+.chartwrap{display:flex;flex-direction:column;height:100%;min-height:0}
+.chartwrap svg{flex:1;min-height:0}
+.ptitle{font:600 12px/1.2 var(--mono);color:var(--ink2);letter-spacing:.02em;margin-bottom:2px}
+.ptitle span{color:var(--muted);font-weight:400}
+.takeaway{border:1px solid var(--grid);border-radius:6px;padding:12px 15px;background:var(--page);display:flex;gap:12px;align-items:flex-start}
+.takeaway .n{font:600 22px/1 var(--serif);color:var(--accent);flex:0 0 auto;width:24px}
+.takeaway .tx{font-size:13.5px;color:var(--ink2)}
+.takeaway .tx b{color:var(--ink)}
+@media (prefers-reduced-motion: no-preference){
+  .slide.on{animation:fadein .18s ease}
+  @keyframes fadein{from{opacity:.4}to{opacity:1}}
+}
+@media print{
+  body{overflow:visible;background:#fff}
+  .stage{position:static;transform:none!important;width:auto;height:auto}
+  .slide{display:flex;position:static;width:1280px;height:720px;page-break-after:always;margin:0 auto}
+  .nav,.arr{display:none}
+}
+/* ---------- small-multiple panel grids (this deck) ---------- */
+.g2{display:grid;grid-template-columns:1fr 1fr;gap:6px 22px;height:100%}
+.g2,.g4,.g6{padding-bottom:7px}
+.g4{display:grid;grid-template-columns:1fr 1fr;grid-template-rows:1fr 1fr;gap:8px 22px;height:100%}
+.g6{display:grid;grid-template-columns:repeat(3,1fr);grid-template-rows:1fr 1fr;gap:8px 16px;height:100%}
+.g8{display:grid;grid-template-columns:repeat(4,1fr);grid-template-rows:1fr 1fr;gap:8px 14px;height:100%}
+.pan{display:flex;flex-direction:column;min-height:0;min-width:0}
+.pan .plot{flex:1;min-height:0}
+.chartwrap svg,.pan .plot svg{display:block}
+.dsl{font:600 10px/1 var(--mono);letter-spacing:.09em;text-transform:uppercase;color:var(--accent)}
+.legend.top{margin:2px 0 12px}
+svg .pt{font:600 9px var(--mono)}
+.body:has(>.legend.top){display:flex;flex-direction:column}
+.body:has(>.legend.top)>.g4,.body:has(>.legend.top)>.g6,.body:has(>.legend.top)>.cols{height:auto;flex:1;min-height:0}
+</style>
+</head>
+
+<body>
+<div class="stage" id="stage">
+
+<!-- ============ 1 — verdict ============ -->
+<section class="slide on">
+  <div class="eyebrow">DeltaTok tokenizer <span class="dim">— question 15 · tc1536 · raw z · 4 register slots · BSC 45861170 vs 45727710</span></div>
+  <h1 style="font-size:33px">No. Four register slots <span style="color:var(--crit)">do not stop the z blow-up</span>, and the arm <span style="color:var(--crit)">never trains</span>.</h1>
+  <p class="sub">One change against the twin: <span class="mono">num_registers</span> 0 → 4. Both blow up at ep 1. The twin is back near unit scale and at rank 127 by ep 6.
+  With registers, z is still rank 1 and ~1,000× off scale at ep 44. KITTI <span class="mono">LossRecon</span> never leaves the copy level.</p>
+  <div class="body">
+    <div class="cols c58" style="height:100%">
+      <div class="chartwrap">
+        <div class="ptitle">TRAIN ZRowMeanSquare <span>· mean z² per row · log · SIGReg target 1</span></div>
+        <div class="legend" data-arms="REG,NB,P8"></div>
+        <div id="chHero" style="flex:1;min-height:0"></div>
+      </div>
+      <div class="tiles" style="grid-template-columns:1fr 1fr;grid-template-rows:auto auto;align-content:center">
+        <div class="tile"><div class="k">sink gate · max |h| · ep 44 <span style="color:var(--muted)">· delta / reg</span></div>
+          <div class="v" style="font-size:22px">9,884 <span style="color:var(--muted);font-size:14px">/</span> 50</div>
+          <div class="d">pass: delta &lt; ~50, registers in the hundreds &nbsp;<span class="chip bad">stays in z</span></div></div>
+        <div class="tile"><div class="k">ZPartRank · ep 31 <span style="color:var(--muted)">· K / nuSc · of 1536</span></div>
+          <div class="v" style="font-size:22px">1.0 <span style="color:var(--muted);font-size:14px">/</span> 1.1</div>
+          <div class="d">no registers: 244.8 / 352.3 &nbsp;<span class="chip bad">rank 1</span></div></div>
+        <div class="tile"><div class="k">LossRecon · ep 31 <span style="color:var(--muted)">· K / nuSc</span></div>
+          <div class="v" style="font-size:22px">0.1317 <span style="color:var(--muted);font-size:14px">/</span> 0.0999</div>
+          <div class="d">no registers: 0.0305 / 0.0211 &nbsp;<span class="chip bad">4.3 / 4.7×</span></div></div>
+        <div class="tile"><div class="k"><span style="text-transform:none">σ</span> = 0.82 noise cost · ep 31 <span style="color:var(--muted)">· K / nuSc</span></div>
+          <div class="v" style="font-size:22px">+0.08<span style="font-size:14px">%</span> <span style="color:var(--muted);font-size:14px">/</span> 0.00<span style="font-size:14px">%</span></div>
+          <div class="d">no registers: +49.5 / +57.4% &nbsp;<span class="chip bad">z unread</span></div></div>
+      </div>
+    </div>
+  </div>
+  <div class="foot"><span>both eval sets held out · one seed per arm · BSC:45861170 cancelled at ep 46, read at ep 44 · the twin ends ep 31</span><span class="pageno">01 / 06</span></div>
+</section>
+
+<!-- ============ 2 — the arms ============ -->
+<section class="slide">
+  <div class="eyebrow">the comparison <span class="dim">— one pair, one reference</span></div>
+  <h2>One knob between the pair. The reference is the twin's other one-knob neighbour, whose code stayed blown.</h2>
+  <p class="sub">The register arm is the twin's script with <span class="mono">num_registers=4</span>. The pool-8192 arm differs from the twin only in the SIGReg pool. Its code stays at rank 1, yet it trains.</p>
+  <div class="body">
+    <div class="cols c58" style="height:100%">
+      <div style="display:flex;flex-direction:column;min-height:0">
+        <table style="font-size:12.5px">
+          <thead><tr><th>arm</th><th>job</th><th>registers</th><th>pool</th><th>epochs</th><th>train RMS &gt; 10</th><th>peak train RMS</th><th>recovered</th></tr></thead>
+          <tbody>
+            <tr class="hi"><td style="white-space:nowrap"><span class="sw" style="border-color:var(--s2)"></span> <b>4 registers</b></td><td class="mono">45861170</td><td><b>4</b></td><td>24576</td><td style="white-space:nowrap">0–44 · canc</td><td>ep 1</td><td>364,558 @ ep 2</td><td class="w">no</td></tr>
+            <tr class="hi"><td style="white-space:nowrap"><span class="sw" style="border-color:var(--s5)"></span> <b>twin, no registers</b></td><td class="mono">45727710</td><td><b>0</b></td><td>24576</td><td style="white-space:nowrap">0–31 · done</td><td>ep 1</td><td>20,684 @ ep 1</td><td class="g">ep 6</td></tr>
+            <tr><td style="white-space:nowrap"><span class="sw" style="border-color:var(--s6)"></span> pool-8192 twin</td><td class="mono">45725881</td><td>0</td><td>8192</td><td style="white-space:nowrap">0–31 · done</td><td>ep 4</td><td>4,142 @ ep 5</td><td class="w">no</td></tr>
+          </tbody>
+        </table>
+        <div class="rulebar" style="margin-top:12px"><b>A register slot.</b> 4 learned slots per camera ride through the encoder next to the 64 delta slots and are dropped before the final norm. 4 more ride through the decoder next to z. No loss reads them (<span class="mono">plan/2026-09-14_tc_width_register_tokens.md</span>, <span class="mono">9be426e</span>).</div>
+        <div class="rulebar" style="margin-top:10px"><b>Config diff</b> of the resolved <span class="mono">Config:</span> lines: <span class="mono">num_registers</span> only. Keys added since the twin launched are inert here (<span class="mono">clean_decode_weight</span> 1.0, <span class="mono">recon_whiten_alpha</span> 0). Shared: tc1536, K = 64, no bottleneck, SIGReg 0.02 / warmup 0, compose 1.0, noised decode τ 0.8.</div>
+      </div>
+      <div class="tiles" style="grid-template-rows:auto auto auto;align-content:start">
+        <div class="tile"><div class="k">same start</div>
+          <div class="v" style="font-size:20px">ep 0 matches</div>
+          <div class="d">Train loss 0.6611 vs 0.6617. SIGReg statistic 0.1815 vs 0.1816. KITTI <span class="mono">LossRecon</span> 0.1401 vs 0.1403.</div></div>
+        <div class="tile"><div class="k">the plan's gate</div>
+          <div class="v" style="font-size:20px">delta &lt; ~50, registers ~100s</div>
+          <div class="d">Probe: the largest pre-norm |h| over a slot's 1536 channels, max over slots, rank 0, every step (<span class="mono">deltatok_trainer.py:1295</span>). The twin predates it.</div></div>
+        <div class="tile"><div class="k">read epochs</div>
+          <div class="v" style="font-size:20px">31 and 44</div>
+          <div class="d">31 is the twin's last epoch. 44 is the register arm's last full one.</div></div>
+      </div>
+    </div>
+  </div>
+  <div class="foot"><span>settings from each job's resolved Config line in the BSC stdout · outcome labels from analysis/2026-09-14_tc_width_tc1536_blowup_census.html</span><span class="pageno">02 / 06</span></div>
+</section>
+
+<!-- ============ 3 — the sink ============ -->
+<section class="slide">
+  <div class="eyebrow">the sink <span class="dim">— pre-norm max |h| on delta slots vs register slots</span></div>
+  <h2>Both slot kinds share the ep 1–2 spike. Only the delta slots climb back, to ~10k, while the registers stay near 50.</h2>
+  <p class="sub">Epoch means: at ep 2 the delta slots read 10,369 and the registers 6,332. By ep 6 both are down, to 453 and 232. From ep 9 the delta slots climb, and hold 6,838–15,115 from ep 19. The registers sit at 27–272 from ep 23. The gate fails at every epoch. The twin's scale peaks 17.6× lower and recovers.</p>
+  <div class="body">
+    <div class="legend top"><span><i class="sw" style="border-color:var(--s2)"></i>4 registers · delta slots</span><span><i class="sw" style="border-color:var(--s7)"></i>4 registers · register slots</span><span><i class="sw" style="border-color:var(--s5)"></i>twin, no registers</span><span><i class="sw" style="border-color:var(--s6);opacity:.5"></i>pool-8192 twin</span><span><i class="sw" style="border-color:var(--ink2);border-top-style:dashed"></i>gate 50</span></div>
+    <div class="g4">
+      <div class="pan"><div class="ptitle">TRAIN max |h| · ep 0–6 <span>· median of 20 steps · log</span></div><div class="plot" id="p31"></div></div>
+      <div class="pan"><div class="ptitle">TRAIN max |h| · ep 0–44 <span>· epoch mean · log</span></div><div class="plot" id="p32"></div></div>
+      <div class="pan"><div class="ptitle">TRAIN ZRowMeanSquare · ep 0–10 <span>· the onset · log</span></div><div class="plot" id="p33"></div></div>
+      <div class="pan"><div class="ptitle">TRAIN SIGReg statistic <span>· raw, unweighted · log</span></div><div class="plot" id="p34"></div></div>
+    </div>
+  </div>
+  <div class="foot"><span>max |h| probe logs only on the register arm · SIGReg with registers holds 0.083–0.107 over ep 3–18, 30× the twin</span><span class="pageno">03 / 06</span></div>
+</section>
+
+<!-- ============ 4 — the code ============ -->
+<section class="slide">
+  <div class="eyebrow">the code <span class="dim">— z statistics on the held-out eval sets</span></div>
+  <h2>On both eval sets the register code is rank ≤ 1.3 from ep 9. Its scale drifts up to ~2,400×. The twin's stays near 1.</h2>
+  <p class="sub"><span class="mono">ZPartRank</span> is the participation ratio of the z covariance, in dims out of 1536. From ep 12 KITTI <span class="mono">ZRowMeanSquare</span> reads 166–2,414 with registers. The twin reads 1.11–1.60 from ep 6. The pool-8192 reference is rank 1 too, at 57–981 from ep 4.</p>
+  <div class="body">
+    <div class="legend top" data-arms="REG,NB,P8"></div>
+    <div class="g4">
+      <div class="pan"><div class="ptitle">EVAL ZPartRank · KITTI <span>· dims · log</span></div><div class="plot" id="p41"></div></div>
+      <div class="pan"><div class="ptitle">EVAL ZPartRank · nuScenes <span>· dims · log</span></div><div class="plot" id="p42"></div></div>
+      <div class="pan"><div class="ptitle">EVAL ZRowMeanSquare · KITTI <span>· log · target 1</span></div><div class="plot" id="p43"></div></div>
+      <div class="pan"><div class="ptitle">EVAL ZRowMeanSquare · nuScenes <span>· log · target 1</span></div><div class="plot" id="p44"></div></div>
+    </div>
+  </div>
+  <div class="foot"><span>206 windows per set · the pool-8192 twin is drawn faint, untagged</span><span class="pageno">04 / 06</span></div>
+</section>
+
+<!-- ============ 5 — does it train ============ -->
+<section class="slide">
+  <div class="eyebrow">does it train <span class="dim">— token recon, decoded depth, and whether the decoder reads z</span></div>
+  <h2>The register arm sits at the copy level for 44 epochs, and noise on z does not move it. A rank-1 code alone still trains.</h2>
+  <p class="sub">KITTI <span class="mono">LossRecon</span> reads 0.1291–0.1342 from ep 3 to 44, the forced-bottleneck stall level (0.1293, <span class="mono">BSC:45831175</span>). The pool-8192 arm is rank 1 too and reaches 0.0263 at ep 31. At ep 31, σ = 0.82 on z costs the register arm ≤ 0.08%. The two no-register arms lose 49.5–87.6%.</p>
+  <div class="body">
+    <div class="legend top" data-arms="REG,NB,P8"></div>
+    <div class="g6">
+      <div class="pan"><div class="ptitle">LossRecon · KITTI <span>· log</span></div><div class="plot" id="p51"></div></div>
+      <div class="pan"><div class="ptitle">Depth PredVsOrig · KITTI <span>· m · log</span></div><div class="plot" id="p52"></div></div>
+      <div class="pan"><div class="ptitle">σ ladder · KITTI · ep 31 <span>· LossRecon over clean</span></div><div class="plot" id="p53"></div></div>
+      <div class="pan"><div class="ptitle">LossRecon · nuScenes <span>· log</span></div><div class="plot" id="p54"></div></div>
+      <div class="pan"><div class="ptitle">Depth PredVsOrig · nuScenes <span>· m · log</span></div><div class="plot" id="p55"></div></div>
+      <div class="pan"><div class="ptitle">σ ladder · nuScenes · ep 31 <span>· LossRecon over clean</span></div><div class="plot" id="p56"></div></div>
+    </div>
+  </div>
+  <div class="foot"><span>PredVsOrig = masked depth L1 against the frozen teacher's own decode, at GT scale · σ is absolute noise added to z before decode</span><span class="pageno">05 / 06</span></div>
+</section>
+
+<!-- ============ 6 — verdict ============ -->
+<section class="slide">
+  <div class="eyebrow">verdict <span class="dim">— question 15</span></div>
+  <h2>Registers do not prevent the explosion. On this seed the arm blew up harder and never trained.</h2>
+  <div class="body">
+    <div class="cols c58" style="height:100%">
+      <div style="display:flex;flex-direction:column;gap:10px;min-height:0">
+        <div class="takeaway"><div class="n">1</div><div class="tx"><b>No.</b> Both arms blow up at ep 1. With registers the train scale peaks 17.6× higher (364,558 vs 20,684) and still reads 1,015 at ep 44. The twin reads 1.11 at ep 31.</div></div>
+        <div class="takeaway"><div class="n">2</div><div class="tx"><b>The sink did not move.</b> Delta-slot max |h| is 9,884 at ep 44 and register max 50. Both spiked at ep 2 (10,369 / 6,332). Only the delta slots climbed back.</div></div>
+        <div class="takeaway"><div class="n">3</div><div class="tx"><b>It is worse than a code that stays blown.</b> The pool-8192 twin is also rank 1 but trains to 0.0263 KITTI. The register arm reads 0.1317, and σ = 0.82 moves it +0.08%: the decoder ignores z.</div></div>
+        <div class="takeaway"><div class="n">4</div><div class="tx"><b>Why this arm never trains is untested.</b> The logs cannot say which delta slot or channel holds the sink.</div></div>
+      </div>
+      <div style="display:flex;flex-direction:column;gap:10px;min-height:0">
+        <div class="card"><div class="tag">caveats</div>
+          <h3>One seed, and recovery itself is a coin flip</h3>
+          <p style="font-size:13px;color:var(--ink2);margin-top:4px">The census found 4 of 7 no-norm tc1536 SIGReg arms end healthy, so the twin's recovery may be seed luck. The copy plateau is rarer: in the census only <span class="mono">44465440</span> (no compose, pool 8192, SIGReg 0.01) sat there before. The probe reads rank 0's batch only.</p></div>
+        <div class="card"><div class="tag">state</div>
+          <h3>BSC:45861170 is cancelled</h3>
+          <p style="font-size:13px;color:var(--ink2);margin-top:4px">Cancelled 2026-09-16 at ep 46, after 29 h 21 min of 48 h. <span class="mono">epoch_10</span>–<span class="mono">40.pth</span> stay on scratch.</p></div>
+        <div class="card"><div class="tag">not done</div>
+          <h3>No per-slot dump, no second seed</h3>
+          <p style="font-size:13px;color:var(--ink2);margin-top:4px">No z dump of the register arm, so which delta slot holds the sink is not known. No R ≠ 4 arm.</p></div>
+      </div>
+    </div>
+  </div>
+  <div class="foot"><span>source logs: ../monitor_jobs/data/logs/BSC/*_{45861170,45727710,45725881}.out</span><span class="pageno">06 / 06</span></div>
+</section>
+
+</div>
+
+<button class="arr" id="prev" aria-label="Previous slide">‹</button>
+<button class="arr" id="next" aria-label="Next slide">›</button>
+<div class="nav" id="nav" role="tablist" aria-label="Slides"></div>
+
+<script>
+/* ---------- deck nav ---------- */
+const stage=document.getElementById("stage");
+const slides=[...document.querySelectorAll(".slide")];
+const nav=document.getElementById("nav");
+let cur=0;
+slides.forEach((_,i)=>{
+  const b=document.createElement("button");
+  b.setAttribute("role","tab");b.setAttribute("aria-label","Slide "+(i+1));
+  b.addEventListener("click",()=>go(i));
+  nav.appendChild(b);
+});
+function go(i){
+  cur=Math.max(0,Math.min(slides.length-1,i));
+  slides.forEach((s,j)=>s.classList.toggle("on",j===cur));
+  [...nav.children].forEach((b,j)=>b.classList.toggle("cur",j===cur));
+}
+document.getElementById("prev").addEventListener("click",()=>go(cur-1));
+document.getElementById("next").addEventListener("click",()=>go(cur+1));
+addEventListener("keydown",e=>{
+  if(["ArrowRight","PageDown"," "].includes(e.key)){go(cur+1);e.preventDefault();}
+  else if(["ArrowLeft","PageUp"].includes(e.key)){go(cur-1);e.preventDefault();}
+  else if(e.key==="Home")go(0);
+  else if(e.key==="End")go(slides.length-1);
+});
+go(0);
+/* ---------- auto-scale ---------- */
+function fit(){
+  const s=Math.min(innerWidth/1300,(innerHeight-40)/730);
+  stage.style.transform=`translate(-50%,-50%) scale(${Math.min(s,1.4)})`;
+}
+addEventListener("resize",fit);fit();
+
+/* ---------- CSS var resolver (for SVG strokes) ---------- */
+const CV=n=>getComputedStyle(document.documentElement).getPropertyValue(n).trim();
+
+/* ---------- multi-series epoch line chart; data[i] is epoch xmin+i (or se.xs[i]); vlines = dotted epoch markers ---------- */
+function lineChart(el,cfg){
+  const W=cfg.W||600,H=cfg.H||300,L=cfg.L||44,R=cfg.R||52,T=cfg.T||10,B=cfg.B||26,
+        iw=W-L-R, ih=H-T-B;
+  const {ymin,ymax,yticks,xmax,xticks,log}=cfg, xmin=cfg.xmin||0, span=xmax-xmin;
+  const f=log?Math.log10:(v=>v), y0=f(ymin), y1=f(ymax);
+  const XE=e=>L+iw*((e-xmin)/span);
+  const Y=v=>T+ih*(1-(f(Math.min(Math.max(v,ymin),ymax))-y0)/(y1-y0));
+  const fmt=cfg.fmt||(t=>t.toFixed(4));
+  let s=`<svg viewBox="0 0 ${W} ${H}" width="100%" height="100%" preserveAspectRatio="xMidYMid meet">`;
+  yticks.forEach(t=>{const y=Y(t);
+    s+=`<line x1="${L}" y1="${y}" x2="${L+iw}" y2="${y}" stroke="${CV('--grid')}"/>`;
+    s+=`<text x="${L-6}" y="${y+3}" text-anchor="end" class="axl">${fmt(t)}</text>`;});
+  xticks.forEach(t=>s+=`<text x="${XE(t)}" y="${H-9}" text-anchor="middle" class="axl">${t}</text>`);
+  (cfg.vlines||[]).forEach(x=>s+=`<line x1="${XE(x)}" y1="${T}" x2="${XE(x)}" y2="${T+ih}" stroke="${CV('--muted')}" stroke-dasharray="2 3"/>`);
+  cfg.series.forEach(se=>{const c=CV(se.color);
+    const X=i=>se.xs?se.xs[i]:xmin+i, d=se.data.map((v,i)=>`${i?'L':'M'}${XE(X(i)).toFixed(1)} ${Y(v).toFixed(1)}`).join(' ');
+    s+=`<path d="${d}" fill="none" stroke="${c}" stroke-width="${se.width||1.8}" opacity="${se.faint?.5:1}" ${se.dash?`stroke-dasharray="${se.dash}"`:''}/>`;
+    if(se.dash) return;
+    const n=se.data.length-1, lx=XE(X(n)), ly=Y(se.data[n]);
+    s+=`<circle cx="${lx.toFixed(1)}" cy="${ly.toFixed(1)}" r="2.4" fill="${c}" opacity="${se.faint?.5:1}"/>`;
+    if(se.tag&&!se.faint) s+=`<text x="${lx+5}" y="${ly+3.5}" class="hll" fill="${c}">${se.tag}</text>`;});
+  s+=`<text x="${L+iw/2}" y="${H-0.5}" text-anchor="middle" class="axl">${cfg.xlab||'epoch'}</text></svg>`;
+  el.innerHTML=s;
+}
+
+/* ---------- x/y line chart for the noise ladder (explicit x values, not epochs) ---------- */
+function xyChart(el,cfg){
+  const W=cfg.W||560,H=cfg.H||300,L=46,R=62,T=10,B=30, iw=W-L-R, ih=H-T-B;
+  const {xmin,xmax,ymin,ymax,xticks,yticks}=cfg;
+  const xf=cfg.xfmt||(t=>t), yf=cfg.yfmt||(t=>t+'%');
+  const X=v=>L+iw*(v-xmin)/(xmax-xmin), Y=v=>T+ih*(1-(v-ymin)/(ymax-ymin));
+  let s=`<svg viewBox="0 0 ${W} ${H}" width="100%" height="100%" preserveAspectRatio="xMidYMid meet">`;
+  yticks.forEach(t=>{const y=Y(t);
+    s+=`<line x1="${L}" y1="${y}" x2="${L+iw}" y2="${y}" stroke="${CV('--grid')}"/>`;
+    s+=`<text x="${L-6}" y="${y+3}" text-anchor="end" class="axl">${yf(t)}</text>`;});
+  xticks.forEach(t=>s+=`<text x="${X(t)}" y="${H-12}" text-anchor="middle" class="axl">${xf(t)}</text>`);
+  cfg.series.forEach(se=>{const c=CV(se.color);
+    const d=se.pts.map((p,i)=>`${i?'L':'M'}${X(p[0]).toFixed(1)} ${Y(p[1]).toFixed(1)}`).join(' ');
+    s+=`<path d="${d}" fill="none" stroke="${c}" stroke-width="1.9" ${se.dash?`stroke-dasharray="${se.dash}"`:''}/>`;
+    se.pts.forEach(p=>s+=`<circle cx="${X(p[0]).toFixed(1)}" cy="${Y(p[1]).toFixed(1)}" r="2.6" fill="${c}"/>`);
+    const lp=se.pts[se.pts.length-1];
+    if(se.tag) s+=`<text x="${(X(lp[0])+5).toFixed(1)}" y="${(Y(lp[1])+3.5).toFixed(1)}" class="hll" fill="${c}">${se.tag}</text>`;});
+  s+=`<text x="${L+iw/2}" y="${H-1}" text-anchor="middle" class="axl">${cfg.xlab||'σ'}</text></svg>`;
+  el.innerHTML=s;
+}
+
+/* ================= DATA =================
+   Grepped from each job's BSC stdout (../monitor_jobs/data/logs/BSC/): the [Eval/206 @ …] and [Train] z lines, the Epoch
+   summary line, and the zrow_max / reg_max meters (epoch mean; IT_* = median of 20 steps per log line). Index i is epoch i.
+   REG 45861170 · NB 45727710 · P8 45725881. LAD = % LossRecon over clean at ep 31.
+   ============================================ */
+var TRMS_REG=[0.813, 132400.0, 364600.0, 5431.0, 59.8, 54.77, 129.9, 188.9, 20.12, 43.59, 87.84, 110.8, 1492.0, 388.2, 338.2, 504.2, 471.0, 533.2, 674.8, 1777.0, 1330.0, 940.3, 924.7, 1181.0, 1105.0, 1539.0, 3091.0, 2759.0, 2787.0, 1743.0, 1434.0, 1657.0, 1721.0, 1354.0, 1381.0, 1016.0, 1033.0, 887.4, 736.0, 551.3, 912.5, 746.1, 889.9, 921.9, 1015.0];
+var TRMS_NB=[0.8239, 20680.0, 4930.0, 576.4, 173.7, 2.423, 1.536, 1.156, 1.171, 1.171, 1.163, 1.157, 1.152, 1.151, 1.15, 1.144, 1.142, 1.138, 1.135, 1.139, 1.137, 1.129, 1.122, 1.128, 1.119, 1.114, 1.115, 1.109, 1.11, 1.106, 1.108, 1.114];
+var TRMS_P8=[0.6127, 1.159, 1.317, 3.5, 33.75, 4142.0, 2183.0, 291.2, 147.5, 185.9, 149.9, 136.8, 113.3, 154.8, 122.1, 95.23, 89.91, 108.8, 82.61, 120.7, 138.3, 159.0, 198.1, 192.3, 287.5, 294.0, 379.0, 415.3, 495.2, 495.2, 673.5, 734.3];
+var SIG_REG=[0.1815, 0.5438, 0.3384, 0.1072, 0.0851, 0.0983, 0.0997, 0.1033, 0.0964, 0.0853, 0.092, 0.0943, 0.0888, 0.1047, 0.0978, 0.083, 0.0846, 0.0833, 0.0936, 0.0653, 0.0378, 0.0427, 0.0207, 0.0214, 0.0161, 0.0213, 0.018, 0.0153, 0.0166, 0.0166, 0.0197, 0.0177, 0.0176, 0.0188, 0.0197, 0.0193, 0.0244, 0.0232, 0.0193, 0.0168, 0.015, 0.0203, 0.0257, 0.0282, 0.028];
+var SIG_NB=[0.1816, 0.2176, 0.0592, 0.0436, 0.0225, 0.0088, 0.0049, 0.0033, 0.0031, 0.0029, 0.0029, 0.0027, 0.0026, 0.0024, 0.0029, 0.0029, 0.0028, 0.0023, 0.0022, 0.0022, 0.0023, 0.0021, 0.0019, 0.0021, 0.0018, 0.0019, 0.0016, 0.0017, 0.0016, 0.0015, 0.0015, 0.0018];
+var SIG_P8=[0.1631, 0.0206, 0.0168, 0.0125, 0.0059, 0.0038, 0.0035, 0.0034, 0.0034, 0.0033, 0.0032, 0.0032, 0.0037, 0.0033, 0.0032, 0.0034, 0.0034, 0.003, 0.0031, 0.0031, 0.0027, 0.0026, 0.0039, 0.0033, 0.0028, 0.0025, 0.0022, 0.0023, 0.002, 0.002, 0.0019, 0.0019];
+var RK_K_REG=[34.2, 1.1, 1.0, 1.1, 1.6, 7.9, 1.8, 2.0, 2.1, 1.3, 1.2, 1.0, 1.0, 1.1, 1.3, 1.0, 1.1, 1.1, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0];
+var RK_K_NB=[32.4, 1.0, 1.9, 1.0, 2.7, 4.9, 126.8, 171.6, 183.6, 197.6, 206.0, 211.6, 201.6, 216.3, 228.2, 236.3, 234.7, 241.2, 248.0, 239.7, 241.7, 259.8, 251.7, 240.5, 259.2, 256.3, 217.6, 245.6, 259.0, 258.6, 261.3, 244.8];
+var RK_K_P8=[49.7, 18.7, 7.5, 1.3, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0];
+var RK_N_REG=[34.2, 1.1, 1.0, 1.1, 1.6, 8.1, 1.8, 2.2, 2.6, 1.3, 1.1, 1.0, 1.0, 1.1, 1.2, 1.1, 1.2, 1.2, 1.0, 1.0, 1.1, 1.0, 1.0, 1.0, 1.0, 1.0, 1.1, 1.0, 1.0, 1.0, 1.0, 1.1, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0];
+var RK_N_NB=[32.5, 1.0, 2.1, 1.0, 2.6, 3.7, 109.3, 213.8, 246.9, 269.1, 287.2, 302.9, 300.7, 314.7, 323.6, 330.7, 324.9, 337.3, 340.6, 326.8, 325.6, 348.1, 348.1, 343.0, 354.3, 352.4, 315.9, 352.3, 365.1, 363.8, 359.5, 352.3];
+var RK_N_P8=[49.7, 19.6, 9.1, 1.2, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0];
+var ERMS_K_REG=[2.783, 175300.0, 11470.0, 87.75, 2.653, 0.4229, 18.09, 4.421, 8.338, 31.09, 22.83, 108.5, 273.6, 166.1, 359.7, 274.7, 951.0, 484.9, 752.5, 2377.0, 1014.0, 748.0, 408.4, 1169.0, 1417.0, 2069.0, 2100.0, 2188.0, 2043.0, 888.5, 1460.0, 2414.0, 1335.0, 1880.0, 967.8, 952.3, 1337.0, 1191.0, 753.2, 278.0, 755.8, 565.3, 533.3, 1074.0, 1348.0];
+var ERMS_K_NB=[3.377, 7856.0, 3.195, 803.5, 3.258, 2.342, 1.547, 1.598, 1.439, 1.371, 1.459, 1.296, 1.319, 1.273, 1.227, 1.328, 1.33, 1.284, 1.324, 1.161, 1.251, 1.297, 1.291, 1.16, 1.261, 1.354, 1.308, 1.114, 1.227, 1.227, 1.268, 1.34];
+var ERMS_K_P8=[1.259, 0.7972, 1.675, 12.16, 587.1, 762.8, 256.6, 142.4, 98.01, 253.5, 208.0, 175.8, 117.0, 266.2, 57.07, 118.2, 116.4, 111.5, 95.84, 167.9, 120.1, 81.17, 261.8, 327.0, 402.9, 633.2, 573.4, 599.2, 640.4, 727.4, 980.5, 872.0];
+var ERMS_N_REG=[2.788, 174900.0, 11510.0, 88.23, 3.039, 0.4085, 19.01, 4.775, 9.719, 41.24, 58.4, 84.99, 235.3, 263.5, 344.7, 284.9, 844.3, 406.7, 601.3, 2939.0, 743.7, 645.6, 440.6, 857.9, 1281.0, 2346.0, 3002.0, 1532.0, 1931.0, 805.8, 1751.0, 1360.0, 2098.0, 2072.0, 1466.0, 1055.0, 1196.0, 1115.0, 777.1, 393.9, 1054.0, 704.6, 777.8, 1224.0, 1353.0];
+var ERMS_N_NB=[3.383, 8456.0, 2.958, 977.2, 2.477, 1.934, 0.9376, 1.162, 1.054, 0.9964, 1.077, 0.9858, 1.021, 0.9841, 0.9394, 1.032, 1.044, 1.024, 1.054, 0.9361, 1.002, 1.072, 1.062, 0.9416, 1.032, 1.082, 1.092, 0.9205, 1.018, 1.021, 1.063, 1.131];
+var ERMS_N_P8=[1.26, 0.7873, 1.419, 11.2, 583.8, 760.1, 220.6, 132.1, 98.72, 228.9, 170.7, 162.5, 107.7, 236.3, 58.95, 109.1, 112.6, 106.9, 83.41, 150.3, 113.1, 71.76, 236.1, 291.2, 349.2, 541.6, 472.3, 515.9, 577.1, 662.7, 911.4, 804.0];
+var LR_K_REG=[0.1401, 0.1376, 0.1337, 0.1338, 0.1328, 0.1319, 0.1319, 0.1336, 0.1308, 0.1308, 0.1309, 0.1313, 0.1309, 0.1311, 0.1307, 0.1301, 0.1342, 0.1296, 0.1309, 0.1294, 0.1298, 0.1309, 0.1306, 0.1298, 0.1298, 0.1297, 0.1299, 0.13, 0.1291, 0.1302, 0.1306, 0.1317, 0.1294, 0.1308, 0.1302, 0.1293, 0.1304, 0.1298, 0.1292, 0.1297, 0.1312, 0.1307, 0.1293, 0.1298, 0.1294];
+var LR_K_NB=[0.1403, 0.1362, 0.133, 0.1219, 0.1076, 0.0874, 0.0659, 0.0555, 0.0507, 0.0465, 0.0442, 0.0416, 0.0403, 0.0389, 0.0374, 0.0367, 0.0358, 0.0349, 0.0343, 0.034, 0.0334, 0.0329, 0.0326, 0.0326, 0.032, 0.0317, 0.0316, 0.0311, 0.0309, 0.0307, 0.0305, 0.0305];
+var LR_K_P8=[0.1403, 0.1372, 0.128, 0.1033, 0.069, 0.0526, 0.0459, 0.042, 0.0398, 0.0377, 0.0365, 0.0349, 0.0337, 0.0333, 0.0327, 0.032, 0.0311, 0.0308, 0.0303, 0.0297, 0.0292, 0.0292, 0.0293, 0.029, 0.0284, 0.028, 0.0279, 0.0274, 0.0269, 0.0266, 0.0266, 0.0263];
+var LR_N_REG=[0.1017, 0.1012, 0.1001, 0.1016, 0.1006, 0.0997, 0.1031, 0.1038, 0.1028, 0.1014, 0.0994, 0.1026, 0.1027, 0.1012, 0.1014, 0.1016, 0.1043, 0.0997, 0.1018, 0.0994, 0.1002, 0.102, 0.103, 0.0984, 0.0994, 0.1019, 0.1006, 0.0999, 0.1018, 0.1021, 0.1007, 0.0999, 0.1003, 0.1013, 0.0998, 0.1018, 0.102, 0.1011, 0.1005, 0.101, 0.1026, 0.1023, 0.1015, 0.1, 0.1013];
+var LR_N_NB=[0.1036, 0.0984, 0.1005, 0.0846, 0.0756, 0.0628, 0.0503, 0.04, 0.0363, 0.0333, 0.0312, 0.0292, 0.0283, 0.0274, 0.0262, 0.0258, 0.0251, 0.0245, 0.0242, 0.024, 0.0235, 0.0231, 0.0228, 0.0228, 0.0223, 0.0221, 0.022, 0.0217, 0.0215, 0.0213, 0.0211, 0.0211];
+var LR_N_P8=[0.1038, 0.0977, 0.0913, 0.0734, 0.0521, 0.0381, 0.0322, 0.0291, 0.0276, 0.0259, 0.0249, 0.0238, 0.0229, 0.0227, 0.0223, 0.0217, 0.021, 0.0208, 0.0205, 0.0201, 0.0198, 0.0198, 0.0199, 0.0197, 0.0192, 0.0189, 0.0188, 0.0185, 0.0182, 0.018, 0.0179, 0.0177];
+var DPO_K_REG=[3.231, 3.033, 2.627, 2.698, 2.69, 2.737, 2.821, 2.982, 2.566, 2.611, 2.594, 2.712, 2.56, 2.613, 2.632, 2.542, 2.975, 2.525, 2.697, 2.502, 2.553, 2.687, 2.57, 2.577, 2.623, 2.546, 2.571, 2.58, 2.5, 2.611, 2.618, 2.719, 2.571, 2.677, 2.579, 2.568, 2.547, 2.533, 2.538, 2.527, 2.674, 2.666, 2.542, 2.531, 2.551];
+var DPO_K_NB=[3.4, 2.814, 2.638, 1.871, 1.266, 0.8456, 0.538, 0.4759, 0.4355, 0.4086, 0.5373, 0.3605, 0.3557, 0.3999, 0.3706, 0.4049, 0.3708, 0.3303, 0.3749, 0.3536, 0.3567, 0.3309, 0.315, 0.3185, 0.3257, 0.2882, 0.3304, 0.2716, 0.3585, 0.3396, 0.2995, 0.3252];
+var DPO_K_P8=[3.516, 2.861, 2.407, 1.245, 0.6306, 0.5779, 0.3923, 0.4347, 0.3113, 0.3147, 0.3348, 0.3862, 0.3074, 0.3321, 0.3456, 0.3304, 0.2921, 0.3388, 0.3216, 0.2947, 0.2932, 0.286, 0.2756, 0.2848, 0.2659, 0.2696, 0.2779, 0.2788, 0.2603, 0.2757, 0.2644, 0.2884];
+var DPO_N_REG=[3.123, 3.603, 3.243, 3.542, 3.518, 3.443, 3.751, 3.912, 3.797, 3.71, 3.235, 3.903, 3.725, 3.522, 3.4, 3.467, 4.223, 3.233, 3.538, 3.301, 3.298, 3.68, 3.751, 3.017, 3.317, 3.565, 3.247, 3.38, 3.509, 3.561, 3.493, 3.313, 3.35, 3.311, 3.258, 3.41, 3.629, 3.312, 3.173, 3.422, 3.529, 3.48, 3.4, 3.253, 3.376];
+var DPO_N_NB=[3.44, 2.743, 3.344, 2.191, 1.514, 0.8957, 0.6258, 0.4762, 0.4036, 0.3235, 0.3897, 0.3284, 0.2909, 0.3039, 0.3161, 0.2997, 0.3008, 0.2694, 0.3128, 0.2869, 0.2706, 0.2697, 0.2616, 0.2566, 0.2519, 0.2374, 0.2636, 0.2328, 0.2651, 0.2534, 0.2516, 0.2431];
+var DPO_N_P8=[3.607, 2.822, 2.598, 1.383, 0.6944, 0.5338, 0.3296, 0.327, 0.3204, 0.2823, 0.3085, 0.2954, 0.2754, 0.2565, 0.2662, 0.2462, 0.2752, 0.2551, 0.2399, 0.2309, 0.2315, 0.2336, 0.2179, 0.2501, 0.2337, 0.2239, 0.2352, 0.2133, 0.2118, 0.2188, 0.2219, 0.219];
+var ZRM_REG=[21.03, 3518.0, 10370.0, 1950.0, 587.1, 492.3, 452.6, 712.9, 558.7, 818.8, 1551.0, 1685.0, 4575.0, 3710.0, 3630.0, 4365.0, 5410.0, 6329.0, 7476.0, 11780.0, 10460.0, 9112.0, 9058.0, 9981.0, 9856.0, 11090.0, 15120.0, 13580.0, 14280.0, 11780.0, 11310.0, 11690.0, 11790.0, 10430.0, 10300.0, 9098.0, 9197.0, 8651.0, 7797.0, 6838.0, 8647.0, 8172.0, 9097.0, 9640.0, 9884.0];
+var REGM_REG=[2.232, 3300.0, 6332.0, 364.2, 114.6, 170.4, 232.3, 258.6, 125.1, 127.9, 219.0, 156.4, 720.7, 296.2, 186.7, 136.5, 150.2, 132.3, 187.1, 207.4, 122.2, 170.7, 119.6, 62.41, 272.4, 67.95, 51.72, 26.68, 51.5, 52.62, 48.89, 64.55, 136.5, 52.32, 92.25, 39.26, 101.6, 68.47, 56.75, 50.57, 42.49, 47.81, 51.69, 60.14, 50.01];
+var IT_X=[0.0, 0.0089, 0.0178, 0.0267, 0.0356, 0.0444, 0.0533, 0.0622, 0.0711, 0.08, 0.0889, 0.0978, 0.1067, 0.1156, 0.1244, 0.1333, 0.1422, 0.1511, 0.16, 0.1689, 0.1778, 0.1867, 0.1956, 0.2044, 0.2133, 0.2222, 0.2311, 0.24, 0.2489, 0.2578, 0.2667, 0.2756, 0.2844, 0.2933, 0.3022, 0.3111, 0.32, 0.3289, 0.3378, 0.3467, 0.3556, 0.3644, 0.3733, 0.3822, 0.3911, 0.4, 0.4089, 0.4178, 0.4267, 0.4356, 0.4444, 0.4533, 0.4622, 0.4711, 0.48, 0.4889, 0.4978, 0.5067, 0.5156, 0.5244, 0.5333, 0.5422, 0.5511, 0.56, 0.5689, 0.5778, 0.5867, 0.5956, 0.6044, 0.6133, 0.6222, 0.6311, 0.64, 0.6489, 0.6578, 0.6667, 0.6756, 0.6844, 0.6933, 0.7022, 0.7111, 0.72, 0.7289, 0.7378, 0.7467, 0.7556, 0.7644, 0.7733, 0.7822, 0.7911, 0.8, 0.8089, 0.8178, 0.8267, 0.8356, 0.8444, 0.8533, 0.8622, 0.8711, 0.88, 0.8889, 0.8978, 0.9067, 0.9156, 0.9244, 0.9333, 0.9422, 0.9511, 0.96, 0.9689, 0.9778, 0.9867, 0.9956, 0.9996, 1.0, 1.0089, 1.0178, 1.0267, 1.0356, 1.0444, 1.0533, 1.0622, 1.0711, 1.08, 1.0889, 1.0978, 1.1067, 1.1156, 1.1244, 1.1333, 1.1422, 1.1511, 1.16, 1.1689, 1.1778, 1.1867, 1.1956, 1.2044, 1.2133, 1.2222, 1.2311, 1.24, 1.2489, 1.2578, 1.2667, 1.2756, 1.2844, 1.2933, 1.3022, 1.3111, 1.32, 1.3289, 1.3378, 1.3467, 1.3556, 1.3644, 1.3733, 1.3822, 1.3911, 1.4, 1.4089, 1.4178, 1.4267, 1.4356, 1.4444, 1.4533, 1.4622, 1.4711, 1.48, 1.4889, 1.4978, 1.5067, 1.5156, 1.5244, 1.5333, 1.5422, 1.5511, 1.56, 1.5689, 1.5778, 1.5867, 1.5956, 1.6044, 1.6133, 1.6222, 1.6311, 1.64, 1.6489, 1.6578, 1.6667, 1.6756, 1.6844, 1.6933, 1.7022, 1.7111, 1.72, 1.7289, 1.7378, 1.7467, 1.7556, 1.7644, 1.7733, 1.7822, 1.7911, 1.8, 1.8089, 1.8178, 1.8267, 1.8356, 1.8444, 1.8533, 1.8622, 1.8711, 1.88, 1.8889, 1.8978, 1.9067, 1.9156, 1.9244, 1.9333, 1.9422, 1.9511, 1.96, 1.9689, 1.9778, 1.9867, 1.9956, 1.9996, 2.0, 2.0089, 2.0178, 2.0267, 2.0356, 2.0444, 2.0533, 2.0622, 2.0711, 2.08, 2.0889, 2.0978, 2.1067, 2.1156, 2.1244, 2.1333, 2.1422, 2.1511, 2.16, 2.1689, 2.1778, 2.1867, 2.1956, 2.2044, 2.2133, 2.2222, 2.2311, 2.24, 2.2489, 2.2578, 2.2667, 2.2756, 2.2844, 2.2933, 2.3022, 2.3111, 2.32, 2.3289, 2.3378, 2.3467, 2.3556, 2.3644, 2.3733, 2.3822, 2.3911, 2.4, 2.4089, 2.4178, 2.4267, 2.4356, 2.4444, 2.4533, 2.4622, 2.4711, 2.48, 2.4889, 2.4978, 2.5067, 2.5156, 2.5244, 2.5333, 2.5422, 2.5511, 2.56, 2.5689, 2.5778, 2.5867, 2.5956, 2.6044, 2.6133, 2.6222, 2.6311, 2.64, 2.6489, 2.6578, 2.6667, 2.6756, 2.6844, 2.6933, 2.7022, 2.7111, 2.72, 2.7289, 2.7378, 2.7467, 2.7556, 2.7644, 2.7733, 2.7822, 2.7911, 2.8, 2.8089, 2.8178, 2.8267, 2.8356, 2.8444, 2.8533, 2.8622, 2.8711, 2.88, 2.8889, 2.8978, 2.9067, 2.9156, 2.9244, 2.9333, 2.9422, 2.9511, 2.96, 2.9689, 2.9778, 2.9867, 2.9956, 2.9996, 3.0, 3.0089, 3.0178, 3.0267, 3.0356, 3.0444, 3.0533, 3.0622, 3.0711, 3.08, 3.0889, 3.0978, 3.1067, 3.1156, 3.1244, 3.1333, 3.1422, 3.1511, 3.16, 3.1689, 3.1778, 3.1867, 3.1956, 3.2044, 3.2133, 3.2222, 3.2311, 3.24, 3.2489, 3.2578, 3.2667, 3.2756, 3.2844, 3.2933, 3.3022, 3.3111, 3.32, 3.3289, 3.3378, 3.3467, 3.3556, 3.3644, 3.3733, 3.3822, 3.3911, 3.4, 3.4089, 3.4178, 3.4267, 3.4356, 3.4444, 3.4533, 3.4622, 3.4711, 3.48, 3.4889, 3.4978, 3.5067, 3.5156, 3.5244, 3.5333, 3.5422, 3.5511, 3.56, 3.5689, 3.5778, 3.5867, 3.5956, 3.6044, 3.6133, 3.6222, 3.6311, 3.64, 3.6489, 3.6578, 3.6667, 3.6756, 3.6844, 3.6933, 3.7022, 3.7111, 3.72, 3.7289, 3.7378, 3.7467, 3.7556, 3.7644, 3.7733, 3.7822, 3.7911, 3.8, 3.8089, 3.8178, 3.8267, 3.8356, 3.8444, 3.8533, 3.8622, 3.8711, 3.88, 3.8889, 3.8978, 3.9067, 3.9156, 3.9244, 3.9333, 3.9422, 3.9511, 3.96, 3.9689, 3.9778, 3.9867, 3.9956, 3.9996, 4.0, 4.0089, 4.0178, 4.0267, 4.0356, 4.0444, 4.0533, 4.0622, 4.0711, 4.08, 4.0889, 4.0978, 4.1067, 4.1156, 4.1244, 4.1333, 4.1422, 4.1511, 4.16, 4.1689, 4.1778, 4.1867, 4.1956, 4.2044, 4.2133, 4.2222, 4.2311, 4.24, 4.2489, 4.2578, 4.2667, 4.2756, 4.2844, 4.2933, 4.3022, 4.3111, 4.32, 4.3289, 4.3378, 4.3467, 4.3556, 4.3644, 4.3733, 4.3822, 4.3911, 4.4, 4.4089, 4.4178, 4.4267, 4.4356, 4.4444, 4.4533, 4.4622, 4.4711, 4.48, 4.4889, 4.4978, 4.5067, 4.5156, 4.5244, 4.5333, 4.5422, 4.5511, 4.56, 4.5689, 4.5778, 4.5867, 4.5956, 4.6044, 4.6133, 4.6222, 4.6311, 4.64, 4.6489, 4.6578, 4.6667, 4.6756, 4.6844, 4.6933, 4.7022, 4.7111, 4.72, 4.7289, 4.7378, 4.7467, 4.7556, 4.7644, 4.7733, 4.7822, 4.7911, 4.8, 4.8089, 4.8178, 4.8267, 4.8356, 4.8444, 4.8533, 4.8622, 4.8711, 4.88, 4.8889, 4.8978, 4.9067, 4.9156, 4.9244, 4.9333, 4.9422, 4.9511, 4.96, 4.9689, 4.9778, 4.9867, 4.9956, 4.9996, 5.0, 5.0089, 5.0178, 5.0267, 5.0356, 5.0444, 5.0533, 5.0622, 5.0711, 5.08, 5.0889, 5.0978, 5.1067, 5.1156, 5.1244, 5.1333, 5.1422, 5.1511, 5.16, 5.1689, 5.1778, 5.1867, 5.1956, 5.2044, 5.2133, 5.2222, 5.2311, 5.24, 5.2489, 5.2578, 5.2667, 5.2756, 5.2844, 5.2933, 5.3022, 5.3111, 5.32, 5.3289, 5.3378, 5.3467, 5.3556, 5.3644, 5.3733, 5.3822, 5.3911, 5.4, 5.4089, 5.4178, 5.4267, 5.4356, 5.4444, 5.4533, 5.4622, 5.4711, 5.48, 5.4889, 5.4978, 5.5067, 5.5156, 5.5244, 5.5333, 5.5422, 5.5511, 5.56, 5.5689, 5.5778, 5.5867, 5.5956, 5.6044, 5.6133, 5.6222, 5.6311, 5.64, 5.6489, 5.6578, 5.6667, 5.6756, 5.6844, 5.6933, 5.7022, 5.7111, 5.72, 5.7289, 5.7378, 5.7467, 5.7556, 5.7644, 5.7733, 5.7822, 5.7911, 5.8, 5.8089, 5.8178, 5.8267, 5.8356, 5.8444, 5.8533, 5.8622, 5.8711, 5.88, 5.8889, 5.8978, 5.9067, 5.9156, 5.9244, 5.9333, 5.9422, 5.9511, 5.96, 5.9689, 5.9778, 5.9867, 5.9956, 5.9996, 6.0, 6.0089, 6.0178, 6.0267, 6.0356, 6.0444, 6.0533, 6.0622, 6.0711, 6.08, 6.0889, 6.0978, 6.1067, 6.1156, 6.1244, 6.1333, 6.1422, 6.1511, 6.16, 6.1689, 6.1778, 6.1867, 6.1956, 6.2044, 6.2133, 6.2222, 6.2311, 6.24, 6.2489, 6.2578, 6.2667, 6.2756, 6.2844, 6.2933, 6.3022, 6.3111, 6.32, 6.3289, 6.3378, 6.3467, 6.3556, 6.3644, 6.3733, 6.3822, 6.3911, 6.4, 6.4089, 6.4178, 6.4267, 6.4356, 6.4444, 6.4533, 6.4622, 6.4711, 6.48, 6.4889, 6.4978, 6.5067, 6.5156, 6.5244, 6.5333, 6.5422, 6.5511, 6.56, 6.5689, 6.5778, 6.5867, 6.5956, 6.6044, 6.6133, 6.6222, 6.6311, 6.64, 6.6489, 6.6578, 6.6667, 6.6756, 6.6844, 6.6933, 6.7022, 6.7111, 6.72, 6.7289, 6.7378, 6.7467, 6.7556, 6.7644, 6.7733, 6.7822, 6.7911, 6.8, 6.8089, 6.8178, 6.8267, 6.8356, 6.8444, 6.8533, 6.8622, 6.8711, 6.88, 6.8889, 6.8978, 6.9067, 6.9156, 6.9244, 6.9333, 6.9422, 6.9511, 6.96, 6.9689, 6.9778, 6.9867, 6.9956, 6.9996];
+var IT_Z=[0.0837, 0.0837, 0.0837, 0.0837, 0.0838, 0.0838, 0.0839, 0.0839, 0.084, 0.0841, 0.0845, 0.085, 0.0856, 0.0862, 0.0869, 0.0877, 0.0885, 0.0894, 0.0917, 0.0947, 0.0975, 0.1014, 0.1056, 0.1099, 0.1147, 0.1215, 0.1277, 0.1326, 0.1376, 0.1418, 0.1474, 0.1542, 0.1626, 0.1754, 0.1939, 0.2454, 0.3197, 0.4357, 0.629, 1.001, 1.889, 4.338, 11.8, 23.09, 28.51, 33.93, 39.54, 44.59, 46.16, 41.78, 31.84, 19.6, 28.8, 39.07, 45.59, 44.67, 38.84, 31.81, 28.19, 33.98, 40.85, 43.27, 39.18, 29.95, 22.25, 27.17, 34.51, 39.68, 40.63, 34.95, 27.74, 24.64, 29.42, 35.82, 39.84, 35.39, 27.71, 23.83, 27.41, 35.26, 41.67, 39.09, 28.88, 19.51, 24.93, 34.9, 42.37, 41.4, 31.37, 18.31, 17.83, 26.92, 36.76, 44.0, 40.81, 31.35, 24.26, 27.99, 36.5, 45.13, 44.86, 36.15, 25.15, 23.76, 31.98, 42.51, 47.44, 41.41, 27.35, 13.2, 17.54, 26.24, 34.47, 35.43, 33.88, 29.68, 21.1, 17.99, 23.2, 30.95, 36.16, 31.29, 21.99, 17.61, 21.87, 31.43, 37.59, 31.51, 17.55, 9.858, 12.76, 21.95, 46.9, 41.56, 20.77, 13.55, 13.52, 21.19, 32.2, 36.91, 27.09, 14.78, 12.18, 20.08, 46.37, 49.41, 23.63, 16.16, 13.9, 17.76, 26.94, 36.86, 34.38, 17.23, 9.26, 10.92, 18.96, 29.54, 41.53, 58.46, 79.19, 113.8, 160.8, 203.2, 259.6, 371.8, 505.6, 634.3, 815.3, 957.5, 1113.0, 1308.0, 1549.0, 1786.0, 1999.0, 2161.0, 2286.0, 2502.0, 2722.0, 3052.0, 3233.0, 3483.0, 3876.0, 4313.0, 4663.0, 4869.0, 5118.0, 5759.0, 6697.0, 7081.0, 7325.0, 7408.0, 7369.0, 6900.0, 6219.0, 6020.0, 5905.0, 5458.0, 5432.0, 5044.0, 5370.0, 5986.0, 6604.0, 7381.0, 7934.0, 8630.0, 9976.0, 11170.0, 12100.0, 12850.0, 12420.0, 11850.0, 11160.0, 10610.0, 11060.0, 10350.0, 9792.0, 10360.0, 10020.0, 9293.0, 9163.0, 9415.0, 9762.0, 8757.0, 8354.0, 7688.0, 6906.0, 6825.0, 6714.0, 6872.0, 7593.0, 8014.0, 8519.0, 8192.0, 7509.0, 6940.0, 5748.0, 4811.0, 4410.0, 3749.0, 2574.0, 1801.0, 1487.0, 1752.0, 2110.0, 2484.0, 2809.0, 3211.0, 3656.0, 4065.0, 4230.0, 4410.0, 4535.0, 4843.0, 5168.0, 5371.0, 5146.0, 5193.0, 5219.0, 5614.0, 5768.0, 6101.0, 6242.0, 6300.0, 6076.0, 5965.0, 5722.0, 5098.0, 4458.0, 4549.0, 4443.0, 4139.0, 3873.0, 3514.0, 1687.0, 1847.0, 2418.0, 3016.0, 3407.0, 4002.0, 4584.0, 5483.0, 6593.0, 7550.0, 7952.0, 8148.0, 8661.0, 9108.0, 9529.0, 10350.0, 10790.0, 12290.0, 13670.0, 14660.0, 15670.0, 16410.0, 16530.0, 15990.0, 16140.0, 17780.0, 18800.0, 18720.0, 20120.0, 21160.0, 22200.0, 21820.0, 20990.0, 22480.0, 23600.0, 24090.0, 24950.0, 23890.0, 22920.0, 23140.0, 21300.0, 20490.0, 21790.0, 21860.0, 22100.0, 22350.0, 18600.0, 16740.0, 12900.0, 11340.0, 14520.0, 16370.0, 15910.0, 15800.0, 15290.0, 13820.0, 9327.0, 11020.0, 9400.0, 11050.0, 11280.0, 10520.0, 11210.0, 6555.0, 10050.0, 10350.0, 9649.0, 9567.0, 9558.0, 9382.0, 8824.0, 1730.0, 52.16, 53.21, 854.1, 752.2, 1567.0, 2195.0, 2631.0, 2627.0, 1670.0, 1752.0, 877.2, 405.7, 578.8, 583.5, 7796.0, 9358.0, 10090.0, 10760.0, 11480.0, 12090.0, 14000.0, 41.1, 43.79, 371.5, 1329.0, 726.8, 455.4, 4182.0, 81.68, 1430.0, 88.1, 85.97, 1365.0, 1502.0, 1679.0, 1129.0, 1327.0, 1658.0, 1663.0, 853.6, 1718.0, 2536.0, 3399.0, 2637.0, 2225.0, 2668.0, 3303.0, 1392.0, 2547.0, 1490.0, 1666.0, 1430.0, 2310.0, 3125.0, 1527.0, 1889.0, 1371.0, 444.1, 67.51, 39.75, 151.3, 567.4, 28.94, 77.77, 917.1, 1192.0, 1215.0, 1567.0, 31.52, 503.4, 982.0, 1433.0, 1679.0, 1761.0, 1229.0, 334.9, 36.16, 176.3, 331.7, 70.18, 1279.0, 1560.0, 48.28, 738.1, 1949.0, 67.79, 123.8, 116.6, 144.2, 48.88, 584.2, 1279.0, 624.7, 76.16, 109.3, 139.4, 185.4, 446.5, 1361.0, 2686.0, 4126.0, 630.3, 808.0, 996.1, 1165.0, 1368.0, 1600.0, 1874.0, 2121.0, 2327.0, 2352.0, 2334.0, 1248.0, 243.5, 184.8, 624.3, 355.4, 959.8, 1543.0, 640.5, 333.8, 41.08, 531.0, 326.5, 326.9, 351.2, 140.3, 141.2, 49.66, 464.1, 681.9, 2795.0, 3615.0, 5146.0, 4328.0, 137.3, 159.0, 62.46, 40.82, 97.7, 28.02, 139.6, 847.5, 32.05, 658.7, 222.3, 71.49, 110.8, 65.86, 85.52, 96.89, 64.01, 174.5, 70.94, 144.8, 116.1, 289.5, 2160.0, 1525.0, 223.3, 179.0, 61.11, 86.29, 511.4, 3142.0, 5529.0, 45.8, 83.87, 524.1, 44.16, 63.9, 38.57, 75.49, 37.61, 1957.0, 48.76, 78.99, 948.4, 46.74, 94.24, 51.16, 72.14, 202.7, 78.22, 168.9, 69.73, 498.3, 118.1, 120.6, 140.2, 63.26, 143.4, 464.8, 30.46, 688.9, 45.7, 118.9, 367.7, 33.56, 244.2, 52.42, 66.7, 453.2, 58.43, 407.7, 42.03, 295.8, 51.77, 46.56, 702.4, 48.07, 700.2, 288.2, 574.6, 647.5, 131.6, 850.6, 56.76, 65.15, 304.1, 77.15, 390.2, 2093.0, 2093.0, 779.6, 849.6, 1085.0, 1325.0, 1256.0, 1114.0, 1394.0, 1488.0, 1374.0, 1059.0, 869.5, 599.3, 52.45, 415.4, 69.04, 128.0, 82.2, 33.69, 339.7, 84.72, 109.2, 773.2, 32.16, 135.2, 61.84, 38.07, 1180.0, 2394.0, 286.6, 483.9, 790.3, 752.7, 151.7, 43.83, 471.5, 187.9, 103.7, 468.7, 173.5, 163.0, 326.6, 56.89, 348.0, 1081.0, 171.9, 173.7, 35.66, 459.7, 44.35, 115.1, 205.3, 62.55, 167.4, 170.3, 72.05, 577.2, 41.02, 324.6, 50.95, 147.4, 167.7, 62.08, 898.1, 1798.0, 2831.0, 236.6, 148.0, 143.7, 585.2, 81.67, 169.1, 106.2, 89.29, 210.2, 68.49, 183.1, 48.71, 98.13, 91.42, 58.37, 460.0, 193.3, 73.06, 1789.0, 178.8, 152.3, 353.4, 189.8, 679.8, 186.0, 102.7, 291.1, 259.3, 214.7, 3573.0, 33.53, 435.2, 155.6, 50.29, 1719.0, 237.7, 340.4, 137.6, 37.33, 773.8, 59.39, 99.81, 781.5, 54.26, 1025.0, 43.2, 102.2, 541.8, 120.5, 48.45, 799.9, 116.9, 92.64, 308.8, 169.4, 302.8, 288.0, 702.7, 656.4, 235.2, 632.9, 40.36, 43.73, 591.6, 1831.0, 129.0, 976.3, 394.0, 85.83, 1080.0, 93.59, 53.99, 367.4, 149.6, 158.1, 1326.0, 173.9, 467.6, 41.17, 365.1, 907.8, 72.9, 259.1, 1061.0, 62.04, 232.8, 51.98, 181.0, 311.8, 51.62, 780.7, 6322.0, 47.01, 203.3, 397.8, 54.85, 402.9, 65.8, 902.6, 397.3, 37.95, 276.5, 40.7, 155.8, 100.1, 69.11, 380.7, 203.8, 53.52, 755.8, 44.62, 145.6, 224.8, 29.12, 612.3, 38.72, 118.2, 210.8, 37.89, 129.4, 44.24, 151.3, 107.8, 55.47, 135.3, 29.95, 298.7, 49.05, 55.09, 579.6, 37.24, 537.8, 59.61, 105.4, 271.9, 32.58, 610.9, 382.7, 69.54, 154.0, 42.41, 1047.0, 46.25, 301.8, 599.6, 74.28, 424.5, 192.1, 159.1, 657.5, 61.9, 407.1, 1009.0, 59.98, 606.3, 146.0, 43.88, 447.3, 43.15, 480.6, 1593.0, 52.01, 118.4];
+var IT_R=[0.074, 0.074, 0.0741, 0.0741, 0.0742, 0.0743, 0.0744, 0.0745, 0.0746, 0.0748, 0.075, 0.0752, 0.0755, 0.0757, 0.0758, 0.0763, 0.0766, 0.0771, 0.0777, 0.0782, 0.0795, 0.0805, 0.0819, 0.0834, 0.0847, 0.087, 0.0899, 0.0916, 0.0929, 0.0933, 0.0938, 0.0934, 0.094, 0.0942, 0.095, 0.0973, 0.0998, 0.1034, 0.1122, 0.134, 0.1733, 0.2303, 0.3567, 0.7665, 1.359, 2.228, 2.854, 3.166, 3.129, 2.494, 1.984, 1.24, 1.361, 2.031, 3.104, 3.188, 2.293, 1.537, 1.53, 1.677, 2.654, 3.152, 2.729, 2.025, 1.947, 1.962, 2.351, 2.783, 2.964, 2.831, 2.563, 2.553, 2.697, 3.274, 3.646, 3.72, 3.317, 3.166, 3.679, 4.088, 4.233, 4.144, 3.693, 3.163, 3.392, 4.333, 6.453, 6.789, 5.087, 3.076, 3.007, 3.36, 5.178, 6.755, 6.372, 4.293, 2.996, 2.987, 4.675, 6.437, 6.518, 4.636, 2.927, 2.941, 3.28, 5.154, 6.526, 5.86, 3.463, 3.151, 3.45, 4.661, 6.486, 6.782, 6.617, 5.743, 3.458, 2.357, 3.447, 4.749, 5.483, 4.655, 3.281, 2.487, 2.865, 4.979, 6.981, 6.612, 4.05, 3.021, 3.64, 6.215, 8.727, 9.12, 6.955, 4.545, 4.172, 5.502, 7.58, 8.56, 7.343, 5.23, 5.431, 7.078, 8.703, 9.99, 7.999, 6.595, 5.878, 6.078, 7.015, 8.015, 7.882, 4.391, 3.08, 4.152, 8.656, 14.63, 28.58, 45.73, 62.98, 95.04, 137.9, 159.2, 209.9, 306.0, 431.4, 557.4, 720.6, 837.2, 986.0, 1193.0, 1412.0, 1596.0, 1817.0, 1985.0, 2132.0, 2321.0, 2498.0, 2809.0, 3014.0, 3316.0, 3651.0, 4033.0, 4441.0, 4745.0, 4961.0, 5597.0, 6659.0, 7040.0, 7141.0, 7396.0, 7274.0, 6667.0, 6230.0, 6009.0, 5867.0, 5372.0, 4987.0, 4410.0, 4845.0, 5750.0, 6253.0, 6710.0, 7030.0, 7523.0, 8711.0, 9848.0, 10720.0, 11200.0, 10930.0, 10480.0, 10300.0, 10150.0, 10450.0, 10090.0, 9537.0, 10020.0, 9684.0, 8920.0, 8847.0, 9079.0, 9407.0, 8365.0, 7799.0, 7244.0, 6836.0, 6767.0, 6687.0, 6847.0, 7579.0, 7950.0, 8488.0, 8154.0, 7476.0, 6368.0, 5192.0, 4149.0, 3844.0, 2894.0, 5.64, 5.759, 17.91, 19.24, 22.8, 2245.0, 2021.0, 44.65, 14.17, 19.71, 14.79, 12.6, 16.74, 10.9, 11.14, 13.04, 16.43, 10.45, 204.7, 2403.0, 21.53, 17.12, 16.12, 19.2, 18.08, 3725.0, 4055.0, 17.61, 19.71, 19.69, 12.42, 24.36, 1884.0, 1953.0, 22.57, 28.45, 618.2, 26.77, 963.4, 1166.0, 4455.0, 5414.0, 6511.0, 7474.0, 7875.0, 8066.0, 8589.0, 8975.0, 9304.0, 10160.0, 10660.0, 12180.0, 13550.0, 14550.0, 15600.0, 16310.0, 16420.0, 15920.0, 16120.0, 17740.0, 18780.0, 18660.0, 19500.0, 19410.0, 19900.0, 19470.0, 18120.0, 19700.0, 20420.0, 20250.0, 6.381, 6.093, 5.384, 6.702, 9843.0, 8460.0, 12340.0, 10850.0, 9795.0, 9174.0, 27.63, 5792.0, 8845.0, 7491.0, 5789.0, 3802.0, 3326.0, 7052.0, 15230.0, 13370.0, 11150.0, 10880.0, 9214.0, 10330.0, 9952.0, 10450.0, 10970.0, 12.13, 32.25, 12.91, 19.29, 41.22, 21.68, 34.93, 46.98, 43.4, 40.84, 46.4, 39.16, 66.99, 41.57, 42.25, 40.82, 42.99, 39.64, 34.34, 23.76, 28.25, 31.28, 24.5, 70.39, 8150.0, 7275.0, 5930.0, 3069.0, 861.6, 39.6, 41.62, 44.05, 44.81, 44.62, 42.25, 41.94, 46.01, 42.94, 66.76, 29.76, 45.82, 26.5, 27.02, 39.83, 29.0, 64.58, 279.5, 37.99, 64.25, 37.1, 22.68, 149.1, 25.71, 52.92, 790.1, 24.54, 65.33, 22.41, 24.3, 26.69, 30.02, 260.3, 35.19, 33.08, 788.6, 62.26, 103.3, 31.66, 12.56, 108.4, 313.9, 10.16, 58.63, 487.9, 27.6, 1072.0, 174.3, 18.5, 99.23, 34.62, 27.12, 61.06, 26.54, 39.27, 63.5, 51.32, 54.14, 59.79, 31.95, 103.3, 98.33, 34.36, 42.02, 17.3, 33.91, 27.91, 44.3, 85.95, 46.83, 74.37, 16.71, 14.59, 40.85, 18.84, 21.91, 15.6, 29.06, 62.18, 18.36, 21.37, 18.48, 40.86, 19.26, 55.18, 24.57, 22.18, 26.49, 25.8, 51.1, 15.16, 45.21, 45.81, 35.23, 18.64, 30.68, 33.27, 27.57, 109.6, 25.73, 43.27, 18.92, 146.7, 26.68, 168.2, 40.71, 17.17, 66.36, 15.85, 90.25, 25.48, 21.4, 40.94, 17.77, 73.43, 53.49, 135.5, 22.72, 17.83, 88.78, 17.59, 101.5, 1176.0, 12.14, 282.1, 16.34, 38.11, 33.51, 20.7, 53.42, 24.83, 27.82, 39.43, 16.06, 42.76, 21.8, 104.9, 39.44, 23.4, 79.72, 59.87, 30.87, 40.92, 27.01, 44.46, 34.29, 25.85, 35.43, 24.95, 30.1, 22.29, 31.22, 36.72, 18.41, 1271.0, 20.03, 31.37, 136.3, 16.87, 82.88, 28.53, 42.75, 30.1, 49.4, 57.9, 18.09, 62.25, 22.77, 31.62, 59.15, 18.94, 54.27, 43.89, 24.29, 135.3, 16.91, 27.08, 99.57, 13.9, 132.4, 26.51, 27.94, 33.73, 35.68, 33.8, 20.36, 79.62, 32.79, 36.47, 337.4, 42.09, 65.77, 121.5, 82.66, 36.27, 42.92, 139.1, 22.68, 37.29, 52.19, 25.14, 218.6, 10.56, 10.43, 14.14, 41.57, 39.11, 53.93, 28.99, 39.56, 23.27, 43.12, 175.3, 21.95, 51.51, 53.97, 17.44, 499.7, 36.05, 141.6, 30.41, 17.37, 118.9, 18.07, 48.35, 42.25, 15.29, 92.15, 32.22, 17.43, 121.8, 23.23, 46.41, 67.07, 36.88, 25.12, 44.34, 19.59, 46.89, 36.67, 31.14, 43.83, 23.65, 40.48, 35.27, 21.75, 111.4, 17.53, 59.36, 37.34, 19.39, 131.7, 19.73, 94.4, 69.41, 20.66, 170.7, 59.88, 23.1, 322.2, 24.41, 54.32, 36.02, 49.71, 44.72, 20.6, 512.8, 1334.0, 1588.0, 58.46, 25.8, 80.28, 105.3, 20.46, 43.77, 21.95, 58.05, 37.62, 21.1, 101.1, 22.51, 33.39, 33.81, 20.69, 78.72, 21.82, 18.09, 1217.0, 17.0, 32.56, 175.7, 27.36, 253.5, 116.3, 15.47, 168.2, 33.46, 38.29, 777.0, 20.73, 367.0, 46.65, 19.22, 176.6, 18.17, 145.7, 47.88, 22.84, 746.0, 37.53, 74.39, 50.92, 36.5, 323.2, 24.86, 61.12, 309.2, 44.48, 16.72, 74.98, 31.24, 32.36, 71.59, 76.61, 80.89, 29.41, 26.73, 246.5, 23.31, 339.6, 25.16, 31.89, 553.9, 1350.0, 24.3, 184.6, 32.74, 31.49, 562.8, 31.1, 33.64, 172.8, 223.7, 381.0, 1194.0, 39.69, 103.8, 24.27, 43.23, 37.32, 28.41, 128.6, 722.5, 28.53, 58.68, 16.1, 103.2, 41.4, 28.97, 191.9, 4729.0, 14.88, 62.88, 30.66, 31.53, 81.8, 31.82, 60.37, 115.9, 19.46, 71.78, 26.73, 114.2, 132.3, 171.2, 95.03, 30.27, 21.87, 160.1, 20.32, 109.3, 69.38, 17.49, 255.3, 25.67, 47.31, 251.5, 22.61, 108.9, 17.04, 38.56, 23.61, 22.31, 48.66, 22.73, 283.9, 34.8, 55.51, 324.3, 19.47, 457.4, 22.98, 38.59, 104.9, 16.19, 102.0, 16.33, 29.95, 59.05, 19.63, 789.8, 19.2, 150.5, 53.03, 18.04, 249.8, 19.59, 67.74, 505.8, 26.11, 144.9, 49.31, 21.35, 454.0, 21.05, 19.54, 107.8, 24.66, 373.0, 127.6, 23.39, 58.52];
+const LAD={"REG_31_K": [[0, 0], [0.32, 0.0], [0.55, 0.0], [0.82, 0.08]], "REG_31_N": [[0, 0], [0.32, 0.0], [0.55, 0.0], [0.82, 0.0]], "REG_44_K": [[0, 0], [0.32, 0.0], [0.55, 0.08], [0.82, 0.08]], "REG_44_N": [[0, 0], [0.32, 0.0], [0.55, 0.1], [0.82, 0.2]], "NB_31_K": [[0, 0], [0.32, 10.16], [0.55, 26.23], [0.82, 49.51]], "NB_31_N": [[0, 0], [0.32, 12.8], [0.55, 31.75], [0.82, 57.35]], "P8_31_K": [[0, 0], [0.32, 14.83], [0.55, 38.4], [0.82, 71.86]], "P8_31_N": [[0, 0], [0.32, 20.34], [0.55, 49.15], [0.82, 87.57]]};
+
+/* ---------- arms: colour, end-of-line tag, legend label ---------- */
+const COL={REG:'--s2',NB:'--s5',P8:'--s6'};
+const NAME={REG:'reg',NB:'no reg',P8:'pool 8192'};
+const LBL={REG:'4 registers · raw z · sigreg 0.02 · warmup 0 · pool 24576',
+  NB:'twin, no registers · pool 24576',
+  P8:'pool-8192 twin, no registers · reference'};
+const FAINT=['P8'];
+document.querySelectorAll('.legend[data-arms]').forEach(el=>el.insertAdjacentHTML('afterbegin',
+  el.dataset.arms.split(',').map(a=>`<span><i class="sw" style="border-color:var(${COL[a]});opacity:${FAINT.includes(a)?.5:1}"></i>${LBL[a]}</span>`).join('')));
+
+/* x0/x1 clip the epoch window; faint arms draw at half opacity with no tag; hline = dashed constant. */
+function panel(id,pre,o){
+  const arms=o.arms, x0=o.x0||0, x1=o.x1||44;
+  const series=arms.map(a=>{
+    const v=window[pre+'_'+a]; if(!v) return null;
+    const d=v.slice(x0,x1+1); if(!d.length) return null;
+    return {data:d,color:COL[a],faint:FAINT.includes(a),tag:FAINT.includes(a)?null:NAME[a]};
+  }).filter(Boolean);
+  if(o.hline!==undefined) series.push({data:Array(x1-x0+1).fill(o.hline),color:'--ink2',dash:'5 4',width:1.2});
+  lineChart(document.getElementById(id),Object.assign({
+    W:o.W||560,H:o.H||196,xmin:x0,xmax:x1,xticks:o.xticks||[0,11,22,33,44],vlines:o.vlines,
+    log:o.log!==false,series,fmt:o.fmt||(t=>''+(+t.toPrecision(3)))
+  },{ymin:o.ymin,ymax:o.ymax,yticks:o.yticks}));
+}
+const ARMS=['P8','NB','REG'];
+const RANK={ymin:0.8,ymax:500,yticks:[1,3,10,30,100,300],fmt:t=>''+t};
+const BIG=t=>t>=1e3?(t/1e3)+'k':''+t;
+const SCALE={ymin:.3,ymax:5e5,yticks:[1,10,100,1000,10000,100000],fmt:BIG};
+
+/* ---- 1 · hero ---- */
+panel('chHero','TRMS',Object.assign({arms:ARMS,W:560,H:400},SCALE));
+
+/* ---- 3 · the sink ---- */
+lineChart(document.getElementById('p31'),{W:560,H:196,xmin:0,xmax:7,xticks:[0,1,2,3,4,5,6,7],log:true,
+  ymin:.05,ymax:3e4,yticks:[0.1,1,10,100,1000,10000],fmt:BIG,series:[
+  {data:IT_X.map(()=>50),xs:IT_X,color:'--ink2',dash:'5 4',width:1.2},
+  {data:IT_Z,xs:IT_X,color:'--s2',width:1.3},{data:IT_R,xs:IT_X,color:'--s7',width:1.3}]});
+lineChart(document.getElementById('p32'),{W:560,H:196,xmin:0,xmax:44,xticks:[0,11,22,33,44],log:true,
+  ymin:1,ymax:3e4,yticks:[1,10,100,1000,10000],fmt:BIG,series:[
+  {data:Array(45).fill(50),color:'--ink2',dash:'5 4',width:1.2},
+  {data:ZRM_REG,color:'--s2',tag:'delta'},{data:REGM_REG,color:'--s7',tag:'reg'}]});
+panel('p33','TRMS',Object.assign({arms:ARMS,x1:10,xticks:[0,2,4,6,8,10]},SCALE));
+panel('p34','SIG',{arms:ARMS,ymin:.001,ymax:1,yticks:[0.001,0.01,0.1,1]});
+
+/* ---- 4 · the code ---- */
+panel('p41','RK_K',Object.assign({arms:ARMS},RANK));
+panel('p42','RK_N',Object.assign({arms:ARMS},RANK));
+panel('p43','ERMS_K',Object.assign({arms:ARMS},SCALE));
+panel('p44','ERMS_N',Object.assign({arms:ARMS},SCALE));
+
+/* ---- 5 · does it train ---- */
+const G6={arms:ARMS,W:420,H:190};
+panel('p51','LR_K',Object.assign({},G6,{ymin:.024,ymax:.15,yticks:[0.025,0.05,0.1,0.14]}));
+panel('p54','LR_N',Object.assign({},G6,{ymin:.016,ymax:.11,yticks:[0.017,0.035,0.07,0.1]}));
+panel('p52','DPO_K',Object.assign({},G6,{ymin:.2,ymax:4.5,yticks:[0.25,0.5,1,2,4]}));
+panel('p55','DPO_N',Object.assign({},G6,{ymin:.2,ymax:4.5,yticks:[0.25,0.5,1,2,4]}));
+const ladder=(id,s)=>xyChart(document.getElementById(id),{W:420,H:190,xmin:0,xmax:0.9,xticks:[0,0.32,0.55,0.82],
+  ymin:-5,ymax:95,yticks:[0,30,60,90],xlab:'σ (absolute, added to z)',series:[
+  {pts:LAD['P8_31_'+s],color:'--s6',tag:'pool 8192'},{pts:LAD['NB_31_'+s],color:'--s5',tag:'no reg'},
+  {pts:LAD['REG_31_'+s],color:'--s2',tag:'reg'}]});
+ladder('p53','K'); ladder('p56','N');
+</script>
+</body>
+</html>

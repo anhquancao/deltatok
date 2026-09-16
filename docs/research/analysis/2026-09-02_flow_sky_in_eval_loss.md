@@ -1,6 +1,6 @@
 # Sky in the flow eval loss
 
-Created 2026-09-02 · thread `flow` · stage `analysis` · answers roadmap TODO 9 · code reading only, nothing measured
+Created 2026-09-02 · thread `flow` · stage `analysis` · answers roadmap QUESTION 9 · code reading only, nothing measured
 
 ## Answer
 
@@ -60,5 +60,5 @@ delta tokens and scored on doing so; it is only the decoded-geometry readout tha
   518×266, so `sum(mask)` almost certainly differs several-fold between the two eval sets. Cross-dataset loss
   comparisons are averages over very different pixel counts. Worth logging `mask.mean()` alongside the losses.
 - **Whether that is the eval protocol the paper wants.** Depth forecast scored only on LiDAR hits under 50 m is a
-  defensible protocol, but it must be stated, and it interacts with the FVD plan (TODO 10), which would score the
+  defensible protocol, but it must be stated, and it interacts with the FVD plan (QUESTION 10), which would score the
   full frame including sky.

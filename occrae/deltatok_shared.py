@@ -502,10 +502,10 @@ class DeltaTokSharedMixin:
             target_channels=int(deltatok_cfg.get("target_channels", 0)),
             bottleneck_mlp=bool(deltatok_cfg.get("bottleneck_mlp", False)),
             force_bottleneck=bool(deltatok_cfg.get("force_bottleneck", False)),
-            num_registers=int(deltatok_cfg.get("num_registers", 0)),
+            z_row_clip=float(deltatok_cfg.get("z_row_clip", 0.0)),
         )
         if self.is_master:
-            print(f"[INFO] DeltaTok num_registers={net.num_registers}", flush=True)  # stale trainer prints 0
+            print(f"[INFO] DeltaTok z_row_clip={net.z_row_clip}", flush=True)
         return net
 
     def _build_occ_rae(self):

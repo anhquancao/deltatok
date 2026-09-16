@@ -67,7 +67,7 @@ model:
     target_channels: 0  # z channel bottleneck (0 = off; e.g. 768 projects z 1536->768 at encode, back at decode)
     bottleneck_mlp: false  # bottleneck only: 2-layer SiLU MLP down/up instead of single Linear (beats linear-768 variance cap)
     force_bottleneck: true  # LN+Linear on z even at target_channels == hidden_size; false = raw z
-    num_registers: 0  # extra encoder/decoder slots never read as z: a free home for the attention sink
+    z_row_clip: 0.0  # cap on per-row RMS of z at encode, straight-through; 0 = off
     use_delta: true
     use_swiglu: true
     use_qk_norm: true
@@ -142,6 +142,7 @@ training:
   eval_z_spread: true
   eval_noise_sigmas: []  # eval decodes z + σ·N(0,I) per σ, logged as LossRecon_noise<σ>
   seed: 0
+  init_seed: -1  # >=0 seeds torch (init_seed + rank) at trainer init; -1 = torch default
   eval_num_items: 256
   eval_num_visualizations: 8
   sanity_check_num_items: 2

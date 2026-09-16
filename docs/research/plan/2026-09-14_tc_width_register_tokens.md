@@ -162,4 +162,4 @@ Replace line 485 `return DeltaTokModule(` with `net = DeltaTokModule(`, and afte
    `reg_max` in the hundreds and `zrow_max` under ~50; the control had slot 44 at 2000–7000. Eval `ZPartRank`
    should then read the non-tail rank (~250) from ep 1, not 1.0. At ep 10 the `BSC:45857234` probe on the new
    ckpt: no single channel with layer_scale2 max above ~0.3 in every encoder block.
-7. `todos.json` status board: add the queued arm; ledger row; rebuild the index.
+7. `questions.json` status board: add the queued arm; ledger row; rebuild the index.

@@ -2,7 +2,7 @@
 
 Created 2026-09-02 · thread `sigreg` · prior cycle: `2026-09-02_sigreg_sum_at_weight_0.02.md`
 · arm: `..._sigreg0.02_ns1024_pool8192_compose1.0_cov3e-5` · control: BSC:45296347 (same recipe, `cov_weight=0`)
-· jobs: BSC:45416718 · deck: [`../results/2026-09-06_sigreg_cov_penalty_tc512_slides.html`](../results/2026-09-06_sigreg_cov_penalty_tc512_slides.html) · TODO 6
+· jobs: BSC:45416718 · deck: [`../results/2026-09-06_sigreg_cov_penalty_tc512_slides.html`](../results/2026-09-06_sigreg_cov_penalty_tc512_slides.html) · QUESTION 6
 · twin read: `../results/2026-09-04_tc_width_tc512_sigreg_weight_axis_slides.html`
 
 ## 1 Hypothesis

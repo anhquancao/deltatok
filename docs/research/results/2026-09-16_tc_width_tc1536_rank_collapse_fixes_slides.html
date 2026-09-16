@@ -1,0 +1,552 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>DeltaTok — fixing the rank-1 tc1536 code</title>
+<style>
+/* ---------- tokens · light only, white slides (no dark variant by request) ---------- */
+:root{
+  color-scheme: light only;
+  --backdrop:#e9e9e6; --page:#f7f7f6; --surface:#ffffff;
+  --ink:#0b0b0b; --ink2:#52514e; --muted:#83817c;
+  --grid:#e4e4de; --axis:#c3c2b7; --border:rgba(11,11,11,.12);
+  --s1:#2a78d6; --s2:#eb6834; --s3:#1baf7a; --s4:#eda100; --s5:#8a63c8; --s6:#c2407a; --s7:#0f8b8d; --s8:#8c6d46;
+  --good:#0ca30c; --crit:#d03b3b; --serious:#ec835a;
+  --accent:var(--s1);
+  --serif:"Iowan Old Style","Palatino Linotype",Palatino,Georgia,serif;
+  --sans:system-ui,-apple-system,"Segoe UI",sans-serif;
+  --mono:ui-monospace,"Cascadia Code",Menlo,Consolas,monospace;
+}
+/* ---------- deck chrome ---------- */
+*{box-sizing:border-box;margin:0}
+html,body{height:100%}
+body{background:var(--backdrop);color:var(--ink);font:15px/1.45 var(--sans);overflow:hidden}
+.stage{position:absolute;left:50%;top:50%;width:1280px;height:720px;transform-origin:center center}
+.slide{position:absolute;inset:0;background:var(--surface);border:1px solid var(--border);
+  padding:46px 60px 40px;display:none;flex-direction:column}
+.slide.on{display:flex}
+.eyebrow{font:600 12px/1 var(--mono);letter-spacing:.14em;text-transform:uppercase;color:var(--accent);margin-bottom:12px}
+.eyebrow .dim{color:var(--muted)}
+h1{font:400 42px/1.14 var(--serif);letter-spacing:-.01em;text-wrap:balance}
+h2{font:400 29px/1.2 var(--serif);letter-spacing:-.005em;text-wrap:balance;margin-bottom:4px}
+.sub{color:var(--ink2);font-size:14.5px;max-width:80ch;margin-top:9px}
+.body{flex:1;min-height:0;margin-top:16px}
+.foot{display:flex;justify-content:space-between;align-items:baseline;color:var(--muted);
+  font:11px/1 var(--mono);letter-spacing:.06em;margin-top:12px;border-top:1px solid var(--grid);padding-top:10px}
+.pageno{font-variant-numeric:tabular-nums}
+/* nav */
+.nav{position:fixed;left:50%;bottom:14px;transform:translateX(-50%);display:flex;gap:8px;align-items:center;z-index:5}
+.nav button{width:9px;height:9px;border-radius:50%;border:1px solid var(--muted);background:transparent;cursor:pointer;padding:0}
+.nav button.cur{background:var(--accent);border-color:var(--accent)}
+.nav button:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+.arr{position:fixed;top:50%;transform:translateY(-50%);z-index:5;border:1px solid var(--border);
+  background:var(--surface);color:var(--ink2);width:34px;height:56px;cursor:pointer;font-size:18px;border-radius:4px}
+.arr:hover{color:var(--ink)}
+#prev{left:10px}#next{right:10px}
+/* ---------- shared bits ---------- */
+.mono{font-family:var(--mono)}
+.num{font-variant-numeric:tabular-nums}
+.chip{display:inline-block;font:600 10.5px/1 var(--mono);letter-spacing:.05em;padding:4px 7px;border-radius:3px;
+  border:1px solid var(--border);white-space:nowrap}
+.chip.good{color:var(--good);border-color:currentColor}
+.chip.bad{color:var(--crit);border-color:currentColor}
+.chip.hero{color:var(--accent);border-color:currentColor}
+.sw{display:inline-block;width:14px;height:0;border-top-width:3px;border-top-style:solid;vertical-align:4px}
+.cols{display:grid;gap:24px;min-height:0}
+.c2{grid-template-columns:1fr 1fr}
+.c58{grid-template-columns:1.32fr 1fr}
+.c85{grid-template-columns:1fr 1.28fr}
+.card{border:1px solid var(--grid);border-radius:6px;padding:14px 16px;background:var(--page)}
+.card h3{font:600 14px/1.3 var(--sans);margin:6px 0}
+.card .tag{font:600 10px/1 var(--mono);letter-spacing:.1em;text-transform:uppercase;color:var(--muted)}
+ul.tight{padding-left:18px;display:flex;flex-direction:column;gap:8px;font-size:13.5px;color:var(--ink2)}
+ul.tight li{padding-left:2px}
+ul.tight strong{color:var(--ink);font-weight:600}
+/* stat tiles */
+.tiles{display:grid;gap:12px}
+.tile{border:1px solid var(--grid);border-radius:6px;padding:12px 14px;background:var(--page)}
+.tile .v{font:600 25px/1.1 var(--sans);letter-spacing:-.01em;font-variant-numeric:tabular-nums}
+.tile .k{font:600 10px/1.4 var(--mono);letter-spacing:.1em;text-transform:uppercase;color:var(--muted);margin-bottom:5px}
+.tile .d{font-size:12.5px;color:var(--ink2);margin-top:5px}
+.rulebar{border:1px dashed var(--axis);border-radius:6px;padding:11px 15px;font-size:13.5px;color:var(--ink2)}
+.rulebar b{color:var(--ink)}
+/* tables */
+table{border-collapse:collapse;width:100%;font-size:13px;font-variant-numeric:tabular-nums}
+th,td{text-align:right;padding:5px 8px;border-bottom:1px solid var(--grid)}
+th:first-child,td:first-child{text-align:left}
+thead th{font:600 10px/1.3 var(--mono);letter-spacing:.08em;text-transform:uppercase;color:var(--muted);border-bottom:1px solid var(--axis)}
+tbody tr.hi td{background:#fff6f2}
+td.w{color:var(--crit);font-weight:600}
+td.g{color:var(--good);font-weight:600}
+/* charts */
+.legend{display:flex;flex-wrap:wrap;gap:7px 28px;font:12px/1 var(--sans);color:var(--ink2);margin-bottom:4px}
+.legend span{display:inline-flex;gap:7px;align-items:center}
+svg text{font:10.5px var(--sans);fill:var(--muted)}
+svg .axl{font:9.5px var(--mono);fill:var(--muted)}
+svg .hll{font:600 9.5px var(--mono)}
+svg .barlbl{font:600 12px var(--sans);fill:var(--ink)}
+svg .barval{font:11px var(--mono);fill:var(--ink2)}
+.chartwrap{display:flex;flex-direction:column;height:100%;min-height:0}
+.chartwrap svg{flex:1;min-height:0}
+.ptitle{font:600 12px/1.2 var(--mono);color:var(--ink2);letter-spacing:.02em;margin-bottom:2px}
+.ptitle span{color:var(--muted);font-weight:400}
+.takeaway{border:1px solid var(--grid);border-radius:6px;padding:12px 15px;background:var(--page);display:flex;gap:12px;align-items:flex-start}
+.takeaway .n{font:600 22px/1 var(--serif);color:var(--accent);flex:0 0 auto;width:24px}
+.takeaway .tx{font-size:13.5px;color:var(--ink2)}
+.takeaway .tx b{color:var(--ink)}
+@media (prefers-reduced-motion: no-preference){
+  .slide.on{animation:fadein .18s ease}
+  @keyframes fadein{from{opacity:.4}to{opacity:1}}
+}
+@media print{
+  body{overflow:visible;background:#fff}
+  .stage{position:static;transform:none!important;width:auto;height:auto}
+  .slide{display:flex;position:static;width:1280px;height:720px;page-break-after:always;margin:0 auto}
+  .nav,.arr{display:none}
+}
+/* ---------- small-multiple panel grids (this deck) ---------- */
+.g2{display:grid;grid-template-columns:1fr 1fr;gap:6px 22px;height:100%}
+.g2,.g4,.g6{padding-bottom:7px}
+.g4{display:grid;grid-template-columns:1fr 1fr;grid-template-rows:1fr 1fr;gap:8px 22px;height:100%}
+.g6{display:grid;grid-template-columns:repeat(3,1fr);grid-template-rows:1fr 1fr;gap:8px 16px;height:100%}
+.g8{display:grid;grid-template-columns:repeat(4,1fr);grid-template-rows:1fr 1fr;gap:8px 14px;height:100%}
+.pan{display:flex;flex-direction:column;min-height:0;min-width:0}
+.pan .plot{flex:1;min-height:0}
+.chartwrap svg,.pan .plot svg{display:block}
+.dsl{font:600 10px/1 var(--mono);letter-spacing:.09em;text-transform:uppercase;color:var(--accent)}
+.legend.top{margin:2px 0 12px}
+svg .pt{font:600 9px var(--mono)}
+.body:has(>.legend.top){display:flex;flex-direction:column}
+.body:has(>.legend.top)>.g4,.body:has(>.legend.top)>.g6,.body:has(>.legend.top)>.cols{height:auto;flex:1;min-height:0}
+</style>
+</head>
+
+<body>
+<div class="stage" id="stage">
+
+<!-- ============ 1 — verdict ============ -->
+<section class="slide on">
+  <div class="eyebrow">DeltaTok tokenizer <span class="dim">— tc1536 · 64 delta slots · the rank-1 code · BSC, one seed per arm</span></div>
+  <h1 style="font-size:32px">Two fixes stop the encoder collapsing the tc1536 code to rank 1: <span style="color:var(--good)">a 3× SIGReg pool</span>, or <span style="color:var(--good)">a LayerNorm bottleneck with SIGReg warmup</span>. <span style="color:var(--crit)">Register slots fail.</span></h1>
+  <p class="sub">At tc1536 the last encoder residual becomes z with nothing normalising it. One delta slot turns into an attention sink, and <span class="mono">ZPartRank</span> drops to 1.0. Each table row tries one fix against it.</p>
+  <div class="body">
+    <div class="cols" style="grid-template-columns:1fr 1.18fr;height:100%">
+      <div class="chartwrap">
+        <div class="ptitle">EVAL ZPartRank · KITTI <span>· dims of 1536 · log</span></div>
+        <div id="chHero" style="flex:1;min-height:0"></div>
+      </div>
+      <div style="display:flex;flex-direction:column;justify-content:center;min-height:0">
+        <table style="font-size:12px">
+          <thead><tr><th>fix</th><th>sigreg</th><th>warmup</th><th>pool</th><th>rank</th><th>LossRecon</th><th></th></tr></thead>
+          <tbody>
+            <tr><td style="white-space:nowrap"><span class="sw" style="border-color:var(--s6)"></span> none · raw z</td><td>0.02</td><td>0</td><td>8192</td><td>1.0</td><td>0.0263</td><td><span class="chip bad">rank 1</span></td></tr>
+            <tr><td style="white-space:nowrap"><span class="sw" style="border-color:var(--s8)"></span> SIGReg weight ×3</td><td>0.06</td><td>2000</td><td>8192</td><td>1.0</td><td>0.0296</td><td><span class="chip bad">fails</span></td></tr>
+            <tr class="hi"><td style="white-space:nowrap"><span class="sw" style="border-color:var(--s5)"></span> <b>SIGReg pool ×3</b></td><td>0.02</td><td>0</td><td>24576</td><td><b>245</b></td><td>0.0305</td><td><span class="chip good">works</span></td></tr>
+            <tr><td style="white-space:nowrap"><span class="sw" style="border-color:var(--s2)"></span> + 4 register slots</td><td>0.02</td><td>0</td><td>24576</td><td>1.0</td><td class="w">0.1317</td><td><span class="chip bad">stalls</span></td></tr>
+            <tr><td style="white-space:nowrap"><span class="sw" style="border-color:var(--s7)"></span> LN bottleneck</td><td>0.02</td><td>0</td><td>24576</td><td>18.6<sup>13</sup></td><td class="w">0.1293<sup>13</sup></td><td><span class="chip bad">stalls</span></td></tr>
+            <tr class="hi"><td style="white-space:nowrap"><span class="sw" style="border-color:var(--s1)"></span> <b>LN bottleneck</b></td><td>0.02</td><td><b>2000</b></td><td>24576</td><td><b>63</b></td><td>0.0700</td><td><span class="chip good">works</span></td></tr>
+          </tbody>
+        </table>
+        <div class="rulebar" style="margin-top:12px">Rank and KITTI <span class="mono">LossRecon</span> at ep 31 (superscript = the arm's last epoch, 13). The unfixed arm has the <b>best</b> recon: rank 1 is a shape problem, not a loss problem. The pool costs +16%; the bottleneck costs 2.7×.</div>
+      </div>
+    </div>
+  </div>
+  <div class="foot"><span>jobs 45725881 · 45610897 · 45727710 · 45861170 (running) · 45831175 · 45863086 (running) · both eval sets held out</span><span class="pageno">01 / 08</span></div>
+</section>
+
+<!-- ============ 2 — the problem ============ -->
+<section class="slide">
+  <div class="eyebrow">the problem <span class="dim">— ZPartRank 1.0 on the raw tc1536 code</span></div>
+  <h2>Three of seven raw-z SIGReg arms collapse to rank 1 and never recover. Onset does not predict which.</h2>
+  <p class="sub">At tc1536 no bottleneck is built, so z is the encoder's raw residual. Six of the seven blew up in scale at ep 0–3. Three recovered by ep 4–6, three stayed at rank ~1, and one never blew up.</p>
+  <div class="body">
+    <div class="cols" style="grid-template-columns:1.35fr 1fr;height:100%">
+      <div style="display:flex;flex-direction:column;min-height:0">
+        <table style="font-size:12px">
+          <thead><tr><th>job</th><th>sigreg</th><th>warmup</th><th>pool</th><th>compose</th><th>τ</th><th>outcome</th><th>last PR / RMS</th></tr></thead>
+          <tbody>
+            <tr><td class="mono">44465440</td><td>0.01</td><td>2000</td><td>8192</td><td>off</td><td>off</td><td class="w">stuck, never trained</td><td>1.1 / 5.8e9</td></tr>
+            <tr><td class="mono" style="white-space:nowrap"><span class="sw" style="border-color:var(--s8)"></span> 45610897</td><td>0.06</td><td>2000</td><td>8192</td><td>1.0</td><td>0.8</td><td class="w">stuck</td><td>1.0 / 442</td></tr>
+            <tr><td class="mono" style="white-space:nowrap"><span class="sw" style="border-color:var(--s6)"></span> 45725881</td><td>0.02</td><td>0</td><td>8192</td><td>1.0</td><td>0.8</td><td class="w">stuck</td><td>1.0 / 872</td></tr>
+            <tr><td class="mono">44590128</td><td>0.005</td><td>2000</td><td>8192</td><td>1.0</td><td>off</td><td class="g">recovered ep 4</td><td>163 / 1.25</td></tr>
+            <tr><td class="mono">44465441</td><td>0.02</td><td>2000</td><td>8192</td><td>off</td><td>off</td><td class="g">recovered ep 5</td><td>283 / 1.07</td></tr>
+            <tr><td class="mono" style="white-space:nowrap"><span class="sw" style="border-color:var(--s5)"></span> 45727710</td><td>0.02</td><td>0</td><td>24576</td><td>1.0</td><td>0.8</td><td class="g">recovered ep 6</td><td>245 / 1.34</td></tr>
+            <tr><td class="mono">44465439</td><td>0.005</td><td>2000</td><td>8192</td><td>off</td><td>off</td><td>never blew up</td><td>183 / 1.00</td></tr>
+          </tbody>
+        </table>
+        <div class="rulebar" style="margin-top:12px">All seven: tc1536, K 64, <span class="mono">z_norm=false</span>, lr 1e-3, clip 0.1, effective batch 16, 3072 slices. τ = decoder noise, detached. PR = eval <span class="mono">ZPartRank</span>, RMS = <span class="mono">ZRowMeanSquare</span>, both KITTI at the last epoch.</div>
+        <div class="rulebar" style="margin-top:10px">At pool 8192, warmup 2000, no compose and no decoder noise, weight 0.005 / 0.01 / 0.02 gives never / stuck / recovered. The knobs do not line up with the outcome.</div>
+      </div>
+      <div class="g2" style="grid-template-columns:1fr;grid-template-rows:1fr 1fr">
+        <div class="pan"><div class="ptitle">EVAL ZPartRank · KITTI <span>· log</span></div><div class="plot" id="p21"></div></div>
+        <div class="pan"><div class="ptitle">TRAIN ZRowMeanSquare <span>· log · target 1</span></div><div class="plot" id="p22"></div></div>
+      </div>
+    </div>
+  </div>
+  <div class="foot"><span>census: analysis/2026-09-14_tc_width_tc1536_blowup_census.html · curves: the three arms with swatches · one seed each</span><span class="pageno">02 / 08</span></div>
+</section>
+
+<!-- ============ 3 — the mechanism ============ -->
+<section class="slide">
+  <div class="eyebrow">the mechanism <span class="dim">— an attention sink in an unnormalised residual stream</span></div>
+  <h2>One delta slot becomes a massive activation in encoder block 0. Nothing normalises it, and SIGReg cannot see it.</h2>
+  <p class="sub">In the stuck pool-8192 arm, slot k = 44 is the tail in all 160 val sequences. It holds 99.5–99.8% of z's variance. Remove it and the same code has rank 244–278.</p>
+  <div class="body">
+    <div class="cols c2" style="height:100%">
+      <div style="display:flex;flex-direction:column;gap:12px;min-height:0">
+        <div class="card"><div class="tag">why the norms do not stop it · DINOv3ViTLayer, pre-norm</div>
+<pre class="mono" style="font-size:12.5px;line-height:1.55;margin-top:8px;white-space:pre;color:var(--ink)">h = h + ls1 · Attn(LN1(h))    <span style="color:var(--muted)"># LN sees the branch input only</span>
+h = h + ls2 · MLP(LN2(h))     <span style="color:var(--muted)"># the residual h is never normalised</span>
+z = h_last[:, :, :K]          <span style="color:var(--muted)"># tc1536: no LN, no projection</span></pre></div>
+        <ul class="tight">
+          <li><strong>Born in block 0.</strong> The slot reads ~4200 after block 0 and stays roughly flat through block 11.</li>
+          <li><strong>Always the same slot, always positive.</strong> 160 of 160 sequences have exactly one tail token, <span class="mono">k=44</span>.</li>
+          <li><strong>SIGReg cannot pull it back.</strong> A tail of fraction 1.6% costs 3e-4 to 6e-4. The restoring force peaks near |z| ≈ 100, turns negative by ~1000, and is noise at 1e4. The live tail sits at 2000–7000.</li>
+          <li><strong>Pool size moves the estimator floor, not the mean force.</strong> Arms that recovered blew up broadly first (SIGReg stat ≥ 0.2), which gives SIGReg a whole-batch signal.</li>
+        </ul>
+      </div>
+      <div style="display:flex;flex-direction:column;gap:12px;min-height:0">
+        <table style="font-size:12.5px">
+          <thead><tr><th>ckpt</th><th>tail rows</th><th>slot</th><th>channel · p50</th><th>rank</th><th>rank w/o tail</th></tr></thead>
+          <tbody>
+            <tr><td>pool 8192 · ep 10</td><td>1.562%</td><td>44</td><td>1109 · +4394</td><td class="w">1.0</td><td>244.4</td></tr>
+            <tr><td>pool 8192 · ep 20</td><td>1.562%</td><td>44</td><td>1109 · +2644</td><td class="w">1.0</td><td>254.8</td></tr>
+            <tr><td>pool 8192 · ep 30</td><td>1.562%</td><td>44</td><td>1105 · +5930</td><td class="w">1.0</td><td>278.0</td></tr>
+            <tr><td>pool 24576 · ep 30</td><td>0%</td><td>—</td><td>max |z| 5.6</td><td class="g">246.1</td><td>246.1</td></tr>
+          </tbody>
+        </table>
+        <div class="tiles" style="grid-template-columns:1fr 1fr">
+          <div class="tile"><div class="k">tail share of the code</div>
+            <div class="v" style="font-size:22px">1 of 64 slots</div>
+            <div class="d">1.562% of rows carry 99.5–99.8% of the variance.</div></div>
+          <div class="tile"><div class="k">recon is not the symptom</div>
+            <div class="v" style="font-size:22px">0.0263</div>
+            <div class="d">KITTI <span class="mono">LossRecon</span> of the stuck arm at ep 31, the best tc1536 arm.</div></div>
+        </div>
+        <div class="rulebar">What rank 1 costs downstream is open. Whether a flow can model this code is <span class="mono">question/17</span>, running on the pool-24576 code (<span class="mono">BSC:45861488</span>).</div>
+      </div>
+    </div>
+  </div>
+  <div class="foot"><span>from analysis/2026-09-13_tc_width_tc1536_rank.md · row/slot attribution BSC:45822767 · 10240 val rows · SIGReg force probe on CPU</span><span class="pageno">03 / 08</span></div>
+</section>
+
+<!-- ============ 4 — fix 1: SIGReg ============ -->
+<section class="slide">
+  <div class="eyebrow">fix 1 <span class="dim">— SIGReg weight and SIGReg pool, no change to the network</span></div>
+  <h2>A 3× weight keeps the sink. A 3× pool frees the code, on one seed, for +16–19% recon.</h2>
+  <p class="sub">Weight 0.06 (with warmup 2000) stays at rank 1.0 through ep 32. Pool 24576 leaves 1.0 at ep 6 and ends at 245 / 352 dims (KITTI / nuScenes). At ep 31 it costs +16.0% KITTI and +19.2% nuScenes <span class="mono">LossRecon</span> against the unfixed arm. The census says recovery is not predictable, so one seed is thin.</p>
+  <div class="body">
+    <div class="legend top" data-arms="P8,DN6,NB"></div>
+    <div class="g4">
+      <div class="pan"><div class="ptitle">EVAL ZPartRank · KITTI <span>· log</span></div><div class="plot" id="p41"></div></div>
+      <div class="pan"><div class="ptitle">EVAL ZPartRank · nuScenes <span>· log</span></div><div class="plot" id="p42"></div></div>
+      <div class="pan"><div class="ptitle">EVAL LossRecon · KITTI <span>· log</span></div><div class="plot" id="p43"></div></div>
+      <div class="pan"><div class="ptitle">EVAL LossRecon · nuScenes <span>· log</span></div><div class="plot" id="p44"></div></div>
+    </div>
+  </div>
+  <div class="foot"><span>raw z · compose 1.0 · decoder noise τ 0.8 detached · weight 0.06 also moves warmup 0 → 2000</span><span class="pageno">04 / 08</span></div>
+</section>
+
+<!-- ============ 5 — fix 2: registers ============ -->
+<section class="slide">
+  <div class="eyebrow">fix 2 <span class="dim">— 4 register slots, a free home for the sink · interim, ep 45</span></div>
+  <h2>Register slots do not take the sink. It stays in the delta slots, and the arm never trains.</h2>
+  <p class="sub">The plan's gate: the sink moved if register max |h| is in the hundreds and the z-slot max is under ~50. At ep 45 the z slots read 11,230 and the registers 77. Rank is at most 1.3 from ep 9. KITTI <span class="mono">LossRecon</span> is 0.1308, the copy level, against 0.0305 for the no-register twin at ep 31. σ = 0.82 on z moves it −0.15%: the decoder ignores z.</p>
+  <div class="body">
+    <div class="legend top" data-arms="REG,NB"><span><i class="sw" style="border-color:var(--muted)"></i>register slots · max |h|</span></div>
+    <div class="g4">
+      <div class="pan"><div class="ptitle">TRAIN max |h| · z slots vs register slots <span>· epoch mean · log</span></div><div class="plot" id="p51"></div></div>
+      <div class="pan"><div class="ptitle">TRAIN ZRowMeanSquare <span>· log · target 1</span></div><div class="plot" id="p52"></div></div>
+      <div class="pan"><div class="ptitle">EVAL ZPartRank · KITTI <span>· log</span></div><div class="plot" id="p53"></div></div>
+      <div class="pan"><div class="ptitle">EVAL LossRecon · KITTI <span>· log</span></div><div class="plot" id="p54"></div></div>
+    </div>
+  </div>
+  <div class="foot"><span>BSC:45861170 still running · one-knob twin of 45727710: num_registers 0 → 4 · probe = pre-LN max |h| per slot</span><span class="pageno">05 / 08</span></div>
+</section>
+
+<!-- ============ 6 — fix 3: LN bottleneck ============ -->
+<section class="slide">
+  <div class="eyebrow">fix 3 <span class="dim">— LayerNorm(1536) + Linear(1536, 1536) on z (force_bottleneck)</span></div>
+  <h2>A LayerNorm bottleneck never blows up. At warmup 0 the decoder ignores z; at warmup 2000 it trains.</h2>
+  <p class="sub">Train <span class="mono">ZRowMeanSquare</span> never passes 1.65 in either bottleneck arm; the raw-z arms peak at 4e3 to 4e5. The sink is still in the residual: warmup 2000's pre-LN max |h| on the z slots sits near 10k, like the register arm. The LN removes it from z. Warmup 0 stalls at the copy level with a flat ladder. Warmup 2000 leaves it at ep 5, three epochs after its ramp ends.</p>
+  <div class="body">
+    <div class="legend top" data-arms="SW2,SW0,NB,REG"><span><i class="sw" style="border-color:var(--muted);border-top-style:dotted"></i>warmup ends</span></div>
+    <div class="g4">
+      <div class="pan"><div class="ptitle">TRAIN ZRowMeanSquare <span>· log · target 1</span></div><div class="plot" id="p61"></div></div>
+      <div class="pan"><div class="ptitle">TRAIN pre-LN max |h| on z slots <span>· epoch mean · log</span></div><div class="plot" id="p62"></div></div>
+      <div class="pan"><div class="ptitle">EVAL LossRecon · KITTI <span>· ep 0–16 · dashed = 0.125</span></div><div class="plot" id="p63"></div></div>
+      <div class="pan"><div class="ptitle">NOISE COST · KITTI <span>· LossRecon(σ) / LossRecon(0) − 1</span></div><div class="plot" id="p64"></div></div>
+    </div>
+  </div>
+  <div class="foot"><span>ladders: bn w0 ep 13 · bn w2k ep 48 · pool ep 31 · reg ep 45 · the bottleneck pair has no decoder noise, the raw-z arms train with τ 0.8</span><span class="pageno">06 / 08</span></div>
+</section>
+
+<!-- ============ 7 — cost ============ -->
+<section class="slide">
+  <div class="eyebrow">what the working fixes cost <span class="dim">— against the unfixed arm and the compressed bottlenecks</span></div>
+  <h2>The pool is cheap. The square bottleneck costs 2.3× the pool and sits just above the compressed arms.</h2>
+  <p class="sub">KITTI <span class="mono">LossRecon</span> at ep 31: unfixed 0.0263, pool 24576 0.0305 (+16%), LN bottleneck 0.0700 (2.3× the pool). tc128 and tc512, whose bottleneck compresses, sit at 0.0583 and 0.0606. Rank follows the bottleneck, not the width: 63 dims for the square one, 71 and 75 for tc128 and tc512, 245 without one.</p>
+  <div class="body">
+    <div class="legend top" data-arms="P8,NB,SW2,T128,T512"></div>
+    <div class="g4">
+      <div class="pan"><div class="ptitle">EVAL LossRecon · KITTI <span>· log · from ep 3</span></div><div class="plot" id="p71"></div></div>
+      <div class="pan"><div class="ptitle">EVAL LossRecon · nuScenes <span>· log · from ep 3</span></div><div class="plot" id="p72"></div></div>
+      <div class="pan"><div class="ptitle">EVAL ZPartRank · KITTI <span>· dims · log</span></div><div class="plot" id="p73"></div></div>
+      <div class="pan"><div class="ptitle">EVAL ZPartRank · nuScenes <span>· dims · log</span></div><div class="plot" id="p74"></div></div>
+    </div>
+  </div>
+  <div class="foot"><span>tc128 / tc512 = compose + SIGReg width-sweep arms 44635509 / 45296347 · pool 8192 vs 24576 also separates them from the bottleneck pair</span><span class="pageno">07 / 08</span></div>
+</section>
+
+<!-- ============ 8 — verdict ============ -->
+<section class="slide">
+  <div class="eyebrow">verdict <span class="dim">— questions 14, 15, 16</span></div>
+  <h2>Free the code with the SIGReg pool if it replicates. The LayerNorm bottleneck is the reliable fallback, at 2.3× the recon.</h2>
+  <p class="sub">The collapse comes from the architecture, an unnormalised pre-norm residual, and SIGReg's blind spot for a sparse tail. The fixes act on one or the other.</p>
+  <div class="body">
+    <div class="cols c2" style="height:100%">
+      <div style="display:flex;flex-direction:column;gap:9px;min-height:0">
+        <div class="takeaway"><div class="n">1</div><div class="tx"><b>Estimator side: the pool works, the weight does not.</b> Pool 24576 reaches rank 245 for +16–19% recon. Weight 0.06 stays at 1.0. One seed each, and recovery is not predictable from the knobs.</div></div>
+        <div class="takeaway"><div class="n">2</div><div class="tx"><b>Registers fail.</b> The sink stays in the delta slots (11k vs 77), rank stays at most 1.3 from ep 9, and recon sits at the copy level through ep 45.</div></div>
+        <div class="takeaway"><div class="n">3</div><div class="tx"><b>Normalising z works, if SIGReg is ramped.</b> No bottleneck arm ever blew up. At warmup 0 it stalls; at warmup 2000 it trains, at 2.3× the pool arm's recon and rank ~63–75.</div></div>
+        <div class="takeaway"><div class="n">4</div><div class="tx"><b>Rank 1 is not a recon problem.</b> The unfixed arm has the best loss. Only a downstream read can say what freeing the code is worth.</div></div>
+        <div class="rulebar" style="font-size:12px">Sources: <span class="mono">results/2026-09-13_tc_width_sigreg_pool_pair_tc1536_read_slides.html</span> · <span class="mono">analysis/2026-09-14_tc_width_tc1536_blowup_census.html</span> · <span class="mono">plan/2026-09-14_tc_width_register_tokens.md</span></div>
+      </div>
+      <div style="display:flex;flex-direction:column;gap:10px;min-height:0">
+        <div class="card"><div class="tag">open</div>
+          <h3>Does the flow want the freed code?</h3>
+          <p style="font-size:13px;color:var(--ink2);margin-top:4px"><span class="mono">BSC:45861488</span> trains flow on the pool-24576 code (<span class="mono">question/17</span>). A second pool-24576 seed would test whether its recovery replicates.</p></div>
+        <div class="card"><div class="tag">caveats</div>
+          <h3>One seed per arm, and the arms are not all one-knob</h3>
+          <p style="font-size:13px;color:var(--ink2);margin-top:4px">One-knob pairs: pool 8192 → 24576, registers 0 → 4, warmup 0 → 2000. Weight 0.06 also moves warmup. The raw-z arms train with decoder noise τ 0.8; the bottleneck pair does not.</p></div>
+        <div class="card"><div class="tag">state</div>
+          <h3>Two arms still running</h3>
+          <p style="font-size:13px;color:var(--ink2);margin-top:4px">Registers <span class="mono">BSC:45861170</span> at ep 45 and bottleneck warmup 2000 <span class="mono">BSC:45863086</span> at ep 49, both 48 h, no chain.</p></div>
+      </div>
+    </div>
+  </div>
+  <div class="foot"><span>prior cycle: analysis/2026-09-14_tc_width_forced_bneck_stall.md · QUESTIONS 14–16 · thread tc_width</span><span class="pageno">08 / 08</span></div>
+</section>
+
+</div>
+
+<button class="arr" id="prev" aria-label="Previous slide">‹</button>
+<button class="arr" id="next" aria-label="Next slide">›</button>
+<div class="nav" id="nav" role="tablist" aria-label="Slides"></div>
+
+<script>
+/* ---------- deck nav ---------- */
+const stage=document.getElementById("stage");
+const slides=[...document.querySelectorAll(".slide")];
+const nav=document.getElementById("nav");
+let cur=0;
+slides.forEach((_,i)=>{
+  const b=document.createElement("button");
+  b.setAttribute("role","tab");b.setAttribute("aria-label","Slide "+(i+1));
+  b.addEventListener("click",()=>go(i));
+  nav.appendChild(b);
+});
+function go(i){
+  cur=Math.max(0,Math.min(slides.length-1,i));
+  slides.forEach((s,j)=>s.classList.toggle("on",j===cur));
+  [...nav.children].forEach((b,j)=>b.classList.toggle("cur",j===cur));
+}
+document.getElementById("prev").addEventListener("click",()=>go(cur-1));
+document.getElementById("next").addEventListener("click",()=>go(cur+1));
+addEventListener("keydown",e=>{
+  if(["ArrowRight","PageDown"," "].includes(e.key)){go(cur+1);e.preventDefault();}
+  else if(["ArrowLeft","PageUp"].includes(e.key)){go(cur-1);e.preventDefault();}
+  else if(e.key==="Home")go(0);
+  else if(e.key==="End")go(slides.length-1);
+});
+go(0);
+/* ---------- auto-scale ---------- */
+function fit(){
+  const s=Math.min(innerWidth/1300,(innerHeight-40)/730);
+  stage.style.transform=`translate(-50%,-50%) scale(${Math.min(s,1.4)})`;
+}
+addEventListener("resize",fit);fit();
+
+/* ---------- CSS var resolver (for SVG strokes) ---------- */
+const CV=n=>getComputedStyle(document.documentElement).getPropertyValue(n).trim();
+
+/* ---------- multi-series epoch line chart; data[i] is epoch xmin+i; vlines = dotted epoch markers ---------- */
+function lineChart(el,cfg){
+  const W=cfg.W||600,H=cfg.H||300,L=cfg.L||44,R=cfg.R||52,T=cfg.T||10,B=cfg.B||26,
+        iw=W-L-R, ih=H-T-B;
+  const {ymin,ymax,yticks,xmax,xticks,log}=cfg, xmin=cfg.xmin||0, span=xmax-xmin;
+  const f=log?Math.log10:(v=>v), y0=f(ymin), y1=f(ymax);
+  const XE=e=>L+iw*((e-xmin)/span);
+  const Y=v=>T+ih*(1-(f(Math.min(Math.max(v,ymin),ymax))-y0)/(y1-y0));
+  const fmt=cfg.fmt||(t=>t.toFixed(4));
+  let s=`<svg viewBox="0 0 ${W} ${H}" width="100%" height="100%" preserveAspectRatio="xMidYMid meet">`;
+  yticks.forEach(t=>{const y=Y(t);
+    s+=`<line x1="${L}" y1="${y}" x2="${L+iw}" y2="${y}" stroke="${CV('--grid')}"/>`;
+    s+=`<text x="${L-6}" y="${y+3}" text-anchor="end" class="axl">${fmt(t)}</text>`;});
+  xticks.forEach(t=>s+=`<text x="${XE(t)}" y="${H-9}" text-anchor="middle" class="axl">${t}</text>`);
+  (cfg.vlines||[]).forEach(x=>s+=`<line x1="${XE(x)}" y1="${T}" x2="${XE(x)}" y2="${T+ih}" stroke="${CV('--muted')}" stroke-dasharray="2 3"/>`);
+  cfg.series.forEach(se=>{const c=CV(se.color);
+    const d=se.data.map((v,i)=>`${i?'L':'M'}${XE(xmin+i).toFixed(1)} ${Y(v).toFixed(1)}`).join(' ');
+    s+=`<path d="${d}" fill="none" stroke="${c}" stroke-width="${se.width||1.8}" opacity="${se.faint?.5:1}" ${se.dash?`stroke-dasharray="${se.dash}"`:''}/>`;
+    if(se.dash) return;
+    const n=se.data.length-1, lx=XE(xmin+n), ly=Y(se.data[n]);
+    s+=`<circle cx="${lx.toFixed(1)}" cy="${ly.toFixed(1)}" r="2.4" fill="${c}" opacity="${se.faint?.5:1}"/>`;
+    if(se.tag&&!se.faint) s+=`<text x="${lx+5}" y="${ly+3.5}" class="hll" fill="${c}">${se.tag}</text>`;});
+  s+=`<text x="${L+iw/2}" y="${H-0.5}" text-anchor="middle" class="axl">${cfg.xlab||'epoch'}</text></svg>`;
+  el.innerHTML=s;
+}
+
+/* ---------- x/y line chart for the noise ladder (explicit x values, not epochs) ---------- */
+function xyChart(el,cfg){
+  const W=cfg.W||560,H=cfg.H||300,L=46,R=62,T=10,B=30, iw=W-L-R, ih=H-T-B;
+  const {xmin,xmax,ymin,ymax,xticks,yticks}=cfg;
+  const xf=cfg.xfmt||(t=>t), yf=cfg.yfmt||(t=>t+'%');
+  const X=v=>L+iw*(v-xmin)/(xmax-xmin), Y=v=>T+ih*(1-(v-ymin)/(ymax-ymin));
+  let s=`<svg viewBox="0 0 ${W} ${H}" width="100%" height="100%" preserveAspectRatio="xMidYMid meet">`;
+  yticks.forEach(t=>{const y=Y(t);
+    s+=`<line x1="${L}" y1="${y}" x2="${L+iw}" y2="${y}" stroke="${CV('--grid')}"/>`;
+    s+=`<text x="${L-6}" y="${y+3}" text-anchor="end" class="axl">${yf(t)}</text>`;});
+  xticks.forEach(t=>s+=`<text x="${X(t)}" y="${H-12}" text-anchor="middle" class="axl">${xf(t)}</text>`);
+  cfg.series.forEach(se=>{const c=CV(se.color);
+    const d=se.pts.map((p,i)=>`${i?'L':'M'}${X(p[0]).toFixed(1)} ${Y(p[1]).toFixed(1)}`).join(' ');
+    s+=`<path d="${d}" fill="none" stroke="${c}" stroke-width="1.9" ${se.dash?`stroke-dasharray="${se.dash}"`:''}/>`;
+    se.pts.forEach(p=>s+=`<circle cx="${X(p[0]).toFixed(1)}" cy="${Y(p[1]).toFixed(1)}" r="2.6" fill="${c}"/>`);
+    const lp=se.pts[se.pts.length-1];
+    if(se.tag) s+=`<text x="${(X(lp[0])+5).toFixed(1)}" y="${(Y(lp[1])+3.5).toFixed(1)}" class="hll" fill="${c}">${se.tag}</text>`;});
+  s+=`<text x="${L+iw/2}" y="${H-1}" text-anchor="middle" class="axl">${cfg.xlab||'σ'}</text></svg>`;
+  el.innerHTML=s;
+}
+
+/* ================= DATA =================
+   Grepped from each job's BSC stdout (slurm/output/): the [Eval/206 @ …], [Train] z and Epoch summary lines,
+   plus zrow_max / reg_max meters (epoch mean, last log line of the epoch). Index i is epoch i.
+   P8 45725881 · DN6 45610897 · NB 45727710 · REG 45861170 · SW0 45831175 · SW2 45863086 · T128 44635509+44846726 · T512 45296347
+   ============================================ */
+var LR_K_P8=[0.1403, 0.1372, 0.128, 0.1033, 0.069, 0.0526, 0.0459, 0.042, 0.0398, 0.0377, 0.0365, 0.0349, 0.0337, 0.0333, 0.0327, 0.032, 0.0311, 0.0308, 0.0303, 0.0297, 0.0292, 0.0292, 0.0293, 0.029, 0.0284, 0.028, 0.0279, 0.0274, 0.0269, 0.0266, 0.0266, 0.0263];
+var LR_K_DN6=[0.1409, 0.1381, 0.1325, 0.1184, 0.1019, 0.086, 0.0697, 0.0608, 0.0529, 0.0482, 0.0453, 0.0434, 0.0414, 0.04, 0.0387, 0.0376, 0.0366, 0.0354, 0.0346, 0.034, 0.0334, 0.0329, 0.0325, 0.0322, 0.0316, 0.0312, 0.0308, 0.0307, 0.0302, 0.0304, 0.03, 0.0296, 0.0294];
+var LR_K_NB=[0.1403, 0.1362, 0.133, 0.1219, 0.1076, 0.0874, 0.0659, 0.0555, 0.0507, 0.0465, 0.0442, 0.0416, 0.0403, 0.0389, 0.0374, 0.0367, 0.0358, 0.0349, 0.0343, 0.034, 0.0334, 0.0329, 0.0326, 0.0326, 0.032, 0.0317, 0.0316, 0.0311, 0.0309, 0.0307, 0.0305, 0.0305];
+var LR_K_REG=[0.1401, 0.1376, 0.1337, 0.1338, 0.1328, 0.1319, 0.1319, 0.1336, 0.1308, 0.1308, 0.1309, 0.1313, 0.1309, 0.1311, 0.1307, 0.1301, 0.1342, 0.1296, 0.1309, 0.1294, 0.1298, 0.1309, 0.1306, 0.1298, 0.1298, 0.1297, 0.1299, 0.13, 0.1291, 0.1302, 0.1306, 0.1317, 0.1294, 0.1308, 0.1302, 0.1293, 0.1304, 0.1298, 0.1292, 0.1297, 0.1312, 0.1307, 0.1293, 0.1298, 0.1294, 0.1308];
+var LR_K_SW0=[0.1404, 0.1388, 0.1339, 0.133, 0.1334, 0.132, 0.1311, 0.1305, 0.1308, 0.1301, 0.1309, 0.1321, 0.131, 0.1293];
+var LR_K_SW2=[0.1406, 0.1375, 0.1334, 0.1331, 0.1345, 0.1272, 0.1191, 0.1151, 0.1105, 0.1061, 0.1023, 0.0987, 0.0954, 0.0927, 0.0888, 0.0862, 0.0835, 0.0809, 0.0795, 0.0783, 0.0771, 0.076, 0.0751, 0.0745, 0.0736, 0.073, 0.0725, 0.0721, 0.0713, 0.0709, 0.0705, 0.07, 0.0696, 0.069, 0.0682, 0.0678, 0.0672, 0.0669, 0.0663, 0.0659, 0.0656, 0.0652, 0.0649, 0.0645, 0.0643, 0.0641, 0.0636, 0.0634, 0.0633, 0.063];
+var LR_K_T128=[0.14, 0.136, 0.1224, 0.1125, 0.1055, 0.0988, 0.0953, 0.0919, 0.0889, 0.0864, 0.0844, 0.0827, 0.0815, 0.0801, 0.0784, 0.0769, 0.0751, 0.074, 0.0725, 0.0711, 0.0695, 0.0681, 0.0667, 0.0656, 0.0643, 0.0632, 0.0624, 0.0616, 0.0605, 0.0596, 0.0588, 0.0583, 0.0577, 0.0574, 0.0566, 0.056, 0.0554, 0.055, 0.0549, 0.0545, 0.0541, 0.0537, 0.0534, 0.0531, 0.0528, 0.0527, 0.0524, 0.0522, 0.052, 0.0519, 0.0515, 0.0514, 0.0512, 0.0511, 0.0509, 0.0508, 0.0506, 0.0505, 0.0502, 0.0499, 0.0497, 0.0496, 0.0494, 0.0493, 0.0491, 0.049, 0.0489, 0.0488, 0.0487, 0.0486, 0.0485, 0.0484, 0.0482, 0.0481, 0.0481, 0.048, 0.048, 0.0479, 0.0479, 0.0478, 0.0477, 0.0477, 0.0476, 0.0476, 0.0475, 0.0475, 0.0474, 0.0474, 0.0474, 0.0474, 0.0473, 0.0473, 0.0473, 0.0472, 0.0472, 0.0472, 0.0472, 0.0472, 0.0472, 0.0472];
+var LR_K_T512=[0.1406, 0.1383, 0.1284, 0.1195, 0.1119, 0.105, 0.1003, 0.0955, 0.0928, 0.0886, 0.0857, 0.0834, 0.0815, 0.0797, 0.0783, 0.0757, 0.0741, 0.0726, 0.0713, 0.0707, 0.068, 0.0671, 0.0663, 0.0656, 0.065, 0.0644, 0.0631, 0.0624, 0.0616, 0.0613, 0.0609, 0.0606, 0.0603, 0.0598, 0.059, 0.0585, 0.0583, 0.0578, 0.0577, 0.0575, 0.0573, 0.0569, 0.0566, 0.0563, 0.0559, 0.0558, 0.0555, 0.0554, 0.0557, 0.0551, 0.0548, 0.0548, 0.0546, 0.0547, 0.0543, 0.0539, 0.0537, 0.0534, 0.0532, 0.0533, 0.0529, 0.0527, 0.0526, 0.0525, 0.0523, 0.0522, 0.0521, 0.052, 0.052, 0.0519, 0.0517, 0.0517, 0.0516, 0.0515, 0.0515, 0.0514, 0.0513, 0.0512, 0.0512, 0.0511, 0.0511, 0.051];
+
+var LR_N_P8=[0.1038, 0.0977, 0.0913, 0.0734, 0.0521, 0.0381, 0.0322, 0.0291, 0.0276, 0.0259, 0.0249, 0.0238, 0.0229, 0.0227, 0.0223, 0.0217, 0.021, 0.0208, 0.0205, 0.0201, 0.0198, 0.0198, 0.0199, 0.0197, 0.0192, 0.0189, 0.0188, 0.0185, 0.0182, 0.018, 0.0179, 0.0177];
+var LR_N_DN6=[0.104, 0.0977, 0.0921, 0.0818, 0.0715, 0.0617, 0.0516, 0.0449, 0.0389, 0.0348, 0.0327, 0.0312, 0.0298, 0.0289, 0.028, 0.0271, 0.0264, 0.0257, 0.025, 0.0245, 0.024, 0.0236, 0.0232, 0.0231, 0.0226, 0.0225, 0.0221, 0.022, 0.0217, 0.0218, 0.0215, 0.0212, 0.0211];
+var LR_N_NB=[0.1036, 0.0984, 0.1005, 0.0846, 0.0756, 0.0628, 0.0503, 0.04, 0.0363, 0.0333, 0.0312, 0.0292, 0.0283, 0.0274, 0.0262, 0.0258, 0.0251, 0.0245, 0.0242, 0.024, 0.0235, 0.0231, 0.0228, 0.0228, 0.0223, 0.0221, 0.022, 0.0217, 0.0215, 0.0213, 0.0211, 0.0211];
+var LR_N_REG=[0.1017, 0.1012, 0.1001, 0.1016, 0.1006, 0.0997, 0.1031, 0.1038, 0.1028, 0.1014, 0.0994, 0.1026, 0.1027, 0.1012, 0.1014, 0.1016, 0.1043, 0.0997, 0.1018, 0.0994, 0.1002, 0.102, 0.103, 0.0984, 0.0994, 0.1019, 0.1006, 0.0999, 0.1018, 0.1021, 0.1007, 0.0999, 0.1003, 0.1013, 0.0998, 0.1018, 0.102, 0.1011, 0.1005, 0.101, 0.1026, 0.1023, 0.1015, 0.1, 0.1013, 0.0998];
+var LR_N_SW0=[0.1036, 0.0988, 0.1026, 0.1015, 0.0996, 0.1008, 0.1023, 0.1001, 0.1014, 0.101, 0.1028, 0.1021, 0.1001, 0.1003];
+var LR_N_SW2=[0.1051, 0.0998, 0.1002, 0.1021, 0.0968, 0.0894, 0.0826, 0.0797, 0.0767, 0.0737, 0.071, 0.0686, 0.0665, 0.0647, 0.0624, 0.0605, 0.0588, 0.0571, 0.0559, 0.0549, 0.0539, 0.0529, 0.052, 0.0514, 0.0507, 0.0503, 0.0498, 0.0495, 0.0489, 0.0486, 0.0482, 0.0479, 0.0476, 0.0471, 0.0467, 0.0464, 0.046, 0.0457, 0.0454, 0.0451, 0.0447, 0.0444, 0.0443, 0.0439, 0.0436, 0.0434, 0.0431, 0.0429, 0.0427, 0.0424];
+var LR_N_T128=[0.1015, 0.0992, 0.0852, 0.0781, 0.0731, 0.0688, 0.0664, 0.0641, 0.062, 0.0604, 0.0592, 0.0579, 0.0571, 0.0561, 0.055, 0.054, 0.0526, 0.0516, 0.0507, 0.0496, 0.0483, 0.0476, 0.0464, 0.0457, 0.0448, 0.0439, 0.0433, 0.0427, 0.042, 0.0413, 0.0407, 0.0404, 0.04, 0.0397, 0.0392, 0.0388, 0.0386, 0.0383, 0.0381, 0.0379, 0.0377, 0.0375, 0.0373, 0.0371, 0.0369, 0.0369, 0.0367, 0.0365, 0.0363, 0.0362, 0.036, 0.0359, 0.0357, 0.0356, 0.0355, 0.0353, 0.0352, 0.0351, 0.0349, 0.0348, 0.0347, 0.0346, 0.0345, 0.0344, 0.0343, 0.0342, 0.0341, 0.034, 0.034, 0.0339, 0.0338, 0.0337, 0.0337, 0.0336, 0.0336, 0.0335, 0.0335, 0.0334, 0.0334, 0.0333, 0.0333, 0.0333, 0.0333, 0.0332, 0.0332, 0.0332, 0.0331, 0.0331, 0.033, 0.0331, 0.033, 0.033, 0.033, 0.033, 0.033, 0.033, 0.0329, 0.0329, 0.0329, 0.0329];
+var LR_N_T512=[0.1044, 0.0982, 0.0902, 0.0829, 0.0778, 0.0729, 0.0692, 0.0665, 0.0646, 0.0621, 0.0599, 0.0584, 0.0571, 0.0556, 0.054, 0.0529, 0.0518, 0.0506, 0.0495, 0.0487, 0.0475, 0.0468, 0.0463, 0.0458, 0.0451, 0.0446, 0.0442, 0.0438, 0.0433, 0.043, 0.0425, 0.0423, 0.0419, 0.0417, 0.0412, 0.0409, 0.0406, 0.0404, 0.0402, 0.0401, 0.0398, 0.0397, 0.0395, 0.0393, 0.039, 0.0389, 0.0386, 0.0385, 0.0384, 0.0383, 0.0381, 0.038, 0.0379, 0.0378, 0.0376, 0.0374, 0.0372, 0.0372, 0.0371, 0.0369, 0.0369, 0.0368, 0.0367, 0.0366, 0.0365, 0.0365, 0.0364, 0.0363, 0.0363, 0.0362, 0.0361, 0.0361, 0.036, 0.036, 0.0359, 0.0358, 0.0358, 0.0357, 0.0357, 0.0356, 0.0356, 0.0356];
+
+var RK_K_P8=[49.7, 18.7, 7.5, 1.3, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0];
+var RK_K_DN6=[1.0, 1.0, 1.0, 1.1, 1.1, 1.1, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0];
+var RK_K_NB=[32.4, 1.0, 1.9, 1.0, 2.7, 4.9, 126.8, 171.6, 183.6, 197.6, 206.0, 211.6, 201.6, 216.3, 228.2, 236.3, 234.7, 241.2, 248.0, 239.7, 241.7, 259.8, 251.7, 240.5, 259.2, 256.3, 217.6, 245.6, 259.0, 258.6, 261.3, 244.8];
+var RK_K_REG=[34.2, 1.1, 1.0, 1.1, 1.6, 7.9, 1.8, 2.0, 2.1, 1.3, 1.2, 1.0, 1.0, 1.1, 1.3, 1.0, 1.1, 1.1, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0];
+var RK_K_SW0=[5.0, 19.0, 11.6, 15.4, 15.3, 2.2, 17.0, 12.0, 15.7, 17.6, 12.9, 13.9, 19.6, 18.6];
+var RK_K_SW2=[22.1, 13.1, 21.9, 14.3, 21.7, 9.6, 14.8, 17.9, 22.0, 23.5, 26.6, 29.4, 32.3, 35.2, 40.8, 43.4, 47.4, 50.9, 52.3, 53.7, 55.2, 56.7, 57.9, 58.5, 58.7, 59.2, 60.0, 60.5, 61.3, 62.0, 62.7, 63.3, 64.3, 64.1, 66.2, 67.2, 68.1, 69.0, 69.4, 70.1, 71.5, 72.0, 72.4, 73.1, 72.9, 74.3, 74.4, 75.3, 75.3, 76.7];
+var RK_K_T128=[3.4, 10.2, 5.9, 10.6, 16.2, 19.9, 21.4, 23.1, 26.1, 27.1, 29.6, 31.0, 31.6, 33.0, 34.8, 36.7, 39.5, 41.3, 42.8, 45.4, 48.2, 51.2, 53.2, 55.2, 56.9, 59.1, 61.2, 62.7, 64.6, 67.0, 68.7, 71.3, 71.9, 72.9, 75.1, 75.8, 77.5, 77.9, 78.6, 78.9, 79.6, 80.5, 81.8, 82.0, 82.4, 82.4, 81.8, 83.1, 82.6, 83.3, 83.7, 83.8, 84.0, 84.4, 85.0, 85.7, 85.2, 86.3, 86.0, 87.0, 87.9, 87.9, 88.0, 88.8, 88.5, 89.9, 90.3, 90.3, 90.2, 90.0, 90.3, 91.3, 90.9, 90.8, 90.9, 91.4, 91.9, 91.8, 92.0, 91.4, 91.3, 91.5, 91.1, 91.8, 91.7, 91.8, 91.6, 91.9, 91.9, 91.8, 91.9, 91.8, 92.0, 91.9, 91.8, 91.8, 91.8, 91.8, 91.8, 91.8];
+var RK_K_T512=[26.9, 23.6, 12.5, 11.6, 18.7, 23.6, 25.9, 30.7, 32.3, 36.8, 40.3, 42.5, 44.6, 46.5, 50.3, 52.0, 54.5, 56.0, 57.7, 59.8, 63.3, 64.9, 65.1, 65.6, 66.6, 68.1, 71.4, 72.4, 73.5, 74.0, 73.5, 74.8, 74.7, 75.6, 77.1, 77.1, 78.3, 78.7, 79.0, 79.2, 79.3, 79.8, 80.2, 81.3, 82.3, 83.1, 83.2, 83.4, 83.2, 83.4, 84.9, 84.5, 85.0, 84.7, 85.1, 81.8, 86.7, 86.7, 87.6, 86.9, 87.9, 88.3, 88.2, 88.2, 88.6, 88.8, 89.0, 89.2, 89.5, 90.0, 89.5, 90.0, 91.1, 90.9, 90.0, 91.1, 91.2, 91.5, 91.4, 91.7, 91.9, 92.0];
+
+var RK_N_P8=[49.7, 19.6, 9.1, 1.2, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0];
+var RK_N_DN6=[1.0, 1.0, 1.0, 1.0, 1.1, 1.1, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.1, 1.0];
+var RK_N_NB=[32.5, 1.0, 2.1, 1.0, 2.6, 3.7, 109.3, 213.8, 246.9, 269.1, 287.2, 302.9, 300.7, 314.7, 323.6, 330.7, 324.9, 337.3, 340.6, 326.8, 325.6, 348.1, 348.1, 343.0, 354.3, 352.4, 315.9, 352.3, 365.1, 363.8, 359.5, 352.3];
+var RK_N_REG=[34.2, 1.1, 1.0, 1.1, 1.6, 8.1, 1.8, 2.2, 2.6, 1.3, 1.1, 1.0, 1.0, 1.1, 1.2, 1.1, 1.2, 1.2, 1.0, 1.0, 1.1, 1.0, 1.0, 1.0, 1.0, 1.0, 1.1, 1.0, 1.0, 1.0, 1.0, 1.1, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0];
+var RK_N_SW0=[5.0, 19.0, 11.6, 15.4, 15.4, 2.2, 17.2, 11.9, 15.3, 17.7, 11.3, 10.3, 16.5, 16.6];
+var RK_N_SW2=[23.2, 15.2, 23.4, 14.6, 22.0, 15.9, 24.2, 25.8, 29.4, 30.7, 33.4, 35.5, 38.3, 41.5, 45.0, 48.3, 52.4, 57.1, 59.4, 62.0, 64.2, 67.0, 69.3, 71.0, 72.1, 72.9, 73.4, 74.3, 75.5, 76.0, 76.2, 76.9, 77.6, 78.6, 79.6, 79.9, 80.3, 81.3, 81.5, 82.9, 83.9, 84.9, 84.6, 86.5, 87.4, 88.2, 89.2, 90.5, 89.9, 91.8];
+var RK_N_T128=[4.0, 12.1, 10.0, 14.5, 18.7, 21.3, 22.1, 23.2, 26.3, 27.4, 29.3, 31.2, 31.7, 33.4, 35.4, 37.6, 41.2, 43.5, 45.2, 48.7, 51.2, 55.1, 58.3, 61.2, 63.4, 66.3, 68.4, 71.3, 73.5, 76.2, 78.4, 79.9, 81.2, 82.3, 83.7, 84.9, 85.9, 87.3, 88.5, 88.9, 89.3, 89.8, 90.5, 91.4, 91.6, 92.2, 92.0, 92.5, 93.1, 93.3, 93.6, 93.7, 94.0, 94.2, 94.4, 94.4, 94.6, 94.9, 95.0, 95.2, 95.7, 95.5, 96.1, 96.9, 97.0, 97.3, 97.5, 97.3, 97.6, 97.4, 97.6, 97.7, 97.9, 97.9, 98.1, 98.1, 97.8, 97.8, 97.8, 98.0, 97.5, 97.8, 97.6, 97.2, 97.3, 97.2, 97.0, 96.8, 96.7, 96.6, 96.5, 96.2, 96.3, 96.1, 96.0, 95.9, 95.9, 95.8, 95.7, 95.7];
+var RK_N_T512=[28.9, 24.8, 21.7, 20.9, 26.7, 29.5, 32.1, 35.8, 37.7, 41.1, 44.6, 46.7, 49.5, 52.1, 56.3, 58.9, 61.2, 63.5, 66.8, 69.1, 72.4, 74.1, 75.7, 76.9, 78.0, 79.0, 80.9, 82.4, 83.4, 83.9, 84.8, 84.9, 85.5, 86.1, 86.9, 87.4, 88.8, 89.5, 90.0, 90.3, 91.0, 91.3, 91.9, 91.8, 93.0, 93.6, 93.2, 93.6, 94.1, 94.6, 94.2, 95.6, 95.3, 96.0, 96.1, 84.4, 95.9, 96.0, 96.4, 97.1, 97.3, 97.0, 97.5, 97.2, 97.8, 97.9, 97.8, 98.0, 97.6, 97.7, 97.6, 97.3, 97.4, 97.6, 97.2, 97.7, 97.1, 97.1, 96.8, 96.0, 96.2, 96.2];
+
+var TRMS_P8=[0.6127, 1.159, 1.317, 3.5, 33.75, 4142.0, 2183.0, 291.2, 147.5, 185.9, 149.9, 136.8, 113.3, 154.8, 122.1, 95.23, 89.91, 108.8, 82.61, 120.7, 138.3, 159.0, 198.1, 192.3, 287.5, 294.0, 379.0, 415.3, 495.2, 495.2, 673.5, 734.3];
+var TRMS_DN6=[52770.0, 96620.0, 1152.0, 254.1, 142.3, 34.74, 79.46, 173.3, 262.6, 448.3, 539.9, 584.5, 846.4, 1102.0, 792.6, 1262.0, 908.9, 1852.0, 1629.0, 1938.0, 3018.0, 3198.0, 2781.0, 1190.0, 1211.0, 917.4, 869.5, 1088.0, 1489.0, 906.6, 1020.0, 842.8, 720.2];
+var TRMS_NB=[0.8239, 20680.0, 4930.0, 576.4, 173.7, 2.423, 1.536, 1.156, 1.171, 1.171, 1.163, 1.157, 1.152, 1.151, 1.15, 1.144, 1.142, 1.138, 1.135, 1.139, 1.137, 1.129, 1.122, 1.128, 1.119, 1.114, 1.115, 1.109, 1.11, 1.106, 1.108, 1.114];
+var TRMS_REG=[0.813, 132400.0, 364600.0, 5431.0, 59.8, 54.77, 129.9, 188.9, 20.12, 43.59, 87.84, 110.8, 1492.0, 388.2, 338.2, 504.2, 471.0, 533.2, 674.8, 1777.0, 1330.0, 940.3, 924.7, 1181.0, 1105.0, 1539.0, 3091.0, 2759.0, 2787.0, 1743.0, 1434.0, 1657.0, 1721.0, 1354.0, 1381.0, 1016.0, 1033.0, 887.4, 736.0, 551.3, 912.5, 746.1, 889.9, 921.9, 1015.0, 1272.0];
+var TRMS_SW0=[1.029, 1.09, 1.061, 1.086, 1.171, 1.54, 1.653, 1.315, 1.306, 1.283, 1.257, 1.224, 1.224, 1.188];
+var TRMS_SW2=[0.9607, 1.091, 1.18, 1.18, 1.161, 1.263, 1.432, 1.341, 1.29, 1.252, 1.223, 1.2, 1.188, 1.173, 1.174, 1.164, 1.159, 1.155, 1.151, 1.145, 1.142, 1.144, 1.143, 1.147, 1.142, 1.143, 1.142, 1.14, 1.139, 1.139, 1.138, 1.136, 1.137, 1.136, 1.135, 1.134, 1.134, 1.136, 1.131, 1.131, 1.131, 1.132, 1.129, 1.128, 1.127, 1.128, 1.127, 1.129, 1.132, 1.133];
+var TRMS_T512=[0.9652, 1.039, 1.069, 1.264, 1.268, 1.252, 1.235, 1.217, 1.201, 1.189, 1.173, 1.163, 1.159, 1.151, 1.149, 1.146, 1.142, 1.145, 1.143, 1.145, 1.154, 1.159, 1.159, 1.161, 1.155, 1.158, 1.156, 1.155, 1.161, 1.161, 1.163, 1.161, 1.162, 1.164, 1.166, 1.162, 1.165, 1.166, 1.164, 1.165, 1.169, 1.169, 1.169, 1.17, 1.176, 1.172, 1.174, 1.176, 1.181, 1.18, 1.185, 1.189, 1.192, 1.197, 1.194, 1.199, 1.204, 1.208, 1.208, 1.217, 1.22, 1.224, 1.22, 1.228, 1.221, 1.226, 1.233, 1.24, 1.238, 1.24, 1.241, 1.245, 1.25, 1.256, 1.263, 1.257, 1.262, 1.26, 1.267, 1.266, 1.268, 1.27];
+
+var ZRM_SW2=[2.005, 12.96, 121.4, 596.6, 2094.0, 7664.0, 9932.0, 8570.0, 8634.0, 8312.0, 7531.0, 7881.0, 7319.0, 6873.0, 6686.0, 6697.0, 6861.0, 6962.0, 7226.0, 7413.0, 7635.0, 7869.0, 8109.0, 8352.0, 8576.0, 8801.0, 9116.0, 9379.0, 9579.0, 9741.0, 9889.0, 10060.0, 10200.0, 10300.0, 10410.0, 10530.0, 10660.0, 10740.0, 10850.0, 10980.0, 11040.0, 11110.0, 11180.0, 11260.0, 11340.0, 11340.0, 11320.0, 11320.0, 11330.0];
+var ZRM_REG=[20.97, 3505.0, 10370.0, 1949.0, 586.1, 493.9, 453.6, 715.4, 559.3, 819.0, 1554.0, 1684.0, 4580.0, 3716.0, 3628.0, 4366.0, 5397.0, 6329.0, 7469.0, 11770.0, 10470.0, 9113.0, 9062.0, 9985.0, 9851.0, 11080.0, 15120.0, 13580.0, 14290.0, 11790.0, 11310.0, 11690.0, 11790.0, 10430.0, 10300.0, 9101.0, 9196.0, 8649.0, 7800.0, 6841.0, 8646.0, 8173.0, 9102.0, 9643.0, 9881.0, 11230.0];
+var REGM_REG=[2.213, 3286.0, 6358.0, 365.2, 115.0, 171.0, 232.7, 259.6, 125.5, 128.2, 219.8, 156.9, 722.8, 297.1, 185.3, 136.9, 150.3, 131.4, 187.7, 207.8, 122.5, 171.2, 120.0, 62.6, 272.9, 68.1, 51.78, 26.67, 51.56, 52.6, 48.63, 64.66, 137.0, 52.32, 92.52, 39.17, 101.8, 68.53, 56.85, 50.65, 42.47, 47.86, 51.68, 60.27, 50.03, 76.88];
+
+/* ---------- arms: colour, end-of-line tag, legend label (sigreg weight · warmup · pool) ---------- */
+const COL={P8:'--s6',DN6:'--s8',NB:'--s5',REG:'--s2',SW0:'--s7',SW2:'--s1',T128:'--s3',T512:'--s4'};
+const NAME={P8:'none',DN6:'w×3',NB:'pool',REG:'reg',SW0:'bn w0',SW2:'bn w2k',T128:'tc128',T512:'tc512'};
+const LBL={P8:'raw z, no fix · sigreg 0.02 · warmup 0 · pool 8192',
+  DN6:'raw z · sigreg 0.06 · warmup 2000 · pool 8192',
+  NB:'raw z · sigreg 0.02 · warmup 0 · pool 24576',
+  REG:'raw z + 4 registers · sigreg 0.02 · warmup 0 · pool 24576',
+  SW0:'LN bneck · sigreg 0.02 · warmup 0 · pool 24576',
+  SW2:'LN bneck · sigreg 0.02 · warmup 2000 · pool 24576',
+  T128:'tc128 bneck · sigreg 0.005 · warmup 2000 · pool 8192',
+  T512:'tc512 bneck · sigreg 0.02 · warmup 2000 · pool 8192'};
+document.querySelectorAll('.legend[data-arms]').forEach(el=>el.insertAdjacentHTML('afterbegin',
+  el.dataset.arms.split(',').map(a=>`<span><i class="sw" style="border-color:var(${COL[a]})"></i>${LBL[a]}</span>`).join('')));
+
+/* x0/x1 clip the epoch window; tags[] = arms that get an end-of-line tag; hline = dashed constant. */
+function panel(id,pre,o){
+  const arms=o.arms, x0=o.x0||0, x1=o.x1||100;
+  const series=arms.map(a=>{
+    const v=window[pre+'_'+a]; if(!v) return null;
+    const d=v.slice(x0,x1+1); if(!d.length) return null;
+    return {data:d,color:COL[a],tag:(o.tags||arms).includes(a)?NAME[a]:null};
+  }).filter(Boolean);
+  if(o.hline!==undefined) series.push({data:Array(x1-x0+1).fill(o.hline),color:'--ink2',dash:'5 4',width:1.2});
+  lineChart(document.getElementById(id),Object.assign({
+    W:o.W||560,H:o.H||196,xmin:x0,xmax:x1,xticks:o.xticks||[0,25,50,75,100],vlines:o.vlines,
+    log:o.log!==false,series,fmt:o.fmt||(t=>''+(+t.toPrecision(3)))
+  },{ymin:o.ymin,ymax:o.ymax,yticks:o.yticks}));
+}
+const RANK={ymin:0.8,ymax:400,yticks:[1,3,10,30,100,300],fmt:t=>''+t};
+const BIG=t=>t>=1e4?(t/1e3)+'k':''+t;
+
+/* ---- 1 · hero ---- */
+panel('chHero','RK_K',Object.assign({arms:['P8','DN6','REG','SW0','SW2','NB'],tags:['NB','REG','SW0','SW2'],
+  x1:50,xticks:[0,10,20,30,40,50],W:560,H:400},RANK));
+
+/* ---- 2 · the problem: the three raw-z arms with full logs ---- */
+const PR={arms:['P8','DN6','NB'],tags:['P8','NB'],x1:32,xticks:[0,8,16,24,32],W:560,H:215};
+panel('p21','RK_K',Object.assign({},PR,RANK));
+panel('p22','TRMS',Object.assign({},PR,{ymin:.5,ymax:2e5,yticks:[1,100,10000,100000],fmt:BIG}));
+
+/* ---- 4 · fix 1: SIGReg weight vs pool ---- */
+const F1={arms:['P8','DN6','NB'],tags:['P8','NB'],x1:32,xticks:[0,8,16,24,32]};
+panel('p41','RK_K',Object.assign({},F1,RANK));
+panel('p42','RK_N',Object.assign({},F1,RANK));
+panel('p43','LR_K',Object.assign({},F1,{ymin:.024,ymax:.15,yticks:[0.025,0.05,0.1,0.14]}));
+panel('p44','LR_N',Object.assign({},F1,{ymin:.016,ymax:.11,yticks:[0.017,0.035,0.07,0.1]}));
+
+/* ---- 5 · fix 2: registers vs their no-register twin ---- */
+const F2={arms:['REG','NB'],x1:48,xticks:[0,12,24,36,48]};
+lineChart(document.getElementById('p51'),{W:560,H:196,xmin:0,xmax:48,xticks:F2.xticks,log:true,
+  ymin:1,ymax:3e4,yticks:[1,10,100,1000,10000],fmt:BIG,series:[
+  {data:ZRM_REG,color:'--s2',tag:'z slots'},{data:REGM_REG,color:'--muted',tag:'registers'}]});
+panel('p52','TRMS',Object.assign({},F2,{ymin:.3,ymax:5e5,yticks:[1,100,10000,100000],fmt:BIG}));
+panel('p53','RK_K',Object.assign({},F2,RANK));
+panel('p54','LR_K',Object.assign({},F2,{ymin:.025,ymax:.15,yticks:[0.03,0.05,0.1,0.14]}));
+
+/* ---- 6 · fix 3: LN bottleneck ---- */
+panel('p61','TRMS',{arms:['SW2','SW0','NB','REG'],x1:50,xticks:[0,10,20,30,40,50],ymin:.3,ymax:5e5,yticks:[1,100,10000,100000],fmt:BIG});
+lineChart(document.getElementById('p62'),{W:560,H:196,xmin:0,xmax:50,xticks:[0,10,20,30,40,50],log:true,vlines:[1.8],
+  ymin:1,ymax:3e4,yticks:[1,10,100,1000,10000],fmt:BIG,series:[
+  {data:ZRM_REG,color:'--s2',tag:null},{data:ZRM_SW2,color:'--s1',tag:'bn w2k'}]});
+panel('p63','LR_K',{arms:['SW0','SW2','NB'],x1:16,xticks:[0,2,4,6,8,10,12,14,16],vlines:[1.8],log:false,
+  ymin:.03,ymax:.145,yticks:[0.04,0.07,0.1,0.125],hline:0.125});
+xyChart(document.getElementById('p64'),{W:560,H:196,xmin:0,xmax:0.9,xticks:[0,0.32,0.55,0.82],ymin:-3,ymax:55,yticks:[0,15,30,45],
+  xlab:'σ (absolute, added to z before decode)',series:[
+  {pts:[[0,0],[0.32,0],[0.55,-0.08],[0.82,-0.15]],color:'--s2',tag:''},
+  {pts:[[0,0],[0.32,0],[0.55,0],[0.82,0.08]],color:'--s7',tag:'bn w0 · reg'},
+  {pts:[[0,0],[0.32,1.26],[0.55,3.95],[0.82,9.16]],color:'--s1',tag:'bn w2k'},
+  {pts:[[0,0],[0.32,10.16],[0.55,26.23],[0.82,49.51]],color:'--s5',tag:'pool'}]});
+
+/* ---- 7 · cost ---- */
+const F3={arms:['P8','NB','SW2','T128','T512']};
+panel('p71','LR_K',Object.assign({},F3,{x0:3,xticks:[3,25,50,75,100],ymin:.024,ymax:.14,yticks:[0.025,0.05,0.08,0.14]}));
+panel('p72','LR_N',Object.assign({},F3,{x0:3,xticks:[3,25,50,75,100],ymin:.016,ymax:.105,yticks:[0.017,0.035,0.06,0.1]}));
+panel('p73','RK_K',Object.assign({},F3,RANK));
+panel('p74','RK_N',Object.assign({},F3,RANK));
+</script>
+</body>
+</html>

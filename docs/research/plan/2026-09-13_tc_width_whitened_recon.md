@@ -168,4 +168,4 @@ A resume before the freeze, or from a ckpt without `recon_W`, re-banks from zero
 4. Resume: relaunch the step-2 smoke after one ckpt save. No second `froze W` line; loss continuous.
 5. Prod: `sbatch <new slurm>` (acc_ehpc, 40 h, `exit_before_time_limit=true`), chain with `chain-slurm-jobs`.
    Watch until `RUNNING` + first loss line, then until the `froze W` line at iter 499.
-6. `todos.json` status board: add the queued arm; rebuild the index.
+6. `questions.json` status board: add the queued arm; rebuild the index.

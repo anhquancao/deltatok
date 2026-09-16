@@ -57,7 +57,7 @@ matched `iter_100000`.
   also reseeds `_eval_t_gen`, which the seed sweep would have confounded.
 - **No pointditT ep100.** BSC:45344713 cancelled 2026-09-04 at epoch 58 after the ep50 read lost 19 of 20
   cells. Its `iter_100000.pth` stays in the t-bins job below because it is the cleanest probe of the paradox.
-- **No FVD.** TODO 10, its own item.
+- **No FVD.** QUESTION 10, its own item.
 
 ## 2 Why it is worth the GPU hours
 

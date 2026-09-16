@@ -115,7 +115,7 @@ now cycles in the `pointdit` thread: `../plan/2026-09-02_pointdit_zeroinit_ode.m
    `training.seed`. Spread ≈ 0.14 MSEToken at N=20 = the rise is sample variance and the sampler works;
    much smaller = systematic drift. The edge F1 is the one realism number next to the distortion metrics;
    pointdit has the same probe (`2026-09-02_pointdit_vs_deltatok.md`). Without it cause 1
-   stays unmeasured. **Dropped 2026-09-07** — it became TODO 11 and was closed `not needed`, so cause 1
+   stays unmeasured. **Dropped 2026-09-07** — it became QUESTION 11 and was closed `not needed`, so cause 1
    is still unmeasured.
 2. **Only if step 1 says the sampler works:** the wall is the frozen decoder and the tokenizer needs
    noise-augmented decoder training. No such option exists in `occrae/deltatok_trainer.py` today.

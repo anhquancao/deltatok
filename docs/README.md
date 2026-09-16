@@ -27,7 +27,7 @@ Live jobs, epochs reached and what to check next are on [the jobs board](http://
 | <http://127.0.0.1:9000/#/board/Deltatok> · the queue | The work queue: one row per item with its thread, the paper section it fills, and its status. |
 | <http://127.0.0.1:9000/#/board/Deltatok> · the jobs board | The jobs board: one row per queued, running or unread job with its state, read point and the check to run. |
 | <http://127.0.0.1:9000/#/board/Deltatok> · the closed list | Items closed out of the queue, newest first. A row keeps its original `#`, so old references still resolve. |
-| `research/todos.json` | Source of truth behind those three views: the todo rows, the jobs board and the closed list. Hand-edited; the board folds it into its index. |
+| `research/questions.json` | Source of truth behind those three views: the question rows, the jobs board and the closed list. Hand-edited; the board folds it into its index. |
 | `deltatok.md` | Eval-only launch note. |
 
 ## Threads
