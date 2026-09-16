@@ -162,3 +162,17 @@ Retire the register arm: `git mv slurm/deltatok/train_deltatok_reg_nozn_tc1536_b
    cannot exceed RMS 16 by construction; its `Train/EncRowAbsMaxZ` says whether the sink still forms in the
    residual. Then KITTI / nuScenes `LossRecon` against the control's 0.0305 / 0.0211 at ep 31 (control ran tau 0.8).
 6. `questions.json` status board: move the arms from queued to running; ledger row; rebuild the index.
+
+## 6. Tracking
+
+Code `7704517`, synced and verified on BSC 2026-09-16. Steps 1–2 done.
+
+| Job | Arm | Queue | State (2026-09-16 17:45) |
+|---|---|---|---|
+| `BSC:45931033` | smoke, `Z_ROW_CLIP=0`, `RUN_NAME=smoke_seed1_rclip0` | `acc_debug`, 30 min | **passed**: `init_seed=1`, `z_row_clip=0.0`, tau 0.0, 681.032M params, iter-0 loss 0.4290, trained to iter 160+; cancelled at 26 min |
+| `BSC:45931830` | smoke, `Z_ROW_CLIP=4`, `RUN_NAME=smoke_seed1_rclip4` | `acc_debug`, 30 min (moved from `acc_ehpc` once 45931033 left) | `PENDING`; pass needs `z_row_clip=4.0` and iter-0 loss 0.4290 |
+
+Logs: `slurm/output/train_deltatok_nozn_tc1536_pool24576_seed_bsc_<jobid>.{out,err}`. Control iter-0 train loss 0.4546
+(`../monitor_jobs/data/logs/BSC/deltatok_dn1536_pool24576_sw0_45727710.out:132`).
+
+Resume at step 3: check both smoke logs against the pass line, `scancel` whichever is still running, then step 4 and step 6.
