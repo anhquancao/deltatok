@@ -26,6 +26,7 @@ from occany.datasets import get_data_loader
 from occany.utils.helpers import depth2rgb
 from occany.loss import PointmapLoss, DepthLosses, RaymapLoss
 from occrae.generation_helper import flow_euler_sample
+from occrae.deltatok_trainer import _log_cosh  # the tokenizer's recon loss: LossFeat reads on the LossRecon scale
 
 
 # Fixed eval-loss key order so every rank reduces the same-sized vector even
@@ -33,6 +34,7 @@ from occrae.generation_helper import flow_euler_sample
 _EVAL_KEYS = (
     "LossFlow",                                              # flow-matching loss (SAME objective as Train/Loss)
     "MSEToken",                                              # sampled-delta vs GT-delta MSE: true generation fidelity (LossFlow is teacher-forced)
+    "LossFeat",                                              # frozen-decoder decode of x_pred vs GT layer-12 feats (forecast slots, teacher-forced)
     "LossPointmap", "LossDepth", "LossRaymap",                # sampled-delta rollout vs GT (forecast frames)
     "LossPointmap_tok", "LossDepth_tok", "LossRaymap_tok",    # GT-delta rollout (tokenizer upper bound)
 )
@@ -97,6 +99,11 @@ class DeltaTokFlowMatchingTrainer(DeltaTokSharedMixin, Trainer):
         print(f"t schedule: t_dist={self.cfg.model.get('t_dist', 'logitnormal')} "
               f"mu={self.cfg.model.mu} sigma={self.cfg.model.sigma} "
               f"force_zero_t_ratio={self.force_zero_t_ratio}")
+
+        # Decoder-in-the-loop: + w * log-cosh(frozen-tokenizer decode of x_pred | GT next-frame
+        # layer-12 feats) on the forecast slots. 0 = off (the control).
+        self.feat_loss_weight = float(self.cfg.model.get("feat_loss_weight", 0.0))
+        print(f"feat_loss_weight={self.feat_loss_weight}")
 
         # Conditioning / attention modes (default to legacy cross + factorized).
         # delta_ctx: first delta token (frame 0->1) is the clean in-seq context
@@ -519,7 +526,7 @@ class DeltaTokFlowMatchingTrainer(DeltaTokSharedMixin, Trainer):
             
         return z_t, e, t 
 
-    def flow_loss(self, pred, x, z_t, e, t, context=None):
+    def flow_loss(self, pred, x, z_t, e, t, context=None, return_x_pred=False):
         mask = torch.ones_like(x)        # 0→don't compute the loss, 1→compute the loss
         if isinstance(context, int):
             if context > 0:
@@ -556,7 +563,29 @@ class DeltaTokFlowMatchingTrainer(DeltaTokSharedMixin, Trainer):
         elif loss_mode == "e":
             loss = ((e_pred - e) ** 2)[mask].mean()
             
+        if return_x_pred:
+            return loss, x_pred  # x_pred (B, C, T-1, N, K) feeds feat_loss
         return loss
+
+    def feat_loss(self, x_pred, tokens, H, W, num_cameras):
+        """Frozen-tokenizer decode of x_pred vs the GT OccAny layer-12 feats, forecast slots only.
+
+        Teacher-forced: slot t is decoded from GT frame t (one decoder step per slot, all
+        slots batched), so no rollout. Grad reaches the flow through z only. The caller
+        holds self.autocast: re-entering that instance would leave autocast on after exit.
+        """
+        B, V, _, C = tokens.shape
+        T = V // num_cameras                                                             # timesteps
+        Fc = T - 1 - self.n_ctx                                                          # forecast transitions
+        P = tokens.shape[2] - self._num_prefix_tokens                                    # patches per view
+        feats = tokens[:, :, self._num_prefix_tokens:].reshape(B, T, num_cameras, P, C)  # (B, T, N, P, C) GT patch feats
+        x_prev = feats[:, self.n_ctx:T - 1].reshape(B * Fc, num_cameras, P, C)           # (B*Fc, N, P, C) GT frame t
+        x_tgt = feats[:, self.n_ctx + 1:].reshape(B * Fc, num_cameras, P, C)             # (B*Fc, N, P, C) GT frame t+1
+        z_hat = self._flow_latent_to_z(x_pred)[:, self.n_ctx:]                           # (B, Fc, N, K, Cz) tokenizer scale
+        z_hat = z_hat.reshape(B * Fc, num_cameras, *z_hat.shape[3:]).to(x_prev.dtype)    # (B*Fc, N, K, Cz)
+        x_hat = self.deltatok(x_prev, None, H, W, num_cameras=num_cameras, z_input=z_hat)  # (B*Fc, N, P, C)
+        with torch.autocast(device_type="cuda", enabled=False):
+            return _log_cosh(x_hat.float(), x_tgt.detach().float()).mean()              # () LossRecon units
 
     def train_one_epoch(self, log_iter=1000):
         self.vit.train()
@@ -580,6 +609,7 @@ class DeltaTokFlowMatchingTrainer(DeltaTokSharedMixin, Trainer):
         cum_loss = torch.zeros((), device=self.device)            # () running sum of un-scaled losses
         window_loss = deque(maxlen=self.grad_cum * print_freq)    # detached () GPU scalars
         window_grad = deque(maxlen=print_freq)                    # () pre-clip grad norms, on GPU
+        window_feat = deque(maxlen=self.grad_cum * print_freq)    # detached () LossFeat; empty when off
         header = f"Training (Epoch {self.cfg.training.global_epoch})"
         update_time = SmoothedValue(fmt='{avg:.4f}')  # seconds per optimizer update
         updates_done = 0
@@ -597,9 +627,10 @@ class DeltaTokFlowMatchingTrainer(DeltaTokSharedMixin, Trainer):
             imgs = batch["imgs"].to(self.device, non_blocking=True)  # (B, V, 3, H, W) with V = T*N views
             num_cameras = int(batch.get("num_cameras", 1))
 
-            # Frozen OccRAE+DeltaTok encode -> the flow target (cached per sample
-            # under cache_frozen_encode; train needs only feat0 + z, no tokens).
-            _, feat0, z, H, W = self._encode_inputs(batch, imgs, num_cameras, want_tokens=False)  # feat0 (B, N, P, C); z (B, T-1, N, K, C)
+            # Frozen OccRAE+DeltaTok encode -> the flow target (cached per sample under
+            # cache_frozen_encode); tokens are needed only by the feature loss.
+            want_feat = self.feat_loss_weight > 0
+            tokens, feat0, z, H, W = self._encode_inputs(batch, imgs, num_cameras, want_tokens=want_feat)  # tokens (B, V, N_tok, C) or None; feat0 (B, N, P, C); z (B, T-1, N, K, C)
             assert z.shape[1] > self.n_ctx, (                             # need >=1 transition to predict past the context
                 f"T-1={z.shape[1]} transitions <= context n_ctx={self.n_ctx}; nothing to predict"
             )
@@ -621,9 +652,14 @@ class DeltaTokFlowMatchingTrainer(DeltaTokSharedMixin, Trainer):
                     cross_cond=cross_cond,
                     return_feat=False,
                 )
-                loss_flow_total = self.flow_loss(pred=pred, x=x_spatial, z_t=z_t, e=e, t=timestep, context=self.n_ctx)
+                loss_flow_total, x_pred = self.flow_loss(pred=pred, x=x_spatial, z_t=z_t, e=e, t=timestep, context=self.n_ctx, return_x_pred=True)
+                loss_total = loss_flow_total
+                loss_feat = None
+                if want_feat:
+                    loss_feat = self.feat_loss(x_pred, tokens, H, W, num_cameras)  # ()
+                    loss_total = loss_flow_total + self.feat_loss_weight * loss_feat
 
-            loss = loss_flow_total / self.grad_cum
+            loss = loss_total / self.grad_cum
             loss.backward()
 
             if update_grad:
@@ -639,6 +675,8 @@ class DeltaTokFlowMatchingTrainer(DeltaTokSharedMixin, Trainer):
             loss_detached = loss_flow_total.detach()  # () un-scaled flow loss, kept on GPU (no sync)
             cum_loss = cum_loss + loss_detached
             window_loss.append(loss_detached)
+            if loss_feat is not None:
+                window_feat.append(loss_feat.detach())
 
             if update_grad:
                 updates_done += 1
@@ -653,6 +691,9 @@ class DeltaTokFlowMatchingTrainer(DeltaTokSharedMixin, Trainer):
                 if updates_done % print_freq == 0 or updates_done == updates_per_epoch:
                     window = torch.stack(tuple(window_loss)).float()  # (W,) losses since last print, W = grad_cum*print_freq
                     loss_mean = window.mean()                         # () convergence signal: cross-rank mean below
+                    feat_mean = torch.zeros_like(loss_mean)           # () stays 0 when the feature loss is off
+                    if window_feat:
+                        feat_mean = torch.stack(tuple(window_feat)).float().mean()  # () LossFeat since last print
                     # (2,) [window-max loss, window-max pre-clip grad norm]:
                     # spike detectors, so reduced with MAX (worst rank wins).
                     peaks = torch.stack((window.max(), torch.stack(tuple(window_grad)).float().max()))
@@ -661,15 +702,20 @@ class DeltaTokFlowMatchingTrainer(DeltaTokSharedMixin, Trainer):
                         # tensors through the CPU every optimizer update.
                         dist.all_reduce(loss_mean, op=dist.ReduceOp.SUM)
                         loss_mean = loss_mean / self.world_size
+                        dist.all_reduce(feat_mean, op=dist.ReduceOp.SUM)
+                        feat_mean = feat_mean / self.world_size
                         dist.all_reduce(peaks, op=dist.ReduceOp.MAX)
 
                     if self.is_master:
                         loss_val = loss_mean.item()        # the GPU->CPU syncs: once per print_freq updates
+                        feat_val = feat_mean.item()
                         loss_max, grad_max = peaks.tolist()
                         speed_samples_per_sec = self.cfg.training.bsize / max(update_time.avg, 1e-6)
 
                         self.log_add_scalar('Train/LearningRate', self.optim.param_groups[0]['lr'], self.cfg.training.iter)
                         self.log_add_scalar('Train/LossMean', loss_val, self.cfg.training.iter)
+                        if window_feat:
+                            self.log_add_scalar('Train/LossFeat', feat_val, self.cfg.training.iter)
                         self.log_add_scalar('Train/LossMax', loss_max, self.cfg.training.iter)
                         self.log_add_scalar('Train/GradNorm', grad_max, self.cfg.training.iter)
                         self.log_add_scalar('Train/SpeedSamplesPerSec', speed_samples_per_sec, self.cfg.training.iter)
@@ -680,6 +726,7 @@ class DeltaTokFlowMatchingTrainer(DeltaTokSharedMixin, Trainer):
                         print(
                             f"{header}  [{updates_done}/{updates_per_epoch}]  eta: {eta}  "
                             f"loss: {loss_val:.4f} (max {loss_max:.4f})  "
+                            f"feat: {feat_val:.4f}  "
                             f"grad: {grad_max:.2f}  "
                             f"lr: {self.optim.param_groups[0]['lr']:.6f}  "
                             f"time: {update_time.avg:.4f}  "
@@ -903,12 +950,16 @@ class DeltaTokFlowMatchingTrainer(DeltaTokSharedMixin, Trainer):
                             pred_flow = self._ema_model()(
                                 x=z_noised, ada_cond=t_flow, cross_cond=cross_cond, return_feat=False,
                             )
-                            loss_flow = self.flow_loss(
+                            loss_flow, x_pred = self.flow_loss(
                                 # match train: exclude the n_ctx clean context slots (delta_ctx pins
                                 # them at t=1; pred_mode=x/loss_mode=v amplifies that slot ~400x).
                                 pred=pred_flow, x=x_spatial, z_t=z_noised, e=e_noise, t=t_flow, context=self.n_ctx,
+                                return_x_pred=True,
                             )
+                            # Same decode as train at the replayed eval t; logged at weight 0 too.
+                            loss_feat = self.feat_loss(x_pred, tokens, H, W, num_cameras)
                         batch_losses["LossFlow"] = loss_flow.item()
+                        batch_losses["LossFeat"] = loss_feat.item()
 
                         # Sampled-token fidelity: MSE between the flow-SAMPLED deltas (z_hat,
                         # ODE-integrated from noise) and the GT deltas (z), on predicted
