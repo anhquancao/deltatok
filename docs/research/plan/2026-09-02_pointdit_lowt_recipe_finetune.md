@@ -118,7 +118,7 @@ Edit, keeping every other flag byte-identical to the baseline:
 - `training.epoch=110`, `training.max_iter=220000` — 20k updates on top of the 200k init.
 - `training.eval_num_steps=1` — the metric under test. Re-run the numsteps eval slurm on the finished ckpt for
   the full N curve.
-- `export INIT_CKPT="$SCRATCH/deltatok_flow_log/deltatok_flow_waymo_consec5cam0_ctx3fwd2_tc128mg9sigreg005compose_ep100tok_xxl_dit/ckpts/current.pth"`.
+- `export INIT_CKPT="$SCRATCH/quan/deltatok_flow_log/deltatok_flow_waymo_consec5cam0_ctx3fwd2_tc128mg9sigreg005compose_ep100tok_xxl_dit/ckpts/current.pth"`.
 - `#SBATCH --time=12:00:00`, `--qos=acc_ehpc`. Walltime is absent from BSC's priority formula, so a short
   request only ever backfills sooner.
 

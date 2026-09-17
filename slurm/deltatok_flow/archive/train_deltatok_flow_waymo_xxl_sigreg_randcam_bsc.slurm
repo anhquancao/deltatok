@@ -30,7 +30,7 @@ export TORCH_NCCL_HEARTBEAT_TIMEOUT_SEC="${TORCH_NCCL_HEARTBEAT_TIMEOUT_SEC:-100
 ulimit -n "$(ulimit -Hn)"
 
 export CONFIG_NAME=train_deltatok_flow_waymo_randcam_bsc
-export RESULTS_DIR="$SCRATCH/deltatok_flow_log"
+export RESULTS_DIR="$SCRATCH/quan/deltatok_flow_log"
 export RUN_NAME=dflow_waymo_xxl_dit_randcam
 EXTRA_CFG_ARGS=(
     model.deltatok.num_delta_tokens=64

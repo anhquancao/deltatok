@@ -34,7 +34,7 @@ export MASTER_PORT=$((20000 + ${SLURM_JOB_ID:-0} % 20000))
 ulimit -n "$(ulimit -Hn)"
 
 export CONFIG_NAME=train_deltatok_flow_alldata_bsc   # 5-source front-cam mixture, 3 eval sets
-export RESULTS_DIR="$SCRATCH/deltatok_flow_log"
+export RESULTS_DIR="$SCRATCH/quan/deltatok_flow_log"
 export RUN_NAME=deltatok_flow_alldata_consec5cam0_ctx3fwd2_tc128mg9sigreg005compose_xxl_dit
 EXTRA_CFG_ARGS=(
     model.deltatok.num_delta_tokens=64         # K=64 delta tokens/camera; must match the frozen ckpt

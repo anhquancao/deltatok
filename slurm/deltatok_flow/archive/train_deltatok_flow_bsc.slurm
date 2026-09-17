@@ -34,7 +34,7 @@ ulimit -n "$(ulimit -Hn)"
 # dataset roots (configs/train_deltatok_flow_bsc.yaml). Single GPU (config
 # bsize=16, effective_bsize=32 -> grad_cum 2).
 export CONFIG_NAME=train_deltatok_flow_bsc
-export RESULTS_DIR="$SCRATCH/deltatok_flow_log"
+export RESULTS_DIR="$SCRATCH/quan/deltatok_flow_log"
 export RUN_NAME=deltatok_flow_full_layer12
 # Frozen tokenizer: the BSC tokenizer run's checkpoint. Requires
 # slurm/deltatok/train_deltatok_bsc.slurm to have produced ckpts/current.pth first.

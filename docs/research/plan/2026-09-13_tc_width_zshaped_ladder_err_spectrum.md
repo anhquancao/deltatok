@@ -196,7 +196,7 @@ def _bank_z_basis(trainer, cfg):
 | J4 | tc128 source | J3 env + `SHAPED=false NOISE_SIGMAS=" " NUM_STEPS=1,2,20 OUTPUT_DIR=.../tc128src_steps` | flow spectrum |
 | J5 | tc128 ft10 | J3 env with `DELTATOK_CKPT=<..._decnoise0.8_ft10>/ckpts/epoch_10.pth OUTPUT_DIR=.../tc128ft10` | shaped ladder |
 
-Paths: tc128 flow `$SCRATCH/deltatok_flow_log/deltatok_flow_waymo_consec5cam0_ctx3fwd2_tc128mg9sigreg005compose_ep100tok_xxl_dit`;
+Paths: tc128 flow `$SCRATCH/quan/deltatok_flow_log/deltatok_flow_waymo_consec5cam0_ctx3fwd2_tc128mg9sigreg005compose_ep100tok_xxl_dit`;
 tokenizers `$SCRATCH/deltatok_log/deltatok_l12_dtok64_tc128_nozn_maxgap9_vpt1to2_sigreg0.005_ns256_pool8192_compose1.0[_decnoise0.8_ft10]`.
 J4's spectrum is the same flow as J3's, so ft10 needs no N-step job.
 

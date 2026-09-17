@@ -31,7 +31,7 @@ export TORCH_NCCL_HEARTBEAT_TIMEOUT_SEC="${TORCH_NCCL_HEARTBEAT_TIMEOUT_SEC:-100
 ulimit -n "$(ulimit -Hn)"
 
 export CONFIG_NAME=train_deltatok_flow_waymo_tc1536mg9_bsc
-export RESULTS_DIR="$SCRATCH/deltatok_flow_log"
+export RESULTS_DIR="$SCRATCH/quan/deltatok_flow_log"
 export RUN_NAME=deltatok_flow_waymo_consec5cam0_ctx3fwd2_tc1536mg9nosigreg_xxl_dit
 EXTRA_CFG_ARGS=(
     model.deltatok.num_delta_tokens=64         # K=64 delta tokens/camera; must match the frozen ckpt

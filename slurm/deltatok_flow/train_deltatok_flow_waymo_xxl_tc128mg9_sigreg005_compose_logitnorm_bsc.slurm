@@ -34,7 +34,7 @@ export MASTER_PORT=$((20000 + ${SLURM_JOB_ID:-0} % 20000))
 ulimit -n "$(ulimit -Hn)"
 
 export CONFIG_NAME=train_deltatok_flow_waymo_bsc   # same data as the tc1536mg9 config (comments aside)
-export RESULTS_DIR="$SCRATCH/deltatok_flow_log"
+export RESULTS_DIR="$SCRATCH/quan/deltatok_flow_log"
 export RUN_NAME=df_ctx3fwd2_tc128mg9s005compose_logitnorm_xxl
 EXTRA_CFG_ARGS=(
     model.deltatok.num_delta_tokens=64         # K=64 delta tokens/camera; must match the frozen ckpt

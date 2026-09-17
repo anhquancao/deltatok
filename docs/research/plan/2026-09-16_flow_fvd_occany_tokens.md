@@ -108,7 +108,7 @@ Header, lines 14–20:
 Lines 35–37:
 
 ```
-: "${CKPT:=$SCRATCH/deltatok_flow_log/deltatok_flow_waymo_consec5cam0_ctx3fwd2_tc1536mg9sigreg002pool24576compose_dndetach_ep30tok_xxl_dit/ckpts/current.pth}"
+: "${CKPT:=$SCRATCH/quan/deltatok_flow_log/deltatok_flow_waymo_consec5cam0_ctx3fwd2_tc1536mg9sigreg002pool24576compose_dndetach_ep30tok_xxl_dit/ckpts/current.pth}"
 : "${OUTPUT_DIR:=results/deltatok_flow_numsteps_fd_tc1536p24576}"
 : "${NUM_STEPS:=1,5,10,15,20}"
 ```

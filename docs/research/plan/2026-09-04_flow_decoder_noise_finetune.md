@@ -169,7 +169,7 @@ the source arm's terminal value, not at a fresh-init value.
 # A: the flow through the new decoder. MSEToken must read 0.6677 (N=1) / 0.8850 (N=20) exactly.
 ssh bsc "bash -lc 'cd /gpfs/projects/ehpc1001/code/deltatok && \
   DELTATOK_CKPT=\$SCRATCH/deltatok_log/deltatok_l12_dtok64_tc128_nozn_maxgap9_vpt1to2_sigreg0.005_ns256_pool8192_compose1.0_decnoise0.8_ft10/ckpts/epoch_10.pth \
-  CKPT=/gpfs/scratch/ehpc1001/deltatok_flow_log/deltatok_flow_waymo_consec5cam0_ctx3fwd2_tc128mg9sigreg005compose_ep100tok_xxl_dit/ckpts/iter_100000.pth \
+  CKPT=/gpfs/scratch/ehpc1001/quan/deltatok_flow_log/deltatok_flow_waymo_consec5cam0_ctx3fwd2_tc128mg9sigreg005compose_ep100tok_xxl_dit/ckpts/iter_100000.pth \
   OUTPUT_DIR=results/deltatok_flow_decnoise/flow_ep10 NUM_STEPS=1,20 STEP_MODES=ode \
   sbatch slurm/eval_deltatok_flow_numsteps_tc128compose_bsc.slurm'"
 # B: the noise ladder on the new decoder. σ=0 is the round-trip cost of the finetune.

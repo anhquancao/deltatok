@@ -181,7 +181,7 @@ itself worse at ep 100 than at ep 50 at N=1 (0.7417 vs 0.6677). Routed to `2026-
 not to `xloss_additive`: the `t=0` paradox needs the train-split t-bins before any x-loss arm.
 
 **Status 2026-09-02.** BSC:45344713 submitted and `PENDING`. Pre-flight passed: the cluster copy carries the
-patch, the config key and all five slurm overrides, `$SCRATCH/deltatok_flow_log/df_ctx3fwd2_tc128mg9s005compose_pointditT_xxl`
+patch, the config key and all five slurm overrides, `$SCRATCH/quan/deltatok_flow_log/df_ctx3fwd2_tc128mg9s005compose_pointditT_xxl`
 did not exist (fresh start, no accidental resume), and the tokenizer `epoch_100.pth` is on disk (8.2 GB,
 2026-08-22). Still to confirm at first iteration: the `t schedule:` line reads
 `t_dist=logitnormal mu=-0.8 sigma=0.8 force_zero_t_ratio=0.1`.

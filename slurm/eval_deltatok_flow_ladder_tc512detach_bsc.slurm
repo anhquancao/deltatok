@@ -28,7 +28,7 @@ export OMP_NUM_THREADS="${OMP_NUM_THREADS:-4}"
 # file_descriptor shm strategy holds an fd per shared tensor per worker
 ulimit -n "$(ulimit -Hn)"
 
-: "${CKPT:=$SCRATCH/deltatok_flow_log/deltatok_flow_waymo_consec5cam0_ctx3fwd2_tc512mg9sigreg002compose_dndetach_ep100tok_xxl_dit/ckpts/iter_100000.pth}"
+: "${CKPT:=$SCRATCH/quan/deltatok_flow_log/deltatok_flow_waymo_consec5cam0_ctx3fwd2_tc512mg9sigreg002compose_dndetach_ep100tok_xxl_dit/ckpts/iter_100000.pth}"
 : "${OUTPUT_DIR:=results/deltatok_flow_ladder_tc512detach/detach_ep100}"
 : "${NUM_STEPS:=1}"
 : "${STEP_MODES:=ode}"

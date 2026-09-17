@@ -145,14 +145,14 @@ script's `training.val_bsize=4` at :61 is overridden by a later `--cfg` of the s
 ```bash
 # control, matched to the 2026-09-04 read
 ssh bsc "bash -lc 'cd /gpfs/projects/ehpc1001/code/deltatok && \
-  CKPT=/gpfs/scratch/ehpc1001/deltatok_flow_log/deltatok_flow_waymo_consec5cam0_ctx3fwd2_tc128mg9sigreg005compose_ep100tok_xxl_dit/ckpts/iter_100000.pth \
+  CKPT=/gpfs/scratch/ehpc1001/quan/deltatok_flow_log/deltatok_flow_waymo_consec5cam0_ctx3fwd2_tc128mg9sigreg005compose_ep100tok_xxl_dit/ckpts/iter_100000.pth \
   OUTPUT_DIR=results/deltatok_flow_bestofk/control_ep50 NUM_STEPS=1,20 \
   EXTRA_ARGS=\"--cfg training.eval_num_samples=8 training.val_bsize=1\" \
   sbatch slurm/eval_deltatok_flow_numsteps_tc128compose_bsc.slurm'"
 ```
 
 Same line for `.../iter_200000.pth` → `control_ep100` and for
-`/gpfs/scratch/ehpc1001/deltatok_flow_log/df_ctx3fwd2_tc128mg9s005compose_pointditT_xxl/ckpts/iter_100000.pth`
+`/gpfs/scratch/ehpc1001/quan/deltatok_flow_log/df_ctx3fwd2_tc128mg9s005compose_pointditT_xxl/ckpts/iter_100000.pth`
 → `pointditT_ep50`. `acc_debug` allows one job per user; run the second and third on `acc_ehpc` with
 `--qos=acc_ehpc --time=01:00:00` on the `sbatch` line, as on 2026-09-04. Budget: 128 items × 8 draws × 20
 steps at batch 1, ~25 min each.
