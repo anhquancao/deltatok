@@ -1,6 +1,6 @@
 #!/bin/bash
 #SBATCH --job-name=deltatok_flow_tc1536_p24576_featloss
-#SBATCH --nodes=1
+#SBATCH --nodes=2
 #SBATCH --ntasks-per-node=4
 #SBATCH --gres=gpu:4
 #SBATCH --cpus-per-task=20
@@ -54,7 +54,8 @@ EXTRA_CFG_ARGS=(
     model.vit_size=xxlarge_d20                 # width 1536, 1x the latent Cz=1536
     model.vit_dit_adaln=true                   # per-block AdaLN-Zero + Fourier t-embed; ~1.2B total
     training.exit_before_time_limit=true       # clean exit near the SLURM wall (chain-resume safe)
-    training.effective_bsize=64                # 4 GPU x bsize 16 -> grad_cum 1
+    training.effective_bsize=64                # 8 GPU x bsize 8 -> grad_cum 1
+    training.bsize=8                           # feat_loss decode OOMs at 16
     training.epoch=100                         # 200k updates, chained across SLURM walls
     training.max_iter=200000                   # epoch=100 x 2000 updates lands exactly here
     training.lr_schedule=constant              # constant 1e-4 after warmup
