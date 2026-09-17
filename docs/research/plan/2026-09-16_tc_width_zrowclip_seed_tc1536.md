@@ -167,12 +167,17 @@ Retire the register arm: `git mv slurm/deltatok/train_deltatok_reg_nozn_tc1536_b
 
 Code `7704517`, synced and verified on BSC 2026-09-16. Steps 1–2 done.
 
-| Job | Arm | Queue | State (2026-09-16 17:45) |
+| Job | Arm | Queue | State (2026-09-16 23:05) |
 |---|---|---|---|
 | `BSC:45931033` | smoke, `Z_ROW_CLIP=0`, `RUN_NAME=smoke_seed1_rclip0` | `acc_debug`, 30 min | **passed**: `init_seed=1`, `z_row_clip=0.0`, tau 0.0, 681.032M params, iter-0 loss 0.4290, trained to iter 160+; cancelled at 26 min |
-| `BSC:45931830` | smoke, `Z_ROW_CLIP=4`, `RUN_NAME=smoke_seed1_rclip4` | `acc_debug`, 30 min (moved from `acc_ehpc` once 45931033 left) | `PENDING`; pass needs `z_row_clip=4.0` and iter-0 loss 0.4290 |
+| `BSC:45931830` | smoke, `Z_ROW_CLIP=4`, `RUN_NAME=smoke_seed1_rclip4` | `acc_debug`, 30 min (moved from `acc_ehpc` once 45931033 left) | **passed**: `init_seed=1`, `z_row_clip=4.0`, tau 0.0, iter-0 loss 0.4290 (matches 45931033); ran to iter 1860, hit the 30 min wall |
+| `BSC:45949269` | prod, `Z_ROW_CLIP=0`, `..._seed1_rclip0` | `acc_ehpc`, 48 h, `--account=ehpc1001` | `PENDING` |
+| `BSC:45949271` | prod, `Z_ROW_CLIP=4`, `..._seed1_rclip4` | `acc_ehpc`, 48 h, `--account=ehpc1001` | `PENDING` |
 
 Logs: `slurm/output/train_deltatok_nozn_tc1536_pool24576_seed_bsc_<jobid>.{out,err}`. Control iter-0 train loss 0.4546
 (`../monitor_jobs/data/logs/BSC/deltatok_dn1536_pool24576_sw0_45727710.out:132`).
 
-Resume at step 3: check both smoke logs against the pass line, `scancel` whichever is still running, then step 4 and step 6.
+Smokes agree to 4 decimals on loss through iter 1540. `zrow_max` already drifts at iter 180 (0.0943 vs 0.0942), when no row can be near the cap, so that drift is kernel noise, not the clip.
+Prod 45949254 / 45949255 went in on `ehpc880` and were cancelled while `PENDING`; resubmitted on `ehpc1001`.
+
+Resume at step 4: watch both prod jobs to `RUNNING` + first loss line, then step 5 at ep 1.
