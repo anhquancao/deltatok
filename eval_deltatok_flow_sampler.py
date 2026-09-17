@@ -32,6 +32,7 @@ import re
 from pathlib import Path
 
 import torch
+from torchaudio.functional import frechet_distance
 from hydra import compose, initialize_config_dir
 from omegaconf import OmegaConf, open_dict
 
@@ -118,6 +119,11 @@ def get_args_parser() -> argparse.ArgumentParser:
         help="Keep the MAE image decoder loaded so the eval panels get RGB columns. "
              "Needs training.eval_num_visualizations > 0 to produce anything.",
     )
+    parser.add_argument(
+        "--fvd", action="store_true",
+        help="Fréchet distance on OccAny patch tokens (mean-pooled per forecast image) vs GT: "
+             "sampled rollout (FVD) and GT-delta rollout (FVD_tok). One line per pass.",
+    )
     parser.add_argument("--seed", type=int, default=0)
     parser.add_argument("--output_dir", type=str, default="results/deltatok_flow_sampler_eval")
     return parser
@@ -125,6 +131,12 @@ def get_args_parser() -> argparse.ArgumentParser:
 
 def _sanitize(name: str) -> str:
     return re.sub(r"[^A-Za-z0-9_.-]+", "-", str(name)).strip("-")
+
+
+def _frechet_distance(a, b):
+    """FD between two (N, C) feature sets, each fitted as a Gaussian."""
+    a, b = a.double(), b.double()                                           # (N1, C), (N2, C)
+    return frechet_distance(a.mean(0), torch.cov(a.T), b.mean(0), torch.cov(b.T)).item()  # scalar
 
 
 def _build_test_loaders(cfg):
@@ -242,6 +254,8 @@ def main() -> None:
     trainer.test_loaders = _build_test_loaders(cfg)
     if args.z_basis:
         _bank_z_basis(trainer, cfg)
+    if args.fvd:
+        trainer._fvd_feats = {}  # switches on the trainer's pooled-token collection
 
     modes = [m.strip() for m in args.step_modes.split(",") if m.strip()]
     # Empty --num_steps keeps the single-pass behaviour at the config's eval_num_steps.
@@ -270,6 +284,11 @@ def main() -> None:
                 if trainer._err_spectrum:
                     out = os.path.join(output_dir, f"err_spectrum_{mode}_steps{n_steps}_sigma{sigma}.pt")
                     torch.save({k: {"err_dir": e, "lam": l} for k, (e, l) in trainer._err_spectrum.items()}, out)
+                for test_name, f in (trainer._fvd_feats or {}).items():
+                    f = {k: torch.cat(v, 0) for k, v in f.items()}                    # {"flow"|"tok"|"gt": (N, C)}
+                    print(f"[FVD/{test_name}] steps={n_steps} mode={mode} sigma={sigma} n={f['gt'].shape[0]}  "
+                          f"FVD: {_frechet_distance(f['flow'], f['gt']):.4f}  "
+                          f"FVD_tok: {_frechet_distance(f['tok'], f['gt']):.4f}", flush=True)
 
     print(f"\n[INFO] Done. Viz (if any) under {output_dir}")
 

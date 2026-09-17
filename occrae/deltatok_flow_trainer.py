@@ -74,6 +74,7 @@ class DeltaTokFlowMatchingTrainer(DeltaTokSharedMixin, Trainer):
         self._eval_t_gen = None       # separate stream: seeding t here leaves the noise draws byte-identical
         self._z_basis = {}            # {test_name: (U (C,C) evecs desc, lam (C,))} of GT-z cov; set by the sampler script
         self._err_spectrum = {}       # {test_name: (err_dir (C,) mean sq error per eigen-dir, lam)} written by eval_one_epoch
+        self._fvd_feats = None        # {test_name: {"flow"|"tok"|"gt": [(B*F, C)]}}; None = off, set by the sampler script's --fvd
         # Overfit: memoize the frozen OccRAE+DeltaTok encode per data item so the
         # ~1B backbone runs once per unique sample (item-key -> (tokens, feat0, z, H, W)).
         self._cache_frozen_encode = bool(self.cfg.training.get("cache_frozen_encode", False))
@@ -760,6 +761,8 @@ class DeltaTokFlowMatchingTrainer(DeltaTokSharedMixin, Trainer):
                 basis = self._z_basis.get(test_name)                        # (U, lam) or None
                 err_dir = None                                              # (C,) sum of squared error per eigen-dir
                 err_rows = 0
+                if self._fvd_feats is not None:
+                    self._fvd_feats[test_name] = {"flow": [], "tok": [], "gt": []}  # fresh per loader, per pass
 
                 # Pin the eval loader to epoch 0 so each eval pass sees the same
                 # samples in the same order.
@@ -866,6 +869,12 @@ class DeltaTokFlowMatchingTrainer(DeltaTokSharedMixin, Trainer):
                         # mode), so forecast starts at timestep n_ctx+1. cross mode (n_ctx=0)
                         # -> slice(num_cameras, V), unchanged.
                         pred_slice = slice((1 + self.n_ctx) * num_cameras, V)
+                        if self._fvd_feats is not None:
+                            pfx = self._num_prefix_tokens
+                            for key, tk in (("flow", full_tokens), ("tok", full_tokens_tok), ("gt", tokens)):  # each (B, V, N_tok, C)
+                                # forecast views, patch tokens only, mean over patches -> one vector per image
+                                self._fvd_feats[test_name][key].append(
+                                    tk[:, pred_slice, pfx:].float().mean(2).reshape(-1, tk.shape[-1]).cpu())  # (B*F, C)
                         loss_pm, loss_d, loss_ray = self._compute_frame_losses(
                             decoded, batch, pred_slice, ray_conf, B, height, width
                         )
