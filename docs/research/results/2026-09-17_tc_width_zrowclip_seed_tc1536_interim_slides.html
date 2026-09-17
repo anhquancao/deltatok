@@ -1,0 +1,633 @@
+<!doctype html>
+<!-- thread tc_width · 2026-09-17 · prior cycle: plan/2026-09-16_tc_width_zrowclip_seed_tc1536.md -->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>DeltaTok — question 19 interim: seeded pool-24576 arm and z_row_clip 4, ep 9</title>
+<style>
+/* ---------- tokens · light only, white slides (no dark variant by request) ---------- */
+:root{
+  color-scheme: light only;
+  --backdrop:#e9e9e6; --page:#f7f7f6; --surface:#ffffff;
+  --ink:#0b0b0b; --ink2:#52514e; --muted:#83817c;
+  --grid:#e4e4de; --axis:#c3c2b7; --border:rgba(11,11,11,.12);
+  --s1:#2a78d6; --s2:#eb6834; --s3:#1baf7a; --s4:#eda100; --s5:#8a63c8; --s6:#c2407a; --s7:#0f8b8d; --s8:#8c6d46;
+  --good:#0ca30c; --crit:#d03b3b; --serious:#ec835a;
+  --accent:var(--s1);
+  --serif:"Iowan Old Style","Palatino Linotype",Palatino,Georgia,serif;
+  --sans:system-ui,-apple-system,"Segoe UI",sans-serif;
+  --mono:ui-monospace,"Cascadia Code",Menlo,Consolas,monospace;
+}
+/* ---------- deck chrome ---------- */
+*{box-sizing:border-box;margin:0}
+html,body{height:100%}
+body{background:var(--backdrop);color:var(--ink);font:15px/1.45 var(--sans);overflow:hidden}
+.stage{position:absolute;left:50%;top:50%;width:1280px;height:720px;transform-origin:center center}
+.slide{position:absolute;inset:0;background:var(--surface);border:1px solid var(--border);
+  padding:46px 60px 40px;display:none;flex-direction:column}
+.slide.on{display:flex}
+.eyebrow{font:600 12px/1 var(--mono);letter-spacing:.14em;text-transform:uppercase;color:var(--accent);margin-bottom:12px}
+.eyebrow .dim{color:var(--muted)}
+h1{font:400 42px/1.14 var(--serif);letter-spacing:-.01em;text-wrap:balance}
+h2{font:400 29px/1.2 var(--serif);letter-spacing:-.005em;text-wrap:balance;margin-bottom:4px}
+.sub{color:var(--ink2);font-size:14.5px;max-width:80ch;margin-top:9px}
+.body{flex:1;min-height:0;margin-top:16px}
+.foot{display:flex;justify-content:space-between;align-items:baseline;color:var(--muted);
+  font:11px/1 var(--mono);letter-spacing:.06em;margin-top:12px;border-top:1px solid var(--grid);padding-top:10px}
+.pageno{font-variant-numeric:tabular-nums}
+/* nav */
+.nav{position:fixed;left:50%;bottom:14px;transform:translateX(-50%);display:flex;gap:8px;align-items:center;z-index:5}
+.nav button{width:9px;height:9px;border-radius:50%;border:1px solid var(--muted);background:transparent;cursor:pointer;padding:0}
+.nav button.cur{background:var(--accent);border-color:var(--accent)}
+.nav button:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+.arr{position:fixed;top:50%;transform:translateY(-50%);z-index:5;border:1px solid var(--border);
+  background:var(--surface);color:var(--ink2);width:34px;height:56px;cursor:pointer;font-size:18px;border-radius:4px}
+.arr:hover{color:var(--ink)}
+#prev{left:10px}#next{right:10px}
+/* ---------- shared bits ---------- */
+.mono{font-family:var(--mono)}
+.num{font-variant-numeric:tabular-nums}
+.chip{display:inline-block;font:600 10.5px/1 var(--mono);letter-spacing:.05em;padding:4px 7px;border-radius:3px;
+  border:1px solid var(--border);white-space:nowrap}
+.chip.good{color:var(--good);border-color:currentColor}
+.chip.bad{color:var(--crit);border-color:currentColor}
+.chip.hero{color:var(--accent);border-color:currentColor}
+.sw{display:inline-block;width:14px;height:0;border-top-width:3px;border-top-style:solid;vertical-align:4px}
+.cols{display:grid;gap:24px;min-height:0}
+.c2{grid-template-columns:1fr 1fr}
+.c58{grid-template-columns:1.32fr 1fr}
+.c85{grid-template-columns:1fr 1.28fr}
+.card{border:1px solid var(--grid);border-radius:6px;padding:14px 16px;background:var(--page)}
+.card h3{font:600 14px/1.3 var(--sans);margin:6px 0}
+.card .tag{font:600 10px/1 var(--mono);letter-spacing:.1em;text-transform:uppercase;color:var(--muted)}
+ul.tight{padding-left:18px;display:flex;flex-direction:column;gap:8px;font-size:13.5px;color:var(--ink2)}
+ul.tight li{padding-left:2px}
+ul.tight strong{color:var(--ink);font-weight:600}
+/* stat tiles */
+.tiles{display:grid;gap:12px}
+.tile{border:1px solid var(--grid);border-radius:6px;padding:12px 14px;background:var(--page)}
+.tile .v{font:600 25px/1.1 var(--sans);letter-spacing:-.01em;font-variant-numeric:tabular-nums}
+.tile .k{font:600 10px/1.4 var(--mono);letter-spacing:.1em;text-transform:uppercase;color:var(--muted);margin-bottom:5px}
+.tile .d{font-size:12.5px;color:var(--ink2);margin-top:5px}
+.rulebar{border:1px dashed var(--axis);border-radius:6px;padding:11px 15px;font-size:13.5px;color:var(--ink2)}
+.rulebar b{color:var(--ink)}
+/* tables */
+table{border-collapse:collapse;width:100%;font-size:13px;font-variant-numeric:tabular-nums}
+th,td{text-align:right;padding:5px 8px;border-bottom:1px solid var(--grid)}
+th:first-child,td:first-child{text-align:left}
+thead th{font:600 10px/1.3 var(--mono);letter-spacing:.08em;text-transform:uppercase;color:var(--muted);border-bottom:1px solid var(--axis)}
+tbody tr.hi td{background:#fff6f2}
+td.w{color:var(--crit);font-weight:600}
+td.g{color:var(--good);font-weight:600}
+/* charts */
+.legend{display:flex;flex-wrap:wrap;gap:7px 28px;font:12px/1 var(--sans);color:var(--ink2);margin-bottom:4px}
+.legend span{display:inline-flex;gap:7px;align-items:center}
+svg text{font:10.5px var(--sans);fill:var(--muted)}
+svg .axl{font:9.5px var(--mono);fill:var(--muted)}
+svg .hll{font:600 9.5px var(--mono)}
+svg .barlbl{font:600 12px var(--sans);fill:var(--ink)}
+svg .barval{font:11px var(--mono);fill:var(--ink2)}
+.chartwrap{display:flex;flex-direction:column;height:100%;min-height:0}
+.chartwrap svg{flex:1;min-height:0}
+.ptitle{font:600 12px/1.2 var(--mono);color:var(--ink2);letter-spacing:.02em;margin-bottom:2px}
+.ptitle span{color:var(--muted);font-weight:400}
+.takeaway{border:1px solid var(--grid);border-radius:6px;padding:12px 15px;background:var(--page);display:flex;gap:12px;align-items:flex-start}
+.takeaway .n{font:600 22px/1 var(--serif);color:var(--accent);flex:0 0 auto;width:24px}
+.takeaway .tx{font-size:13.5px;color:var(--ink2)}
+.takeaway .tx b{color:var(--ink)}
+@media (prefers-reduced-motion: no-preference){
+  .slide.on{animation:fadein .18s ease}
+  @keyframes fadein{from{opacity:.4}to{opacity:1}}
+}
+@media print{
+  body{overflow:visible;background:#fff}
+  .stage{position:static;transform:none!important;width:auto;height:auto}
+  .slide{display:flex;position:static;width:1280px;height:720px;page-break-after:always;margin:0 auto}
+  .nav,.arr{display:none}
+}
+/* ---------- small-multiple panel grids (this deck) ---------- */
+.g2{display:grid;grid-template-columns:1fr 1fr;gap:6px 22px;height:100%}
+.g2,.g4,.g6{padding-bottom:7px}
+.g4{display:grid;grid-template-columns:1fr 1fr;grid-template-rows:1fr 1fr;gap:8px 22px;height:100%}
+.g6{display:grid;grid-template-columns:repeat(3,1fr);grid-template-rows:1fr 1fr;gap:8px 16px;height:100%}
+.g8{display:grid;grid-template-columns:repeat(4,1fr);grid-template-rows:1fr 1fr;gap:8px 14px;height:100%}
+.pan{display:flex;flex-direction:column;min-height:0;min-width:0}
+.pan .plot{flex:1;min-height:0}
+.chartwrap svg,.pan .plot svg{display:block}
+.dsl{font:600 10px/1 var(--mono);letter-spacing:.09em;text-transform:uppercase;color:var(--accent)}
+.legend.top{margin:2px 0 12px}
+svg .pt{font:600 9px var(--mono)}
+.body:has(>.legend.top){display:flex;flex-direction:column}
+.body:has(>.legend.top)>.g4,.body:has(>.legend.top)>.g2,.body:has(>.legend.top)>.g6,.body:has(>.legend.top)>.cols{height:auto;flex:1;min-height:0}
+table.mt td,table.mt th{padding:4px 8px}
+table.mt tr.grp td{border-top:1px solid var(--axis)}
+</style>
+</head>
+
+<body>
+<div class="stage" id="stage">
+
+<!-- ============ 1 — status ============ -->
+<section class="slide on">
+  <div class="eyebrow">DeltaTok tokenizer <span class="dim">— question 19 · tc1536 · raw z · pool 24576 · interim at ep 9 · BSC 45949269 / 45949271 vs 45727710</span></div>
+  <h1 style="font-size:33px">Question 19 at epoch 9: the seed-1 replicate and its <span class="mono" style="font-size:29px">z_row_clip</span> 4 twin, plotted against the control.</h1>
+  <p class="sub">Closed 2026-09-17 on this ep 9 read: SIGReg alone is enough, the clip is not adopted (slide 10).
+  Clip 4 was cancelled mid ep 10. The ep 31 read was not taken.</p>
+  <div class="body">
+    <div class="cols c2" style="height:100%">
+      <div class="chartwrap">
+        <div class="ptitle">TRAIN ZRowMeanSquare <span>· mean z² per row · log · dashed = clip-4 cap 16</span></div>
+        <div class="legend" data-arms="CTRL,R0,R4"></div>
+        <div id="chHero" style="flex:1;min-height:0"></div>
+      </div>
+      <div style="display:flex;flex-direction:column;gap:12px;min-height:0">
+        <table style="font-size:12.5px">
+          <thead><tr><th></th><th><span class="sw" style="border-color:var(--s5)"></span> control</th><th><span class="sw" style="border-color:var(--s1)"></span> clip 0</th><th><span class="sw" style="border-color:var(--s2)"></span> clip 4</th></tr></thead>
+          <tbody>
+            <tr><td>epochs read</td><td style="white-space:nowrap">0–31 · done</td><td style="white-space:nowrap">0–9 · runs</td><td style="white-space:nowrap">0–9 · canc</td></tr>
+            <tr><td>peak train ZRowMeanSquare</td><td style="white-space:nowrap">20,684 <span style="color:var(--muted)">@ ep 1</span></td><td style="white-space:nowrap">7,322 <span style="color:var(--muted)">@ ep 1</span></td><td style="white-space:nowrap">3.94 <span style="color:var(--muted)">@ ep 1</span></td></tr>
+            <tr><td>epochs with train ZRowMeanSquare &gt; 10</td><td style="white-space:nowrap">1–4</td><td style="white-space:nowrap">1–4</td><td style="white-space:nowrap">none</td></tr>
+            <tr><td>eval ZPartRank · ep 9 · KITTI</td><td style="white-space:nowrap">197.6</td><td style="white-space:nowrap">190.0</td><td style="white-space:nowrap">89.8</td></tr>
+            <tr><td>eval ZPartRank · ep 9 · nuScenes</td><td style="white-space:nowrap">269.1</td><td style="white-space:nowrap">207.9</td><td style="white-space:nowrap">79.9</td></tr>
+            <tr><td>LossRecon · ep 9 · KITTI</td><td style="white-space:nowrap">0.0465</td><td style="white-space:nowrap">0.0497</td><td style="white-space:nowrap">0.0717</td></tr>
+            <tr><td>LossRecon · ep 9 · nuScenes</td><td style="white-space:nowrap">0.0333</td><td style="white-space:nowrap">0.0371</td><td style="white-space:nowrap">0.0527</td></tr>
+          </tbody>
+        </table>
+        <div class="rulebar"><b>Two confounds against the control.</b> The seed and the noised-decode τ both differ (control: torch default seed, τ 0.8; seeded arms: <span class="mono">init_seed</span> 1, τ 0). The seeded pair differs only in <span class="mono">z_row_clip</span>.</div>
+      </div>
+    </div>
+  </div>
+  <div class="foot"><span>both eval sets held out · one seed per arm · read 2026-09-17 10:41 from the live BSC stdout · BSC:45949271 cancelled 11:06</span><span class="pageno">01 / 10</span></div>
+</section>
+
+<!-- ============ 2 — the arms ============ -->
+<section class="slide">
+  <div class="eyebrow">the comparison <span class="dim">— a seeded pair and one control</span></div>
+  <h2>One knob between the seeded pair. The seed and τ separate both from the control.</h2>
+  <p class="sub"><span class="mono">z_row_clip</span> 4 rescales any z row with RMS above 4 onto 4 in the forward pass. The backward pass is the identity. So that arm's <span class="mono">ZRowMeanSquare</span> cannot exceed 16, on train and on eval.</p>
+  <div class="body">
+    <div class="cols c58" style="height:100%">
+      <div style="display:flex;flex-direction:column;min-height:0">
+        <table style="font-size:12.5px">
+          <thead><tr><th>arm</th><th>job</th><th>init_seed</th><th>z_row_clip</th><th>τ</th><th>pool</th><th>epochs</th><th>state</th></tr></thead>
+          <tbody>
+            <tr class="hi"><td style="white-space:nowrap"><span class="sw" style="border-color:var(--s1)"></span> <b>clip 0</b></td><td class="mono">45949269</td><td>1</td><td><b>0</b></td><td>0</td><td>24576</td><td style="white-space:nowrap">0–9</td><td>running · 48 h</td></tr>
+            <tr class="hi"><td style="white-space:nowrap"><span class="sw" style="border-color:var(--s2)"></span> <b>clip 4</b></td><td class="mono">45949271</td><td>1</td><td><b>4</b></td><td>0</td><td>24576</td><td style="white-space:nowrap">0–9</td><td>cancelled · ep 10</td></tr>
+            <tr><td style="white-space:nowrap"><span class="sw" style="border-color:var(--s5)"></span> control</td><td class="mono">45727710</td><td>default</td><td>—</td><td>0.8</td><td>24576</td><td style="white-space:nowrap">0–31</td><td>completed</td></tr>
+          </tbody>
+        </table>
+        <div class="rulebar" style="margin-top:12px"><b>Config diff</b> of the resolved <span class="mono">Config:</span> lines. Clip 0 vs clip 4: <span class="mono">z_row_clip</span> only. Control vs clip 0: <span class="mono">decode_noise_tau</span> 0.8 → 0 and <span class="mono">init_seed</span> absent → 1. Keys added since the control launched are inert here (<span class="mono">clean_decode_weight</span> 1.0, <span class="mono">recon_whiten_alpha</span> 0).</div>
+        <div class="rulebar" style="margin-top:10px"><b>Shared:</b> tc1536, K = 64, no bottleneck, raw z, SIGReg 0.02 / warmup 0 / 3072 slices, compose 1.0, lr 1e-3, grad clip 0.1, effective batch 16. Code <span class="mono">7704517</span>.</div>
+      </div>
+      <div class="tiles" style="grid-template-rows:auto auto auto;align-content:start">
+        <div class="tile"><div class="k">same start</div>
+          <div class="v" style="font-size:20px">iter-0 loss 0.4290 on both</div>
+          <div class="d">Control iter-0 loss 0.4546. Ep-0 train Recon 0.1274 on both seeded arms (control 0.1271).</div></div>
+        <div class="tile"><div class="k">the plan's read points</div>
+          <div class="v" style="font-size:20px">ep 1–6, then ep 31</div>
+          <div class="d">Train <span class="mono">ZRowMeanSquare</span> and eval <span class="mono">ZPartRank</span> at ep 1–6. KITTI / nuScenes <span class="mono">LossRecon</span> at ep 31, where the control reads 0.0305 / 0.0211.</div></div>
+        <div class="tile"><div class="k">pace</div>
+          <div class="v" style="font-size:20px">34.7 min / epoch</div>
+          <div class="d">Ep 9 closed at 5 h 47 min on both. Clip 4 was cancelled at 6 h 22 min. Clip 0 runs on; its 48 h wall lands near ep 82.</div></div>
+      </div>
+    </div>
+  </div>
+  <div class="foot"><span>settings from each job's resolved Config line in the BSC stdout · plan/2026-09-16_tc_width_zrowclip_seed_tc1536.md</span><span class="pageno">02 / 10</span></div>
+</section>
+
+<!-- ============ 3 — train scale ============ -->
+<section class="slide">
+  <div class="eyebrow">the scale <span class="dim">— train z statistics and the pre-norm max |h| probe</span></div>
+  <h2>Train z scale, SIGReg statistic, max |h| and rank, epochs 0–9.</h2>
+  <p class="sub">Peak train <span class="mono">ZRowMeanSquare</span>: control 20,684, clip 0 7,322, clip 4 3.94, all at ep 1. The probe reads the residual before the clip and the norm, so the clip does not bound it. Its epoch mean peaks at 2,284 for clip 0 (ep 4) and 203 for clip 4 (ep 5). At ep 9 it reads 10.2 and 19.7.</p>
+  <div class="body">
+    <div class="legend top" data-arms="CTRL,R0,R4"></div>
+    <div class="g4">
+      <div class="pan"><div class="ptitle">TRAIN ZRowMeanSquare <span>· log · dashed = clip-4 cap 16</span></div><div class="plot" id="p31"></div></div>
+      <div class="pan"><div class="ptitle">TRAIN SIGReg statistic <span>· raw, unweighted · log</span></div><div class="plot" id="p32"></div></div>
+      <div class="pan"><div class="ptitle">TRAIN max |h| per logged step <span>· median of 20 steps · log · seeded arms only</span></div><div class="plot" id="p33"></div></div>
+      <div class="pan"><div class="ptitle">TRAIN ZPartRank <span>· dims of 1536 · log</span></div><div class="plot" id="p34"></div></div>
+    </div>
+  </div>
+  <div class="foot"><span>the max |h| probe postdates the control · rank 0's batch only · SIGReg statistic from each epoch's summary line</span><span class="pageno">03 / 10</span></div>
+</section>
+
+<!-- ============ 4 — the code ============ -->
+<section class="slide">
+  <div class="eyebrow">the code <span class="dim">— z statistics on the held-out eval sets</span></div>
+  <h2>Eval ZPartRank and ZRowMeanSquare on KITTI and nuScenes, epochs 0–9.</h2>
+  <p class="sub">KITTI <span class="mono">ZPartRank</span> at ep 1 / 3 / 6 / 9: control 1.0 / 1.0 / 126.8 / 197.6; clip 0 1.0 / 1.0 / 93.6 / 190.0; clip 4 1.4 / 15.8 / 33.1 / 89.8. For clip 4, both statistics read the clipped z.</p>
+  <div class="body">
+    <div class="legend top" data-arms="CTRL,R0,R4"></div>
+    <div class="g4">
+      <div class="pan"><div class="ptitle">EVAL ZPartRank · KITTI <span>· dims · log</span></div><div class="plot" id="p41"></div></div>
+      <div class="pan"><div class="ptitle">EVAL ZPartRank · nuScenes <span>· dims · log</span></div><div class="plot" id="p42"></div></div>
+      <div class="pan"><div class="ptitle">EVAL ZRowMeanSquare · KITTI <span>· log · dashed = clip-4 cap 16</span></div><div class="plot" id="p43"></div></div>
+      <div class="pan"><div class="ptitle">EVAL ZRowMeanSquare · nuScenes <span>· log · dashed = clip-4 cap 16</span></div><div class="plot" id="p44"></div></div>
+    </div>
+  </div>
+  <div class="foot"><span>206 windows per set · ZPartRank = participation ratio of the z covariance, in dims out of 1536</span><span class="pageno">04 / 10</span></div>
+</section>
+
+<!-- ============ 5 — the spread ============ -->
+<section class="slide">
+  <div class="eyebrow">the spread <span class="dim">— total variance and channel means, train and eval</span></div>
+  <h2>ZTotalVar and ZMeanAbsMax on train, KITTI and nuScenes, epochs 0–9.</h2>
+  <p class="sub">Peak train <span class="mono">ZTotalVar</span>: control 28.2M, clip 0 10.6M, clip 4 5,994, all at ep 1; at ep 9 1,797 / 1,707 / 1,696.
+  Peak KITTI <span class="mono">ZMeanAbsMax</span>: 516 / 623 / 17.2; at ep 9 0.364 / 1.08 / 1.12.
+  Dashed: the clip-4 bounds, trace(cov) ≤ 16 × 1536 = 24,576 and |channel mean| ≤ 4·√1536 ≈ 157.</p>
+  <div class="body">
+    <div class="legend top" data-arms="CTRL,R0,R4"><span><i class="sw" style="border-color:var(--ink2);border-top-style:dashed"></i>clip-4 bound</span></div>
+    <div class="g6">
+      <div class="pan"><div class="ptitle">TRAIN ZTotalVar <span>· log · N(0,I) = 1536</span></div><div class="plot" id="p5a"></div></div>
+      <div class="pan"><div class="ptitle">EVAL ZTotalVar · KITTI <span>· log</span></div><div class="plot" id="p5b"></div></div>
+      <div class="pan"><div class="ptitle">EVAL ZTotalVar · nuScenes <span>· log</span></div><div class="plot" id="p5c"></div></div>
+      <div class="pan"><div class="ptitle">TRAIN ZMeanAbsMax <span>· max |channel mean| · log</span></div><div class="plot" id="p5d"></div></div>
+      <div class="pan"><div class="ptitle">EVAL ZMeanAbsMax · KITTI <span>· log</span></div><div class="plot" id="p5e"></div></div>
+      <div class="pan"><div class="ptitle">EVAL ZMeanAbsMax · nuScenes <span>· log</span></div><div class="plot" id="p5f"></div></div>
+    </div>
+  </div>
+  <div class="foot"><span>ZTotalVar = trace(cov) · ZMeanAbsMax = largest |per-channel mean|, 0 = centered · clip 4 reads the clipped z</span><span class="pageno">05 / 10</span></div>
+</section>
+
+<!-- ============ 5 — recon ============ -->
+<section class="slide">
+  <div class="eyebrow">the recon <span class="dim">— token recon and composed recon</span></div>
+  <h2>Eval LossRecon and LossRecon_Comp on KITTI and nuScenes, epochs 0–9.</h2>
+  <p class="sub">Ep 9 <span class="mono">LossRecon</span>, KITTI: control 0.0465, clip 0 0.0497, clip 4 0.0717. nuScenes: 0.0333, 0.0371, 0.0527. The dashed line is the control at ep 31, the plan's read point. The control also trained on τ 0.8 noised decodes; the seeded arms did not.</p>
+  <div class="body">
+    <div class="legend top" data-arms="CTRL,R0,R4"><span><i class="sw" style="border-color:var(--ink2);border-top-style:dashed"></i>control at ep 31</span></div>
+    <div class="g4">
+      <div class="pan"><div class="ptitle">LossRecon · KITTI <span>· log</span></div><div class="plot" id="p51"></div></div>
+      <div class="pan"><div class="ptitle">LossRecon · nuScenes <span>· log</span></div><div class="plot" id="p52"></div></div>
+      <div class="pan"><div class="ptitle">LossRecon_Comp · KITTI <span>· log</span></div><div class="plot" id="p53"></div></div>
+      <div class="pan"><div class="ptitle">LossRecon_Comp · nuScenes <span>· log</span></div><div class="plot" id="p54"></div></div>
+    </div>
+  </div>
+  <div class="foot"><span>LossRecon_Comp = recon of the composed (summed) delta tokens across a gap</span><span class="pageno">06 / 10</span></div>
+</section>
+
+<!-- ============ 6 — decoded geometry vs the teacher ============ -->
+<section class="slide">
+  <div class="eyebrow">decoded geometry <span class="dim">— pointmap, depth, raymap against the frozen teacher's own decode</span></div>
+  <h2>Eval LossPointmap, LossDepth and LossRaymap PredVsOrig, epochs 0–9.</h2>
+  <p class="sub">Ep 9 pointmap / depth / raymap, KITTI: control 0.625 / 0.409 / 0.394; clip 0 0.583 / 0.394 / 0.333; clip 4 0.855 / 0.596 / 0.507.
+  nuScenes: control 0.464 / 0.324 / 0.251; clip 0 0.591 / 0.425 / 0.294; clip 4 0.985 / 0.705 / 0.510.</p>
+  <div class="body">
+    <div class="legend top" data-arms="CTRL,R0,R4"><span><i class="sw" style="border-color:var(--ink2);border-top-style:dashed"></i>control at ep 31</span></div>
+    <div class="g6">
+      <div class="pan"><div class="ptitle">Pointmap PredVsOrig · KITTI <span>· log</span></div><div class="plot" id="p61"></div></div>
+      <div class="pan"><div class="ptitle">Depth PredVsOrig · KITTI <span>· m · log</span></div><div class="plot" id="p62"></div></div>
+      <div class="pan"><div class="ptitle">Raymap PredVsOrig · KITTI <span>· log</span></div><div class="plot" id="p63"></div></div>
+      <div class="pan"><div class="ptitle">Pointmap PredVsOrig · nuScenes <span>· log</span></div><div class="plot" id="p64"></div></div>
+      <div class="pan"><div class="ptitle">Depth PredVsOrig · nuScenes <span>· m · log</span></div><div class="plot" id="p65"></div></div>
+      <div class="pan"><div class="ptitle">Raymap PredVsOrig · nuScenes <span>· log</span></div><div class="plot" id="p66"></div></div>
+    </div>
+  </div>
+  <div class="foot"><span>PredVsOrig = masked loss of the decoded prediction against the frozen teacher's own decode, at GT scale · single step, not AR</span><span class="pageno">07 / 10</span></div>
+</section>
+
+<!-- ============ 7 — decoded geometry vs GT ============ -->
+<section class="slide">
+  <div class="eyebrow">decoded geometry <span class="dim">— pointmap, depth, raymap against ground truth</span></div>
+  <h2>Eval LossPointmap, LossDepth and LossRaymap PredVsGT, epochs 0–9.</h2>
+  <p class="sub">Ep 9 pointmap / depth / raymap, KITTI: control 2.53 / 1.67 / 1.27; clip 0 2.50 / 1.66 / 1.24; clip 4 2.67 / 1.74 / 1.37.
+  The dashed line is the teacher's own decode against GT (<span class="mono">OrigVsGT</span>), identical for every arm: KITTI 2.40 / 1.66 / 1.08, nuScenes 3.22 / 2.53 / 1.14.</p>
+  <div class="body">
+    <div class="legend top" data-arms="CTRL,R0,R4"><span><i class="sw" style="border-color:var(--ink2);border-top-style:dashed"></i>teacher decode vs GT (OrigVsGT)</span></div>
+    <div class="g6">
+      <div class="pan"><div class="ptitle">Pointmap PredVsGT · KITTI <span>· log</span></div><div class="plot" id="p71"></div></div>
+      <div class="pan"><div class="ptitle">Depth PredVsGT · KITTI <span>· m · log</span></div><div class="plot" id="p72"></div></div>
+      <div class="pan"><div class="ptitle">Raymap PredVsGT · KITTI <span>· log</span></div><div class="plot" id="p73"></div></div>
+      <div class="pan"><div class="ptitle">Pointmap PredVsGT · nuScenes <span>· log</span></div><div class="plot" id="p74"></div></div>
+      <div class="pan"><div class="ptitle">Depth PredVsGT · nuScenes <span>· m · log</span></div><div class="plot" id="p75"></div></div>
+      <div class="pan"><div class="ptitle">Raymap PredVsGT · nuScenes <span>· log</span></div><div class="plot" id="p76"></div></div>
+    </div>
+  </div>
+  <div class="foot"><span>PredVsGT = masked loss of the decoded prediction against ground truth, at GT scale · single step, not AR</span><span class="pageno">08 / 10</span></div>
+</section>
+
+<!-- ============ 6 — matched epochs ============ -->
+<section class="slide">
+  <div class="eyebrow">matched epochs <span class="dim">— the plan's read metrics</span></div>
+  <h2>The read metrics at ep 1, 3, 4, 6 and 9. The seeded arms have not reached ep 31.</h2>
+  <div class="body">
+    <table class="mt" style="font-size:12.5px">
+      <thead><tr><th>metric</th><th style="text-align:left">arm</th><th>ep 1</th><th>ep 3</th><th>ep 4</th><th>ep 6</th><th>ep 9</th><th>ep 31</th></tr></thead>
+      <tbody>
+            <tr class="grp"><td rowspan="3" style="vertical-align:top;font-weight:600;color:var(--ink)">train ZRowMeanSquare</td><td style="text-align:left;white-space:nowrap"><span class="sw" style="border-color:var(--s5)"></span> control</td><td>20,684</td><td>576</td><td>174</td><td>1.54</td><td>1.17</td><td>1.11</td></tr>
+            <tr><td style="text-align:left;white-space:nowrap"><span class="sw" style="border-color:var(--s1)"></span> clip 0</td><td>7,322</td><td>2,105</td><td>3,290</td><td>1.07</td><td>1.11</td><td><span style="color:var(--muted)">—</span></td></tr>
+            <tr><td style="text-align:left;white-space:nowrap"><span class="sw" style="border-color:var(--s2)"></span> clip 4</td><td>3.94</td><td>2.90</td><td>1.96</td><td>1.10</td><td>1.10</td><td><span style="color:var(--muted)">—</span></td></tr>
+            <tr class="grp"><td rowspan="3" style="vertical-align:top;font-weight:600;color:var(--ink)">eval ZPartRank · KITTI</td><td style="text-align:left;white-space:nowrap"><span class="sw" style="border-color:var(--s5)"></span> control</td><td>1.0</td><td>1.0</td><td>2.7</td><td>126.8</td><td>197.6</td><td>244.8</td></tr>
+            <tr><td style="text-align:left;white-space:nowrap"><span class="sw" style="border-color:var(--s1)"></span> clip 0</td><td>1.0</td><td>1.0</td><td>27.2</td><td>93.6</td><td>190.0</td><td><span style="color:var(--muted)">—</span></td></tr>
+            <tr><td style="text-align:left;white-space:nowrap"><span class="sw" style="border-color:var(--s2)"></span> clip 4</td><td>1.4</td><td>15.8</td><td>23.4</td><td>33.1</td><td>89.8</td><td><span style="color:var(--muted)">—</span></td></tr>
+            <tr class="grp"><td rowspan="3" style="vertical-align:top;font-weight:600;color:var(--ink)">eval ZPartRank · nuScenes</td><td style="text-align:left;white-space:nowrap"><span class="sw" style="border-color:var(--s5)"></span> control</td><td>1.0</td><td>1.0</td><td>2.6</td><td>109.3</td><td>269.1</td><td>352.3</td></tr>
+            <tr><td style="text-align:left;white-space:nowrap"><span class="sw" style="border-color:var(--s1)"></span> clip 0</td><td>1.0</td><td>1.0</td><td>31.2</td><td>77.8</td><td>207.9</td><td><span style="color:var(--muted)">—</span></td></tr>
+            <tr><td style="text-align:left;white-space:nowrap"><span class="sw" style="border-color:var(--s2)"></span> clip 4</td><td>1.4</td><td>16.4</td><td>29.6</td><td>38.6</td><td>79.9</td><td><span style="color:var(--muted)">—</span></td></tr>
+            <tr class="grp"><td rowspan="3" style="vertical-align:top;font-weight:600;color:var(--ink)">LossRecon · KITTI</td><td style="text-align:left;white-space:nowrap"><span class="sw" style="border-color:var(--s5)"></span> control</td><td>0.1362</td><td>0.1219</td><td>0.1076</td><td>0.0659</td><td>0.0465</td><td>0.0305</td></tr>
+            <tr><td style="text-align:left;white-space:nowrap"><span class="sw" style="border-color:var(--s1)"></span> clip 0</td><td>0.1366</td><td>0.1297</td><td>0.1119</td><td>0.0751</td><td>0.0497</td><td><span style="color:var(--muted)">—</span></td></tr>
+            <tr><td style="text-align:left;white-space:nowrap"><span class="sw" style="border-color:var(--s2)"></span> clip 4</td><td>0.1370</td><td>0.1331</td><td>0.1193</td><td>0.1021</td><td>0.0717</td><td><span style="color:var(--muted)">—</span></td></tr>
+            <tr class="grp"><td rowspan="3" style="vertical-align:top;font-weight:600;color:var(--ink)">LossRecon · nuScenes</td><td style="text-align:left;white-space:nowrap"><span class="sw" style="border-color:var(--s5)"></span> control</td><td>0.0984</td><td>0.0846</td><td>0.0756</td><td>0.0503</td><td>0.0333</td><td>0.0211</td></tr>
+            <tr><td style="text-align:left;white-space:nowrap"><span class="sw" style="border-color:var(--s1)"></span> clip 0</td><td>0.1008</td><td>0.0888</td><td>0.0778</td><td>0.0558</td><td>0.0371</td><td><span style="color:var(--muted)">—</span></td></tr>
+            <tr><td style="text-align:left;white-space:nowrap"><span class="sw" style="border-color:var(--s2)"></span> clip 4</td><td>0.1013</td><td>0.0971</td><td>0.0835</td><td>0.0713</td><td>0.0527</td><td><span style="color:var(--muted)">—</span></td></tr>
+      </tbody>
+    </table>
+  </div>
+  <div class="foot"><span>source logs: BSC slurm/output/train_deltatok_nozn_tc1536_pool24576_seed_bsc_{45949269,45949271}.out · ../monitor_jobs/data/logs/BSC/*_45727710.out</span><span class="pageno">09 / 10</span></div>
+</section>
+
+<!-- ============ 10 — verdict ============ -->
+<section class="slide">
+  <div class="eyebrow">verdict <span class="dim">— question 19 · closed 2026-09-17</span></div>
+  <h2>SIGReg alone is enough on seed 1. The clip avoids the blow-up but costs recon, so it is not adopted.</h2>
+  <div class="body">
+    <div class="cols c58" style="height:100%">
+      <div style="display:flex;flex-direction:column;gap:10px;min-height:0">
+        <div class="takeaway"><div class="n">1</div><div class="tx"><b>The pool-24576 recovery replicates.</b> Seed 1 without the clip blows up (train <span class="mono">ZRowMeanSquare</span> 7,322 at ep 1, rank 1.0 at ep 1–3) and comes back: KITTI rank 27.2 at ep 4, 190.0 at ep 9. The control did the same, so 2 of 2 runs on this recipe recover.</div></div>
+        <div class="takeaway"><div class="n">2</div><div class="tx"><b>Clip 4 skips the blow-up.</b> Peak train <span class="mono">ZRowMeanSquare</span> 3.94, <span class="mono">ZTotalVar</span> 5,994 vs 10.6M. From ep 5 the train scale matches clip 0 (1.104 vs 1.111 at ep 9), but eval rank stays under half (89.8 vs 190.0 KITTI, 79.9 vs 207.9 nuScenes).</div></div>
+        <div class="takeaway"><div class="n">3</div><div class="tx"><b>It costs recon, and the gap grows.</b> Ep 9 <span class="mono">LossRecon</span> +44% KITTI / +42% nuScenes (0.0717 vs 0.0497). PredVsOrig +47–52% KITTI, +66–74% nuScenes. KITTI <span class="mono">LossRecon</span> was +17% at ep 5.</div></div>
+        <div class="takeaway"><div class="n">4</div><div class="tx"><b>Against GT the gap is small.</b> PredVsGT +5–11% KITTI, +4–13% nuScenes, held down by the teacher's own <span class="mono">OrigVsGT</span> floor.</div></div>
+      </div>
+      <div style="display:flex;flex-direction:column;gap:10px;min-height:0">
+        <div class="card"><div class="tag">caveats</div>
+          <h3>Ep 9, one seed per arm</h3>
+          <p style="font-size:13px;color:var(--ink2);margin-top:4px">Read at ep 9, not the plan's ep 31, so a lagging clip arm that catches up later is not excluded. Seed and τ both differ from the control. The census found 4 of 7 no-norm tc1536 SIGReg arms end healthy.</p></div>
+        <div class="card"><div class="tag">state</div>
+          <h3>Clip 4 cancelled, clip 0 runs on</h3>
+          <p style="font-size:13px;color:var(--ink2);margin-top:4px"><span class="mono">BSC:45949271</span> cancelled 2026-09-17 11:06, mid ep 10. <span class="mono">BSC:45949269</span> still running, 48 h job.</p></div>
+        <div class="card"><div class="tag">not done</div>
+          <h3>No ep 31 read, no third seed</h3>
+          <p style="font-size:13px;color:var(--ink2);margin-top:4px">No clip value other than 4. No clip arm with τ 0.8.</p></div>
+      </div>
+    </div>
+  </div>
+  <div class="foot"><span>numbers from slides 3–9 · plan/2026-09-16_tc_width_zrowclip_seed_tc1536.md</span><span class="pageno">10 / 10</span></div>
+</section>
+
+
+</div>
+
+<button class="arr" id="prev" aria-label="Previous slide">‹</button>
+<button class="arr" id="next" aria-label="Next slide">›</button>
+<div class="nav" id="nav" role="tablist" aria-label="Slides"></div>
+
+<script>
+/* ---------- deck nav ---------- */
+const stage=document.getElementById("stage");
+const slides=[...document.querySelectorAll(".slide")];
+const nav=document.getElementById("nav");
+let cur=0;
+slides.forEach((_,i)=>{
+  const b=document.createElement("button");
+  b.setAttribute("role","tab");b.setAttribute("aria-label","Slide "+(i+1));
+  b.addEventListener("click",()=>go(i));
+  nav.appendChild(b);
+});
+function go(i){
+  cur=Math.max(0,Math.min(slides.length-1,i));
+  slides.forEach((s,j)=>s.classList.toggle("on",j===cur));
+  [...nav.children].forEach((b,j)=>b.classList.toggle("cur",j===cur));
+}
+document.getElementById("prev").addEventListener("click",()=>go(cur-1));
+document.getElementById("next").addEventListener("click",()=>go(cur+1));
+addEventListener("keydown",e=>{
+  if(["ArrowRight","PageDown"," "].includes(e.key)){go(cur+1);e.preventDefault();}
+  else if(["ArrowLeft","PageUp"].includes(e.key)){go(cur-1);e.preventDefault();}
+  else if(e.key==="Home")go(0);
+  else if(e.key==="End")go(slides.length-1);
+});
+go(0);
+/* ---------- auto-scale ---------- */
+function fit(){
+  const s=Math.min(innerWidth/1300,(innerHeight-40)/730);
+  stage.style.transform=`translate(-50%,-50%) scale(${Math.min(s,1.4)})`;
+}
+addEventListener("resize",fit);fit();
+
+/* ---------- CSS var resolver (for SVG strokes) ---------- */
+const CV=n=>getComputedStyle(document.documentElement).getPropertyValue(n).trim();
+
+/* ---------- multi-series epoch line chart; data[i] is epoch xmin+i (or se.xs[i]); vlines = dotted epoch markers ---------- */
+function lineChart(el,cfg){
+  const W=cfg.W||600,H=cfg.H||300,L=cfg.L||44,R=cfg.R||52,T=cfg.T||10,B=cfg.B||26,
+        iw=W-L-R, ih=H-T-B;
+  const {ymin,ymax,yticks,xmax,xticks,log}=cfg, xmin=cfg.xmin||0, span=xmax-xmin;
+  const f=log?Math.log10:(v=>v), y0=f(ymin), y1=f(ymax);
+  const XE=e=>L+iw*((e-xmin)/span);
+  const Y=v=>T+ih*(1-(f(Math.min(Math.max(v,ymin),ymax))-y0)/(y1-y0));
+  const fmt=cfg.fmt||(t=>t.toFixed(4));
+  let s=`<svg viewBox="0 0 ${W} ${H}" width="100%" height="100%" preserveAspectRatio="xMidYMid meet">`;
+  yticks.forEach(t=>{const y=Y(t);
+    s+=`<line x1="${L}" y1="${y}" x2="${L+iw}" y2="${y}" stroke="${CV('--grid')}"/>`;
+    s+=`<text x="${L-6}" y="${y+3}" text-anchor="end" class="axl">${fmt(t)}</text>`;});
+  xticks.forEach(t=>s+=`<text x="${XE(t)}" y="${H-9}" text-anchor="middle" class="axl">${t}</text>`);
+  (cfg.vlines||[]).forEach(x=>s+=`<line x1="${XE(x)}" y1="${T}" x2="${XE(x)}" y2="${T+ih}" stroke="${CV('--muted')}" stroke-dasharray="2 3"/>`);
+  cfg.series.forEach(se=>{const c=CV(se.color);
+    const X=i=>se.xs?se.xs[i]:xmin+i, d=se.data.map((v,i)=>`${i?'L':'M'}${XE(X(i)).toFixed(1)} ${Y(v).toFixed(1)}`).join(' ');
+    s+=`<path d="${d}" fill="none" stroke="${c}" stroke-width="${se.width||1.8}" opacity="${se.faint?.5:1}" ${se.dash?`stroke-dasharray="${se.dash}"`:''}/>`;
+    if(se.dash) return;
+    const n=se.data.length-1, lx=XE(X(n)), ly=Y(se.data[n]);
+    s+=`<circle cx="${lx.toFixed(1)}" cy="${ly.toFixed(1)}" r="2.4" fill="${c}" opacity="${se.faint?.5:1}"/>`;
+    if(se.tag&&!se.faint) s+=`<text x="${lx+5}" y="${ly+3.5}" class="hll" fill="${c}">${se.tag}</text>`;});
+  s+=`<text x="${L+iw/2}" y="${H-0.5}" text-anchor="middle" class="axl">${cfg.xlab||'epoch'}</text></svg>`;
+  el.innerHTML=s;
+}
+
+/* ---------- x/y line chart for the noise ladder (explicit x values, not epochs) ---------- */
+function xyChart(el,cfg){
+  const W=cfg.W||560,H=cfg.H||300,L=46,R=62,T=10,B=30, iw=W-L-R, ih=H-T-B;
+  const {xmin,xmax,ymin,ymax,xticks,yticks}=cfg;
+  const xf=cfg.xfmt||(t=>t), yf=cfg.yfmt||(t=>t+'%');
+  const X=v=>L+iw*(v-xmin)/(xmax-xmin), Y=v=>T+ih*(1-(v-ymin)/(ymax-ymin));
+  let s=`<svg viewBox="0 0 ${W} ${H}" width="100%" height="100%" preserveAspectRatio="xMidYMid meet">`;
+  yticks.forEach(t=>{const y=Y(t);
+    s+=`<line x1="${L}" y1="${y}" x2="${L+iw}" y2="${y}" stroke="${CV('--grid')}"/>`;
+    s+=`<text x="${L-6}" y="${y+3}" text-anchor="end" class="axl">${yf(t)}</text>`;});
+  xticks.forEach(t=>s+=`<text x="${X(t)}" y="${H-12}" text-anchor="middle" class="axl">${xf(t)}</text>`);
+  cfg.series.forEach(se=>{const c=CV(se.color);
+    const d=se.pts.map((p,i)=>`${i?'L':'M'}${X(p[0]).toFixed(1)} ${Y(p[1]).toFixed(1)}`).join(' ');
+    s+=`<path d="${d}" fill="none" stroke="${c}" stroke-width="1.9" ${se.dash?`stroke-dasharray="${se.dash}"`:''}/>`;
+    se.pts.forEach(p=>s+=`<circle cx="${X(p[0]).toFixed(1)}" cy="${Y(p[1]).toFixed(1)}" r="2.6" fill="${c}"/>`);
+    const lp=se.pts[se.pts.length-1];
+    if(se.tag) s+=`<text x="${(X(lp[0])+5).toFixed(1)}" y="${(Y(lp[1])+3.5).toFixed(1)}" class="hll" fill="${c}">${se.tag}</text>`;});
+  s+=`<text x="${L+iw/2}" y="${H-1}" text-anchor="middle" class="axl">${cfg.xlab||'σ'}</text></svg>`;
+  el.innerHTML=s;
+}
+
+/* ================= DATA =================
+   Grepped from each job's BSC stdout: the [Train] and [Eval/206 @ …] z lines, the [Eval/…] loss line, the epoch
+   summary line (SIGReg statistic), and the zrow_max meter (ZRM = epoch mean; ITZ = median of 20 steps per log line).
+   Index i is epoch i. CTRL 45727710 · R0 45949269 (clip 0) · R4 45949271 (clip 4). Seeded arms read 2026-09-17 10:41, ep 0-9.
+   ============================================ */
+var TRMS_CTRL=[0.8239, 2.068e+04, 4930, 576.4, 173.7, 2.423, 1.536, 1.156, 1.171, 1.171];
+var TRK_CTRL=[46.5, 2, 1.4, 2.6, 1.3, 3.4, 12.8, 180.4, 239.7, 261.2];
+var TTV_CTRL=[1265, 2.823e+07, 7.183e+06, 8.754e+05, 2.66e+05, 3689, 2350, 1773, 1796, 1797];
+var TMAM_CTRL=[0.0942, 312, 216.7, 48.06, 8.346, 3.581, 1.317, 0.3148, 0.3171, 0.2108];
+var SIG_CTRL=[0.1816, 0.2176, 0.0592, 0.0436, 0.0225, 0.0088, 0.0049, 0.0033, 0.0031, 0.0029];
+var RK_K_CTRL=[32.4, 1, 1.9, 1, 2.7, 4.9, 126.8, 171.6, 183.6, 197.6];
+var RK_N_CTRL=[32.5, 1, 2.1, 1, 2.6, 3.7, 109.3, 213.8, 246.9, 269.1];
+var ERMS_K_CTRL=[3.377, 7856, 3.195, 803.5, 3.258, 2.342, 1.547, 1.598, 1.439, 1.371];
+var ERMS_N_CTRL=[3.383, 8456, 2.958, 977.2, 2.477, 1.934, 0.9376, 1.162, 1.054, 0.9964];
+var ETV_K_CTRL=[5168, 8.057e+06, 4372, 1.2e+06, 4925, 3557, 2362, 2444, 2206, 2101];
+var ETV_N_CTRL=[5177, 8.326e+06, 4064, 1.455e+06, 3760, 2940, 1436, 1779, 1614, 1528];
+var EMAM_K_CTRL=[0.4959, 515.9, 14.15, 70.16, 4.571, 2.469, 1.174, 1.39, 0.654, 0.3643];
+var EMAM_N_CTRL=[0.4949, 556.2, 13.42, 82.04, 4.515, 2.419, 0.3196, 0.3452, 0.3449, 0.3061];
+var LR_K_CTRL=[0.1403, 0.1362, 0.133, 0.1219, 0.1076, 0.0874, 0.0659, 0.0555, 0.0507, 0.0465];
+var LR_N_CTRL=[0.1036, 0.0984, 0.1005, 0.0846, 0.0756, 0.0628, 0.0503, 0.04, 0.0363, 0.0333];
+var LRC_K_CTRL=[0.1477, 0.1454, 0.1429, 0.1304, 0.1156, 0.0933, 0.0689, 0.057, 0.0519, 0.0475];
+var LRC_N_CTRL=[0.1103, 0.1075, 0.1086, 0.0938, 0.0841, 0.0696, 0.0546, 0.0423, 0.0383, 0.035];
+var PPO_K_CTRL=[22.8, 5.724, 7.092, 7.225, 2.159, 1.312, 0.7439, 0.6974, 0.6503, 0.6252];
+var PPO_N_CTRL=[16.61, 7.55, 13.45, 8.046, 2.652, 1.249, 0.8778, 0.677, 0.5796, 0.4635];
+var DPO_K_CTRL=[3.4, 2.814, 2.638, 1.871, 1.266, 0.8456, 0.538, 0.4759, 0.4355, 0.4086];
+var DPO_N_CTRL=[3.44, 2.743, 3.344, 2.191, 1.514, 0.8957, 0.6258, 0.4762, 0.4036, 0.3235];
+var RPO_K_CTRL=[20.39, 4.918, 6.077, 6.659, 1.396, 0.746, 0.4256, 0.4015, 0.3914, 0.3944];
+var RPO_N_CTRL=[13.15, 5.863, 10.56, 6.131, 1.722, 0.6623, 0.4272, 0.336, 0.2984, 0.251];
+var PGT_K_CTRL=[22.35, 5.619, 7.67, 8.197, 3.536, 3.128, 2.553, 2.607, 2.393, 2.532];
+var PGT_N_CTRL=[16.83, 8.29, 14.01, 9.036, 4.559, 3.7, 3.546, 3.473, 3.434, 3.352];
+var DGT_K_CTRL=[3.428, 3.222, 2.968, 2.406, 2.132, 1.994, 1.679, 1.704, 1.597, 1.665];
+var DGT_N_CTRL=[4.265, 3.783, 4.245, 3.436, 3.133, 2.812, 2.709, 2.663, 2.639, 2.594];
+var RGT_K_CTRL=[20.13, 4.658, 6.293, 7.19, 2.071, 1.638, 1.295, 1.322, 1.176, 1.271];
+var RGT_N_CTRL=[13.01, 5.954, 10.55, 6.34, 2.407, 1.55, 1.38, 1.319, 1.301, 1.256];
+var TRMS_R0=[0.8552, 7322, 3259, 2105, 3290, 1.043, 1.069, 1.105, 1.119, 1.111];
+var TRK_R0=[43.1, 3.3, 1.8, 2.4, 1.2, 41.9, 71.5, 115.3, 179.5, 213.7];
+var TTV_R0=[1313, 1.06e+07, 4.862e+06, 3.222e+06, 5.019e+06, 1600, 1642, 1696, 1718, 1707];
+var TMAM_R0=[0.0811, 107.7, 69.02, 42.95, 50.36, 0.2319, 0.175, 0.1482, 0.1507, 0.1348];
+var SIG_R0=[0.1743, 0.0908, 0.0562, 0.072, 0.0295, 0.0077, 0.0045, 0.003, 0.0022, 0.0021];
+var RK_K_R0=[18.3, 1, 1.2, 1, 27.2, 51.1, 93.6, 139.7, 168.8, 190];
+var RK_N_R0=[18.3, 1, 1.1, 1, 31.2, 48.5, 77.8, 134.6, 180.3, 207.9];
+var ERMS_K_R0=[0.5959, 1884, 126.2, 1.035e+04, 1.171, 1.294, 1.455, 1.588, 1.428, 1.311];
+var ERMS_N_R0=[0.5975, 1850, 200.8, 1.063e+04, 0.881, 0.9359, 0.9162, 1.015, 0.9846, 1.008];
+var ETV_K_R0=[907.6, 2.745e+06, 1.51e+05, 1.226e+07, 1764, 1970, 2218, 2424, 2184, 2001];
+var ETV_N_R0=[909.9, 2.697e+06, 2.305e+05, 1.261e+07, 1343, 1432, 1403, 1556, 1508, 1538];
+var EMAM_K_R0=[0.2697, 72.04, 74.35, 622.9, 1.354, 0.7634, 0.775, 0.7822, 0.5841, 1.084];
+var EMAM_N_R0=[0.2715, 70.98, 97.99, 631.3, 0.6382, 0.3904, 0.5292, 0.7055, 0.6921, 1.218];
+var LR_K_R0=[0.1407, 0.1366, 0.1339, 0.1297, 0.1119, 0.0932, 0.0751, 0.0615, 0.0541, 0.0497];
+var LR_N_R0=[0.1039, 0.1008, 0.1027, 0.0888, 0.0778, 0.0663, 0.0558, 0.0468, 0.0412, 0.0371];
+var LRC_K_R0=[0.1487, 0.1448, 0.1432, 0.1393, 0.1209, 0.1009, 0.0791, 0.0635, 0.0554, 0.0511];
+var LRC_N_R0=[0.1109, 0.1085, 0.1099, 0.0984, 0.0865, 0.0742, 0.0614, 0.0501, 0.0437, 0.04];
+var PPO_K_R0=[18.22, 8.422, 13.61, 7.617, 3.049, 1.539, 0.9304, 0.7175, 0.6278, 0.5825];
+var PPO_N_R0=[16.18, 16.4, 20.38, 8.341, 3.716, 1.635, 1.006, 0.7774, 0.6946, 0.5909];
+var DPO_K_R0=[3.566, 2.894, 2.89, 2.448, 1.388, 0.9411, 0.6003, 0.4574, 0.4101, 0.3937];
+var DPO_N_R0=[3.709, 3.629, 3.85, 2.533, 1.694, 1.124, 0.7187, 0.5579, 0.491, 0.4255];
+var RPO_K_R0=[16.41, 7.271, 12.64, 6.427, 2.386, 0.9479, 0.5537, 0.4416, 0.3608, 0.3329];
+var RPO_N_R0=[13.12, 13.45, 16.87, 6.329, 2.651, 0.878, 0.5084, 0.3909, 0.3513, 0.2939];
+var PGT_K_R0=[17.92, 8.784, 14.33, 8.561, 4.162, 3.217, 2.728, 2.565, 2.528, 2.505];
+var PGT_N_R0=[16.46, 16.74, 20.69, 9.257, 5.302, 3.94, 3.59, 3.506, 3.476, 3.426];
+var DGT_K_R0=[3.572, 3.206, 3.125, 3.055, 2.089, 1.99, 1.768, 1.668, 1.665, 1.658];
+var DGT_N_R0=[4.525, 4.481, 4.71, 3.682, 3.191, 2.931, 2.732, 2.693, 2.663, 2.643];
+var RGT_K_R0=[16.18, 7.263, 12.98, 6.88, 2.965, 1.76, 1.404, 1.31, 1.252, 1.238];
+var RGT_N_R0=[12.99, 13.31, 16.68, 6.488, 3.151, 1.729, 1.441, 1.353, 1.335, 1.291];
+var ZRM_R0=[23.65, 1151, 1950, 1655, 2284, 18.79, 12.56, 10.46, 10.33, 10.2];
+var ITX_R0=[0, 0.0089, 0.0178, 0.0267, 0.0356, 0.0444, 0.0533, 0.0622, 0.0711, 0.08, 0.0889, 0.0978, 0.1067, 0.1156, 0.1244, 0.1333, 0.1422, 0.1511, 0.16, 0.1689, 0.1778, 0.1867, 0.1956, 0.2044, 0.2133, 0.2222, 0.2311, 0.24, 0.2489, 0.2578, 0.2667, 0.2756, 0.2844, 0.2933, 0.3022, 0.3111, 0.32, 0.3289, 0.3378, 0.3467, 0.3556, 0.3644, 0.3733, 0.3822, 0.3911, 0.4, 0.4089, 0.4178, 0.4267, 0.4356, 0.4444, 0.4533, 0.4622, 0.4711, 0.48, 0.4889, 0.4978, 0.5067, 0.5156, 0.5244, 0.5333, 0.5422, 0.5511, 0.56, 0.5689, 0.5778, 0.5867, 0.5956, 0.6044, 0.6133, 0.6222, 0.6311, 0.64, 0.6489, 0.6578, 0.6667, 0.6756, 0.6844, 0.6933, 0.7022, 0.7111, 0.72, 0.7289, 0.7378, 0.7467, 0.7556, 0.7644, 0.7733, 0.7822, 0.7911, 0.8, 0.8089, 0.8178, 0.8267, 0.8356, 0.8444, 0.8533, 0.8622, 0.8711, 0.88, 0.8889, 0.8978, 0.9067, 0.9156, 0.9244, 0.9333, 0.9422, 0.9511, 0.96, 0.9689, 0.9778, 0.9867, 0.9956, 0.9996, 1, 1.009, 1.018, 1.027, 1.036, 1.044, 1.053, 1.062, 1.071, 1.08, 1.089, 1.098, 1.107, 1.116, 1.124, 1.133, 1.142, 1.151, 1.16, 1.169, 1.178, 1.187, 1.196, 1.204, 1.213, 1.222, 1.231, 1.24, 1.249, 1.258, 1.267, 1.276, 1.284, 1.293, 1.302, 1.311, 1.32, 1.329, 1.338, 1.347, 1.356, 1.364, 1.373, 1.382, 1.391, 1.4, 1.409, 1.418, 1.427, 1.436, 1.444, 1.453, 1.462, 1.471, 1.48, 1.489, 1.498, 1.507, 1.516, 1.524, 1.533, 1.542, 1.551, 1.56, 1.569, 1.578, 1.587, 1.596, 1.604, 1.613, 1.622, 1.631, 1.64, 1.649, 1.658, 1.667, 1.676, 1.684, 1.693, 1.702, 1.711, 1.72, 1.729, 1.738, 1.747, 1.756, 1.764, 1.773, 1.782, 1.791, 1.8, 1.809, 1.818, 1.827, 1.836, 1.844, 1.853, 1.862, 1.871, 1.88, 1.889, 1.898, 1.907, 1.916, 1.924, 1.933, 1.942, 1.951, 1.96, 1.969, 1.978, 1.987, 1.996, 2, 2, 2.009, 2.018, 2.027, 2.036, 2.044, 2.053, 2.062, 2.071, 2.08, 2.089, 2.098, 2.107, 2.116, 2.124, 2.133, 2.142, 2.151, 2.16, 2.169, 2.178, 2.187, 2.196, 2.204, 2.213, 2.222, 2.231, 2.24, 2.249, 2.258, 2.267, 2.276, 2.284, 2.293, 2.302, 2.311, 2.32, 2.329, 2.338, 2.347, 2.356, 2.364, 2.373, 2.382, 2.391, 2.4, 2.409, 2.418, 2.427, 2.436, 2.444, 2.453, 2.462, 2.471, 2.48, 2.489, 2.498, 2.507, 2.516, 2.524, 2.533, 2.542, 2.551, 2.56, 2.569, 2.578, 2.587, 2.596, 2.604, 2.613, 2.622, 2.631, 2.64, 2.649, 2.658, 2.667, 2.676, 2.684, 2.693, 2.702, 2.711, 2.72, 2.729, 2.738, 2.747, 2.756, 2.764, 2.773, 2.782, 2.791, 2.8, 2.809, 2.818, 2.827, 2.836, 2.844, 2.853, 2.862, 2.871, 2.88, 2.889, 2.898, 2.907, 2.916, 2.924, 2.933, 2.942, 2.951, 2.96, 2.969, 2.978, 2.987, 2.996, 3, 3, 3.009, 3.018, 3.027, 3.036, 3.044, 3.053, 3.062, 3.071, 3.08, 3.089, 3.098, 3.107, 3.116, 3.124, 3.133, 3.142, 3.151, 3.16, 3.169, 3.178, 3.187, 3.196, 3.204, 3.213, 3.222, 3.231, 3.24, 3.249, 3.258, 3.267, 3.276, 3.284, 3.293, 3.302, 3.311, 3.32, 3.329, 3.338, 3.347, 3.356, 3.364, 3.373, 3.382, 3.391, 3.4, 3.409, 3.418, 3.427, 3.436, 3.444, 3.453, 3.462, 3.471, 3.48, 3.489, 3.498, 3.507, 3.516, 3.524, 3.533, 3.542, 3.551, 3.56, 3.569, 3.578, 3.587, 3.596, 3.604, 3.613, 3.622, 3.631, 3.64, 3.649, 3.658, 3.667, 3.676, 3.684, 3.693, 3.702, 3.711, 3.72, 3.729, 3.738, 3.747, 3.756, 3.764, 3.773, 3.782, 3.791, 3.8, 3.809, 3.818, 3.827, 3.836, 3.844, 3.853, 3.862, 3.871, 3.88, 3.889, 3.898, 3.907, 3.916, 3.924, 3.933, 3.942, 3.951, 3.96, 3.969, 3.978, 3.987, 3.996, 4, 4, 4.009, 4.018, 4.027, 4.036, 4.044, 4.053, 4.062, 4.071, 4.08, 4.089, 4.098, 4.107, 4.116, 4.124, 4.133, 4.142, 4.151, 4.16, 4.169, 4.178, 4.187, 4.196, 4.204, 4.213, 4.222, 4.231, 4.24, 4.249, 4.258, 4.267, 4.276, 4.284, 4.293, 4.302, 4.311, 4.32, 4.329, 4.338, 4.347, 4.356, 4.364, 4.373, 4.382, 4.391, 4.4, 4.409, 4.418, 4.427, 4.436, 4.444, 4.453, 4.462, 4.471, 4.48, 4.489, 4.498, 4.507, 4.516, 4.524, 4.533, 4.542, 4.551, 4.56, 4.569, 4.578, 4.587, 4.596, 4.604, 4.613, 4.622, 4.631, 4.64, 4.649, 4.658, 4.667, 4.676, 4.684, 4.693, 4.702, 4.711, 4.72, 4.729, 4.738, 4.747, 4.756, 4.764, 4.773, 4.782, 4.791, 4.8, 4.809, 4.818, 4.827, 4.836, 4.844, 4.853, 4.862, 4.871, 4.88, 4.889, 4.898, 4.907, 4.916, 4.924, 4.933, 4.942, 4.951, 4.96, 4.969, 4.978, 4.987, 4.996, 5, 5, 5.009, 5.018, 5.027, 5.036, 5.044, 5.053, 5.062, 5.071, 5.08, 5.089, 5.098, 5.107, 5.116, 5.124, 5.133, 5.142, 5.151, 5.16, 5.169, 5.178, 5.187, 5.196, 5.204, 5.213, 5.222, 5.231, 5.24, 5.249, 5.258, 5.267, 5.276, 5.284, 5.293, 5.302, 5.311, 5.32, 5.329, 5.338, 5.347, 5.356, 5.364, 5.373, 5.382, 5.391, 5.4, 5.409, 5.418, 5.427, 5.436, 5.444, 5.453, 5.462, 5.471, 5.48, 5.489, 5.498, 5.507, 5.516, 5.524, 5.533, 5.542, 5.551, 5.56, 5.569, 5.578, 5.587, 5.596, 5.604, 5.613, 5.622, 5.631, 5.64, 5.649, 5.658, 5.667, 5.676, 5.684, 5.693, 5.702, 5.711, 5.72, 5.729, 5.738, 5.747, 5.756, 5.764, 5.773, 5.782, 5.791, 5.8, 5.809, 5.818, 5.827, 5.836, 5.844, 5.853, 5.862, 5.871, 5.88, 5.889, 5.898, 5.907, 5.916, 5.924, 5.933, 5.942, 5.951, 5.96, 5.969, 5.978, 5.987, 5.996, 6, 6, 6.009, 6.018, 6.027, 6.036, 6.044, 6.053, 6.062, 6.071, 6.08, 6.089, 6.098, 6.107, 6.116, 6.124, 6.133, 6.142, 6.151, 6.16, 6.169, 6.178, 6.187, 6.196, 6.204, 6.213, 6.222, 6.231, 6.24, 6.249, 6.258, 6.267, 6.276, 6.284, 6.293, 6.302, 6.311, 6.32, 6.329, 6.338, 6.347, 6.356, 6.364, 6.373, 6.382, 6.391, 6.4, 6.409, 6.418, 6.427, 6.436, 6.444, 6.453, 6.462, 6.471, 6.48, 6.489, 6.498, 6.507, 6.516, 6.524, 6.533, 6.542, 6.551, 6.56, 6.569, 6.578, 6.587, 6.596, 6.604, 6.613, 6.622, 6.631, 6.64, 6.649, 6.658, 6.667, 6.676, 6.684, 6.693, 6.702, 6.711, 6.72, 6.729, 6.738, 6.747, 6.756, 6.764, 6.773, 6.782, 6.791, 6.8, 6.809, 6.818, 6.827, 6.836, 6.844, 6.853, 6.862, 6.871, 6.88, 6.889, 6.898, 6.907, 6.916, 6.924, 6.933, 6.942, 6.951, 6.96, 6.969, 6.978, 6.987, 6.996, 7, 7, 7.009, 7.018, 7.027, 7.036, 7.044, 7.053, 7.062, 7.071, 7.08, 7.089, 7.098, 7.107, 7.116, 7.124, 7.133, 7.142, 7.151, 7.16, 7.169, 7.178, 7.187, 7.196, 7.204, 7.213, 7.222, 7.231, 7.24, 7.249, 7.258, 7.267, 7.276, 7.284, 7.293, 7.302, 7.311, 7.32, 7.329, 7.338, 7.347, 7.356, 7.364, 7.373, 7.382, 7.391, 7.4, 7.409, 7.418, 7.427, 7.436, 7.444, 7.453, 7.462, 7.471, 7.48, 7.489, 7.498, 7.507, 7.516, 7.524, 7.533, 7.542, 7.551, 7.56, 7.569, 7.578, 7.587, 7.596, 7.604, 7.613, 7.622, 7.631, 7.64, 7.649, 7.658, 7.667, 7.676, 7.684, 7.693, 7.702, 7.711, 7.72, 7.729, 7.738, 7.747, 7.756, 7.764, 7.773, 7.782, 7.791, 7.8, 7.809, 7.818, 7.827, 7.836, 7.844, 7.853, 7.862, 7.871, 7.88, 7.889, 7.898, 7.907, 7.916, 7.924, 7.933, 7.942, 7.951, 7.96, 7.969, 7.978, 7.987, 7.996, 8, 8, 8.009, 8.018, 8.027, 8.036, 8.044, 8.053, 8.062, 8.071, 8.08, 8.089, 8.098, 8.107, 8.116, 8.124, 8.133, 8.142, 8.151, 8.16, 8.169, 8.178, 8.187, 8.196, 8.204, 8.213, 8.222, 8.231, 8.24, 8.249, 8.258, 8.267, 8.276, 8.284, 8.293, 8.302, 8.311, 8.32, 8.329, 8.338, 8.347, 8.356, 8.364, 8.373, 8.382, 8.391, 8.4, 8.409, 8.418, 8.427, 8.436, 8.444, 8.453, 8.462, 8.471, 8.48, 8.489, 8.498, 8.507, 8.516, 8.524, 8.533, 8.542, 8.551, 8.56, 8.569, 8.578, 8.587, 8.596, 8.604, 8.613, 8.622, 8.631, 8.64, 8.649, 8.658, 8.667, 8.676, 8.684, 8.693, 8.702, 8.711, 8.72, 8.729, 8.738, 8.747, 8.756, 8.764, 8.773, 8.782, 8.791, 8.8, 8.809, 8.818, 8.827, 8.836, 8.844, 8.853, 8.862, 8.871, 8.88, 8.889, 8.898, 8.907, 8.916, 8.924, 8.933, 8.942, 8.951, 8.96, 8.969, 8.978, 8.987, 8.996, 9, 9, 9.009, 9.018, 9.027, 9.036, 9.044, 9.053, 9.062, 9.071, 9.08, 9.089, 9.098, 9.107, 9.116, 9.124, 9.133, 9.142, 9.151, 9.16, 9.169, 9.178, 9.187, 9.196, 9.204, 9.213, 9.222, 9.231, 9.24, 9.249, 9.258, 9.267, 9.276, 9.284, 9.293, 9.302, 9.311, 9.32, 9.329, 9.338, 9.347, 9.356, 9.364, 9.373, 9.382, 9.391, 9.4, 9.409, 9.418, 9.427, 9.436, 9.444, 9.453, 9.462, 9.471, 9.48, 9.489, 9.498, 9.507, 9.516, 9.524, 9.533, 9.542, 9.551, 9.56, 9.569, 9.578, 9.587, 9.596, 9.604, 9.613, 9.622, 9.631, 9.64, 9.649, 9.658, 9.667, 9.676, 9.684, 9.693, 9.702, 9.711, 9.72, 9.729, 9.738, 9.747, 9.756, 9.764, 9.773, 9.782, 9.791, 9.8, 9.809, 9.818, 9.827, 9.836, 9.844, 9.853, 9.862, 9.871, 9.88, 9.889, 9.898, 9.907, 9.916, 9.924, 9.933, 9.942, 9.951, 9.96, 9.969, 9.978, 9.987, 9.996, 10];
+var ITZ_R0=[0.0918, 0.0918, 0.0919, 0.092, 0.0922, 0.0925, 0.0929, 0.0933, 0.0937, 0.0942, 0.0948, 0.0955, 0.0963, 0.0971, 0.0979, 0.0991, 0.1, 0.1014, 0.1028, 0.104, 0.1061, 0.1081, 0.1113, 0.115, 0.1187, 0.1226, 0.1276, 0.1363, 0.1664, 0.2137, 0.2914, 0.4333, 0.7117, 1.363, 3.291, 9.057, 14.77, 17.36, 20.34, 23.74, 28, 32.44, 37.76, 43.98, 49.99, 50.67, 43.33, 23.55, 19.37, 35.76, 46.32, 50.51, 46.14, 36.64, 27.27, 31.1, 39.35, 46.66, 49.29, 42.83, 32.12, 24.22, 29.05, 37.97, 45.32, 46.31, 38.93, 30.02, 27.28, 33.14, 39.16, 42.55, 39.01, 31.65, 25.18, 27.48, 34.05, 39.21, 37.14, 29.36, 23.73, 25.43, 32.16, 39.56, 39.38, 30.85, 20.76, 23.52, 31.25, 39.75, 42.7, 35.97, 24.67, 19, 25.79, 36.01, 44.14, 42.17, 31.84, 22.89, 24.22, 32.73, 43.67, 47.37, 38.02, 25.38, 20.89, 29.38, 41.48, 49.69, 45.47, 31.75, 21.63, 21.63, 26.29, 31.67, 42.68, 48.26, 41.04, 28.12, 22.87, 31.42, 44.1, 51.07, 42.84, 23.61, 16.26, 35.99, 57.64, 67.85, 41.17, 46.97, 81.81, 128.2, 170.3, 224, 273.3, 351.9, 436.2, 567.7, 679.3, 815, 955.6, 1103, 1271, 1475, 1645, 1810, 1881, 1938, 1939, 1938, 1986, 1946, 1861, 1716, 1456, 1175, 875, 626.1, 558.6, 496, 425.5, 365.4, 291.9, 243.8, 55.41, 35.73, 84.51, 145.3, 196.9, 260, 323.6, 428.4, 533.6, 648.4, 802.8, 960.5, 1125, 1263, 1444, 1641, 1878, 2145, 2509, 2898, 3320, 3812, 4262, 4286, 3943, 3507, 3199, 2807, 2417, 2491, 2382, 2086, 1769, 1698, 1664, 1592, 1463, 1321, 1211, 2080, 768.5, 378.9, 194.7, 95.93, 176.2, 558.9, 2008, 1981, 1775, 1607, 1503, 1700, 1824, 1893, 2012, 328.2, 31.35, 355.2, 617.2, 1039, 1718, 1981, 2169, 2362, 2600, 2725, 2451, 2470, 2250, 2192, 2338, 2190, 2238, 2096, 1578, 1961, 2174, 2091, 2007, 1986, 2162, 2464, 2384, 430.2, 720.8, 990.9, 1257, 1075, 1267, 1332, 1332, 1125, 1318, 1030, 707.2, 1040, 1349, 1591, 1118, 1293, 1758, 2025, 2293, 2697, 2906, 1493, 1026, 216.2, 749.7, 1210, 1455, 1854, 2406, 2101, 1745, 1563, 1424, 1301, 1502, 1710, 2059, 2200, 1641, 1219, 690.3, 23.19, 17.58, 490.2, 1280, 1938, 2415, 2516, 1266, 358.1, 23, 124.4, 1305, 2626, 3374, 4204, 35.31, 39.43, 98.16, 427.5, 640.5, 1335, 2046, 3015, 4127, 5301, 6608, 7223, 4321, 473.9, 659.4, 302.9, 1563, 2879, 3299, 4733, 6139, 6733, 4634, 2667, 2462, 193.6, 138.3, 1295, 2556, 3532, 3876, 2883, 2145, 833.9, 241.4, 257.4, 596.6, 185.1, 29.54, 85.36, 680.6, 310.7, 339.2, 448.9, 686, 80.8, 317.8, 2313, 4223, 5248, 5598, 6278, 4207, 22.08, 50.2, 214.7, 681.5, 1499, 95.58, 140.5, 128, 149.5, 287, 404.2, 682.8, 1757, 1541, 398.3, 228.8, 35.93, 1019, 2050, 2667, 2531, 1782, 1877, 2271, 1725, 2420, 2710, 3726, 4106, 2286, 93.49, 25.98, 137.9, 336.6, 826.3, 1469, 131.9, 1517, 2255, 3224, 3694, 4133, 1785, 124.7, 3405, 2629, 1200, 1731, 23.57, 26.33, 318, 1354, 1714, 1845, 1976, 1881, 2193, 2783, 48.74, 22.78, 655.6, 1589, 1325, 111.6, 1019, 1671, 24.01, 517.5, 2992, 2750, 4712, 5379, 5869, 6247, 5842, 2500, 1983, 1312, 499.2, 803.2, 1115, 1260, 32.13, 759.5, 840.7, 809.4, 273.2, 770.3, 2904, 4026, 5255, 1974, 231.6, 194.5, 28.4, 321, 1250, 3480, 133.8, 55.75, 71.73, 92.62, 664.1, 917.2, 41, 635.8, 2352, 2955, 3996, 5324, 339.6, 63.86, 94.33, 302.5, 231.6, 26.69, 167.4, 912.9, 25.12, 214.4, 897.4, 515.2, 70.89, 687.4, 501.5, 266.5, 152.1, 159.3, 74.19, 24.15, 196.4, 1189, 23.65, 226.1, 1463, 2749, 3370, 4148, 6055, 8573, 1.039e+04, 1.014e+04, 3233, 947.4, 1574, 2509, 3749, 5983, 6897, 8850, 9571, 1.267e+04, 1.241e+04, 1.35e+04, 1.419e+04, 1.377e+04, 1.157e+04, 1.211e+04, 1.276e+04, 1.128e+04, 9892, 3454, 3986, 3709, 25.97, 19.81, 23.66, 29.96, 39.16, 33.69, 22.74, 21.8, 28.92, 35.9, 31.92, 21.88, 21.66, 29.25, 35.17, 35.18, 25.25, 22.28, 27.84, 35.82, 35.13, 25.21, 22.45, 26.86, 36.89, 35.76, 26.05, 22.96, 27.27, 35.16, 35.08, 26.77, 22.06, 24.64, 28.96, 28.47, 22.66, 21.18, 22.57, 25.92, 33.1, 28.61, 22.73, 24.68, 30.77, 29.58, 28.16, 26.26, 22.26, 24.33, 26.25, 24.89, 24.24, 22.61, 23.35, 26.54, 24.82, 22.85, 21.01, 22.17, 22.93, 23.9, 22.2, 21.42, 23.21, 23.15, 19.65, 20.85, 20.57, 21.75, 19.78, 19.55, 21.1, 21.74, 21.61, 20.92, 20.64, 20.49, 22.16, 20.96, 20.15, 21.9, 19.35, 18.72, 21.08, 21.63, 18.77, 19.57, 19.57, 19.34, 19.05, 17.1, 18.3, 18.86, 17.6, 18.03, 19.35, 18.21, 18.55, 18.71, 18.74, 17.91, 17.95, 17.74, 18.11, 18.32, 16.67, 17.68, 17.57, 17.44, 17.53, 17.62, 17.54, 16.7, 17.62, 18.53, 17.42, 16.6, 17.87, 18.02, 17.51, 16.64, 17.17, 16.5, 16.81, 17.66, 16.14, 17.77, 16.97, 15.77, 16.17, 15.82, 16.68, 16.6, 15.96, 15.53, 16.29, 16.38, 16.36, 15.84, 16.02, 16.58, 15.39, 16.07, 16.19, 16.45, 16.08, 15.82, 15.14, 16.14, 15.32, 15.52, 16.4, 15.89, 14.7, 15.09, 15.3, 14.62, 14.83, 14.85, 14.83, 14.97, 15.03, 15, 14.62, 15.91, 15.69, 14.65, 14.59, 14.88, 14.41, 14.21, 14.03, 13.79, 13.8, 13.63, 13.56, 13.96, 13.42, 13.26, 13.99, 13.88, 13.6, 13.75, 13.15, 13.2, 13.75, 13.38, 13.73, 13.08, 13.07, 13.85, 13.13, 13.51, 13.32, 12.55, 12.75, 12.66, 13.07, 13.09, 12.98, 12.34, 11.96, 11.74, 12.57, 12.82, 12.06, 12.64, 13.01, 12.25, 12.25, 12.41, 12.1, 12.22, 12.19, 12.6, 12.06, 12.37, 12.33, 12.47, 12.15, 12.06, 12.49, 12.16, 12.85, 11.56, 12.25, 12.34, 12.32, 11.88, 12.33, 11.63, 11.52, 11.93, 11.84, 11.71, 11.61, 11.33, 11.58, 11.81, 12.06, 11.44, 11.38, 11.47, 11.1, 11.61, 11.28, 12.27, 11.55, 11.36, 10.78, 11.1, 11.55, 11.4, 10.95, 10.62, 10.86, 10.91, 10.99, 10.96, 11.11, 10.87, 10.7, 10.66, 10.59, 10.6, 10.48, 10.7, 10.47, 10.73, 10.85, 10.92, 10.7, 10.66, 10.7, 11.18, 10.72, 10.93, 10.86, 10.73, 10.38, 10.49, 10.81, 10.77, 10.66, 10.45, 10.42, 10.46, 10.4, 10.36, 10.67, 10.35, 10.17, 10.34, 10.16, 10.16, 10.34, 10.57, 10.11, 10.11, 10.44, 10.38, 10.23, 10.09, 10.28, 10.27, 10.25, 10.52, 10.47, 10.16, 10.08, 10.1, 10.23, 10.3, 10.38, 10.2, 10.53, 10.17, 10.18, 10.5, 11.08, 10.05, 10.14, 10.11, 10.5, 10.29, 10.01, 9.931, 10.05, 9.925, 10.13, 10.11, 10.46, 10.08, 10.04, 10.27, 9.789, 10.32, 10.57, 10.38, 10.33, 10.61, 10.16, 10.17, 10.66, 10.1, 9.951, 10.27, 10.34, 10.17, 10.26, 10.62, 9.867, 10.27, 10.51, 9.996, 9.574, 10.17, 10.84, 10.78, 10.31, 10.06, 10.09, 10.14, 10.12, 10.29, 10.62, 10.15, 9.987, 9.765, 9.674, 10.24, 10.17, 10.08, 9.779, 9.651, 10.32, 9.421, 9.854, 10.59, 9.989, 9.984, 10.03, 10.13, 10.68, 9.763, 9.372, 9.801, 9.764, 11.01, 10.1, 9.716, 9.832, 10.32, 10.12, 9.761, 9.597, 9.881, 10.24, 10.87, 9.993, 9.977, 9.49, 10.2, 9.928, 10.15, 10.59, 10.38, 9.559, 10.28, 10.1, 10.18, 9.757, 10.39, 10.32, 10.63, 9.966, 10.13, 10.11, 10.26, 10.55, 9.696, 10.14, 10.04, 10.44, 10.79, 10.05, 9.557, 10.21, 9.908, 11.02, 10.17, 10.35, 10.1, 9.848, 9.751, 9.556, 10.3, 10.23, 9.949, 10.56, 9.891, 10.6, 10.36, 10.37, 10.16, 9.69, 9.683, 11.34, 10.32, 10.1, 9.57, 9.674, 10.39, 10.29, 10.01, 10.48, 10.49, 9.783, 10.38, 10.6, 10.19, 10.14, 9.947, 9.813, 9.938, 9.895, 10.3, 10.28, 10.2, 9.569, 9.632, 10.3, 9.657, 10.66, 10.17, 10.09, 10.53, 10.18, 10.02, 10.19, 10.65, 10.1, 10.39, 9.589, 10.06, 10.52, 10.32, 10, 9.38, 9.711, 9.963, 9.364, 10.33, 10.46, 10.4, 9.734, 10.33, 10.18, 10.91, 10.23, 9.377, 9.69, 9.525, 10.57, 9.756, 9.815, 9.882, 10.98, 10.21, 9.616, 9.477, 9.659, 10.73, 10.46, 10.48, 10.3, 10.93, 9.977, 10.24, 10.78, 9.828, 9.976, 10.23, 10.38, 10.32, 9.809, 10.1, 10.61, 10.66, 10.78, 10.32, 9.493, 10.22, 10.67, 10.48, 10.46, 10.32, 10.49, 10.58, 10.94, 9.918, 9.894, 9.991, 10.64, 10.11, 10.29, 9.468, 10.06, 10.59, 10.24, 10.12, 10.11, 9.568, 9.947, 9.731, 9.929, 10.2, 10.37, 10.52, 9.939, 9.86, 10.32, 9.869, 10.44, 10.13, 10.11, 10.28, 10.15, 9.641, 9.884, 10.32, 10.05, 9.499, 10.17, 9.768, 9.615, 9.476, 10.26, 10.69, 10.01, 9.645, 9.761, 10.26, 9.791, 9.69, 10.03, 10.06, 9.593, 9.533, 10.12, 9.659, 10.06, 9.568, 9.451, 9.681, 9.758, 10.08, 9.803, 9.969, 9.614, 9.467, 9.537, 9.254, 9.385, 9.659, 9.813, 9.847, 10.24, 9.784, 9.597, 10.39, 9.033, 9.342, 9.154, 9.397, 9.539];
+var TRMS_R4=[0.9144, 3.944, 2.721, 2.897, 1.962, 1.163, 1.097, 1.108, 1.107, 1.104];
+var TRK_R4=[33.7, 9.2, 14.8, 21.3, 29.8, 31.9, 36.3, 42.6, 51.6, 76.8];
+var TTV_R4=[1403, 5994, 4169, 4433, 3008, 1785, 1684, 1701, 1700, 1696];
+var TMAM_R4=[0.1003, 1.312, 0.5061, 0.9266, 0.4466, 0.369, 0.2478, 0.2328, 0.1716, 0.1278];
+var SIG_R4=[0.1755, 0.1452, 0.0528, 0.0573, 0.0318, 0.0147, 0.0077, 0.0065, 0.0054, 0.0041];
+var RK_K_R4=[7.3, 1.4, 3.1, 15.8, 23.4, 27.3, 33.1, 41, 54.5, 89.8];
+var RK_N_R4=[7.3, 1.4, 2.9, 16.4, 29.6, 33.9, 38.6, 44.8, 54.1, 79.9];
+var ERMS_K_R4=[0.5705, 5.626, 2.93, 0.8558, 1.503, 1.341, 1.459, 1.508, 1.492, 1.517];
+var ERMS_N_R4=[0.5721, 5.635, 3.221, 0.8708, 1.176, 0.9401, 0.977, 1.005, 0.9569, 0.9281];
+var ETV_K_R4=[846.6, 5825, 3392, 1172, 2254, 2039, 2223, 2303, 2276, 2313];
+var ETV_N_R4=[848.5, 5801, 3830, 1179, 1787, 1441, 1497, 1540, 1467, 1421];
+var EMAM_K_R4=[0.72, 17.18, 8.516, 4.057, 1.865, 1.003, 0.9482, 0.7305, 0.8313, 1.123];
+var EMAM_N_R4=[0.7312, 17.39, 8.152, 3.855, 0.7442, 0.4249, 0.5125, 0.3927, 0.4483, 0.6627];
+var LR_K_R4=[0.1408, 0.137, 0.1342, 0.1331, 0.1193, 0.1095, 0.1021, 0.0952, 0.0856, 0.0717];
+var LR_N_R4=[0.1041, 0.1013, 0.1032, 0.0971, 0.0835, 0.0762, 0.0713, 0.0669, 0.0608, 0.0527];
+var LRC_K_R4=[0.1487, 0.1459, 0.1434, 0.1417, 0.1283, 0.1177, 0.1099, 0.1024, 0.0923, 0.0757];
+var LRC_N_R4=[0.111, 0.1087, 0.1099, 0.1049, 0.0921, 0.0847, 0.0798, 0.0746, 0.0682, 0.058];
+var PPO_K_R4=[19.52, 9.062, 13.88, 13.11, 5.889, 2.393, 1.638, 1.429, 1.083, 0.8545];
+var PPO_N_R4=[17.03, 15.89, 20.33, 17.64, 6.961, 3.044, 2.032, 1.651, 1.387, 0.9852];
+var DPO_K_R4=[3.652, 2.912, 3.006, 2.761, 1.714, 1.278, 1.015, 0.8884, 0.7081, 0.5959];
+var DPO_N_R4=[3.757, 3.446, 3.855, 3.388, 2.099, 1.564, 1.303, 1.082, 0.9484, 0.7046];
+var RPO_K_R4=[17.48, 7.984, 12.77, 12.27, 5.309, 1.717, 0.9983, 0.8436, 0.6317, 0.5074];
+var RPO_N_R4=[13.94, 13.09, 16.96, 13.68, 5.187, 2.178, 1.242, 0.9328, 0.7008, 0.5099];
+var PGT_K_R4=[19.2, 9.348, 14.36, 13.58, 6.811, 3.923, 3.152, 3.154, 2.881, 2.668];
+var PGT_N_R4=[17.27, 16.24, 20.69, 18.1, 8.121, 4.722, 4.107, 3.938, 3.842, 3.595];
+var DGT_K_R4=[3.633, 3.227, 3.228, 3.036, 2.303, 2.218, 1.978, 1.978, 1.857, 1.737];
+var DGT_N_R4=[4.559, 4.349, 4.699, 4.304, 3.407, 3.109, 2.999, 2.916, 2.864, 2.736];
+var RGT_K_R4=[17.24, 7.939, 12.98, 12.46, 5.803, 2.512, 1.726, 1.691, 1.502, 1.375];
+var RGT_N_R4=[13.79, 12.98, 16.79, 13.63, 5.477, 2.726, 1.978, 1.749, 1.597, 1.454];
+var ZRM_R4=[23.52, 60.32, 89.78, 117.7, 96.49, 203.3, 24.61, 24.21, 21.5, 19.69];
+var ITX_R4=[0, 0.0089, 0.0178, 0.0267, 0.0356, 0.0444, 0.0533, 0.0622, 0.0711, 0.08, 0.0889, 0.0978, 0.1067, 0.1156, 0.1244, 0.1333, 0.1422, 0.1511, 0.16, 0.1689, 0.1778, 0.1867, 0.1956, 0.2044, 0.2133, 0.2222, 0.2311, 0.24, 0.2489, 0.2578, 0.2667, 0.2756, 0.2844, 0.2933, 0.3022, 0.3111, 0.32, 0.3289, 0.3378, 0.3467, 0.3556, 0.3644, 0.3733, 0.3822, 0.3911, 0.4, 0.4089, 0.4178, 0.4267, 0.4356, 0.4444, 0.4533, 0.4622, 0.4711, 0.48, 0.4889, 0.4978, 0.5067, 0.5156, 0.5244, 0.5333, 0.5422, 0.5511, 0.56, 0.5689, 0.5778, 0.5867, 0.5956, 0.6044, 0.6133, 0.6222, 0.6311, 0.64, 0.6489, 0.6578, 0.6667, 0.6756, 0.6844, 0.6933, 0.7022, 0.7111, 0.72, 0.7289, 0.7378, 0.7467, 0.7556, 0.7644, 0.7733, 0.7822, 0.7911, 0.8, 0.8089, 0.8178, 0.8267, 0.8356, 0.8444, 0.8533, 0.8622, 0.8711, 0.88, 0.8889, 0.8978, 0.9067, 0.9156, 0.9244, 0.9333, 0.9422, 0.9511, 0.96, 0.9689, 0.9778, 0.9867, 0.9956, 0.9996, 1, 1.009, 1.018, 1.027, 1.036, 1.044, 1.053, 1.062, 1.071, 1.08, 1.089, 1.098, 1.107, 1.116, 1.124, 1.133, 1.142, 1.151, 1.16, 1.169, 1.178, 1.187, 1.196, 1.204, 1.213, 1.222, 1.231, 1.24, 1.249, 1.258, 1.267, 1.276, 1.284, 1.293, 1.302, 1.311, 1.32, 1.329, 1.338, 1.347, 1.356, 1.364, 1.373, 1.382, 1.391, 1.4, 1.409, 1.418, 1.427, 1.436, 1.444, 1.453, 1.462, 1.471, 1.48, 1.489, 1.498, 1.507, 1.516, 1.524, 1.533, 1.542, 1.551, 1.56, 1.569, 1.578, 1.587, 1.596, 1.604, 1.613, 1.622, 1.631, 1.64, 1.649, 1.658, 1.667, 1.676, 1.684, 1.693, 1.702, 1.711, 1.72, 1.729, 1.738, 1.747, 1.756, 1.764, 1.773, 1.782, 1.791, 1.8, 1.809, 1.818, 1.827, 1.836, 1.844, 1.853, 1.862, 1.871, 1.88, 1.889, 1.898, 1.907, 1.916, 1.924, 1.933, 1.942, 1.951, 1.96, 1.969, 1.978, 1.987, 1.996, 2, 2, 2.009, 2.018, 2.027, 2.036, 2.044, 2.053, 2.062, 2.071, 2.08, 2.089, 2.098, 2.107, 2.116, 2.124, 2.133, 2.142, 2.151, 2.16, 2.169, 2.178, 2.187, 2.196, 2.204, 2.213, 2.222, 2.231, 2.24, 2.249, 2.258, 2.267, 2.276, 2.284, 2.293, 2.302, 2.311, 2.32, 2.329, 2.338, 2.347, 2.356, 2.364, 2.373, 2.382, 2.391, 2.4, 2.409, 2.418, 2.427, 2.436, 2.444, 2.453, 2.462, 2.471, 2.48, 2.489, 2.498, 2.507, 2.516, 2.524, 2.533, 2.542, 2.551, 2.56, 2.569, 2.578, 2.587, 2.596, 2.604, 2.613, 2.622, 2.631, 2.64, 2.649, 2.658, 2.667, 2.676, 2.684, 2.693, 2.702, 2.711, 2.72, 2.729, 2.738, 2.747, 2.756, 2.764, 2.773, 2.782, 2.791, 2.8, 2.809, 2.818, 2.827, 2.836, 2.844, 2.853, 2.862, 2.871, 2.88, 2.889, 2.898, 2.907, 2.916, 2.924, 2.933, 2.942, 2.951, 2.96, 2.969, 2.978, 2.987, 2.996, 3, 3, 3.009, 3.018, 3.027, 3.036, 3.044, 3.053, 3.062, 3.071, 3.08, 3.089, 3.098, 3.107, 3.116, 3.124, 3.133, 3.142, 3.151, 3.16, 3.169, 3.178, 3.187, 3.196, 3.204, 3.213, 3.222, 3.231, 3.24, 3.249, 3.258, 3.267, 3.276, 3.284, 3.293, 3.302, 3.311, 3.32, 3.329, 3.338, 3.347, 3.356, 3.364, 3.373, 3.382, 3.391, 3.4, 3.409, 3.418, 3.427, 3.436, 3.444, 3.453, 3.462, 3.471, 3.48, 3.489, 3.498, 3.507, 3.516, 3.524, 3.533, 3.542, 3.551, 3.56, 3.569, 3.578, 3.587, 3.596, 3.604, 3.613, 3.622, 3.631, 3.64, 3.649, 3.658, 3.667, 3.676, 3.684, 3.693, 3.702, 3.711, 3.72, 3.729, 3.738, 3.747, 3.756, 3.764, 3.773, 3.782, 3.791, 3.8, 3.809, 3.818, 3.827, 3.836, 3.844, 3.853, 3.862, 3.871, 3.88, 3.889, 3.898, 3.907, 3.916, 3.924, 3.933, 3.942, 3.951, 3.96, 3.969, 3.978, 3.987, 3.996, 4, 4, 4.009, 4.018, 4.027, 4.036, 4.044, 4.053, 4.062, 4.071, 4.08, 4.089, 4.098, 4.107, 4.116, 4.124, 4.133, 4.142, 4.151, 4.16, 4.169, 4.178, 4.187, 4.196, 4.204, 4.213, 4.222, 4.231, 4.24, 4.249, 4.258, 4.267, 4.276, 4.284, 4.293, 4.302, 4.311, 4.32, 4.329, 4.338, 4.347, 4.356, 4.364, 4.373, 4.382, 4.391, 4.4, 4.409, 4.418, 4.427, 4.436, 4.444, 4.453, 4.462, 4.471, 4.48, 4.489, 4.498, 4.507, 4.516, 4.524, 4.533, 4.542, 4.551, 4.56, 4.569, 4.578, 4.587, 4.596, 4.604, 4.613, 4.622, 4.631, 4.64, 4.649, 4.658, 4.667, 4.676, 4.684, 4.693, 4.702, 4.711, 4.72, 4.729, 4.738, 4.747, 4.756, 4.764, 4.773, 4.782, 4.791, 4.8, 4.809, 4.818, 4.827, 4.836, 4.844, 4.853, 4.862, 4.871, 4.88, 4.889, 4.898, 4.907, 4.916, 4.924, 4.933, 4.942, 4.951, 4.96, 4.969, 4.978, 4.987, 4.996, 5, 5, 5.009, 5.018, 5.027, 5.036, 5.044, 5.053, 5.062, 5.071, 5.08, 5.089, 5.098, 5.107, 5.116, 5.124, 5.133, 5.142, 5.151, 5.16, 5.169, 5.178, 5.187, 5.196, 5.204, 5.213, 5.222, 5.231, 5.24, 5.249, 5.258, 5.267, 5.276, 5.284, 5.293, 5.302, 5.311, 5.32, 5.329, 5.338, 5.347, 5.356, 5.364, 5.373, 5.382, 5.391, 5.4, 5.409, 5.418, 5.427, 5.436, 5.444, 5.453, 5.462, 5.471, 5.48, 5.489, 5.498, 5.507, 5.516, 5.524, 5.533, 5.542, 5.551, 5.56, 5.569, 5.578, 5.587, 5.596, 5.604, 5.613, 5.622, 5.631, 5.64, 5.649, 5.658, 5.667, 5.676, 5.684, 5.693, 5.702, 5.711, 5.72, 5.729, 5.738, 5.747, 5.756, 5.764, 5.773, 5.782, 5.791, 5.8, 5.809, 5.818, 5.827, 5.836, 5.844, 5.853, 5.862, 5.871, 5.88, 5.889, 5.898, 5.907, 5.916, 5.924, 5.933, 5.942, 5.951, 5.96, 5.969, 5.978, 5.987, 5.996, 6, 6, 6.009, 6.018, 6.027, 6.036, 6.044, 6.053, 6.062, 6.071, 6.08, 6.089, 6.098, 6.107, 6.116, 6.124, 6.133, 6.142, 6.151, 6.16, 6.169, 6.178, 6.187, 6.196, 6.204, 6.213, 6.222, 6.231, 6.24, 6.249, 6.258, 6.267, 6.276, 6.284, 6.293, 6.302, 6.311, 6.32, 6.329, 6.338, 6.347, 6.356, 6.364, 6.373, 6.382, 6.391, 6.4, 6.409, 6.418, 6.427, 6.436, 6.444, 6.453, 6.462, 6.471, 6.48, 6.489, 6.498, 6.507, 6.516, 6.524, 6.533, 6.542, 6.551, 6.56, 6.569, 6.578, 6.587, 6.596, 6.604, 6.613, 6.622, 6.631, 6.64, 6.649, 6.658, 6.667, 6.676, 6.684, 6.693, 6.702, 6.711, 6.72, 6.729, 6.738, 6.747, 6.756, 6.764, 6.773, 6.782, 6.791, 6.8, 6.809, 6.818, 6.827, 6.836, 6.844, 6.853, 6.862, 6.871, 6.88, 6.889, 6.898, 6.907, 6.916, 6.924, 6.933, 6.942, 6.951, 6.96, 6.969, 6.978, 6.987, 6.996, 7, 7, 7.009, 7.018, 7.027, 7.036, 7.044, 7.053, 7.062, 7.071, 7.08, 7.089, 7.098, 7.107, 7.116, 7.124, 7.133, 7.142, 7.151, 7.16, 7.169, 7.178, 7.187, 7.196, 7.204, 7.213, 7.222, 7.231, 7.24, 7.249, 7.258, 7.267, 7.276, 7.284, 7.293, 7.302, 7.311, 7.32, 7.329, 7.338, 7.347, 7.356, 7.364, 7.373, 7.382, 7.391, 7.4, 7.409, 7.418, 7.427, 7.436, 7.444, 7.453, 7.462, 7.471, 7.48, 7.489, 7.498, 7.507, 7.516, 7.524, 7.533, 7.542, 7.551, 7.56, 7.569, 7.578, 7.587, 7.596, 7.604, 7.613, 7.622, 7.631, 7.64, 7.649, 7.658, 7.667, 7.676, 7.684, 7.693, 7.702, 7.711, 7.72, 7.729, 7.738, 7.747, 7.756, 7.764, 7.773, 7.782, 7.791, 7.8, 7.809, 7.818, 7.827, 7.836, 7.844, 7.853, 7.862, 7.871, 7.88, 7.889, 7.898, 7.907, 7.916, 7.924, 7.933, 7.942, 7.951, 7.96, 7.969, 7.978, 7.987, 7.996, 8, 8, 8.009, 8.018, 8.027, 8.036, 8.044, 8.053, 8.062, 8.071, 8.08, 8.089, 8.098, 8.107, 8.116, 8.124, 8.133, 8.142, 8.151, 8.16, 8.169, 8.178, 8.187, 8.196, 8.204, 8.213, 8.222, 8.231, 8.24, 8.249, 8.258, 8.267, 8.276, 8.284, 8.293, 8.302, 8.311, 8.32, 8.329, 8.338, 8.347, 8.356, 8.364, 8.373, 8.382, 8.391, 8.4, 8.409, 8.418, 8.427, 8.436, 8.444, 8.453, 8.462, 8.471, 8.48, 8.489, 8.498, 8.507, 8.516, 8.524, 8.533, 8.542, 8.551, 8.56, 8.569, 8.578, 8.587, 8.596, 8.604, 8.613, 8.622, 8.631, 8.64, 8.649, 8.658, 8.667, 8.676, 8.684, 8.693, 8.702, 8.711, 8.72, 8.729, 8.738, 8.747, 8.756, 8.764, 8.773, 8.782, 8.791, 8.8, 8.809, 8.818, 8.827, 8.836, 8.844, 8.853, 8.862, 8.871, 8.88, 8.889, 8.898, 8.907, 8.916, 8.924, 8.933, 8.942, 8.951, 8.96, 8.969, 8.978, 8.987, 8.996, 9, 9, 9.009, 9.018, 9.027, 9.036, 9.044, 9.053, 9.062, 9.071, 9.08, 9.089, 9.098, 9.107, 9.116, 9.124, 9.133, 9.142, 9.151, 9.16, 9.169, 9.178, 9.187, 9.196, 9.204, 9.213, 9.222, 9.231, 9.24, 9.249, 9.258, 9.267, 9.276, 9.284, 9.293, 9.302, 9.311, 9.32, 9.329, 9.338, 9.347, 9.356, 9.364, 9.373, 9.382, 9.391, 9.4, 9.409, 9.418, 9.427, 9.436, 9.444, 9.453, 9.462, 9.471, 9.48, 9.489, 9.498, 9.507, 9.516, 9.524, 9.533, 9.542, 9.551, 9.56, 9.569, 9.578, 9.587, 9.596, 9.604, 9.613, 9.622, 9.631, 9.64, 9.649, 9.658, 9.667, 9.676, 9.684, 9.693, 9.702, 9.711, 9.72, 9.729, 9.738, 9.747, 9.756, 9.764, 9.773, 9.782, 9.791, 9.8, 9.809, 9.818, 9.827, 9.836, 9.844, 9.853, 9.862, 9.871, 9.88, 9.889, 9.898, 9.907, 9.916, 9.924, 9.933, 9.942, 9.951, 9.96, 9.969, 9.978, 9.987, 9.996, 10];
+var ITZ_R4=[0.0918, 0.0918, 0.0919, 0.092, 0.0922, 0.0925, 0.0929, 0.0933, 0.0937, 0.0943, 0.0948, 0.0955, 0.0963, 0.0971, 0.0979, 0.0991, 0.1, 0.1014, 0.1028, 0.104, 0.1061, 0.1081, 0.1113, 0.1151, 0.1187, 0.1227, 0.1276, 0.1361, 0.1664, 0.2137, 0.2914, 0.4333, 0.7117, 1.363, 3.292, 9.057, 14.77, 17.36, 20.34, 23.74, 28, 32.44, 37.76, 43.98, 49.99, 50.67, 43.33, 23.55, 19.45, 35.76, 46.33, 50.51, 46.14, 36.64, 27.28, 31.1, 39.35, 46.65, 49.29, 42.82, 32.12, 24.24, 29.09, 38.02, 45.48, 46.36, 39.59, 30.48, 26.88, 32.4, 39.69, 43.58, 39.74, 31.42, 24.19, 26.72, 34.13, 40.34, 39.11, 30.78, 22.95, 23.46, 30.58, 38.57, 40.4, 33.42, 22.32, 21.33, 28.77, 37.78, 43.2, 39.01, 28.28, 20.31, 24.88, 34.44, 43.39, 44.17, 34.78, 23.01, 22.14, 30.89, 41.6, 46.39, 39.44, 25, 19.11, 26.84, 37.8, 45.76, 41.78, 30.13, 21.71, 21.71, 26.11, 30.9, 40.5, 67.86, 65.81, 54.71, 47.76, 46.12, 43.79, 46.08, 29.44, 14.13, 27.34, 38.89, 52.16, 84.13, 129.6, 139.6, 87.25, 14.91, 16.8, 31.73, 104.8, 86.61, 69.18, 51.72, 28.55, 9.657, 24.79, 99.6, 47.76, 13.37, 11.97, 24.15, 66.54, 38.38, 12.81, 26.76, 74.39, 34.12, 30.38, 35.21, 59.28, 21.38, 36.35, 23.08, 15.45, 36.27, 15.58, 14.98, 102.1, 112.4, 27.68, 44.77, 43.96, 29.1, 42.51, 43.64, 13.41, 16.32, 75.25, 22.7, 11.32, 84.93, 56.86, 13.93, 50.59, 30.6, 23.98, 105.7, 100.6, 41.26, 65.35, 43.74, 25.25, 26.96, 20.16, 117.9, 27.06, 19.61, 106.7, 373.8, 53.1, 25.32, 242.2, 18.65, 115, 28.77, 43.06, 69.44, 45.48, 31.68, 100.9, 99.17, 76.9, 50.84, 39.17, 44.07, 35.39, 97.09, 142.8, 24.88, 24.06, 47.52, 81.77, 21.65, 48.94, 86.95, 35.69, 20.05, 282, 80.62, 19.73, 33.65, 390.8, 57.67, 68.67, 140.8, 204.7, 20.16, 69.7, 110.6, 18.82, 59.96, 359.4, 60.57, 19.33, 185.6, 347.8, 38.04, 80.82, 590.5, 73.46, 20.14, 432.6, 63.25, 22.97, 408.5, 37.95, 49.76, 34.45, 30.27, 24.89, 59.07, 85.18, 76.69, 17.95, 75.85, 116.2, 26.68, 20.26, 70.8, 104.8, 31.6, 29.05, 61.88, 24.98, 21.71, 53.72, 57.59, 28.65, 90.22, 118.9, 20.57, 106.4, 98.09, 28.75, 39.42, 102.4, 136.2, 39.15, 97.61, 149.9, 31.59, 37.35, 129.5, 30.16, 51.69, 152.5, 43.95, 36.02, 122.4, 42.41, 71.24, 51.66, 34.48, 39.96, 40.98, 27.38, 109.5, 78.38, 30.8, 76.38, 27.63, 59.98, 186.5, 101.8, 31, 55.84, 116.8, 18.48, 29.66, 176.1, 57.91, 73.44, 103.2, 23.96, 49.61, 230.4, 30.09, 89.85, 56.93, 29.97, 185.6, 40.08, 43.27, 50.44, 26.18, 128.2, 30.29, 50.28, 38.11, 65.92, 88.91, 24.67, 59.35, 56.32, 40.99, 103, 173.2, 129, 59.85, 52.61, 45.07, 54.82, 41.05, 36.21, 68.06, 115.7, 42.98, 101.6, 99.26, 48.9, 208.2, 31.85, 33.38, 155.6, 170, 23.49, 143.6, 110.8, 47.96, 185.3, 124.5, 28.34, 82.97, 123.7, 31.37, 134.9, 129.6, 59.18, 400.6, 31.82, 41.73, 92.15, 28.17, 58.12, 61.58, 26.2, 132.5, 60.23, 29.67, 139.9, 70.68, 31.06, 79.76, 34.35, 88.88, 207, 54.64, 78.65, 96.93, 79.55, 80.66, 91.61, 26.79, 108.7, 62.48, 29.32, 86.77, 57.27, 31.23, 285.8, 197.3, 53.43, 108.8, 301.2, 30.43, 212.3, 360.6, 519.3, 34.41, 89.73, 252.3, 37.63, 81.63, 84.57, 37.3, 79.42, 342.7, 31.07, 96.39, 121.3, 45.25, 45.56, 122.5, 39.81, 39.52, 164.9, 222.9, 36.51, 141, 300.8, 36.65, 32.45, 224.4, 50.36, 39.18, 91.81, 75.41, 44.67, 295.4, 37.28, 37.77, 543, 51.43, 54.72, 170.9, 38.17, 35.02, 473.9, 44.35, 32.95, 90.39, 71.59, 203.6, 214.9, 38.52, 26.68, 181, 106.3, 30.08, 126.1, 55.94, 34.32, 117, 58.14, 34.66, 258.6, 76.11, 29.91, 109.8, 164, 36.98, 35.65, 245.6, 79.27, 32.21, 259.1, 33.47, 409.6, 57.15, 28.32, 119.3, 125.5, 27.01, 109.1, 38.42, 57.33, 93.24, 28.34, 295, 35.49, 101.4, 238.7, 30.16, 142, 230, 31.15, 28.46, 32.74, 27.43, 227.3, 66.54, 27.31, 241.9, 32.64, 31.26, 59.87, 28.52, 122.6, 64.34, 30.5, 146.9, 213, 28.69, 31.36, 118.7, 39.68, 23.97, 161.9, 103, 24.21, 91.96, 53.83, 27.63, 28.61, 28.69, 29.45, 29.72, 28.91, 34.85, 50.23, 41.83, 33.25, 31.12, 48.09, 46.68, 34.6, 23.47, 52.18, 55.23, 38.55, 26.44, 24.46, 62.05, 42.56, 29.86, 21.43, 49.94, 63.64, 49.94, 36.21, 49.37, 99.34, 232.7, 42.61, 55.88, 51.11, 88.75, 204.4, 33.77, 24.88, 44.12, 107.6, 96.9, 30.38, 33.38, 28.47, 26.24, 252.6, 503.6, 152.7, 24.81, 22.41, 32.2, 53.67, 41.9, 21.4, 47.31, 115.2, 57.56, 29.5, 30.67, 222.5, 691.7, 45.57, 29.5, 21.61, 1149, 2744, 292.7, 30.59, 24.91, 350, 4249, 54.82, 28.1, 24.18, 303.3, 1509, 5385, 30.12, 25.22, 26.73, 38.36, 52.79, 40.04, 26.21, 21.29, 21.23, 25.38, 25.81, 24.61, 20.99, 24.51, 27.97, 28.66, 26.72, 22.56, 22.27, 29.43, 38.59, 27.55, 22.43, 20.58, 22.43, 25.75, 26.04, 22.27, 26.08, 29.13, 34.08, 27.5, 21.45, 20.47, 22.31, 26.31, 24.8, 21.01, 23.04, 33.77, 31.74, 23.21, 19.79, 20.84, 23.87, 29.51, 23.33, 20.63, 24.65, 39.55, 28.73, 22.01, 20.48, 23.9, 32.04, 31.25, 22.58, 20.28, 21.62, 23.58, 23.54, 22.55, 23.91, 28.47, 30.2, 24.09, 21.85, 22.1, 26.43, 27.69, 22.83, 22.33, 23.13, 29.22, 31.42, 24.04, 20.55, 21.18, 21.75, 21.65, 22.43, 27.56, 30.31, 27.54, 22.98, 23.68, 24.11, 25.35, 26.52, 27.47, 29.16, 27.94, 22.46, 21.71, 24.67, 26.87, 24.75, 20.76, 23.24, 23.97, 29.34, 33.56, 28.86, 25.18, 22.52, 23, 24.89, 27.5, 26.75, 26.94, 28.46, 26.49, 25.67, 21.9, 20.96, 21.43, 25.54, 27.79, 23.71, 20.75, 20.12, 21.84, 23.3, 27, 27.02, 21.88, 21.52, 21.21, 20.1, 19.97, 23.1, 24.19, 22.39, 25.61, 30, 28.25, 21.95, 20.29, 21.06, 25.2, 25.53, 22.1, 21.34, 22.79, 27.69, 25.42, 22.56, 22.91, 23.27, 22.76, 23.51, 28.2, 26.69, 24.34, 24.54, 23.55, 24.76, 27.52, 25.04, 25.58, 21.63, 22.12, 28.98, 29.14, 24.85, 21.96, 22.52, 31.72, 28.97, 24.65, 22.58, 21.61, 24.6, 26.99, 21.67, 21.34, 24.3, 29.04, 27.29, 24.67, 22.54, 22.2, 21.09, 20.76, 20.77, 23.23, 24.87, 24.28, 23.28, 21.79, 23.5, 24.35, 25.2, 25.03, 23.97, 23, 28.28, 23.79, 20.87, 23.93, 26.59, 23.33, 24, 25.94, 28.84, 28.96, 24.39, 21.73, 23.82, 22.24, 24.05, 25.36, 25.86, 25.67, 23.87, 26.92, 34.25, 29.44, 27.41, 24.9, 23.07, 24.17, 24.6, 25.23, 30.38, 22.96, 21.15, 28.72, 25.6, 21.45, 19.84, 20.54, 24.13, 25.43, 23.71, 26.16, 29.72, 24.19, 19.86, 19.35, 24.72, 23.11, 22.06, 24.91, 25.5, 27.71, 25.8, 22.42, 22.03, 26.03, 21.51, 21.15, 21.12, 19.41, 20.27, 24.7, 26.47, 22.5, 21.66, 22.71, 23.65, 26.07, 27.42, 27.45, 25.69, 26.9, 23.94, 21.88, 23.12, 22.23, 22.65, 22.52, 23.5, 21.51, 21.95, 23.28, 24.7, 22.33, 20.05, 21.87, 23.62, 22.17, 22.28, 23.29, 22.65, 20.72, 19.5, 25.6, 30.16, 25.71, 22.81, 21.5, 24.06, 25.69, 23.95, 24.83, 25.88, 23.28, 20.15, 20.23, 26.03, 26.72, 23.18, 21.83, 27.37, 28, 27.43, 25.25, 24.28, 22.6, 22.03, 21.61, 20.67, 20.73, 21.7, 25.98, 24.59, 23.31, 23.7, 23.09, 23.49, 22.13, 19.89, 20.51, 23.64, 24.93, 24.5, 24.02, 23.88, 24.95, 24.23, 26.71, 25.96, 18.54, 18.69, 22.09, 23.46, 21.95, 17.81, 17.72, 20.28, 22.75, 22.43, 21.28, 20.99, 18.84, 19.19, 21.99, 26.71, 20.52, 17.47, 17.78, 18.35, 20.86, 21.03, 21.59, 20.8, 21.13, 19.97, 20.25, 22.99, 20.8, 20.37, 21.63, 22.21, 22.97, 21.72, 21.21, 20.14, 21.32, 22.81, 21.82, 21.57, 23.45, 19.19, 18.07, 21.95, 23.64, 20.71, 19.36, 21.21, 21.14, 20.18, 19.85, 21.6, 21.18, 21.83, 20.96, 20.34, 19.29, 17.96, 21.11, 24.58, 20.97, 20.27, 21.96, 20.39, 18.86, 21.37, 21.14, 20.12, 20.93, 22.04, 22.06, 20.77, 20.49, 22.67, 21.29, 18.93, 20.91, 20.19, 23.99, 20.93, 20.13, 19.36, 19.85, 23.61, 19.47, 19.7, 19.81, 19.57, 21.04, 22.36, 19.74, 20.33, 21.77, 20.01, 19.01, 20.72, 20.96, 21.23, 21.79, 21.87, 21.61, 23.2, 21.73, 20.57, 20.47, 19.58, 21.36, 23.47, 22.78, 23.39, 18.79, 19.69, 21.59, 21.33, 19.69, 19.82, 22, 20.1, 20.75, 18.61, 20.88, 19.92, 20.86, 21.12, 20.7, 22.26, 19.99, 21.33, 21.11, 19.84, 21.13, 19.67, 21.17, 18.8, 19.44, 21.46, 21.16, 20.19, 18.63, 21.1, 19.63, 20.47, 20.13, 17.25, 17.58, 18.13, 19.59, 19.05, 17.8, 19.58, 19.38, 19.24, 17.33, 17.8, 18.43, 19.98, 18.17, 18.96, 18.6, 17.97, 19.57, 20.56, 18.92, 18.91, 17.43, 18.9, 20.28, 18.74, 18.72, 19.39, 19.48, 18.96, 15.14, 19.82, 20.26, 19.22, 17.23, 15.9, 18.73, 19.56, 19.15, 19.37, 18.54, 16.56, 19.89, 18.68, 18.37, 18.79, 18.32, 18.65, 18.06, 17.85, 17.4, 18.16, 19.27, 18.79, 19.07, 17.07, 16.49, 18.54, 17.99];
+
+/* ---------- arms: colour, end-of-line tag, legend label ---------- */
+const COL={CTRL:'--s5',R0:'--s1',R4:'--s2'};
+const LBL={CTRL:'control · BSC 45727710 · torch default seed · τ 0.8',
+  R0:'clip 0 · BSC 45949269 · seed 1 · τ 0',
+  R4:'clip 4 · BSC 45949271 · seed 1 · τ 0'};
+document.querySelectorAll('.legend[data-arms]').forEach(el=>el.insertAdjacentHTML('afterbegin',
+  el.dataset.arms.split(',').map(a=>`<span><i class="sw" style="border-color:var(${COL[a]})"></i>${LBL[a]}</span>`).join('')));
+
+/* x0/x1 clip the epoch window; no end-of-line tags (arm curves converge), the legend carries them; hline = dashed constant. */
+function panel(id,pre,o){
+  const arms=o.arms, x0=o.x0||0, x1=o.x1||9;
+  const series=arms.map(a=>{
+    const v=window[pre+'_'+a]; if(!v) return null;
+    const d=v.slice(x0,x1+1); if(!d.length) return null;
+    return {data:d,color:COL[a]};
+  }).filter(Boolean);
+  if(o.hline!==undefined) series.unshift({data:Array(x1-x0+1).fill(o.hline),color:'--ink2',dash:'5 4',width:1.2});
+  lineChart(document.getElementById(id),Object.assign({
+    W:o.W||560,H:o.H||196,xmin:x0,xmax:x1,xticks:o.xticks||[0,1,2,3,4,5,6,7,8,9],
+    log:o.log!==false,series,fmt:o.fmt||(t=>''+(+t.toPrecision(3)))
+  },{ymin:o.ymin,ymax:o.ymax,yticks:o.yticks}));
+}
+const ARMS=['CTRL','R0','R4'];
+const RANK={ymin:0.8,ymax:500,yticks:[1,3,10,30,100,300],fmt:t=>''+t};
+const BIG=t=>t>=1e3?(t/1e3)+'k':''+t;
+const SCALE={ymin:.3,ymax:5e4,yticks:[1,10,100,1000,10000],fmt:BIG,hline:16};
+
+/* ---- 1 · hero ---- */
+panel('chHero','TRMS',Object.assign({arms:ARMS,W:540,H:400},SCALE));
+
+/* ---- 3 · train scale ---- */
+panel('p31','TRMS',Object.assign({arms:ARMS},SCALE));
+panel('p32','SIG',{arms:ARMS,ymin:.001,ymax:1,yticks:[0.001,0.01,0.1,1]});
+lineChart(document.getElementById('p33'),{W:560,H:196,xmin:0,xmax:10,xticks:[0,1,2,3,4,5,6,7,8,9,10],log:true,
+  ymin:.05,ymax:3e4,yticks:[0.1,1,10,100,1000,10000],fmt:BIG,series:[
+  {data:ITZ_R0,xs:ITX_R0,color:'--s1',width:1.1,tag:'clip 0'},{data:ITZ_R4,xs:ITX_R4,color:'--s2',width:1.1,tag:'clip 4'}]});
+panel('p34','TRK',Object.assign({arms:ARMS},RANK));
+
+/* ---- 4 · the code ---- */
+panel('p41','RK_K',Object.assign({arms:ARMS},RANK));
+panel('p42','RK_N',Object.assign({arms:ARMS},RANK));
+panel('p43','ERMS_K',Object.assign({arms:ARMS},SCALE));
+panel('p44','ERMS_N',Object.assign({arms:ARMS},SCALE));
+
+/* ---- 5 · the spread (hline = clip-4 bound by construction) ---- */
+const MK=t=>t>=1e6?(t/1e6)+'M':t>=1e3?(t/1e3)+'k':''+t;
+const TV={arms:ARMS,W:420,H:190,xticks:[0,3,6,9],ymin:500,ymax:5e7,yticks:[1e3,1e4,1e5,1e6,1e7],fmt:MK,hline:24576};
+const MAM={arms:ARMS,W:420,H:190,xticks:[0,3,6,9],ymin:.05,ymax:1500,yticks:[0.1,1,10,100,1000],hline:156.8};
+panel('p5a','TTV',TV); panel('p5b','ETV_K',TV); panel('p5c','ETV_N',TV);
+panel('p5d','TMAM',MAM); panel('p5e','EMAM_K',MAM); panel('p5f','EMAM_N',MAM);
+
+/* ---- 5 · recon ---- */
+const G4={arms:ARMS};
+panel('p51','LR_K',Object.assign({},G4,{ymin:.025,ymax:.16,yticks:[0.03,0.05,0.1,0.15],hline:0.0305}));
+panel('p52','LR_N',Object.assign({},G4,{ymin:.018,ymax:.12,yticks:[0.02,0.035,0.07,0.1],hline:0.0211}));
+panel('p53','LRC_K',Object.assign({},G4,{ymin:.035,ymax:.16,yticks:[0.04,0.06,0.1,0.15]}));
+panel('p54','LRC_N',Object.assign({},G4,{ymin:.025,ymax:.12,yticks:[0.03,0.05,0.08,0.11]}));
+
+/* ---- 6 · decoded geometry vs the teacher (hline = control at ep 31) ---- */
+const G6={arms:ARMS,W:420,H:190,xticks:[0,3,6,9]};
+panel('p61','PPO_K',Object.assign({},G6,{ymin:.3,ymax:30,yticks:[0.5,1,2,5,10,20],hline:0.4347}));
+panel('p62','DPO_K',Object.assign({},G6,{ymin:.2,ymax:4.5,yticks:[0.25,0.5,1,2,4],hline:0.3252}));
+panel('p63','RPO_K',Object.assign({},G6,{ymin:.15,ymax:30,yticks:[0.2,0.5,1,2,5,10,20],hline:0.2266}));
+panel('p64','PPO_N',Object.assign({},G6,{ymin:.3,ymax:30,yticks:[0.5,1,2,5,10,20],hline:0.3574}));
+panel('p65','DPO_N',Object.assign({},G6,{ymin:.2,ymax:4.5,yticks:[0.25,0.5,1,2,4],hline:0.2431}));
+panel('p66','RPO_N',Object.assign({},G6,{ymin:.15,ymax:30,yticks:[0.2,0.5,1,2,5,10,20],hline:0.1967}));
+
+/* ---- 7 · decoded geometry vs GT (hline = teacher OrigVsGT, same for every arm) ---- */
+panel('p71','PGT_K',Object.assign({},G6,{ymin:2,ymax:30,yticks:[2,3,5,10,20],hline:2.4022}));
+panel('p72','DGT_K',Object.assign({},G6,{ymin:1.5,ymax:4,yticks:[1.5,2,3,4],hline:1.6566}));
+panel('p73','RGT_K',Object.assign({},G6,{ymin:1,ymax:30,yticks:[1,2,5,10,20],hline:1.0837}));
+panel('p74','PGT_N',Object.assign({},G6,{ymin:3,ymax:30,yticks:[3,5,10,20],hline:3.2243}));
+panel('p75','DGT_N',Object.assign({},G6,{ymin:2.4,ymax:5,yticks:[2.5,3,4,5],hline:2.5324}));
+panel('p76','RGT_N',Object.assign({},G6,{ymin:1,ymax:30,yticks:[1,2,5,10,20],hline:1.1406}));
+</script>
+</body>
+</html>
