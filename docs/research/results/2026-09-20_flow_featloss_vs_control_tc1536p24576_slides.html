@@ -160,182 +160,227 @@ td.ok{color:var(--good);font-weight:600}
 td.n,th.n{text-align:right;font-variant-numeric:tabular-nums}
 .slide kbd{font:11px var(--mono);border:1px solid var(--axis);border-radius:3px;padding:1px 5px;color:var(--ink2)}
 .tcompact td,.tcompact th{padding:4px 7px;font-size:10.8px;line-height:1.3}
+.warn{border:1px solid var(--crit);border-left-width:3px;border-radius:6px;padding:10px 13px;font-size:12.5px;color:var(--ink2);background:color-mix(in srgb,var(--crit) 4%,transparent)}
+.warn b{color:var(--ink)}
 </style>
 </head>
 <div class="stage" id="stage">
 
-<!-- ============ SLIDE 1 — title ============ -->
+<!-- ===== 1 title ===== -->
 <section class="slide on">
-  <div class="eyebrow">DeltaTok-flow <span class="dim">— QUESTION 22 · decoder-in-the-loop feature loss · tc1536 pool-24576 · matched ep 61–70</span></div>
-  <h1>The feature loss buys geometry and pays for it in the flow objective</h1>
-  <p class="sub">One knob, <span class="mono">model.feat_loss_weight</span> 0 → 1.0. Every metric that lives in
-    delta-token space gets worse. Every metric that lives after the frozen decoder gets better or stays flat.</p>
+  <div class="eyebrow">DeltaTok-flow <span class="dim">— QUESTION 22 · decoder-in-the-loop feature loss · tc1536 pool-24576 · BSC 45861488 vs 46012704</span></div>
+  <h1>The geometry win was an eval-seed artifact. The real effect is FD-OccAny.</h1>
+  <p class="sub">Read off the training logs, the feature loss looked like it bought pointmap and raymap. Re-evaluated with
+    both arms on one GPU and an identical seed, that win disappears. What survives is a large, consistent gain in distribution match.</p>
   <div class="body">
     <div class="cols c4" style="gap:14px">
-      <div class="tile"><div class="k">LossRaymap</div><div class="v" style="color:var(--good)">−11.7%</div><div class="d">5.343 → 4.717. Gap over the tokenizer floor <b>−16.8%</b>.</div></div>
-      <div class="tile"><div class="k">LossPointmap</div><div class="v" style="color:var(--good)">−5.8%</div><div class="d">7.858 → 7.404. Gap over the floor <b>−11.7%</b>.</div></div>
-      <div class="tile"><div class="k">LossFlow</div><div class="v" style="color:var(--crit)">+5.3%</div><div class="d">0.4956 → 0.5218. The shared objective, and the largest single move.</div></div>
-      <div class="tile"><div class="k">GPU-h per epoch</div><div class="v" style="color:var(--serious)">1.42×</div><div class="d">2.68 → 3.79. The extra decoder pass, and <span class="mono">bsize</span> 16 → 8.</div></div>
+      <div class="tile"><div class="k">FD-OccAny · 1 step</div><div class="v" style="color:var(--good)">−38%</div><div class="d">16.28 → 10.08 at matched ep 50. Better at <b>every</b> step count, in both checkpoint pairs.</div></div>
+      <div class="tile"><div class="k">LossFeat · its own objective</div><div class="v" style="color:var(--good)">−6.6%</div><div class="d">0.0456 → 0.0426. The control's number finally exists — this eval logs it at weight 0.</div></div>
+      <div class="tile"><div class="k">LossRaymap · 20 steps</div><div class="v" style="color:var(--muted)">+0.9%</div><div class="d">Tied at ep 50, and <b>+8.1%</b> worse at the later pair. The training log claimed −11.7%.</div></div>
+      <div class="tile"><div class="k">LossRaymap · 1 step</div><div class="v" style="color:var(--crit)">+33%</div><div class="d">Pointmap +15%. The arm degrades sharply as steps drop.</div></div>
     </div>
-    <div class="rulebar" style="margin-top:18px"><b>No arm wins both halves.</b> <span class="mono">LossDepth</span> is the
-      tiebreak and it does not move (+0.33%, inside the epoch-to-epoch scatter). <span class="mono">MSEToken</span> +1.5%
-      and train <span class="mono">LossMean</span> +1.1% side with <span class="mono">LossFlow</span> — all three live in delta-token space.</div>
-    <p class="sub" style="margin-top:14px;font-size:13.5px"><kbd>←</kbd> <kbd>→</kbd> to navigate ·
-      control BSC <span class="mono">45861488</span> (ep 0–70, finished) ·
-      arm BSC <span class="mono">46012704</span> (ep 0–89, cancelled at ep 89 of 100) ·
-      all deltas on the matched ep 61–70 window, 10 evals each.</p>
+    <div class="warn" style="margin-top:16px"><b>What went wrong with the first read.</b> <span class="mono">_eval_t_gen</span> and
+      <span class="mono">_eval_noise_gen</span> are seeded <span class="mono">seed + k + 10007 × rank</span>. The control ran on
+      <b>4 ranks</b>, the arm on <b>8</b>, so the two runs replay <em>different</em> eval <span class="mono">t</span> and different ODE
+      priors. Every training-log comparison between them — LossFlow, MSEToken and all three geometry losses — is confounded.</div>
+    <p class="sub" style="margin-top:13px;font-size:13.5px"><kbd>←</kbd> <kbd>→</kbd> to navigate ·
+      clean sweep BSC <span class="mono">46182962/3/4</span> · prior control sweep <span class="mono">46005243</span> ·
+      arm cancelled at ep 89 of 100 · all sweep numbers 1 GPU, <span class="mono">val_bsize 4</span>, seed 0.</p>
   </div>
-  <div class="foot"><span>DeltaTok-flow · feature loss · 20-09-2026</span><span>geometry up, flow down</span><span class="pageno">1</span></div>
+  <div class="foot"><span>DeltaTok-flow · feature loss · 20-09-2026</span><span>FD-OccAny yes, geometry no</span><span class="pageno">1</span></div>
 </section>
 
-<!-- ============ SLIDE 2 — what ran ============ -->
+<!-- ===== 2 what ran ===== -->
 <section class="slide">
-  <div class="eyebrow">The measurement <span class="dim">— two runs, one knob, matched optimizer batch</span></div>
-  <h2>Only <span class="mono" style="font-size:.8em">feat_loss_weight</span> is meant to differ</h2>
-  <p class="sub">The arm script is the control script plus two lines. <span class="mono">training.bsize=8</span> is forced —
-    the decode OOMs at 16 — but <span class="mono">effective_bsize</span> stays 64, so the optimizer sees the same step.</p>
+  <div class="eyebrow">The measurement <span class="dim">— two runs, one intended knob, and one unintended difference</span></div>
+  <h2>Only <span class="mono" style="font-size:.8em">feat_loss_weight</span> was meant to differ; the rank count did too</h2>
   <div class="body cols c58" style="margin-top:14px">
     <div>
-      <table>
-        <thead><tr><th>component</th><th>control · BSC 45861488</th><th>arm · BSC 46012704</th></tr></thead>
+      <table class="tcompact" style="font-size:11.5px">
+        <thead><tr><th>component</th><th>control · 45861488</th><th>arm · 46012704</th></tr></thead>
         <tbody>
           <tr class="hl"><td><b>feat_loss_weight</b></td><td class="mono">0 (absent)</td><td class="mono">1.0</td></tr>
           <tr><td><b>effective_bsize</b></td><td class="mono">64</td><td class="mono">64</td></tr>
-          <tr class="dim"><td><b>shape</b></td><td class="mono">4 rank × bsize 16 × cum 1</td><td class="mono">8 rank × bsize 8 × cum 1</td></tr>
-          <tr class="dim"><td><b>nodes</b></td><td class="mono">1</td><td class="mono">2</td></tr>
+          <tr class="hl"><td><b>shape</b></td><td class="mono">4 rank × bsize 16</td><td class="mono">8 rank × bsize 8</td></tr>
+          <tr class="dim"><td><b>nodes</b></td><td class="mono">1</td><td class="mono">2 (decode OOMs at bsize 16)</td></tr>
           <tr><td><b>Tokenizer</b></td><td class="mono" colspan="2">tc1536 · pool 24576 · sigreg 0.02 · decnoise 0.8 detach · <span class="mono">epoch_30</span>, frozen</td></tr>
           <tr><td><b>Flow ViT</b></td><td class="mono" colspan="2">xxlarge_d20 · dit_adaln · pred x · loss v · constant lr 1e-4 · no EMA</td></tr>
           <tr><td><b>Eval set</b></td><td class="mono" colspan="2">128 seqs · 32 held-out Waymo scenes · cam 0 · 518×266 · seed 42</td></tr>
-          <tr><td><b>Sequence</b></td><td class="mono" colspan="2">5 frames: 0–2 given, 3–4 forecast · 20 ODE steps</td></tr>
           <tr><td><b>Epochs reached</b></td><td class="mono">70 · iter 142000</td><td class="mono">89 · iter 180000 · cancelled</td></tr>
+          <tr class="sep"><td><b>RUN_NAME</b><br><span style="font-weight:400;color:var(--muted);font-size:10.5px">identical but for one token</span></td><td colspan="2" class="mono" style="font-size:10.2px;line-height:1.55;word-break:break-all;text-align:left"><span style="color:var(--muted)">control</span><br>deltatok_flow_waymo_consec5cam0_ctx3fwd2_tc1536mg9sigreg002pool24576compose_dndetach_ep30tok_<b style="color:var(--ink)">xxl_dit</b><br><span style="color:var(--muted)">arm</span><br>deltatok_flow_waymo_consec5cam0_ctx3fwd2_tc1536mg9sigreg002pool24576compose_dndetach_ep30tok_<b style="color:var(--s2)">featloss1_</b><b style="color:var(--ink)">xxl_dit</b></td></tr>
+          <tr><td><b>RESULTS_DIR</b></td><td colspan="2" class="mono" style="font-size:10.5px;text-align:left">$SCRATCH/quan/deltatok_flow_log/&lt;RUN_NAME&gt;/ckpts/ · both arms</td></tr>
         </tbody>
       </table>
-      <div class="rulebar" style="margin-top:14px;font-size:12.5px"><b>The one unmatched thing.</b> The control ran before
-        <span class="mono">LossFeat</span> was added to <span class="mono">_EVAL_KEYS</span>, so <b>it has no LossFeat number</b>.
-        The arm's feature-loss curve on slide 5 has nothing to sit against.</div>
+      <div class="warn" style="margin-top:11px;font-size:11.8px;padding:9px 12px"><b>The rank count is not cosmetic.</b>
+        <span class="mono">effective_bsize</span> is matched at 64, so the optimizer step is the same — but the eval RNGs are seeded
+        per rank, so 4 ranks and 8 ranks draw different eval <span class="mono">t</span> and different ODE noise. Slide 3 measures it;
+        slides 5–6 re-run both arms on one GPU.</div>
     </div>
     <div>
       <div class="tiles">
-        <div class="tile"><div class="k">What the loss does</div><div class="v" style="font-size:19px">decode, then score</div><div class="d">Forecast-slot <span class="mono">x_pred</span> is un-whitened to z, decoded by the frozen tokenizer from the <b>GT previous frame</b>, and scored with log-cosh against the GT next-frame layer-12 patch feats.</div></div>
-        <div class="tile"><div class="k">Teacher-forced, not a rollout</div><div class="v" style="font-size:19px">1 decoder step</div><div class="d">All forecast slots batch into one pass. No compounding, so the error stays attributable to that slot.</div></div>
-        <div class="tile"><div class="k">Gradient path</div><div class="v" style="font-size:19px">through z only</div><div class="d">The tokenizer is frozen: a fixed loss surface, not co-adaptation. Train <span class="mono">LossMean</span> still logs the flow loss alone, so the curve compares.</div></div>
+        <div class="tile"><div class="k">What the loss does</div><div class="v" style="font-size:18px">decode, then score</div><div class="d">Forecast-slot <span class="mono">x_pred</span> is un-whitened to z, decoded by the frozen tokenizer from the <b>GT previous frame</b>, scored with log-cosh against the GT next-frame OccAny layer-12 patch feats.</div></div>
+        <div class="tile"><div class="k">Teacher-forced</div><div class="v" style="font-size:18px">1 decoder step</div><div class="d">All forecast slots batch into one pass — no rollout, no compounding.</div></div>
+        <div class="tile"><div class="k">The clean re-eval</div><div class="v" style="font-size:18px">3 jobs, 1 GPU</div><div class="d"><span class="mono">eval_deltatok_flow_sampler.py --fvd</span>, steps 1/5/10/15/20, both arms at <span class="mono">iter_100000</span> (ep 50, exactly matched) plus the arm at <span class="mono">iter_150000</span>.</div></div>
       </div>
     </div>
   </div>
-  <div class="foot"><span>slurm/deltatok_flow/train_deltatok_flow_waymo_xxl_tc1536mg9_pool24576{,_featloss}_bsc.slurm</span><span>diff = 2 lines</span><span class="pageno">2</span></div>
+  <div class="foot"><span>slurm/deltatok_flow/…_pool24576{,_featloss}_bsc.slurm · diff = 2 lines</span><span>one knob, one confound</span><span class="pageno">2</span></div>
 </section>
 
-<!-- ============ SLIDE 3 — the five curves ============ -->
+<!-- ===== 3 the confound ===== -->
 <section class="slide">
-  <div class="eyebrow">The curves <span class="dim">— per-epoch eval, lower is better · solid to ep 70 is the matched window, faint beyond is the arm alone</span></div>
-  <h2>The split is visible by epoch 10 and never closes</h2>
+  <div class="eyebrow">The confound <span class="dim">— why the training-log comparison cannot be used here</span></div>
+  <h2>A constant +5.3% that is not a model difference</h2>
+  <div class="body cols c2" style="margin-top:14px;gap:26px">
+    <div>
+      <div class="panelttl">Evidence 1 — the gap never moves</div>
+      <table style="margin-top:6px">
+        <thead><tr><th>epoch block</th><th class="n">LossFlow Δ (arm − control)</th></tr></thead>
+        <tbody>
+          <tr><td>ep 21–30</td><td class="n">+5.215%</td></tr>
+          <tr><td>ep 31–40</td><td class="n">+5.258%</td></tr>
+          <tr><td>ep 41–50</td><td class="n">+5.303%</td></tr>
+          <tr><td>ep 51–60</td><td class="n">+5.317%</td></tr>
+          <tr><td>ep 61–70</td><td class="n">+5.274%</td></tr>
+        </tbody>
+      </table>
+      <div class="rulebar" style="margin-top:11px;font-size:12.2px">Constant to <b>±0.05%</b> over 50 epochs. A real difference between
+        two training models drifts as they converge. A fixed offset is what you get when each run replays its own frozen
+        <span class="mono">t</span> draw and <span class="mono">loss_mode=v</span> weights it by 1/(1−t)².</div>
+    </div>
+    <div>
+      <div class="panelttl">Evidence 2 — the offset is the control's, not the model's</div>
+      <table style="margin-top:6px">
+        <thead><tr><th>LossFlow</th><th class="n">training eval<br><span style="font-weight:400;text-transform:none">(own rank-seeded t)</span></th><th class="n">sweep eval<br><span style="font-weight:400;text-transform:none">(1 GPU, common t)</span></th><th class="n">offset</th></tr></thead>
+        <tbody>
+          <tr class="hl"><td><b>control</b> ep 50</td><td class="n">0.4938</td><td class="n">0.5230</td><td class="n bad">+0.0292</td></tr>
+          <tr class="hl"><td><b>control</b> ep 70/71</td><td class="n">0.4965</td><td class="n">0.5271</td><td class="n bad">+0.0306</td></tr>
+          <tr><td><b>arm</b> ep 50</td><td class="n">0.5214</td><td class="n">0.5198</td><td class="n ok">−0.0016</td></tr>
+        </tbody>
+      </table>
+      <div class="rulebar" style="margin-top:11px;font-size:12.2px">The arm's training eval agrees with a common-<span class="mono">t</span>
+        eval to 0.3%. The control's reads <b>0.029–0.031 low</b> at two different checkpoints. So the control's 4-rank
+        <span class="mono">t</span> draw happens to be an easy one — and the whole +5.3% is that, not the feature loss.</div>
+      <div class="warn" style="margin-top:11px;font-size:12.2px"><b>On a common draw the sign flips:</b> LossFlow
+        0.5230 → 0.5198, the arm <b>0.6% better</b>. <span class="mono">_eval_noise_gen</span> is seeded the same way, so
+        MSEToken and all three geometry losses carry the same defect.</div>
+    </div>
+  </div>
+  <div class="foot"><span>deltatok_flow_trainer.py:830 — seed + 90001 + 10007 × rank</span><span>constant offset = artifact</span><span class="pageno">3</span></div>
+</section>
+
+<!-- ===== 4 training-eval curves, flagged ===== -->
+<section class="slide">
+  <div class="eyebrow">The first read <span class="dim">— per-epoch training evals · kept for the record, <b>not</b> a valid arm comparison</span></div>
+  <h2>What the logs showed, and why each panel is suspect</h2>
   <div class="legend" style="margin-top:8px">
-    <span><span class="sw" style="border-top-color:var(--s1)"></span> control <span class="mono">feat_loss_weight 0</span></span>
-    <span><span class="sw" style="border-top-color:var(--s2)"></span> arm <span class="mono">feat_loss_weight 1.0</span></span>
-    <span style="color:var(--muted)">y-ranges are zoomed past the early-epoch spike · the <span class="mono">_tok</span> floors are on slide 4</span>
+    <span><span class="sw" style="border-top-color:var(--s1)"></span> control · ep 0–70</span>
+    <span><span class="sw" style="border-top-color:var(--s2)"></span> arm · ep 0–89 (faint past 70)</span>
+    <span style="color:var(--muted)">every panel below is confounded by the 4-rank / 8-rank eval seed</span>
   </div>
   <div class="body" style="margin-top:6px">
     <div class="cols c5" style="gap:13px">
-      <div><div class="panelttl">LossFlow (z)</div><div id="c3a" class="plot" style="height:300px"></div></div>
-      <div><div class="panelttl">MSEToken (z)</div><div id="c3b" class="plot" style="height:300px"></div></div>
-      <div><div class="panelttl">LossDepth</div><div id="c3c" class="plot" style="height:300px"></div></div>
-      <div><div class="panelttl">LossPointmap</div><div id="c3d" class="plot" style="height:300px"></div></div>
-      <div><div class="panelttl">LossRaymap</div><div id="c3e" class="plot" style="height:300px"></div></div>
+      <div><div class="panelttl">LossFlow (z)</div><div id="c4a" class="plot" style="height:270px"></div></div>
+      <div><div class="panelttl">MSEToken (z)</div><div id="c4b" class="plot" style="height:270px"></div></div>
+      <div><div class="panelttl">LossDepth</div><div id="c4c" class="plot" style="height:270px"></div></div>
+      <div><div class="panelttl">LossPointmap</div><div id="c4d" class="plot" style="height:270px"></div></div>
+      <div><div class="panelttl">LossRaymap</div><div id="c4e" class="plot" style="height:270px"></div></div>
     </div>
     <div class="cols c5" style="gap:13px;margin-top:10px">
-      <div class="card" style="border-left:3px solid var(--crit);padding:10px 13px"><div class="tag">ep 61–70</div><h3 style="margin:4px 0">+5.27%</h3><p style="font-size:12px;color:var(--ink2)">Separated from ep 2 on. Scatter ±0.001, so this is the one delta far outside the noise.</p></div>
-      <div class="card" style="border-left:3px solid var(--serious);padding:10px 13px"><div class="tag">ep 61–70</div><h3 style="margin:4px 0">+1.54%</h3><p style="font-size:12px;color:var(--ink2)">Same direction as LossFlow, a third the size. Scatter ±0.011.</p></div>
-      <div class="card" style="border-left:3px solid var(--grid);padding:10px 13px"><div class="tag">ep 61–70</div><h3 style="margin:4px 0">+0.33%</h3><p style="font-size:12px;color:var(--ink2)">Flat. ±0.034 scatter swamps it; the two curves interleave.</p></div>
-      <div class="card" style="border-left:3px solid var(--good);padding:10px 13px"><div class="tag">ep 61–70</div><h3 style="margin:4px 0">−5.77%</h3><p style="font-size:12px;color:var(--ink2)">Noisy (±0.29). Arm below on 8/10 here, 27/30 over ep 41–70.</p></div>
-      <div class="card" style="border-left:3px solid var(--good);padding:10px 13px"><div class="tag">ep 61–70</div><h3 style="margin:4px 0">−11.71%</h3><p style="font-size:12px;color:var(--ink2)">Biggest win. Arm below on 8/10 here, 27/30 over ep 41–70.</p></div>
+      <div class="card" style="border-left:3px solid var(--crit);padding:10px 12px"><div class="tag">log said</div><h3 style="margin:4px 0">+5.27%</h3><p style="font-size:11.5px;color:var(--ink2)">Pure t-draw offset. Common draw: <b>−0.6%</b>.</p></div>
+      <div class="card" style="border-left:3px solid var(--serious);padding:10px 12px"><div class="tag">log said</div><h3 style="margin:4px 0">+1.54%</h3><p style="font-size:11.5px;color:var(--ink2)">Common draw: <b>+2.2%</b>. Direction survives.</p></div>
+      <div class="card" style="border-left:3px solid var(--grid);padding:10px 12px"><div class="tag">log said</div><h3 style="margin:4px 0">+0.33%</h3><p style="font-size:11.5px;color:var(--ink2)">Common draw: <b>−0.1%</b>. Flat either way.</p></div>
+      <div class="card" style="border-left:3px solid var(--crit);padding:10px 12px"><div class="tag">log said</div><h3 style="margin:4px 0">−5.77%</h3><p style="font-size:11.5px;color:var(--ink2)">Common draw: <b>−1.0%</b> at ep 50, <b>+4.6%</b> later. Win does not survive.</p></div>
+      <div class="card" style="border-left:3px solid var(--crit);padding:10px 12px"><div class="tag">log said</div><h3 style="margin:4px 0">−11.71%</h3><p style="font-size:11.5px;color:var(--ink2)">Common draw: <b>+0.9%</b> at ep 50, <b>+8.1%</b> later. Reversed.</p></div>
     </div>
   </div>
-  <div class="foot"><span>[Eval/128 @ WaymoSeqMultiView] · one point per epoch</span><span>flow-space worse, decode-space better</span><span class="pageno">3</span></div>
+  <div class="foot"><span>[Eval/128 @ WaymoSeqMultiView] · one point per epoch</span><span>kept for the record only</span><span class="pageno">4</span></div>
 </section>
 
-<!-- ============ SLIDE 4 — the three geometry losses, full size ============ -->
+<!-- ===== 5 the clean sweep ===== -->
 <section class="slide">
-  <div class="eyebrow">Geometry, full size <span class="dim">— the three losses measured after the frozen decoder · log y on pointmap and raymap · lower is better</span></div>
-  <h2>Pointmap and raymap separate and stay separated; depth never does</h2>
+  <div class="eyebrow">The clean comparison <span class="dim">— both arms re-evaluated on 1 GPU with an identical seed · lower is better</span></div>
+  <h2>FD-OccAny improves at every step count; geometry does not improve at any</h2>
   <div class="legend" style="margin-top:8px">
-    <span><span class="sw" style="border-top-color:var(--s1)"></span> control <span class="mono">feat_loss_weight 0</span> · ep 0–70</span>
-    <span><span class="sw" style="border-top-color:var(--s2)"></span> arm <span class="mono">feat_loss_weight 1.0</span> · ep 0–89 (faint past 70 = unmatched)</span>
-    <span><svg width="22" height="10"><line x1="0" y1="5" x2="22" y2="5" stroke="#83817c" stroke-width="1.4" stroke-dasharray="5 4"/></svg> floor <span class="mono">_tok</span> = rollout from the GT deltas</span>
+    <span><span class="sw" style="border-top-color:var(--s1)"></span> control ep 50</span>
+    <span><span class="sw" style="border-top-color:var(--s2)"></span> arm ep 50 <span style="color:var(--muted)">(exactly matched)</span></span>
+    <span><span class="sw" style="border-top-color:var(--s4);border-top-style:dashed"></span> arm ep 75</span>
+    <span><span class="sw" style="border-top-color:var(--s5);border-top-style:dashed"></span> control ep 71</span>
+    <span><svg width="22" height="10"><line x1="0" y1="5" x2="22" y2="5" stroke="#83817c" stroke-width="1.4" stroke-dasharray="5 4"/></svg> floor <span class="mono">_tok</span> / <span class="mono">FVD_tok</span> = rollout from the GT deltas</span>
   </div>
   <div class="body" style="margin-top:6px">
-    <div class="cols c3" style="gap:20px">
-      <div><div class="panelttl">LossPointmap · log y</div><div id="c4a" class="plot" style="height:286px"></div></div>
-      <div><div class="panelttl">LossDepth · linear y</div><div id="c4b" class="plot" style="height:286px"></div></div>
-      <div><div class="panelttl">LossRaymap · log y</div><div id="c4c" class="plot" style="height:286px"></div></div>
+    <div class="cols c5" style="gap:13px">
+      <div><div class="panelttl">FD-OccAny · log y</div><div id="c5a" class="plot" style="height:362px"></div></div>
+      <div><div class="panelttl">MSEToken (z)</div><div id="c5b" class="plot" style="height:362px"></div></div>
+      <div><div class="panelttl">LossPointmap</div><div id="c5c" class="plot" style="height:362px"></div></div>
+      <div><div class="panelttl">LossDepth</div><div id="c5d" class="plot" style="height:362px"></div></div>
+      <div><div class="panelttl">LossRaymap</div><div id="c5e" class="plot" style="height:362px"></div></div>
     </div>
-    <div class="cols c3" style="gap:20px;margin-top:12px">
-      <div class="card" style="border-left:3px solid var(--good);padding:11px 14px"><div class="tag">ep 61–70 · gap over floor</div><h3 style="margin:4px 0">4.008 → 3.541 · −11.7%</h3><p style="font-size:12.2px;color:var(--ink2)">Floor 3.85. Paired gap over ep 41–70 is <b>−0.506</b>, arm below on <b>27/30</b> (t = 6.6). Scatter ±0.26, so read the run, not any one point.</p></div>
-      <div class="card" style="border-left:3px solid var(--grid);padding:11px 14px"><div class="tag">ep 61–70 · gap over floor</div><h3 style="margin:4px 0">1.040 → 1.052 · +1.1%</h3><p style="font-size:12.2px;color:var(--ink2)">The curves interleave for the whole matched window. Floor 2.631, and the gap to it is 28% of the value — depth is floor-bound, not arm-bound.</p></div>
-      <div class="card" style="border-left:3px solid var(--good);padding:11px 14px"><div class="tag">ep 61–70 · gap over floor</div><h3 style="margin:4px 0">3.716 → 3.090 · −16.8%</h3><p style="font-size:12.2px;color:var(--ink2)">Largest effect in the deck. Floor 1.627, identical in both arms. Paired gap over ep 41–70 is <b>−0.640</b>, arm below on <b>27/30</b> (t = 7.6).</p></div>
-    </div>
-    <div class="rulebar" style="margin-top:10px;font-size:12px;padding:9px 13px"><b>The curves touch at ep 68 and ep 70 — noise, not a closing gap.</b>
-      Those are 2 of only 3 crossings in the last 30 matched epochs. A line fitted to the paired gap over ep 41–70 gives
-      <span class="mono">+0.0065/ep</span> on raymap (<span class="mono">t=0.67</span>) and <span class="mono">+0.0069/ep</span> on pointmap
-      (<span class="mono">t=0.78</span>) — both flat. Raymap 10-epoch blocks: −11.9%, −11.1%, −11.7% over ep 41–50, 51–60, 61–70.</div>
+    <div class="rulebar" style="margin-top:11px;font-size:12px;padding:9px 13px"><b>Two opposite slopes, as in QUESTION 10 — but the arm shifts only one of them.</b>
+      More steps always improve FD-OccAny and always worsen per-sample geometry. The feature loss moves the whole FD-OccAny curve down
+      (<b>−38%</b> at 1 step, <b>−6.4%</b> at 20, matched ep 50) and leaves geometry at or above the control. The
+      <span class="mono">_tok</span> floors are identical in every pass, so the shift is the model, not the evaluation.</div>
   </div>
-  <div class="foot"><span>[Eval/128 @ WaymoSeqMultiView] · one point per epoch · floors from ep 70</span><span>the ep-68/70 crossings are noise — see below</span><span class="pageno">4</span></div>
+  <div class="foot"><span>BSC 46182962/3/4 · eval_deltatok_flow_sampler.py --fvd · ode · 128 seqs</span><span>one curve moves</span><span class="pageno">5</span></div>
 </section>
 
-<!-- ============ SLIDE 5 — the ledger ============ -->
+<!-- ===== 6 the ledger ===== -->
 <section class="slide">
-  <div class="eyebrow">The ledger <span class="dim">— matched window ep 61–70, mean ± epoch-to-epoch sd, n = 10 evals per arm</span></div>
-  <h2>Two geometry wins, three latent-space losses, one tie</h2>
-  <div class="body cols c58" style="margin-top:16px;gap:26px">
+  <div class="eyebrow">The ledger <span class="dim">— arm vs control, %, identical eval seed · green = arm better</span></div>
+  <h2>1 step is where the feature loss hurts most</h2>
+  <div class="body cols c58" style="margin-top:14px;gap:24px">
     <div>
-      <table>
-        <thead><tr><th>metric</th><th>measured in</th><th class="n">control</th><th class="n">feat loss</th><th class="n">Δ</th><th class="n">gap over floor</th></tr></thead>
+      <table class="tcompact" style="font-size:11.6px">
+        <thead><tr><th>metric</th><th class="n">1</th><th class="n">5</th><th class="n">10</th><th class="n">15</th><th class="n">20</th></tr></thead>
         <tbody>
-          <tr class="hl"><td><b>LossRaymap</b></td><td class="mono" style="font-size:11px">DA3 head</td><td class="n">5.343 ±.40</td><td class="n"><b>4.717</b> ±.27</td><td class="n ok">−11.71%</td><td class="n ok">3.716 → 3.090 · −16.8%</td></tr>
-          <tr class="hl"><td><b>LossPointmap</b></td><td class="mono" style="font-size:11px">DA3 head</td><td class="n">7.858 ±.34</td><td class="n"><b>7.404</b> ±.26</td><td class="n ok">−5.77%</td><td class="n ok">4.008 → 3.541 · −11.7%</td></tr>
-          <tr><td><b>LossDepth</b></td><td class="mono" style="font-size:11px">DA3 head</td><td class="n"><b>3.672</b> ±.036</td><td class="n">3.684 ±.032</td><td class="n">+0.33%</td><td class="n">1.040 → 1.052 · +1.1%</td></tr>
-          <tr class="sep"><td><b>Train LossMean</b></td><td class="mono" style="font-size:11px">delta tokens z</td><td class="n"><b>0.4438</b> ±.0021</td><td class="n">0.4487 ±.0017</td><td class="n bad">+1.12%</td><td class="n" style="color:var(--muted)">—</td></tr>
-          <tr><td><b>MSEToken</b></td><td class="mono" style="font-size:11px">delta tokens z</td><td class="n"><b>1.088</b> ±.012</td><td class="n">1.105 ±.010</td><td class="n bad">+1.54%</td><td class="n" style="color:var(--muted)">no floor</td></tr>
-          <tr class="hl"><td><b>LossFlow</b></td><td class="mono" style="font-size:11px">flow latent x</td><td class="n"><b>0.4956</b> ±.0009</td><td class="n">0.5218 ±.0013</td><td class="n bad">+5.27%</td><td class="n" style="color:var(--muted)">—</td></tr>
+          <tr class="dim"><td colspan="6" style="padding-top:8px"><b>matched ep 50</b> — control <span class="mono">iter_100000</span> vs arm <span class="mono">iter_100000</span></td></tr>
+          <tr class="hl"><td><b>FD-OccAny</b></td><td class="n ok">−38.1</td><td class="n ok">−10.1</td><td class="n ok">−8.1</td><td class="n ok">−7.0</td><td class="n ok">−6.4</td></tr>
+          <tr><td><b>MSEToken</b></td><td class="n">+0.5</td><td class="n bad">+1.7</td><td class="n bad">+2.1</td><td class="n bad">+2.2</td><td class="n bad">+2.2</td></tr>
+          <tr><td><b>LossPointmap</b></td><td class="n bad">+15.2</td><td class="n bad">+5.6</td><td class="n ok">−1.6</td><td class="n ok">−2.0</td><td class="n ok">−1.0</td></tr>
+          <tr><td><b>LossDepth</b></td><td class="n ok">−4.9</td><td class="n">−0.2</td><td class="n">+0.4</td><td class="n">+0.1</td><td class="n">−0.1</td></tr>
+          <tr><td><b>LossRaymap</b></td><td class="n bad">+33.1</td><td class="n bad">+12.5</td><td class="n">+0.3</td><td class="n">−0.6</td><td class="n">+0.9</td></tr>
+          <tr class="dim"><td colspan="6" style="padding-top:10px"><b>late pair</b> — control ep 71 vs arm ep 75 (both on plateau, 4 ep apart)</td></tr>
+          <tr class="hl"><td><b>FD-OccAny</b></td><td class="n ok">−37.6</td><td class="n ok">−6.8</td><td class="n ok">−5.3</td><td class="n ok">−4.3</td><td class="n ok">−4.0</td></tr>
+          <tr><td><b>MSEToken</b></td><td class="n bad">+2.0</td><td class="n bad">+1.9</td><td class="n bad">+2.3</td><td class="n bad">+2.2</td><td class="n bad">+2.4</td></tr>
+          <tr><td><b>LossPointmap</b></td><td class="n bad">+21.7</td><td class="n bad">+10.5</td><td class="n bad">+6.2</td><td class="n bad">+4.9</td><td class="n bad">+4.6</td></tr>
+          <tr><td><b>LossDepth</b></td><td class="n">−1.1</td><td class="n">+1.4</td><td class="n">+1.5</td><td class="n">+1.5</td><td class="n">+1.3</td></tr>
+          <tr><td><b>LossRaymap</b></td><td class="n bad">+47.2</td><td class="n bad">+14.4</td><td class="n bad">+10.1</td><td class="n bad">+7.6</td><td class="n bad">+8.1</td></tr>
         </tbody>
       </table>
-      <div class="rulebar" style="margin-top:14px;font-size:12.5px"><b>The floor is not quite identical.</b>
-        <span class="mono">LossPointmap_tok</span> reads 3.8492 on the control and 3.8634 on the arm — same frozen tokenizer,
-        same 128 items, so that 0.37% is bf16 reduction-order noise at a different rank count. Depth differs by 0.008%,
-        raymap not at all. Treat 0.4% as the pointmap noise floor.</div>
     </div>
     <div>
-      <div class="panelttl">Δ vs control, matched ep 61–70</div>
-      <div id="c4" class="plot" style="height:300px"></div>
-      <div class="rulebar" style="margin-top:12px;font-size:12.2px"><b>Read the sign, not just the size.</b>
-        Everything left of zero is measured after the frozen decoder. Everything right of zero is measured in
-        delta-token space, before it. The feature loss moves the boundary, not the total.</div>
+      <div class="tiles">
+        <div class="tile"><div class="k">The one robust win</div><div class="v" style="color:var(--good);font-size:22px">FD-OccAny, every cell</div><div class="d">10 of 10 step×pair cells favour the arm, −4.0% to −38.1%. Nothing else is consistent.</div></div>
+        <div class="tile"><div class="k">The one robust loss</div><div class="v" style="color:var(--crit);font-size:22px">geometry at 1–5 steps</div><div class="d">Raymap +33% / +47% at 1 step. The arm needs more denoising steps than the control to reach the same per-sample geometry.</div></div>
+        <div class="tile"><div class="k">Step-independent</div><div class="v" style="font-size:22px">LossFlow −0.6%<br>LossFeat −6.6%</div><div class="d">Both constant across all five passes, as they must be. The arm wins its own objective; LossFlow is a tie.</div></div>
+      </div>
     </div>
   </div>
-  <div class="foot"><span>means over ep 61–70 · sd is within-run across epochs, one seed · spaces defined on slide 6</span><span>the trade, in one picture</span><span class="pageno">5</span></div>
+  <div class="foot"><span>ep 50 pair is exactly matched; the late pair is 4 epochs apart</span><span>steps decide the sign</span><span class="pageno">6</span></div>
 </section>
 
-<!-- ============ SLIDE 6 — LossFlow vs LossFeat, and what each one measures ============ -->
+<!-- ===== 7 LossFlow vs LossFeat ===== -->
 <section class="slide">
   <div class="eyebrow">The two objectives <span class="dim">— what the arm optimises, and in which space each number lives</span></div>
   <h2>The feature term is 7.9% of the training loss and it stops moving at epoch 26</h2>
   <div class="body" style="margin-top:12px">
     <div class="cols" style="grid-template-columns:1fr 1fr 1.04fr;gap:22px">
       <div>
-        <div class="panelttl">LossFlow (z) · eval · both arms</div>
+        <div class="panelttl">LossFlow (z) · training eval · confounded</div>
         <div class="legend" style="font-size:11px;margin-bottom:3px"><span><span class="sw" style="border-top-color:var(--s1)"></span> control</span><span><span class="sw" style="border-top-color:var(--s2)"></span> arm</span></div>
-        <div id="c6a" class="plot" style="height:232px"></div>
-        <div class="card" style="margin-top:9px;border-left:3px solid var(--crit);padding:10px 13px">
-          <div class="tag">ep 61–70</div><h3 style="margin:4px 0">0.4956 → 0.5218</h3>
-          <p style="font-size:12px;color:var(--ink2)">The arm pays <b>+0.0261</b> absolute. Flat in both arms from ep 30.</p>
+        <div id="c7a" class="plot" style="height:210px"></div>
+        <div class="card" style="margin-top:9px;border-left:3px solid var(--muted);padding:10px 13px">
+          <div class="tag">common-seed truth</div><h3 style="margin:4px 0">0.5230 → 0.5198 · −0.6%</h3>
+          <p style="font-size:12px;color:var(--ink2)">The visible gap here is the t draw. On one GPU the two are a tie.</p>
         </div>
       </div>
       <div>
-        <div class="panelttl">LossFeat (OccAny L12) · arm only</div>
-        <div class="legend" style="font-size:11px;margin-bottom:3px"><span><span class="sw" style="border-top-color:var(--s2)"></span> eval</span><span><span class="sw" style="border-top-color:var(--s4);border-top-style:dashed"></span> train</span><span style="color:var(--muted)">floor = tokenizer LossRecon</span></div>
-        <div id="c6b" class="plot" style="height:232px"></div>
-        <div class="card" style="margin-top:9px;border-left:3px solid var(--s4);padding:10px 13px">
-          <div class="tag">ep 61–70 · eval</div><h3 style="margin:4px 0">0.0438 · 2.08× the floor</h3>
-          <p style="font-size:12px;color:var(--ink2)">Eval bottoms <b>0.0434 at ep 26</b>, then drifts up. Train keeps falling to 0.0373.</p>
+        <div class="panelttl">LossFeat (OccAny L12) · arm train vs eval</div>
+        <div class="legend" style="font-size:11px;margin-bottom:3px"><span><span class="sw" style="border-top-color:var(--s2)"></span> eval</span><span><span class="sw" style="border-top-color:var(--s4);border-top-style:dashed"></span> train</span></div>
+        <div id="c7b" class="plot" style="height:210px"></div>
+        <div class="card" style="margin-top:9px;border-left:3px solid var(--good);padding:10px 13px">
+          <div class="tag">common-seed, matched ep 50</div><h3 style="margin:4px 0">0.0456 → 0.0426 · −6.6%</h3>
+          <p style="font-size:12px;color:var(--ink2)">Eval bottoms <b>0.0434 at ep 26</b>, then drifts up; train keeps falling to 0.0373.</p>
         </div>
       </div>
       <div>
@@ -346,24 +391,25 @@ td.n,th.n{text-align:right;font-variant-numeric:tabular-nums}
             <tr><td class="mono"><b>LossFlow</b></td><td>flow latent <span class="mono">x</span></td><td>v-MSE at a sampled <span class="mono">t</span>, teacher-forced</td></tr>
             <tr class="hl"><td class="mono"><b>MSEToken</b></td><td>delta tokens <span class="mono">z</span><br><span style="color:var(--muted)">(B,Fc,N,K=64,Cz=1536)</span></td><td>ODE-<b>sampled</b> deltas vs GT deltas, forecast slots</td></tr>
             <tr class="hl"><td class="mono"><b>LossFeat</b></td><td>OccAny/DA3 <b>layer-12</b> patch feats</td><td>log-cosh, frozen decode of <span class="mono">x_pred</span> vs GT next frame</td></tr>
-            <tr><td class="mono"><b>LossDepth</b><br><span class="mono">Pointmap/Raymap</span></td><td>DA3 head outputs</td><td>decoded geometry vs GT, after the heads</td></tr>
+            <tr><td class="mono"><b>FD-OccAny</b></td><td>OccAny/DA3 <b>layer-12</b>, mean-pooled per frame</td><td>Fréchet distance, sampled vs GT as two <em>distributions</em>. Log key is still <span class="mono">FVD</span> / <span class="mono">FVD_tok</span></td></tr>
+            <tr><td class="mono"><b>Depth/Pointmap<br>Raymap</b></td><td>DA3 head outputs</td><td>decoded geometry vs GT, per sample</td></tr>
           </tbody>
         </table>
         <div class="rulebar" style="margin-top:9px;font-size:11.6px;padding:8px 11px"><b>MSEToken is on the delta tokens, not the layer-12 feats.</b>
-          It and <span class="mono">LossFlow</span> sit <em>before</em> the decoder; <span class="mono">LossFeat</span> is the first metric <em>after</em> it — and that boundary is where the sign flips.</div>
+          It and <span class="mono">LossFlow</span> sit <em>before</em> the decoder; <span class="mono">LossFeat</span> and FD-OccAny are after it.</div>
       </div>
     </div>
     <div class="rulebar" style="margin-top:11px;font-size:11.8px;padding:8px 12px"><b>The trade, in absolute units.</b>
       Train total = <span class="mono">LossMean</span> 0.4475 + 1.0 × <span class="mono">feat</span> 0.0384 = 0.4859, so the feature term is <b>7.9%</b> of the gradient.
-      The arm gave up <b>0.0261</b> of LossFlow; LossFeat's whole range is 0.0557 (ep 0) → 0.0211 (tokenizer floor) = 0.0346.
-      The flow price is <b>0.75× everything LossFeat could ever buy</b>. Train–eval gap on LossFeat widens 0.0029 → 0.0069 over ep 30–89.</div>
+      LossFeat's whole range is 0.0557 (ep 0) → 0.0211 (the tokenizer's own <span class="mono">LossRecon</span> floor) = 0.0346, and the arm captures
+      0.0030 of it over the control. Train–eval gap on LossFeat widens 0.0029 → 0.0069 over ep 30–89: it is mildly overfitting its own term.</div>
   </div>
-  <div class="foot"><span>eval LossFeat logged at weight 0 too — but the control pre-dates the key</span><span>different spaces, one gradient</span><span class="pageno">6</span></div>
+  <div class="foot"><span>eval LossFeat is logged at weight 0 too — which is how the control finally has one</span><span>different spaces, one gradient</span><span class="pageno">7</span></div>
 </section>
 
-<!-- ============ SLIDE 7 — decode comparison, last forecast frame ============ -->
+<!-- ===== 8 visualization ===== -->
 <section class="slide">
-  <div class="eyebrow">What it looks like <span class="dim">— last forecast frame (t = 4 of 0–4; 0–2 given) · matched epoch 70 · lossless panels from TB, not the JPEGs</span></div>
+  <div class="eyebrow">What it looks like <span class="dim">— last forecast frame (t = 4 of 0–4; 0–2 given) · matched epoch 70 · lossless panels from TB</span></div>
   <h2>The shared gap to the teacher dwarfs the gap between the arms</h2>
   <div class="body" style="margin-top:10px">
     <div class="cols c2" style="gap:16px">
@@ -372,60 +418,54 @@ td.n,th.n{text-align:right;font-variant-numeric:tabular-nums}
     </div>
     <div class="cols c2" style="gap:16px;margin-top:11px">
       <div class="rulebar" style="font-size:11.8px;padding:9px 12px;margin:0"><b>Both arms are visibly smoother than GT-z.</b>
-        The teacher resolves the tree line, the parked cars and the pole; both flows blur them into one gradient.
-        That common deficit is far larger than anything separating the two columns — which is why the
-        <span class="mono">_tok</span> floors on slide 4 sit so far below every curve.</div>
+        The teacher resolves the tree line, the parked cars and the pole; both flows blur them into one gradient. That common
+        deficit is far larger than anything separating the two columns — which is why the <span class="mono">_tok</span> floors
+        sit so far below every curve on slide 5.</div>
       <div class="rulebar" style="font-size:11.8px;padding:9px 12px;margin:0"><b>Mean L1 splits one each way.</b>
-        2.80 → 2.57 m on scene 00163 (arm better), 2.76 → 2.88 m on scene 00112 (arm worse) — exactly what a
-        <b>+0.33%</b> depth delta looks like at n = 2. Depth is the metric the feature loss does not move; do not read a
-        winner off these two frames.</div>
+        2.80 → 2.57 m on scene 00163 (arm better), 2.76 → 2.88 m on scene 00112 (arm worse). These panels come from the
+        <em>confounded</em> training eval, so treat them as qualitative only — the clean depth delta is <b>−0.1%</b> at 20 steps.</div>
     </div>
     <div class="rulebar" style="margin-top:10px;font-size:11.6px;padding:8px 12px"><b>How these were made, and the two checks that passed.</b>
-      Panels pulled from each arm's TB event file at <span class="mono">step 142000</span> by a seek-skip TFRecord walker
-      (2.4 / 3.1 GB indexed in &lt; 1 s; records ≤ 8 KB are scalars and get seeked past). PNG, so the JET inversion is exact —
-      <span class="mono">min_depth 0 / max_depth 50</span>, <b>LUT residual 0.0000</b>, done in float32. The saved
+      Pulled from each arm's TB event file at <span class="mono">step 142000</span> by a seek-skip TFRecord walker (2.4 / 3.1 GB
+      indexed in &lt; 1 s; records ≤ 8 KB are scalars and get seeked past). PNG, so the JET inversion is exact —
+      <span class="mono">min_depth 0 / max_depth 50</span>, <b>LUT residual 0.0000</b>, distances in float32. The saved
       <span class="mono">eval_viz</span> JPEGs give residual 3.84 and were rejected. GT-z is byte-identical across arms
-      (<b>0.0000 m</b>), which is the free check that the crop offsets are right.</div>
+      (<b>0.0000 m</b>) — the free check that the crop offsets are right.</div>
   </div>
-  <div class="foot"><span>tag eval_depth/128 @ WaymoSeqMultiView/&lt;scene&gt;_t0-4 · cols 0,1 of 8 (518 px) + RGB cols 2,4</span><span>same blur, different noise</span><span class="pageno">7</span></div>
+  <div class="foot"><span>tag eval_depth/128 @ WaymoSeqMultiView/&lt;scene&gt;_t0-4 · 8 cols: 5 × 518 px + 3 BEV × 266 px</span><span>same blur, different noise</span><span class="pageno">8</span></div>
 </section>
 
-<!-- ============ SLIDE 8 — caveats ============ -->
+<!-- ===== 9 caveats ===== -->
 <section class="slide">
-  <div class="eyebrow">What this does not settle <span class="dim">— the caveats, and what would close each one</span></div>
-  <h2>One seed, one tokenizer, and a control that never logged <span class="mono" style="font-size:.8em">LossFeat</span></h2>
-  <p class="sub">Train keeps falling, eval does not. The feature loss stops buying anything after roughly epoch 20,
-    which is where the geometry curves also stop separating further.</p>
-  <div class="body cols c2" style="margin-top:14px;gap:28px">
+  <div class="eyebrow">What this does not settle <span class="dim">— and what would close each one</span></div>
+  <h2>One seed, two checkpoint pairs, and a confound that reaches other threads</h2>
+  <div class="body cols c2" style="margin-top:14px;gap:26px">
     <div>
-      <div class="legend"><span><span class="sw" style="border-top-color:var(--s2)"></span> eval <span class="mono">LossFeat</span></span>
-        <span style="color:var(--muted)">the control has no such number</span></div>
-      <div id="c5" class="plot" style="height:262px"></div>
-      <div class="rulebar" style="margin-top:10px;font-size:12.2px">0.0557 at ep 0 → <b>0.0434</b> at ep 26 → 0.0442 at ep 89.
-        Train <span class="mono">feat</span> over the same span goes 0.0558 → <b>0.0373</b> and is still falling.
-        The tokenizer's own <span class="mono">LossRecon</span> at <span class="mono">epoch_30</span> is <b>0.0211</b>,
-        so the flow sits at ~2.1× the teacher it is being scored against.</div>
-    </div>
-    <div>
-      <div class="panelttl" style="margin-bottom:8px">What this does not settle</div>
-      <ul class="tight" style="font-size:13.2px">
-        <li><strong>One seed.</strong> Pointmap and raymap carry ±0.3 epoch-to-epoch scatter. Averaging ep 41–70 beats it
-          (27/30 epochs, t = 6.6 and 7.6), but a prior sampler ablation put the <em>seed-level</em> floor at <b>2.6–8%</b>,
-          which still swallows the −5.8% pointmap win. Only raymap is clearly outside it. A second seed would settle it.</li>
-        <li><strong>No control LossFeat.</strong> The key post-dates the control run, so the obvious sanity check — does
-          the control's feature loss sit above the arm's? — is unmeasured. An eval-only pass on the control's
-          <span class="mono">current.pth</span> would close it.</li>
-        <li><strong>bsize is confounded, weakly.</strong> 16 → 8 is forced by the decode OOM. <span class="mono">effective_bsize</span>
-          is matched at 64 and there is no batch norm, so the optimizer step should be identical; the residual is
-          bf16 accumulation order.</li>
-        <li><strong>Stopped at ep 89 of 100.</strong> Cancelled once the verdict was clear; <span class="mono">current.pth</span>
-          is kept, so a relaunch resumes. LossFlow, MSEToken and LossFeat were all flat, so the last 11 epochs would not have moved it.</li>
-        <li><strong>Depth is the one to watch.</strong> It is the metric the downstream task cares about most and it is the
-          one the feature loss does not move.</li>
+      <ul class="tight" style="font-size:13px">
+        <li><strong>The ep-50 and late pairs disagree on size, not sign.</strong> Geometry is ~tied at ep 50 and clearly worse at
+          ep 71/75. The late pair is 4 epochs apart, so its magnitude is soft; both agree the arm does not <em>win</em> geometry.</li>
+        <li><strong>One seed per arm.</strong> The clean sweep fixes the <em>eval</em> seed, not the <em>training</em> seed. A −6% FD-OccAny
+          could still be one draw. A second training seed is the only way to settle it.</li>
+        <li><strong>bsize 16 → 8 is still unmatched.</strong> Forced by the decode OOM. <span class="mono">effective_bsize</span> is 64 in
+          both and there is no batch norm, so the optimizer step should be identical — but it is not a proven null.</li>
+        <li><strong>Stopped at ep 89 of 100.</strong> <span class="mono">current.pth</span> is kept, so a relaunch resumes.
+          LossFlow, MSEToken and LossFeat were all flat by ep 40.</li>
       </ul>
     </div>
+    <div>
+      <div class="warn" style="font-size:12.5px"><b>This confound is not local to QUESTION 22.</b>
+        Any two DeltaTok-flow arms compared on training-log evals while running different rank counts share it. Worth re-checking
+        any past conclusion that rests on a cross-arm <span class="mono">LossFlow</span> or geometry delta where the node counts differed.</div>
+      <div class="rulebar" style="margin-top:13px;font-size:12.5px"><b>The cheap fix.</b> Seed the eval generators from
+        <span class="mono">seed</span> and a <em>global</em> sample index instead of <span class="mono">rank</span>, so the eval set is
+        identical at any world size. Until then, cross-arm reads belong in <span class="mono">eval_deltatok_flow_sampler.py</span> on one GPU.</div>
+      <div class="rulebar" style="margin-top:13px;font-size:12.5px"><b>Verdict on the knob.</b> Not adopted for geometry.
+        Worth keeping on the table for FD-OccAny — it is the only lever so far that moves the distribution match without more sampler steps,
+        and QUESTION 10 showed steps buy FD-OccAny only by giving up geometry. Here the arm buys FD-OccAny and gives up geometry <em>too</em>,
+        so the honest read is that it trades along the same axis rather than beating it.</div>
+    </div>
   </div>
-  <div class="foot"><span>docs/research/plan/2026-09-17_flow_featloss_tc1536p24576.md</span><span>plateaus at ep 20–26</span><span class="pageno">8</span></div>
+  <div class="foot"><span>docs/research/plan/2026-09-17_flow_featloss_tc1536p24576.md</span><span>re-run before you trust a log delta</span><span class="pageno">9</span></div>
 </section>
 
 </div>
@@ -590,54 +630,108 @@ const F_TR=[4.3466,0.74,0.6377,0.6071,0.5874,0.5733,0.5635,0.5554,0.551,0.5437,0
 const F_FEAT=[0.0557,0.0502,0.0478,0.0466,0.046,0.0457,0.0454,0.0452,0.0449,0.0447,0.0445,0.0443,0.0442,0.0445,0.044,0.044,0.044,0.0438,0.0439,0.0437,0.0437,0.0437,0.0437,0.0435,0.0438,0.0437,0.0434,0.0436,0.0436,0.0436,0.0437,0.0437,0.0435,0.0434,0.0436,0.0435,0.0436,0.0435,0.0436,0.0436,0.0435,0.0436,0.0434,0.0436,0.0435,0.0438,0.0436,0.0436,0.0435,0.0436,0.0438,0.0439,0.0437,0.0436,0.0437,0.0437,0.0438,0.0439,0.0437,0.0437,0.0436,0.0437,0.0438,0.044,0.0437,0.0437,0.0439,0.0438,0.0438,0.0439,0.0438,0.0438,0.044,0.0438,0.0439,0.0439,0.0438,0.044,0.0441,0.0439,0.0441,0.044,0.044,0.044,0.044,0.0442,0.0441,0.0443,0.0443,0.0442];
 const F_TFEAT=[0.0558,0.0486,0.0457,0.047,0.0462,0.0448,0.0449,0.0436,0.0434,0.0438,0.0439,0.0425,0.0418,0.0431,0.0425,0.044,0.0419,0.0421,0.0431,0.04,0.043,0.0396,0.0421,0.0418,0.0406,0.0407,0.0407,0.041,0.042,0.042,0.0408,0.0405,0.0396,0.0417,0.0404,0.0409,0.0399,0.041,0.0409,0.0399,0.0391,0.0411,0.0399,0.0409,0.0396,0.0385,0.0402,0.0394,0.0389,0.0389,0.0385,0.0385,0.039,0.0396,0.0387,0.0389,0.0402,0.0395,0.0376,0.0386,0.0397,0.038,0.0392,0.0381,0.0377,0.0392,0.0377,0.0381,0.0389,0.0385,0.0391,0.0378,0.0385,0.0373,0.0381,0.0389,0.0377,0.0379,0.039,0.0382,0.0382,0.0376,0.0381,0.0381,0.0377,0.0387,0.0385,0.0387,0.037,0.0373];
 const F_TLOSS=[0.7962,0.6917,0.6083,0.5956,0.5876,0.5658,0.5633,0.5475,0.544,0.5418,0.5383,0.5259,0.5136,0.5149,0.5105,0.5267,0.5011,0.5035,0.5116,0.4871,0.5034,0.4858,0.4996,0.5003,0.4908,0.49,0.4854,0.4908,0.4908,0.4918,0.4836,0.4778,0.4733,0.4786,0.4742,0.4802,0.4697,0.4817,0.4688,0.4647,0.464,0.4812,0.4658,0.4682,0.4647,0.4582,0.4678,0.4648,0.4517,0.4597,0.4556,0.4544,0.4623,0.4617,0.45,0.4601,0.4626,0.4556,0.4483,0.4559,0.4586,0.4522,0.4519,0.4444,0.4419,0.4556,0.443,0.4414,0.4521,0.4483,0.4441,0.4423,0.4457,0.4421,0.4383,0.4476,0.4392,0.4415,0.4455,0.4415,0.4481,0.4389,0.438,0.4365,0.4403,0.4399,0.4411,0.4465,0.4365,0.4364];
+/* ---- step sweep, eval_deltatok_flow_sampler.py --fvd, 1 GPU, identical seed ----
+   BSC:46182962 ctrl iter100000 | 46182963 arm iter100000 | 46182964 arm iter150000
+   BSC:46005243 ctrl iter142000 (prior run, same script) */
+const STEPS=[1,5,10,15,20];
+const ctrl_ep50_FVD=[16.2787,5.3917,4.7213,4.6388,4.6256];
+const ctrl_ep50_MSEToken=[0.6776,0.915,1.0239,1.0671,1.0916];
+const ctrl_ep50_LossPointmap=[5.895,7.19,8.0674,8.213,8.2531];
+const ctrl_ep50_LossDepth=[3.6471,3.627,3.6466,3.6671,3.6768];
+const ctrl_ep50_LossRaymap=[3.2945,4.5046,5.3683,5.5134,5.5603];
+const feat_ep50_FVD=[10.0835,4.8451,4.3366,4.3125,4.3303];
+const feat_ep50_MSEToken=[0.6811,0.931,1.0454,1.0911,1.1157];
+const feat_ep50_LossPointmap=[6.7924,7.5912,7.9389,8.0459,8.1665];
+const feat_ep50_LossDepth=[3.4677,3.6193,3.6621,3.6699,3.673];
+const feat_ep50_LossRaymap=[4.3835,5.0669,5.3843,5.4798,5.6091];
+const feat_ep75_FVD=[9.5846,4.7463,4.2542,4.2237,4.2374];
+const feat_ep75_MSEToken=[0.6916,0.937,1.044,1.0848,1.1072];
+const feat_ep75_LossPointmap=[6.4072,7.2973,7.6311,7.6514,7.6881];
+const feat_ep75_LossDepth=[3.5051,3.663,3.7066,3.7148,3.7124];
+const feat_ep75_LossRaymap=[4.0482,4.5506,4.973,4.988,5.0238];
+const ctrl_ep71_FVD=[15.3603,5.093,4.4944,4.4143,4.4146];
+const ctrl_ep71_MSEToken=[0.6778,0.9192,1.0203,1.0613,1.0811];
+const ctrl_ep71_LossPointmap=[5.2665,6.601,7.1842,7.2948,7.3502];
+const ctrl_ep71_LossDepth=[3.5444,3.6139,3.6504,3.6601,3.6661];
+const ctrl_ep71_LossRaymap=[2.7501,3.9783,4.5153,4.6376,4.6462];
 
-/* ---------- render ---------- */
-const NC=C_FL.length, NF=F_FL.length;          // 71 matched epochs, 90 arm epochs
-const S3={W:250,H:341,L:44,R:14,T:10,B:26,xmin:0,xmax:89,xticks:[0,30,60,89],xlab:'epoch'};
-// control solid to ep70; arm split so the unmatched tail (ep70+) reads faint.
+window['ctrl_ep50_FVD']=ctrl_ep50_FVD;
+window['ctrl_ep50_MSEToken']=ctrl_ep50_MSEToken;
+window['ctrl_ep50_LossPointmap']=ctrl_ep50_LossPointmap;
+window['ctrl_ep50_LossDepth']=ctrl_ep50_LossDepth;
+window['ctrl_ep50_LossRaymap']=ctrl_ep50_LossRaymap;
+window['feat_ep50_FVD']=feat_ep50_FVD;
+window['feat_ep50_MSEToken']=feat_ep50_MSEToken;
+window['feat_ep50_LossPointmap']=feat_ep50_LossPointmap;
+window['feat_ep50_LossDepth']=feat_ep50_LossDepth;
+window['feat_ep50_LossRaymap']=feat_ep50_LossRaymap;
+window['feat_ep75_FVD']=feat_ep75_FVD;
+window['feat_ep75_MSEToken']=feat_ep75_MSEToken;
+window['feat_ep75_LossPointmap']=feat_ep75_LossPointmap;
+window['feat_ep75_LossDepth']=feat_ep75_LossDepth;
+window['feat_ep75_LossRaymap']=feat_ep75_LossRaymap;
+window['ctrl_ep71_FVD']=ctrl_ep71_FVD;
+window['ctrl_ep71_MSEToken']=ctrl_ep71_MSEToken;
+window['ctrl_ep71_LossPointmap']=ctrl_ep71_LossPointmap;
+window['ctrl_ep71_LossDepth']=ctrl_ep71_LossDepth;
+window['ctrl_ep71_LossRaymap']=ctrl_ep71_LossRaymap;
+
+/* ---- slide 4: per-epoch training evals (confounded) ---- */
+const NC=C_FL.length;
 const arm=a=>[{data:a.slice(0,NC),color:'--s2',width:2}];
 const armTail=a=>({data:a,color:'--s2',width:2,op:.32});
-function pan(id,cfg,c,f){
-  lineChart(document.getElementById(id),Object.assign({},S3,cfg,
-    {series:[armTail(f),{data:c,color:'--s1',width:2},...arm(f)]}));
-}
-pan('c3a',{ymin:.49,ymax:.62,yticks:[.50,.54,.58,.62],fmt:v=>v.toFixed(2)},C_FL,F_FL);
-pan('c3b',{ymin:1.05,ymax:1.50,yticks:[1.1,1.2,1.3,1.4,1.5],fmt:v=>v.toFixed(1)},C_MS,F_MS);
-pan('c3c',{ymin:3.55,ymax:4.55,yticks:[3.6,3.9,4.2,4.5],fmt:v=>v.toFixed(1)},C_DP,F_DP);
-pan('c3d',{ymin:7.0,ymax:16,yticks:[8,10,12,14,16],fmt:v=>v.toFixed(0)},C_PM,F_PM);
-pan('c3e',{ymin:4.2,ymax:16,yticks:[5,8,11,14],fmt:v=>v.toFixed(0)},C_RM,F_RM);
+const S4={W:250,H:341,L:44,R:14,T:10,B:26,xmin:0,xmax:89,xticks:[0,30,60,89],xlab:'epoch'};
+function pan(id,cfg,c,f){lineChart(document.getElementById(id),Object.assign({},S4,cfg,
+  {series:[armTail(f),{data:c,color:'--s1',width:2},...arm(f)]}));}
+pan('c4a',{ymin:.49,ymax:.62,yticks:[.50,.54,.58,.62],fmt:v=>v.toFixed(2)},C_FL,F_FL);
+pan('c4b',{ymin:1.05,ymax:1.50,yticks:[1.1,1.2,1.3,1.4,1.5],fmt:v=>v.toFixed(1)},C_MS,F_MS);
+pan('c4c',{ymin:3.55,ymax:4.55,yticks:[3.6,3.9,4.2,4.5],fmt:v=>v.toFixed(1)},C_DP,F_DP);
+pan('c4d',{ymin:7.0,ymax:16,yticks:[8,10,12,14,16],fmt:v=>v.toFixed(0)},C_PM,F_PM);
+pan('c4e',{ymin:4.2,ymax:16,yticks:[5,8,11,14],fmt:v=>v.toFixed(0)},C_RM,F_RM);
 
-// three full-size geometry panels; same split-series trick, floor dashed.
-const S4={W:380,H:293,L:48,R:18,T:12,B:28,xmin:0,xmax:89,xticks:[0,30,60,89],xlab:'epoch'};
-function pan4(id,cfg,c,f){
-  lineChart(document.getElementById(id),Object.assign({},S4,cfg,
-    {series:[armTail(f),{data:c,color:'--s1',width:2},...arm(f)]}));
+/* ---- slide 5: categorical multi-series step chart ---- */
+function catChart(el,cfg){
+  const W=cfg.W||250,H=cfg.H||276,L=cfg.L||44,R=cfg.R||12,T=10,B=30, iw=W-L-R, ih=H-T-B;
+  const {ymin,ymax,yticks,cats,series,log,floor}=cfg;
+  const f=log?Math.log10:(v=>v), y0=f(ymin), y1=f(ymax);
+  const X=i=>L+iw*(i/(cats.length-1));
+  const Y=v=>T+ih*(1-(f(Math.min(Math.max(v,ymin),ymax))-y0)/(y1-y0));
+  const fmt=cfg.fmt||(t=>t.toFixed(1));
+  let s=`<svg viewBox="0 0 ${W} ${H}" width="100%" height="100%" preserveAspectRatio="xMidYMid meet">`;
+  yticks.forEach(t=>{const y=Y(t);
+    s+=`<line x1="${L}" y1="${y}" x2="${L+iw}" y2="${y}" stroke="${CV('--grid')}"/>`;
+    s+=`<text x="${L-6}" y="${y+3}" text-anchor="end" class="axl">${fmt(t)}</text>`;});
+  cats.forEach((t,i)=>s+=`<text x="${X(i).toFixed(1)}" y="${H-13}" text-anchor="middle" class="axl">${t}</text>`);
+  if(floor!=null&&floor>=ymin&&floor<=ymax){const fy=Y(floor);
+    s+=`<line x1="${L}" y1="${fy.toFixed(1)}" x2="${L+iw}" y2="${fy.toFixed(1)}" stroke="${CV('--muted')}" stroke-width="1.4" stroke-dasharray="5 4"/>`;
+    s+=`<text x="${L+3}" y="${(fy-5).toFixed(1)}" class="hll" fill="${CV('--muted')}">floor ${floor}</text>`;}
+  series.forEach(se=>{const c=CV(se.color), op=se.op??(se.faint?.45:1);
+    const d=se.data.map((v,i)=>`${i?'L':'M'}${X(i).toFixed(1)} ${Y(v).toFixed(1)}`).join(' ');
+    s+=`<path d="${d}" fill="none" stroke="${c}" stroke-width="${se.width||2}" opacity="${op}" ${se.dash?`stroke-dasharray="${se.dash}"`:''}/>`;
+    se.data.forEach((v,i)=>s+=`<circle cx="${X(i).toFixed(1)}" cy="${Y(v).toFixed(1)}" r="2.6" fill="${c}" opacity="${op}"/>`);});
+  s+=`<text x="${(L+iw/2).toFixed(1)}" y="${H-1}" text-anchor="middle" class="axl">denoising steps</text></svg>`;
+  el.innerHTML=s;
 }
-pan4('c4a',{log:true,ymin:3.7,ymax:16.5,yticks:[4,6,9,14],fmt:v=>v.toFixed(0),floor:3.8492},C_PM,F_PM);
-pan4('c4b',{ymin:2.55,ymax:4.65,yticks:[2.6,3.0,3.4,3.8,4.2,4.6],fmt:v=>v.toFixed(1),floor:2.6311},C_DP,F_DP);
-pan4('c4c',{log:true,ymin:1.55,ymax:16.5,yticks:[2,3,5,9,15],fmt:v=>v.toFixed(0),floor:1.6268},C_RM,F_RM);
+const SS={cats:['1','5','10','15','20'],W:250,H:411};
+const SER=m=>[
+  {data:window['ctrl_ep71_'+m],color:'--s5',width:1.7,op:.7,dash:'5 3'},
+  {data:window['feat_ep75_'+m],color:'--s4',width:1.7,op:.85,dash:'5 3'},
+  {data:window['ctrl_ep50_'+m],color:'--s1',width:2.2},
+  {data:window['feat_ep50_'+m],color:'--s2',width:2.2}];
+catChart(document.getElementById('c5a'),Object.assign({},SS,{log:true,ymin:1.8,ymax:17,yticks:[2,4,8,16],fmt:v=>v.toFixed(0),floor:1.8933,series:SER('FVD')}));
+catChart(document.getElementById('c5b'),Object.assign({},SS,{ymin:.60,ymax:1.18,yticks:[.6,.8,1.0,1.15],fmt:v=>v.toFixed(2),series:SER('MSEToken')}));
+catChart(document.getElementById('c5c'),Object.assign({},SS,{ymin:3.8,ymax:8.6,yticks:[4,5,6,7,8],fmt:v=>v.toFixed(0),floor:3.8663,series:SER('LossPointmap')}));
+catChart(document.getElementById('c5d'),Object.assign({},SS,{ymin:2.6,ymax:3.80,yticks:[2.7,3.0,3.3,3.6],fmt:v=>v.toFixed(1),floor:2.6443,series:SER('LossDepth')}));
+catChart(document.getElementById('c5e'),Object.assign({},SS,{ymin:1.6,ymax:5.8,yticks:[2,3,4,5],fmt:v=>v.toFixed(0),floor:1.6268,series:SER('LossRaymap')}));
 
-// slide 6: LossFlow both arms, then LossFeat train vs eval for the arm.
-const S6={W:300,H:236,L:50,R:16,T:10,B:26,xmin:0,xmax:89,xticks:[0,30,60,89],xlab:'epoch'};
-lineChart(document.getElementById('c6a'),Object.assign({},S6,
+/* ---- slide 7 ---- */
+const S7={W:300,H:213,L:50,R:16,T:10,B:26,xmin:0,xmax:89,xticks:[0,30,60,89],xlab:'epoch'};
+lineChart(document.getElementById('c7a'),Object.assign({},S7,
   {ymin:.49,ymax:.62,yticks:[.50,.54,.58,.62],fmt:v=>v.toFixed(2),
    series:[armTail(F_FL),{data:C_FL,color:'--s1',width:2},...arm(F_FL)]}));
-lineChart(document.getElementById('c6b'),Object.assign({},S6,
+lineChart(document.getElementById('c7b'),Object.assign({},S7,
   {ymin:.020,ymax:.057,yticks:[.021,.030,.040,.050],fmt:v=>v.toFixed(3),floor:0.0211,
    series:[{data:F_FEAT,color:'--s2',width:2},{data:F_TFEAT,color:'--s4',width:1.8,dash:'4 3'}]}));
-
-barsH(document.getElementById('c4'),{W:470,H:300,L:104,lim:14,xticks:[-14,-7,0,7,14],rows:[
-  {l:'LossRaymap',   bars:[{v:-11.71,color:'--s3'}]},
-  {l:'LossPointmap', bars:[{v:-5.77,color:'--s3'}]},
-  {l:'LossDepth',    bars:[{v:0.33,color:'--muted'}]},
-  {l:'Train LossMean',bars:[{v:1.12,color:'--s8'}]},
-  {l:'MSEToken',     bars:[{v:1.54,color:'--s8'}]},
-  {l:'LossFlow',     bars:[{v:5.27,color:'--s8'}]}]});
-
-lineChart(document.getElementById('c5'),{W:430,H:262,L:52,R:22,T:12,B:28,
-  xmin:0,xmax:89,xticks:[0,26,50,89],xlab:'epoch',
-  ymin:.0425,ymax:.0570,yticks:[.043,.047,.051,.055],fmt:v=>v.toFixed(3),
-  series:[{data:F_FEAT,color:'--s2',width:2}]});
 </script>
 </body>
 </html>

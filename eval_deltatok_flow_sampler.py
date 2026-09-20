@@ -245,6 +245,7 @@ def main() -> None:
     trainer.vit.load_state_dict(state_dict, strict=True)
     print(f"[INFO] Loaded flow ViT from: {args.ckpt}\n"
           f"[INFO]   iter={ckpt.get('iter')} global_epoch={ckpt.get('global_epoch')}")
+    trainer.load_decoder_state(trainer.deltatok, ckpt)   # finetuned decoder if the run trained one; no-op otherwise
     if cfg.training.use_ema and ckpt.get("ema_state") is not None:
         trainer.ema.load_state_dict(ckpt["ema_state"], trainer._ema_model())
         print("[INFO]   loaded EMA weights")

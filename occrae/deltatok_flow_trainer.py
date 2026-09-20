@@ -35,6 +35,7 @@ _EVAL_KEYS = (
     "LossFlow",                                              # flow-matching loss (SAME objective as Train/Loss)
     "MSEToken",                                              # sampled-delta vs GT-delta MSE: true generation fidelity (LossFlow is teacher-forced)
     "LossFeat",                                              # frozen-decoder decode of x_pred vs GT layer-12 feats (forecast slots, teacher-forced)
+    "LossFeat_tok",                                          # decode of GT z vs GT layer-12 feats: the (finetuned) decoder's own recon
     "LossPointmap", "LossDepth", "LossRaymap",                # sampled-delta rollout vs GT (forecast frames)
     "LossPointmap_tok", "LossDepth_tok", "LossRaymap_tok",    # GT-delta rollout (tokenizer upper bound)
 )
@@ -104,6 +105,10 @@ class DeltaTokFlowMatchingTrainer(DeltaTokSharedMixin, Trainer):
         # layer-12 feats) on the forecast slots. 0 = off (the control).
         self.feat_loss_weight = float(self.cfg.model.get("feat_loss_weight", 0.0))
         print(f"feat_loss_weight={self.feat_loss_weight}")
+        # Trainable decoder: LossFeat also updates deltatok.decoder_blocks (encoder frozen, z fixed).
+        self.train_decoder = bool(self.cfg.model.get("feat_loss_train_decoder", False))
+        assert not self.train_decoder or self.feat_loss_weight > 0, "feat_loss_train_decoder needs feat_loss_weight > 0"
+        print(f"feat_loss_train_decoder={self.train_decoder} decoder_lr={self.cfg.training.get('decoder_lr', 0.0)}")
 
         # Conditioning / attention modes (default to legacy cross + factorized).
         # delta_ctx: first delta token (frame 0->1) is the clean in-seq context
@@ -141,9 +146,13 @@ class DeltaTokFlowMatchingTrainer(DeltaTokSharedMixin, Trainer):
         self.vit = self.get_network("vit")
         print(f"Number of parameters: {sum(p.numel() for p in self.vit.parameters())/1e6:.2f}M")
 
-        # Define optimizer
+        # Define optimizer. Decoder group gets its own lr (pretrained module); a ready dict
+        # keeps get_optim's resume load seeing the same group count the ckpt was saved with.
+        groups: list[dict] = [{"params": list(self.vit.parameters())}]
+        if self._decoder_params:
+            groups.append({"params": self._decoder_params, "lr": float(self.cfg.training.decoder_lr)})
         self.optim = self.get_optim(
-            self.vit, self.cfg.training.lr, betas=(0.9, 0.999),
+            groups, self.cfg.training.lr, betas=(0.9, 0.999),
             weight_decay=self.cfg.training.weight_decay, mode=self.cfg.training.optimizer
         )
 
@@ -171,7 +180,12 @@ class DeltaTokFlowMatchingTrainer(DeltaTokSharedMixin, Trainer):
     def _ckpt_extra(self):
         """Provenance for every flow ckpt: whitened weights are meaningless without
         the same stats. Kept in one place so all three save sites agree."""
-        return {"whiten_stats": getattr(self, "_whiten_stats_path", None)}
+        extra = {"whiten_stats": getattr(self, "_whiten_stats_path", None)}
+        if self.train_decoder:
+            # Finetuned decoder travels with the flow weights (the tokenizer ckpt no longer matches).
+            sd = self.deltatok.state_dict()
+            extra["deltatok_decoder_state"] = {k: v.detach() for k, v in sd.items() if k.startswith(("decoder_blocks.", "z_proj_up."))}
+        return extra
 
     @contextmanager
     def ema_scope(self):
@@ -209,12 +223,33 @@ class DeltaTokFlowMatchingTrainer(DeltaTokSharedMixin, Trainer):
 
         model = model.to(self.device).eval()
         model.requires_grad_(False)
+        self._decoder_params = []                                     # trainable tokenizer params; empty when frozen
+        if self.train_decoder:
+            mods = [model.decoder_blocks] + ([model.z_proj_up] if model.z_proj_up is not None else [])
+            for m in mods:
+                m.requires_grad_(True)
+            self._decoder_params = [p for m in mods for p in m.parameters()]
+            print(f"[INFO] trainable DeltaTok decoder: {sum(p.numel() for p in self._decoder_params) / 1e6:.1f}M params")
+            resume_ckpt = self.get_resume_checkpoint_path()
+            if resume_ckpt is not None:                               # resume: overlay the finetuned decoder
+                self.load_decoder_state(model, torch.load(resume_ckpt, map_location="cpu", weights_only=False, mmap=True))
         # Keep the frozen tokenizer in fp32 and let autocast handle bf16 at the call
         # sites (every self.deltatok call is wrapped in self.autocast) — exactly the
         # regime it trained under (DeltaTokTrainer uses fp32 params + autocast too).
         # A model.to(bfloat16) here would also downcast the rope inv_freq buffer,
         # degrading the fp32 `position * inv_freq` angle math (bf16 has 7 mantissa bits).
         return model
+
+    def load_decoder_state(self, model, ckpt):
+        """Overlay a finetuned decoder saved by _ckpt_extra; no-op for frozen-decoder ckpts."""
+        state = ckpt.get("deltatok_decoder_state")
+        if state is None:
+            return False
+        keys = set(model.state_dict())
+        assert set(state) <= keys, sorted(set(state) - keys)[:5]
+        model.load_state_dict(state, strict=False)                    # encoder keys stay as loaded from deltatok_ckpt
+        print(f"[INFO] loaded finetuned DeltaTok decoder ({len(state)} tensors)")
+        return True
 
     def get_network(self, archi):
         """ return the network, load checkpoint if resuming or using pretrained weights """
@@ -609,6 +644,7 @@ class DeltaTokFlowMatchingTrainer(DeltaTokSharedMixin, Trainer):
         cum_loss = torch.zeros((), device=self.device)            # () running sum of un-scaled losses
         window_loss = deque(maxlen=self.grad_cum * print_freq)    # detached () GPU scalars
         window_grad = deque(maxlen=print_freq)                    # () pre-clip grad norms, on GPU
+        window_grad_dec = deque(maxlen=print_freq)                # () pre-clip decoder grad norms; empty when frozen
         window_feat = deque(maxlen=self.grad_cum * print_freq)    # detached () LossFeat; empty when off
         header = f"Training (Epoch {self.cfg.training.global_epoch})"
         update_time = SmoothedValue(fmt='{avg:.4f}')  # seconds per optimizer update
@@ -667,6 +703,13 @@ class DeltaTokFlowMatchingTrainer(DeltaTokSharedMixin, Trainer):
                 # gradient-explosion signal; keep it on GPU for the log window.
                 grad_norm = nn.utils.clip_grad_norm_(self.vit.parameters(), self.cfg.training.grad_clip)
                 window_grad.append(grad_norm.detach())
+                if self._decoder_params:
+                    if self.distributed:                              # not DDP-wrapped: average grads by hand
+                        for p in self._decoder_params:
+                            if p.grad is not None:
+                                dist.all_reduce(p.grad, op=dist.ReduceOp.AVG)
+                    grad_norm_dec = nn.utils.clip_grad_norm_(self._decoder_params, self.cfg.training.grad_clip)
+                    window_grad_dec.append(grad_norm_dec.detach())
                 self.optim.step()
                 self.optim.zero_grad(set_to_none=True)
                 if self.cfg.training.use_ema:
@@ -694,9 +737,10 @@ class DeltaTokFlowMatchingTrainer(DeltaTokSharedMixin, Trainer):
                     feat_mean = torch.zeros_like(loss_mean)           # () stays 0 when the feature loss is off
                     if window_feat:
                         feat_mean = torch.stack(tuple(window_feat)).float().mean()  # () LossFeat since last print
-                    # (2,) [window-max loss, window-max pre-clip grad norm]:
+                    grad_dec_max = torch.stack(tuple(window_grad_dec)).float().max() if window_grad_dec else torch.zeros_like(loss_mean)
+                    # (3,) [window-max loss, window-max pre-clip grad norm, same for the decoder (0 when frozen)]:
                     # spike detectors, so reduced with MAX (worst rank wins).
-                    peaks = torch.stack((window.max(), torch.stack(tuple(window_grad)).float().max()))
+                    peaks = torch.stack((window.max(), torch.stack(tuple(window_grad)).float().max(), grad_dec_max))
                     if self.distributed:
                         # On-GPU NCCL reduces; the old all_gather_object pickled
                         # tensors through the CPU every optimizer update.
@@ -709,7 +753,7 @@ class DeltaTokFlowMatchingTrainer(DeltaTokSharedMixin, Trainer):
                     if self.is_master:
                         loss_val = loss_mean.item()        # the GPU->CPU syncs: once per print_freq updates
                         feat_val = feat_mean.item()
-                        loss_max, grad_max = peaks.tolist()
+                        loss_max, grad_max, grad_dec_max = peaks.tolist()
                         speed_samples_per_sec = self.cfg.training.bsize / max(update_time.avg, 1e-6)
 
                         self.log_add_scalar('Train/LearningRate', self.optim.param_groups[0]['lr'], self.cfg.training.iter)
@@ -718,6 +762,9 @@ class DeltaTokFlowMatchingTrainer(DeltaTokSharedMixin, Trainer):
                             self.log_add_scalar('Train/LossFeat', feat_val, self.cfg.training.iter)
                         self.log_add_scalar('Train/LossMax', loss_max, self.cfg.training.iter)
                         self.log_add_scalar('Train/GradNorm', grad_max, self.cfg.training.iter)
+                        if window_grad_dec:
+                            self.log_add_scalar('Train/GradNormDec', grad_dec_max, self.cfg.training.iter)
+                            self.log_add_scalar('Train/LearningRateDec', self.optim.param_groups[-1]['lr'], self.cfg.training.iter)
                         self.log_add_scalar('Train/SpeedSamplesPerSec', speed_samples_per_sec, self.cfg.training.iter)
 
                         eta_seconds = update_time.avg * (updates_per_epoch - updates_done)
@@ -727,7 +774,7 @@ class DeltaTokFlowMatchingTrainer(DeltaTokSharedMixin, Trainer):
                             f"{header}  [{updates_done}/{updates_per_epoch}]  eta: {eta}  "
                             f"loss: {loss_val:.4f} (max {loss_max:.4f})  "
                             f"feat: {feat_val:.4f}  "
-                            f"grad: {grad_max:.2f}  "
+                            f"grad: {grad_max:.2f}  " + (f"gradDec: {grad_dec_max:.2f}  " if window_grad_dec else "") +
                             f"lr: {self.optim.param_groups[0]['lr']:.6f}  "
                             f"time: {update_time.avg:.4f}  "
                             f"max gpu mem: {gpu_mem_mb:.0f} ({total_gpu_mem_mb():.0f})  "
@@ -958,8 +1005,10 @@ class DeltaTokFlowMatchingTrainer(DeltaTokSharedMixin, Trainer):
                             )
                             # Same decode as train at the replayed eval t; logged at weight 0 too.
                             loss_feat = self.feat_loss(x_pred, tokens, H, W, num_cameras)
+                            loss_feat_tok = self.feat_loss(x_spatial, tokens, H, W, num_cameras)  # decode(GT z): the decoder's own recon
                         batch_losses["LossFlow"] = loss_flow.item()
                         batch_losses["LossFeat"] = loss_feat.item()
+                        batch_losses["LossFeat_tok"] = loss_feat_tok.item()
 
                         # Sampled-token fidelity: MSE between the flow-SAMPLED deltas (z_hat,
                         # ODE-integrated from noise) and the GT deltas (z), on predicted

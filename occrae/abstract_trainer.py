@@ -237,7 +237,7 @@ class Trainer(object):
         if isinstance(net, list):
             params = []
             for n in net:
-                params += list(n.parameters())
+                params += [n] if isinstance(n, dict) else list(n.parameters())   # dict = a ready param group
         else:
             params = list(net.parameters())
 

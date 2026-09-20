@@ -60,6 +60,7 @@ model:
   pred_mode: "x"
   loss_mode: "v"
   feat_loss_weight: 0.0  # decoder-in-the-loop: + w * log-cosh(frozen-tokenizer decode of x_pred, teacher-forced | GT layer-12 feats), forecast slots; 0 = off
+  feat_loss_train_decoder: false  # LossFeat also trains deltatok.decoder_blocks (encoder frozen); needs feat_loss_weight > 0
   sampler_step_mode: "ode"  # eval sampler update: ode = v-conversion Euler | damped = VGGT-World blend-to-x_hat (no 1/(1-t) error amplification)
   sampler_scheduler_mode: "cosine"  # eval sampler t grid: cosine | square | linear (linear = uniform in t)
   sampler_alpha: 0.5  # per-frame t stagger; 0 = every slot shares one t per step (pairs with t_shared)
@@ -104,6 +105,7 @@ model:
 
 training:
   lr: 1e-4
+  decoder_lr: 1e-5       # lr of the trainable DeltaTok decoder group (feat_loss_train_decoder); warmup/schedule as lr
   lr_schedule: "cosine"  # cosine | constant (post-warmup; warm_up linear ramp always applies)
   weight_decay: 0.05
   optimizer: "adamw"
