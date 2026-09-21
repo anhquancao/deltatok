@@ -13,7 +13,7 @@
 #SBATCH --output=slurm/output/train_deltatok_flow_waymo_xxl_tc1536mg9_sigreg002seed1_featloss_bsc_%j.out
 #SBATCH --error=slurm/output/train_deltatok_flow_waymo_xxl_tc1536mg9_sigreg002seed1_featloss_bsc_%j.err
 
-# Featloss arm BSC:46012704 on the seeded decnoise-0 tokenizer (BSC:45949269), epoch_30.
+# Featloss arm BSC:46012704 on the seeded decnoise-0 tokenizer (BSC:45949269), epoch_70.
 #   ssh bsc "bash -lc 'cd /gpfs/projects/ehpc1001/code/deltatok && sbatch slurm/deltatok_flow/train_deltatok_flow_waymo_xxl_tc1536mg9_sigreg002seed1_featloss_bsc.slurm'"
 
 mkdir -p slurm/output
@@ -33,11 +33,11 @@ ulimit -n "$(ulimit -Hn)"
 
 export CONFIG_NAME=train_deltatok_flow_waymo_ep128k_bsc   # 128000/epoch -> 2000 updates/ep
 export RESULTS_DIR="$SCRATCH/quan/deltatok_flow_log"
-export RUN_NAME="${RUN_NAME:-deltatok_flow_waymo_consec5cam0_ctx3fwd2_tc1536mg9sigreg002pool24576compose_seed1_ep30tok_featloss1_xxl_dit}"
+export RUN_NAME="${RUN_NAME:-deltatok_flow_waymo_consec5cam0_ctx3fwd2_tc1536mg9sigreg002pool24576compose_seed1_ep70tok_featloss1_xxl_dit}"
 EXTRA_CFG_ARGS=(
     model.deltatok.num_delta_tokens=64         # K=64 delta tokens/camera; must match the frozen ckpt
     # decode_noise_tau is train-only, not a DeltaTokModule kwarg -> arch is a plain tc1536.
-    model.deltatok_ckpt="$SCRATCH/deltatok_log/deltatok_l12_dtok64_tc1536_nozn_maxgap9_vpt1to2_sigreg0.02_ns3072_pool24576_compose1.0_decnoise0_sw0_seed1_rclip0/ckpts/epoch_30.pth"
+    model.deltatok_ckpt="$SCRATCH/deltatok_log/deltatok_l12_dtok64_tc1536_nozn_maxgap9_vpt1to2_sigreg0.02_ns3072_pool24576_compose1.0_decnoise0_sw0_seed1_rclip0/ckpts/epoch_70.pth"
     # Tokenizer arch must match the ckpt — parameterless flags silently yield wrong z.
     model.deltatok.target_channels=1536        # == hidden_size -> no proj built
     model.deltatok.z_norm=false                # no final z LayerNorm
