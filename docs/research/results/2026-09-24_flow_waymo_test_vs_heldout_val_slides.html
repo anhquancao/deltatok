@@ -1,0 +1,446 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Waymo test vs held-out val: same step ranking, token losses within 5%, but test Pointmap +27–38% and Raymap +38–69%</title>
+<style>
+/* ---------- tokens · light only, white slides (no dark variant by request) ---------- */
+:root{
+  color-scheme: light only;
+  --backdrop:#e9e9e6; --page:#f7f7f6; --surface:#ffffff;
+  --ink:#0b0b0b; --ink2:#52514e; --muted:#83817c;
+  --grid:#e4e4de; --axis:#c3c2b7; --border:rgba(11,11,11,.12);
+  --s1:#2a78d6; --s2:#eb6834; --s3:#1baf7a; --s4:#eda100;
+  --s5:#e87ba4; --s6:#008300; --s7:#4a3aa7; --s8:#e34948;
+  --good:#0ca30c; --crit:#d03b3b; --serious:#ec835a;
+  --accent:var(--s1);
+  --serif:"Iowan Old Style","Palatino Linotype",Palatino,Georgia,serif;
+  --sans:system-ui,-apple-system,"Segoe UI",sans-serif;
+  --mono:ui-monospace,"Cascadia Code",Menlo,Consolas,monospace;
+}
+/* ---------- deck chrome ---------- */
+*{box-sizing:border-box;margin:0}
+html,body{height:100%}
+body{background:var(--backdrop);color:var(--ink);font:15px/1.45 var(--sans);overflow:hidden}
+.stage{position:absolute;left:50%;top:50%;width:1280px;height:720px;transform-origin:center center}
+.slide{position:absolute;inset:0;background:var(--surface);border:1px solid var(--border);
+  padding:52px 64px 44px;display:none;flex-direction:column}
+.slide.on{display:flex}
+.eyebrow{font:600 12px/1 var(--mono);letter-spacing:.14em;text-transform:uppercase;color:var(--accent);margin-bottom:14px}
+.eyebrow .dim{color:var(--muted)}
+h1{font:400 42px/1.15 var(--serif);letter-spacing:-.01em;text-wrap:balance}
+h2{font:400 32px/1.2 var(--serif);letter-spacing:-.005em;text-wrap:balance;margin-bottom:6px}
+.sub{color:var(--ink2);font-size:15.5px;max-width:74ch;margin-top:10px}
+.body{flex:1;min-height:0;margin-top:22px}
+.foot{display:flex;justify-content:space-between;align-items:baseline;color:var(--muted);
+  font:11px/1 var(--mono);letter-spacing:.06em;margin-top:16px;border-top:1px solid var(--grid);padding-top:12px}
+.pageno{font-variant-numeric:tabular-nums}
+/* nav */
+.nav{position:fixed;left:50%;bottom:14px;transform:translateX(-50%);display:flex;gap:8px;align-items:center;z-index:5}
+.nav button{width:9px;height:9px;border-radius:50%;border:1px solid var(--muted);background:transparent;cursor:pointer;padding:0}
+.nav button.cur{background:var(--accent);border-color:var(--accent)}
+.nav button:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+.arr{position:fixed;top:50%;transform:translateY(-50%);z-index:5;border:1px solid var(--border);
+  background:var(--surface);color:var(--ink2);width:34px;height:56px;cursor:pointer;font-size:18px;border-radius:4px}
+.arr:hover{color:var(--ink)}
+#prev{left:10px}#next{right:10px}
+/* ---------- shared bits ---------- */
+.mono{font-family:var(--mono)}
+.num{font-variant-numeric:tabular-nums}
+.sw{display:inline-block;width:10px;height:10px;border-radius:2px;vertical-align:-1px}
+.cols{display:grid;gap:30px;min-height:0}
+.c2{grid-template-columns:1fr 1fr}
+.c4{grid-template-columns:1fr 1fr 1fr 1fr}
+.c5{grid-template-columns:repeat(5,1fr)}
+.c58{grid-template-columns:1.25fr 1fr}
+.card{border:1px solid var(--grid);border-radius:6px;padding:15px 17px;background:var(--page)}
+.card h3{font:600 14px/1.3 var(--sans);margin:6px 0}
+.card .tag{font:600 10px/1 var(--mono);letter-spacing:.1em;text-transform:uppercase;color:var(--muted)}
+ul.tight{padding-left:18px;display:flex;flex-direction:column;gap:8px;font-size:14px;color:var(--ink2)}
+ul.tight li{padding-left:2px}
+ul.tight strong{color:var(--ink);font-weight:600}
+table{border-collapse:collapse;width:100%;font-size:12.5px}
+th{font:600 10.5px/1.3 var(--mono);letter-spacing:.08em;text-transform:uppercase;color:var(--muted);
+  text-align:left;padding:6px 10px;border-bottom:1px solid var(--axis)}
+td{padding:6px 10px;border-bottom:1px solid var(--grid);color:var(--ink2);vertical-align:top}
+td.n,th.n{text-align:right;font-variant-numeric:tabular-nums}
+td b{color:var(--ink);font-weight:600}
+tr.hl td{background:color-mix(in srgb,var(--s1) 9%,transparent)}
+tr.sep td{border-top:2px solid var(--axis)}
+td.bad{color:var(--crit);font-weight:600}
+td.ok{color:var(--good);font-weight:600}
+/* stat tiles */
+.tiles{display:grid;gap:13px}
+.tile{border:1px solid var(--grid);border-radius:6px;padding:13px 15px;background:var(--page)}
+.tile .v{font:600 26px/1.1 var(--sans);letter-spacing:-.01em;font-variant-numeric:tabular-nums}
+.tile .k{font:600 10px/1.4 var(--mono);letter-spacing:.1em;text-transform:uppercase;color:var(--muted);margin-bottom:6px}
+.tile .d{font-size:12.5px;color:var(--ink2);margin-top:6px}
+.rulebar{border:1px dashed var(--axis);border-radius:6px;padding:11px 15px;font-size:13.5px;color:var(--ink2);margin-top:12px}
+.rulebar b{color:var(--ink)}
+/* charts */
+.chartwrap{position:relative}
+.panelttl{font:600 10px/1 var(--mono);letter-spacing:.1em;text-transform:uppercase;color:var(--muted);margin-bottom:4px}
+.legend{display:flex;flex-wrap:wrap;gap:6px 20px;font:12.5px/1 var(--sans);color:var(--ink2);margin-bottom:8px}
+.legend span{display:inline-flex;gap:7px;align-items:center}
+svg{display:block}
+svg text{font:10.5px var(--sans);fill:var(--muted)}
+svg .barval{font:10px var(--mono);fill:var(--ink2)}
+svg .axl{font:10px var(--mono);fill:var(--muted)}
+.slide kbd{font:11px var(--mono);border:1px solid var(--axis);border-radius:3px;padding:1px 5px;color:var(--ink2)}
+@media (prefers-reduced-motion: no-preference){
+  .slide.on{animation:fadein .18s ease}
+  @keyframes fadein{from{opacity:.4}to{opacity:1}}
+}
+@media print{
+  body{overflow:visible;background:#fff}
+  .stage{position:static;transform:none!important;width:auto;height:auto}
+  .slide{display:flex;position:static;width:1280px;height:720px;page-break-after:always;margin:0 auto}
+  .nav,.arr{display:none}
+}
+</style>
+</head>
+<body>
+<div class="stage" id="stage">
+
+<!-- ============ SLIDE 1 — answer ============ -->
+<section class="slide on">
+  <div class="eyebrow">DeltaTok-flow <span class="dim">— Waymo test set vs the held-out val set · seeded SIGReg-0.02 ep70-tok flow · iter 100k</span></div>
+  <h1>The held-out val set picks the same sampler steps as the Waymo test set, but understates Pointmap by 27–38% and Raymap by 38–69%</h1>
+  <p class="sub">One checkpoint, one eval script, one GPU, one seed. Only the eval set changes.
+    Token-space losses and Depth agree within 5.1%. The camera-geometry losses do not.</p>
+  <div class="body">
+    <div class="cols c4" style="gap:14px">
+      <div class="tile"><div class="k">Raymap · test vs val</div><div class="v" style="color:var(--crit)">+69% → +42%</div><div class="d">1 step → 20 steps. 5.15 vs 3.05 at 1 step, 9.67 vs 6.81 at 20.</div></div>
+      <div class="tile"><div class="k">Pointmap · test vs val</div><div class="v" style="color:var(--crit)">+38% → +31%</div><div class="d">7.87 vs 5.71 at 1 step, 11.84 vs 9.02 at 20. Lowest gap +27% at 10 steps.</div></div>
+      <div class="tile"><div class="k">MSEToken · Depth · LossFlow</div><div class="v" style="color:var(--good)">−5% to −1%</div><div class="d">MSEToken −4.0 to −5.1%, Depth −0.7 to −4.0%, LossFlow −3.1%. Test is slightly lower.</div></div>
+      <div class="tile"><div class="k">FD over its floor</div><div class="v">37.3 vs 36.2</div><div class="d">At 1 step; 7.9 vs 8.0 at 20. Raw FD is 15–20% lower on test, but n = 1000 vs 256.</div></div>
+    </div>
+    <div class="rulebar" style="margin-top:16px"><b>Val is a fair proxy for choosing the sampler, not for quoting geometry.</b>
+      Both sets put the best MSEToken, Pointmap and Raymap at 1 step and the best FD at 10 steps.
+      Depth's best is 10 steps on val and 20 on test, within 1.1% of each other on both.
+      The tokenizer floor explains only 10–14% of the Pointmap and Raymap gap; the rest is the flow sample.</div>
+    <p class="sub" style="margin-top:14px;font-size:13.5px"><kbd>←</kbd> <kbd>→</kbd> to navigate ·
+      val eval BSC <span class="mono">46484806</span> · test eval BSC <span class="mono">46499906</span> ·
+      flow run BSC <span class="mono">46250781</span>, <span class="mono">iter_100000.pth</span> ·
+      <span class="mono">eval_deltatok_flow_sampler.py --fvd</span>, <span class="mono">step_modes=ode</span>.</p>
+  </div>
+  <div class="foot"><span>DeltaTok-flow · Waymo test vs held-out val · 24-09-2026</span><span>same ranking, different geometry level</span><span class="pageno">1</span></div>
+</section>
+
+<!-- ============ SLIDE 2 — what differs ============ -->
+<section class="slide">
+  <div class="eyebrow">The measurement <span class="dim">— same model and sampler, two eval sets</span></div>
+  <h2>Only the eval set changes between the two runs</h2>
+  <p class="sub">Five <span class="mono">eval_one_epoch</span> passes per set (1, 5, 10, 15, 20 ODE steps), 1 GPU, seed 0.
+    Each item is 5 consecutive 0.5 s frames of cam 0: frames 0–2 given, 3–4 forecast.</p>
+  <div class="body cols c58" style="margin-top:14px">
+    <div>
+      <table>
+        <thead><tr><th></th><th>held-out val</th><th>Waymo test</th></tr></thead>
+        <tbody>
+          <tr class="hl"><td><b>Source</b></td><td>32 scenes of the v1.4.2 <b>training</b> split, held out of flow training</td><td>all 202 segments of the v1.4.2 <b>validation</b> split</td></tr>
+          <tr><td><b>Seen by the tokenizer</b></td><td class="bad">30 of 32 scenes</td><td class="ok">none</td></tr>
+          <tr><td><b>Seen by the flow</b></td><td class="ok">none</td><td class="ok">none</td></tr>
+          <tr><td><b>Windows</b></td><td>128 = every non-overlapping window, 4 per scene</td><td>500 of 30,897 sliding windows (<span class="mono">fs1</span>), seed-777 draw</td></tr>
+          <tr><td><b>pkl</b></td><td class="mono">…sub5_stride9_all.pkl</td><td class="mono">…sub5_stride9_fs1_waymo_test_all.pkl</td></tr>
+          <tr><td><b>FD vectors</b></td><td class="num">256</td><td class="num">1000</td></tr>
+          <tr><td><b>Eval job</b></td><td class="mono">BSC 46484806</td><td class="mono">BSC 46499906</td></tr>
+        </tbody>
+      </table>
+      <div class="rulebar">The tokenizer trained with Waymo <span class="mono">split='train'</span>, which drops only
+        the 2 scenes built into <span class="mono">waymo.py</span>. The flow configs drop all 32.</div>
+    </div>
+    <div>
+      <table>
+        <thead><tr><th>shared by both runs</th><th>value</th></tr></thead>
+        <tbody>
+          <tr><td><b>Flow run</b></td><td class="mono">…tc1536mg9sigreg002compose_seed1_ep70tok_xxl_dit</td></tr>
+          <tr><td><b>Checkpoint</b></td><td class="mono">iter_100000.pth · global_epoch 49</td></tr>
+          <tr><td><b>Tokenizer</b></td><td class="mono">tc1536 · pool 24576 · SIGReg 0.02 · seed 1 · epoch_70</td></tr>
+          <tr><td><b>Flow ViT</b></td><td class="mono">xxlarge_d20 · dit_adaln · delta_ctx_cross</td></tr>
+          <tr><td><b>Sampler</b></td><td class="mono">ode · linear · alpha 0</td></tr>
+          <tr><td><b>Eval script</b></td><td class="mono">eval_deltatok_flow_sampler.py --fvd</td></tr>
+          <tr><td><b>Frames</b></td><td class="mono">cam 0 · 518×266 · item seed 42</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+  <div class="foot"><span>slurm/eval_deltatok_flow_numsteps_fd_sigreg002seed1{,_waymotest}_bsc.slurm</span><span>one variable: the eval set</span><span class="pageno">2</span></div>
+</section>
+
+<!-- ============ SLIDE 3 — the sweep, both sets ============ -->
+<section class="slide">
+  <div class="eyebrow">The sweep <span class="dim">— both sets per metric, lower is better</span></div>
+  <h2>Same curve shapes; Pointmap and Raymap sit higher on test at every step</h2>
+  <div class="legend" style="margin-top:10px">
+    <span><span class="sw" style="background:var(--s1)"></span> held-out val · 128 windows</span>
+    <span><span class="sw" style="background:var(--s2)"></span> Waymo test · 500 windows</span>
+    <span><svg width="22" height="10" style="display:inline-block"><line x1="0" y1="5" x2="22" y2="5" stroke="#83817c" stroke-width="1.4" stroke-dasharray="5 4"/></svg> floor = GT-delta rollout (<span class="mono">_tok</span>), same colour as its set</span>
+    <span style="color:var(--muted)">ringed = lowest per set · x-axis is categorical</span>
+  </div>
+  <div class="body" style="margin-top:4px">
+    <div class="cols c5" style="gap:14px">
+      <div><div class="panelttl">FVD</div><div class="chartwrap"><div id="chFd"></div></div></div>
+      <div><div class="panelttl">MSEToken</div><div class="chartwrap"><div id="chTok"></div></div></div>
+      <div><div class="panelttl">LossPointmap</div><div class="chartwrap"><div id="chPm"></div></div></div>
+      <div><div class="panelttl">LossDepth</div><div class="chartwrap"><div id="chDp"></div></div></div>
+      <div><div class="panelttl">LossRaymap</div><div class="chartwrap"><div id="chRm"></div></div></div>
+    </div>
+    <div class="cols c5" style="gap:14px;margin-top:12px">
+      <div class="card" style="border-left:3px solid var(--grid);padding:11px 14px"><div class="tag">1 → 20 steps</div><h3 style="margin:5px 0">−77.9% / −78.8%</h3><p style="font-size:12.5px;color:var(--ink2)">val 23.54 → 5.21, test 20.01 → 4.23. Both best at 10.</p></div>
+      <div class="card" style="border-left:3px solid var(--grid);padding:11px 14px"><div class="tag">1 → 20 steps</div><h3 style="margin:5px 0">+63.3% / +61.5%</h3><p style="font-size:12.5px;color:var(--ink2)">val 0.529 → 0.863, test 0.507 → 0.819.</p></div>
+      <div class="card" style="border-left:3px solid var(--crit);padding:11px 14px"><div class="tag">1 → 20 steps</div><h3 style="margin:5px 0">+57.9% / +50.6%</h3><p style="font-size:12.5px;color:var(--ink2)">val 5.71 → 9.02, test 7.87 → 11.84.</p></div>
+      <div class="card" style="border-left:3px solid var(--grid);padding:11px 14px"><div class="tag">1 → 20 steps</div><h3 style="margin:5px 0">−9.1% / −11.2%</h3><p style="font-size:12.5px;color:var(--ink2)">val 4.17 → 3.79, test 4.10 → 3.64. Floors 2.71 / 2.72.</p></div>
+      <div class="card" style="border-left:3px solid var(--crit);padding:11px 14px"><div class="tag">1 → 20 steps</div><h3 style="margin:5px 0">+123.5% / +87.7%</h3><p style="font-size:12.5px;color:var(--ink2)">val 3.05 → 6.81, test 5.15 → 9.67. Test starts higher.</p></div>
+    </div>
+    <div class="rulebar">Card values are <b>val / test</b>. Floors: Pointmap 3.95 / 4.24 (+7.3%), Raymap 1.66 / 1.95 (+17.9%),
+      Depth 2.708 / 2.720 (+0.4%), FVD_tok 0.650 / 0.536. <span class="mono">LossFlow</span> is teacher-forced and
+      constant over the passes: 0.4536 / 0.4397.</div>
+  </div>
+  <div class="foot"><span>[Eval/128 @ WaymoSeqMultiView] BSC 46484806 · [Eval/500 @ WaymoSeqMultiView] BSC 46499906</span><span>same shapes, shifted levels</span><span class="pageno">3</span></div>
+</section>
+
+<!-- ============ SLIDE 4 — test vs val, % ============ -->
+<section class="slide">
+  <div class="eyebrow">Test vs val <span class="dim">— (test / val − 1) per step, one line per metric</span></div>
+  <h2>Camera geometry is 27–69% worse on test; everything else is within 5.1%</h2>
+  <div class="legend" style="margin-top:10px">
+    <span><span class="sw" style="background:var(--s8)"></span> LossRaymap</span>
+    <span><span class="sw" style="background:var(--s2)"></span> LossPointmap</span>
+    <span><span class="sw" style="background:var(--s1)"></span> FVD / FVD_tok</span>
+    <span><span class="sw" style="background:var(--s3)"></span> LossDepth</span>
+    <span><span class="sw" style="background:var(--s7)"></span> MSEToken</span>
+  </div>
+  <div class="body cols c58" style="margin-top:4px;gap:30px">
+    <div><div class="chartwrap"><div id="chRel"></div></div></div>
+    <div>
+      <div class="card" style="border-left:3px solid var(--crit)">
+        <div class="tag">Largest at 1 step</div>
+        <h3>Raymap +69.0%, Pointmap +37.7%</h3>
+        <p style="font-size:13px;color:var(--ink2)">From 5 steps on, both settle at +27–42%. At 1 step the sample is
+          close to the conditional mean, and that mean is further from GT on test.</p>
+      </div>
+      <div class="card" style="border-left:3px solid var(--good);margin-top:14px">
+        <div class="tag">Within 5.1%</div>
+        <h3>MSEToken, Depth, FD over its floor</h3>
+        <p style="font-size:13px;color:var(--ink2)">Raw FD is 15–20% lower on test, but <span class="mono">FVD_tok</span> falls
+          17.5%, in the same range. FD shrinks with more vectors (1000 vs 256), so only the ratio to the floor is compared here.</p>
+      </div>
+    </div>
+  </div>
+  <div class="foot"><span>DeltaTok-flow · Waymo test vs held-out val · 24-09-2026</span><span>geometry gap, not a token gap</span><span class="pageno">4</span></div>
+</section>
+
+<!-- ============ SLIDE 5 — gap above the floor ============ -->
+<section class="slide">
+  <div class="eyebrow">Where the gap comes from <span class="dim">— loss minus its own <span class="mono">_tok</span> floor</span></div>
+  <h2>The tokenizer floor explains 10–14% of the gap; the flow sample explains the rest</h2>
+  <div class="legend" style="margin-top:10px">
+    <span><span class="sw" style="background:var(--s1)"></span> held-out val</span>
+    <span><span class="sw" style="background:var(--s2)"></span> Waymo test</span>
+  </div>
+  <div class="body cols c58" style="margin-top:4px;gap:30px">
+    <div class="cols c2" style="gap:18px">
+      <div><div class="panelttl">LossPointmap − floor</div><div class="chartwrap"><div id="chPmGap"></div></div></div>
+      <div><div class="panelttl">LossRaymap − floor</div><div class="chartwrap"><div id="chRmGap"></div></div></div>
+    </div>
+    <div>
+      <table>
+        <thead><tr><th>metric · steps</th><th class="n">test − val</th><th class="n">floor part</th><th class="n">share</th><th class="n">gap ratio</th></tr></thead>
+        <tbody>
+          <tr><td><b>Pointmap</b> · 1</td><td class="n">2.153</td><td class="n">0.290</td><td class="n">13.5%</td><td class="n">2.06×</td></tr>
+          <tr><td><b>Pointmap</b> · 20</td><td class="n">2.819</td><td class="n">0.290</td><td class="n">10.3%</td><td class="n">1.50×</td></tr>
+          <tr class="sep"><td><b>Raymap</b> · 1</td><td class="n">2.103</td><td class="n">0.296</td><td class="n">14.1%</td><td class="n">2.30×</td></tr>
+          <tr><td><b>Raymap</b> · 20</td><td class="n">2.854</td><td class="n">0.296</td><td class="n">10.4%</td><td class="n">1.50×</td></tr>
+        </tbody>
+      </table>
+      <div class="rulebar"><b>Gap ratio</b> = test gap above floor / val gap above floor. It is 1.43–1.52× from
+        5 steps on, and 2.1–2.3× at 1 step.</div>
+      <div class="card" style="border-left:3px solid var(--s7);margin-top:12px">
+        <div class="tag">Reading, not tested</div>
+        <h3>The tokenizer saw 30 of the 32 val scenes</h3>
+        <p style="font-size:13px;color:var(--ink2)">That fits the lower val floors (Raymap_tok −15%). It could also
+          make the val deltas easier for the flow. A val set cut from scenes the tokenizer never saw would separate the two.</p>
+      </div>
+    </div>
+  </div>
+  <div class="foot"><span>floors: Pointmap_tok 3.953 / 4.242 · Raymap_tok 1.658 / 1.954</span><span>mostly a flow-sample gap</span><span class="pageno">5</span></div>
+</section>
+
+<!-- ============ SLIDE 6 — caveats ============ -->
+<section class="slide">
+  <div class="eyebrow">Caveats <span class="dim">— what this comparison does not establish</span></div>
+  <h2>Two sets, one checkpoint, one noise draw per pass</h2>
+  <div class="body cols c2" style="gap:26px;margin-top:14px;align-items:start">
+    <div class="card" style="border-left:3px solid var(--serious)">
+      <div class="tag">Not controlled</div>
+      <ul class="tight" style="margin-top:10px;font-size:13px">
+        <li><strong>FD sample size.</strong> 256 vs 1000 vectors in 1536 dims. The floor ratio is a workaround, not a validated correction. A test pass with <span class="mono">eval_num_items=128</span> would match n.</li>
+        <li><strong>Tokenizer exposure.</strong> 30 of the 32 val scenes were in the tokenizer's training data; no test scene was.</li>
+        <li><strong>Windowing.</strong> Val uses the 4 non-overlapping windows per scene; test draws 500 sliding windows over 202 scenes.</li>
+        <li><strong>Scene count.</strong> 32 vs 202 scenes. Per-item losses are not saved, so there are no confidence intervals.</li>
+      </ul>
+    </div>
+    <div class="card" style="border-left:3px solid var(--grid)">
+      <div class="tag">Scope</div>
+      <ul class="tight" style="margin-top:10px;font-size:13px">
+        <li><strong>One checkpoint.</strong> The 5-frame arm <span class="mono">BSC 46250781</span> at iter 100k. Whether val and test rank <em>arms</em> the same way is not tested.</li>
+        <li><strong>ODE sampler, steps ≤ 20, cam 0.</strong> No decode visuals.</li>
+        <li><strong>Token-space losses cannot rank this.</strong> <span class="mono">MSEToken</span> and <span class="mono">LossFlow</span> are slightly lower on test, the opposite of the geometry.</li>
+        <li><strong>Next arm uses the test set.</strong> The all-dataset ctx2fwd8 run evaluates on this Waymo test set, KITTI and nuScenes, 256 windows each.</li>
+      </ul>
+    </div>
+  </div>
+  <div class="foot"><span>data: /gpfs/scratch/ehpc1001/quan/data/waymo_test_processed</span><span>use the test set for geometry</span><span class="pageno">6</span></div>
+</section>
+
+</div><!-- /stage -->
+
+<button class="arr" id="prev" aria-label="Previous">‹</button>
+<button class="arr" id="next" aria-label="Next">›</button>
+<div class="nav" id="nav" role="tablist"></div>
+
+<script>
+/* ---------- deck nav ---------- */
+const stage=document.getElementById("stage");
+const slides=[...document.querySelectorAll(".slide")];
+const nav=document.getElementById("nav");
+let cur=0;
+slides.forEach((_,i)=>{
+  const b=document.createElement("button");
+  b.setAttribute("role","tab");b.setAttribute("aria-label","Slide "+(i+1));
+  b.addEventListener("click",()=>go(i));
+  nav.appendChild(b);
+});
+function go(i){
+  cur=Math.max(0,Math.min(slides.length-1,i));
+  slides.forEach((s,j)=>s.classList.toggle("on",j===cur));
+  [...nav.children].forEach((b,j)=>b.classList.toggle("cur",j===cur));
+}
+document.getElementById("prev").addEventListener("click",()=>go(cur-1));
+document.getElementById("next").addEventListener("click",()=>go(cur+1));
+addEventListener("keydown",e=>{
+  if(["ArrowRight","PageDown"," "].includes(e.key)){go(cur+1);e.preventDefault();}
+  else if(["ArrowLeft","PageUp"].includes(e.key)){go(cur-1);e.preventDefault();}
+  else if(e.key==="Home")go(0);
+  else if(e.key==="End")go(slides.length-1);
+});
+go(0);
+/* ---------- auto-scale ---------- */
+function fit(){
+  const s=Math.min(innerWidth/1300,(innerHeight-40)/730);
+  stage.style.transform=`translate(-50%,-50%) scale(${Math.min(s,1.4)})`;
+}
+addEventListener("resize",fit);fit();
+
+/* ---------- CSS var resolver ---------- */
+const CV=n=>getComputedStyle(document.documentElement).getPropertyValue(n).trim();
+
+/* ---------- multi-series categorical step chart ----------
+   x is the step count as a CATEGORY (1,5,10,15,20 equally spaced).
+   Each series: {data, color, floor?}; the floor is dashed in the series colour.
+   No per-point labels (numbers live in the cards); the lowest point per series is ringed. */
+function pairChart(el,cfg){
+  const W=cfg.W||230,H=cfg.H||250,L=cfg.L||40,R=12,T=14,B=34, iw=W-L-R, ih=H-T-B;
+  const {ymin,ymax,yticks,cats,series}=cfg;
+  const n=cats.length;
+  const X=i=>L+iw*(i/(n-1));
+  const Y=v=>T+ih*(1-(v-ymin)/(ymax-ymin));
+  const fmt=cfg.fmt||(t=>t.toFixed(1));
+  let s=`<svg viewBox="0 0 ${W} ${H}" width="100%" preserveAspectRatio="xMinYMin meet">`;
+  yticks.forEach(t=>{const y=Y(t);
+    s+=`<line x1="${L}" y1="${y}" x2="${L+iw}" y2="${y}" stroke="${CV('--grid')}"/>`;
+    s+=`<text x="${L-6}" y="${y+3}" text-anchor="end" class="axl">${fmt(t)}</text>`;});
+  cats.forEach((t,i)=>{
+    s+=`<text x="${X(i).toFixed(1)}" y="${H-17}" text-anchor="middle" class="axl">${t}</text>`;});
+  series.forEach(se=>{
+    const c=CV(se.color);
+    if(se.floor!=null){const y=Y(se.floor);
+      s+=`<line x1="${L}" y1="${y.toFixed(1)}" x2="${L+iw}" y2="${y.toFixed(1)}" stroke="${c}" stroke-opacity=".55" stroke-width="1.3" stroke-dasharray="5 4"/>`;}
+    const d=se.data.map((v,i)=>`${i?'L':'M'}${X(i).toFixed(1)} ${Y(v).toFixed(1)}`).join(' ');
+    s+=`<path d="${d}" fill="none" stroke="${c}" stroke-width="2.2"/>`;
+    const best=se.data.indexOf(Math.min(...se.data));
+    se.data.forEach((v,i)=>{
+      const hi=(i===best);
+      s+=`<circle cx="${X(i).toFixed(1)}" cy="${Y(v).toFixed(1)}" r="${hi?4.6:3.2}" `+
+         `fill="${hi?CV('--surface'):c}" stroke="${c}" stroke-width="${hi?2.4:0}"/>`;});
+  });
+  s+=`<text x="${(L+iw/2).toFixed(1)}" y="${H-3}" text-anchor="middle" class="axl">denoising steps</text>`;
+  s+=`</svg>`;
+  el.innerHTML=s;
+}
+
+/* ---------- multi-series % chart; end-of-line tags nudged apart so close curves stay legible ---------- */
+function relChart(el,cfg){
+  const W=cfg.W||600,H=cfg.H||330,L=46,R=62,T=16,B=30, iw=W-L-R, ih=H-T-B;
+  const {ymin,ymax,yticks,cats,series}=cfg;
+  const n=cats.length;
+  const X=i=>L+iw*(i/(n-1));
+  const Y=v=>T+ih*(1-(v-ymin)/(ymax-ymin));
+  let s=`<svg viewBox="0 0 ${W} ${H}" width="100%" preserveAspectRatio="xMinYMin meet">`;
+  yticks.forEach(t=>{const y=Y(t);
+    s+=`<line x1="${L}" y1="${y}" x2="${L+iw}" y2="${y}" stroke="${CV(t===0?'--axis':'--grid')}" stroke-width="${t===0?1.4:1}"/>`;
+    s+=`<text x="${L-6}" y="${y+3}" text-anchor="end" class="axl">${t>0?'+':''}${t}%</text>`;});
+  cats.forEach((t,i)=>{
+    s+=`<text x="${X(i).toFixed(1)}" y="${H-13}" text-anchor="middle" class="axl">${t}</text>`;});
+  const tags=[];
+  series.forEach(se=>{
+    const c=CV(se.color);
+    const d=se.data.map((v,i)=>`${i?'L':'M'}${X(i).toFixed(1)} ${Y(v).toFixed(1)}`).join(' ');
+    s+=`<path d="${d}" fill="none" stroke="${c}" stroke-width="2.2"/>`;
+    se.data.forEach((v,i)=>{
+      s+=`<circle cx="${X(i).toFixed(1)}" cy="${Y(v).toFixed(1)}" r="3" fill="${c}"/>`;});
+    const v=se.data[n-1];
+    tags.push({y:Y(v)+3.5,v,c});
+  });
+  tags.sort((a,b)=>a.y-b.y);                       // top to bottom, then push down to 12 px spacing
+  for(let k=1;k<tags.length;k++) if(tags[k].y-tags[k-1].y<12) tags[k].y=tags[k-1].y+12;
+  tags.forEach(t=>{
+    s+=`<text x="${(X(n-1)+8).toFixed(1)}" y="${t.y.toFixed(1)}" class="barval" fill="${t.c}" font-weight="700">${t.v>0?'+':''}${t.v.toFixed(1)}%</text>`;});
+  s+=`<text x="${(L+iw/2).toFixed(1)}" y="${H-1}" text-anchor="middle" class="axl">denoising steps</text>`;
+  s+=`</svg>`;
+  el.innerHTML=s;
+}
+
+/* ================= DATA =================
+   eval_deltatok_flow_sampler.py --fvd · step_modes=ode · 1 GPU · seed 0.
+   Flow run BSC 46250781, iter_100000.pth, global_epoch 49.
+   VAL  = BSC 46484806 · Eval/128 @ WaymoSeqMultiView (32 held-out train-split scenes) · FD n = 256.
+   TEST = BSC 46499906 · Eval/500 @ WaymoSeqMultiView (Waymo v1.4.2 val split)       · FD n = 1000.
+   Constant over the five passes (val / test): LossFlow 0.4536 / 0.4397 · FVD_tok 0.6503 / 0.5363 ·
+     LossPointmap_tok 3.9526 / 4.2423 · LossDepth_tok 2.7083 / 2.7196 · LossRaymap_tok 1.6578 / 1.9541 */
+const CATS=['1','5','10','15','20'];
+const V={FVD:[23.5428,5.6447,5.0658,5.1140,5.2094], TOK:[0.5285,0.7213,0.8089,0.8439,0.8630],
+         PM:[5.7136,8.0284,8.9203,9.0176,9.0243], DP:[4.1726,3.7615,3.7557,3.7703,3.7949],
+         RM:[3.0497,5.5945,6.5890,6.7820,6.8149], fFVD:0.6503, fPM:3.9526, fDP:2.7083, fRM:1.6578};
+const T={FVD:[20.0076,4.5410,4.0685,4.1345,4.2339], TOK:[0.5074,0.6887,0.7694,0.8016,0.8193],
+         PM:[7.8662,10.3342,11.3468,11.7295,11.8434], DP:[4.1011,3.7341,3.6645,3.6494,3.6422],
+         RM:[5.1525,7.9289,9.0568,9.5040,9.6693], fFVD:0.5363, fPM:4.2423, fDP:2.7196, fRM:1.9541};
+const pct=(a,b)=>a.map((v,i)=>100*(v/b[i]-1));      // test vs val, % of val
+const gap=(a,f)=>a.map(v=>v-f);                      // loss above its own floor
+const pair=(k,fk)=>[{data:V[k],color:'--s1',floor:fk?V[fk]:null},{data:T[k],color:'--s2',floor:fk?T[fk]:null}];
+
+pairChart(document.getElementById('chFd'),{cats:CATS, series:pair('FVD','fFVD'),
+  ymin:0, ymax:25, yticks:[0,5,10,15,20,25], fmt:t=>t.toFixed(0)});
+pairChart(document.getElementById('chTok'),{cats:CATS, series:pair('TOK',null),
+  ymin:0.45, ymax:0.9, yticks:[0.5,0.6,0.7,0.8,0.9], fmt:t=>t.toFixed(1)});
+pairChart(document.getElementById('chPm'),{cats:CATS, series:pair('PM','fPM'),
+  ymin:3.5, ymax:12.5, yticks:[4,6,8,10,12], fmt:t=>t.toFixed(0)});
+pairChart(document.getElementById('chDp'),{cats:CATS, series:pair('DP','fDP'),
+  ymin:2.5, ymax:4.3, yticks:[2.6,3.0,3.4,3.8,4.2], fmt:t=>t.toFixed(1)});
+pairChart(document.getElementById('chRm'),{cats:CATS, series:pair('RM','fRM'),
+  ymin:1.5, ymax:10, yticks:[2,4,6,8,10], fmt:t=>t.toFixed(0)});
+relChart(document.getElementById('chRel'),{H:390, cats:CATS, ymin:-20, ymax:80, yticks:[-20,0,20,40,60,80],
+  series:[{data:pct(T.RM,V.RM),color:'--s8'},{data:pct(T.PM,V.PM),color:'--s2'},
+          {data:pct(T.FVD.map(v=>v/T.fFVD),V.FVD.map(v=>v/V.fFVD)),color:'--s1'},
+          {data:pct(T.DP,V.DP),color:'--s3'},{data:pct(T.TOK,V.TOK),color:'--s7'}]});
+pairChart(document.getElementById('chPmGap'),{W:300,H:330,cats:CATS,
+  series:[{data:gap(V.PM,V.fPM),color:'--s1'},{data:gap(T.PM,T.fPM),color:'--s2'}],
+  ymin:0, ymax:8, yticks:[0,2,4,6,8], fmt:t=>t.toFixed(0)});
+pairChart(document.getElementById('chRmGap'),{W:300,H:330,cats:CATS,
+  series:[{data:gap(V.RM,V.fRM),color:'--s1'},{data:gap(T.RM,T.fRM),color:'--s2'}],
+  ymin:0, ymax:8, yticks:[0,2,4,6,8], fmt:t=>t.toFixed(0)});
+</script>
+</body>
+</html>
