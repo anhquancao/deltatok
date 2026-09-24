@@ -1,0 +1,56 @@
+defaults:
+  - train_deltatok_flow_bsc
+  - _self_
+
+# All-dataset front-cam flow, 10 consecutive timesteps (2 ctx + 8 forecast) x cam 0.
+# Train mixture = the 5 sources the tokenizer saw. KITTI and nuScenes are never
+# trained on, so both stay zero-shot; Waymo test is the v1.4.2 val split.
+dataset:
+  # Train: 5 sources, every item 10 consecutive timesteps x cam 0 at (518,266).
+  # Waymo trains on its whole train split: the test set is the disjoint val split.
+  # sub5_stride9: 0.5s slots, 10 per window -> num_timesteps=10 takes all of it.
+  # 128000/epoch = 2000 updates at effective_bsize 64.
+  # fs1 seqs: waymo 122171, vkitti 19010, ddad 7540, pandaset 3535, once 845311.
+  train_dataset: "32000 @ WaymoSeqMultiView(ROOT='/gpfs/scratch/ehpc1001/occany_data/waymo_processed', \
+      seq_pkl_name='seq_surround_temporal_sub5_stride9_fs1_all.pkl', \
+      num_timesteps=10, num_views_per_timestep=5, fixed_cams=[0], \
+      z_far=50, split=None, \
+      resolution=[(518, 266)]) + \
+      20000 @ VKittiSeqMultiView(VKITTI_PROCESSED_ROOT='/gpfs/scratch/ehpc1001/occany_data/vkitti_processed', \
+      seq_pkl_name='seq_exact_len_sub5_stride9.pkl', \
+      num_timesteps=10, fixed_cams=[0], \
+      z_far=50, split='train', \
+      resolution=[(518, 266)]) + \
+      30000 @ DDADSeqMultiView(DDAD_PREPROCESSED_ROOT='/gpfs/scratch/ehpc1001/occany_data/ddad_processed', \
+      seq_pkl_name='seq_surround_temporal_sub5_stride9_fs1_all.pkl', \
+      num_timesteps=10, num_views_per_timestep=6, fixed_cams=[0], \
+      z_far=50, split='train', \
+      resolution=[(518, 266)]) + \
+      14000 @ PandasetSeqMultiView(PANDASET_PREPROCESSED_ROOT='/gpfs/scratch/ehpc1001/occany_data/pandaset_processed', \
+      seq_pkl_name='seq_surround_temporal_sub5_stride9_fs1_all.pkl', \
+      num_timesteps=10, num_views_per_timestep=6, fixed_cams=[0], \
+      z_far=50, split='train', \
+      resolution=[(518, 266)]) + \
+      32000 @ OnceSeqMultiView(ONCE_PREPROCESSED_ROOT='/gpfs/scratch/ehpc1001/occany_data/once_processed', \
+      seq_pkl_name='seq_surround_temporal_sub5_stride9_fs1_once_5cam_all.pkl', \
+      num_timesteps=10, num_views_per_timestep=5, fixed_cams=[0], \
+      z_far=50, split='train', \
+      resolution=[(518, 266)])"
+  # Val: 3 sets x 256 windows, each scored and logged separately. Deterministic:
+  # seed=42 reseeds each item at 42+idx, num_timesteps=10 fills the window (start 0),
+  # and eval_one_epoch pins set_epoch(0). Pools: KITTI 4026, nuScenes 653, Waymo 30897.
+  test_dataset: "256 @ KittiSeqMultiView(KITTI_PREPROCESSED_ROOT='/gpfs/scratch/ehpc1001/occany_data/kitti_processed', \
+      seq_pkl_name='seq_exact_len_sub5_stride9.pkl', \
+      num_timesteps=10, fixed_cams=[0], \
+      z_far=50, split='val', seed=42, \
+      resolution=[(518, 168)]) + \
+      256 @ Occ3dNuscenesSeqMultiView(NUSCENES_PREPROCESSED_ROOT='/gpfs/scratch/ehpc1001/occany_data/occ3d_nuscenes_processed', \
+      seq_pkl_name='seq_surround_temporal_sub1_stride9_all.pkl', \
+      num_timesteps=10, num_views_per_timestep=6, fixed_cams=[0], \
+      z_far=50, split='val', seed=42, \
+      resolution=[(518, 266)]) + \
+      256 @ WaymoSeqMultiView(ROOT='/gpfs/scratch/ehpc1001/quan/data/waymo_test_processed', \
+      seq_pkl_name='seq_surround_temporal_sub5_stride9_fs1_waymo_test_all.pkl', \
+      num_timesteps=10, num_views_per_timestep=5, fixed_cams=[0], \
+      z_far=50, split=None, seed=42, \
+      resolution=[(518, 266)])"
