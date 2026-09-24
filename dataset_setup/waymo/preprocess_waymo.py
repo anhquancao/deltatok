@@ -24,12 +24,17 @@ os.environ["CUDA_VISIBLE_DEVICES"] = "-1"
 import tensorflow.compat.v1 as tf
 tf.enable_eager_execution()
 
-sys.path.append(os.path.join(os.path.dirname(__file__), '..'))
-from tool import *
-from tool import parallel_processes as parallel_map
+sys.path.insert(0, osp.join(osp.dirname(osp.abspath(__file__)), '..', '..'))  # repo root
+from occany.utils.runtime_paths import prepend_vendored_import_paths
+prepend_vendored_import_paths()  # vendored dust3r
+from dust3r.utils.geometry import geotrf, inv
+import cv2  # not dust3r.utils.image: it imports torchvision
+from occany.utils.cropping import rescale_image_depthmap
+from parallel import parallel_processes as parallel_map
 
 from waymo_open_dataset import dataset_pb2 as open_dataset
 from waymo_open_dataset.utils import frame_utils
+frame_utils.bytearray = bytes  # protobuf 4.x (upb) rejects the bytearray frame_utils passes
 
 
 def get_parser():
@@ -232,7 +237,7 @@ def crop_one_seq(input_dir, output_dir, seq, resolution=1024):
         # X=LEFT_RIGHT y=ALTITUDE z=DEPTH
 
         # load image
-        image = imread_cv2(osp.join(seq_dir, frame + 'jpg'))
+        image = cv2.cvtColor(cv2.imread(osp.join(seq_dir, frame + 'jpg')), cv2.COLOR_BGR2RGB)  # = dust3r imread_cv2
 
 
 

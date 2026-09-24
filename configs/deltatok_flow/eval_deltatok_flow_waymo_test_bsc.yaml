@@ -1,0 +1,14 @@
+defaults:
+  - train_deltatok_flow_waymo_ep128k_bsc
+  - _self_
+
+# Eval-only: Waymo v1.4.2 val split (202 segments, disjoint from train); 500 of 30,897 fs1 windows.
+dataset:
+  test_dataset: "500 @ WaymoSeqMultiView(ROOT='/gpfs/scratch/ehpc1001/quan/data/waymo_test_processed', \
+      seq_pkl_name='seq_surround_temporal_sub5_stride9_fs1_waymo_test_all.pkl', \
+      num_timesteps=5, num_views_per_timestep=5, fixed_cams=[0], \
+      z_far=50, split=None, seed=42, \
+      resolution=[(518, 266)])"
+
+training:
+  eval_num_items: 500   # default 256 would cut the set
