@@ -1,5 +1,5 @@
 #!/bin/bash
-#SBATCH --job-name=dt1536_rawrecon_bsc
+#SBATCH --job-name=deltatok_dn1536_p24576_seed_compose0tri
 #SBATCH --nodes=1
 #SBATCH --ntasks-per-node=4
 #SBATCH --gres=gpu:4
@@ -10,15 +10,19 @@
 #SBATCH --time=48:00:00
 ##SBATCH --qos=acc_debug
 ##SBATCH --time=02:00:00
-#SBATCH --output=slurm/output/train_deltatok_tc1536_bneck_rawrecon_bsc_%j.out
-#SBATCH --error=slurm/output/train_deltatok_tc1536_bneck_rawrecon_bsc_%j.err
+#SBATCH --output=slurm/output/train_deltatok_nozn_tc1536_pool24576_seed_compose0tri_bsc_%j.out
+#SBATCH --error=slurm/output/train_deltatok_nozn_tc1536_pool24576_seed_compose0tri_bsc_%j.err
 
-# Raw-recon twin of ..._bneck_whitenrecon_bsc.slurm.
-# Nearest arm: BSC:45727710 (raw z, decnoise 0.8).
-#   ssh bsc "bash -lc 'cd /gpfs/projects/ehpc1001/code/deltatok && sbatch slurm/deltatok/train_deltatok_tc1536_bneck_rawrecon_bsc.slurm'"
+# BSC:45949269 twin: triplet path kept, compose loss off (compose_weight 0).
+#   ssh bsc "bash -lc 'cd /gpfs/projects/ehpc1001/code/deltatok && sbatch slurm/deltatok/train_deltatok_nozn_tc1536_pool24576_seed_compose0tri_bsc.slurm'"
 
-export COMPOSE_WEIGHT=${COMPOSE_WEIGHT:-1.0}
+export COMPOSE_WEIGHT=${COMPOSE_WEIGHT:-0}
 export SIGREG_WEIGHT=${SIGREG_WEIGHT:-0.02}    # as BSC:45727710
+export DECNOISE_TAU=${DECNOISE_TAU:-0}         # 0 = off; 45727710 ran 0.8
+export DECNOISE_WARMUP=${DECNOISE_WARMUP:-2000}  # tau ramp only
+export DECNOISE_WEIGHT=${DECNOISE_WEIGHT:-1.0}   # loss weight of the detached noised decode
+export INIT_SEED=${INIT_SEED:-1}       # torch.manual_seed(INIT_SEED + rank); 45727710 ran on torch's default
+export Z_ROW_CLIP=${Z_ROW_CLIP:-0}     # per-row RMS cap on z, straight-through; 0 = off, 4 = the clip arm
 
 mkdir -p slurm/output
 
@@ -40,17 +44,19 @@ export SIGREG_NUM_SLICES=${SIGREG_NUM_SLICES:-3072}      # 2*Cz at tc1536
 export SIGREG_POOL_SAMPLES=${SIGREG_POOL_SAMPLES:-24576}  # as BSC:45727710
 export SIGREG_WARMUP=${SIGREG_WARMUP:-0}                 # anchor on from step 0
 
-# compose is not in the name: change RUN_NAME with it.
-export RUN_NAME=${RUN_NAME:-deltatok_tc1536_bneck_sigreg${SIGREG_WEIGHT}_ns${SIGREG_NUM_SLICES}_pool${SIGREG_POOL_SAMPLES}_rawrecon_sw${SIGREG_WARMUP}}
+# ${RUN_NAME:-} so the eval-only ladder can point at a fresh dir instead of resuming this arm.
+export RUN_NAME=${RUN_NAME:-deltatok_l12_dtok64_tc1536_nozn_maxgap9_vpt1to2_sigreg${SIGREG_WEIGHT}_ns${SIGREG_NUM_SLICES}_pool${SIGREG_POOL_SAMPLES}_compose${COMPOSE_WEIGHT}tri_decnoise${DECNOISE_TAU}_sw${SIGREG_WARMUP}_seed${INIT_SEED}_rclip${Z_ROW_CLIP}}
 
 EXTRA_CFG_ARGS=(
     model.deltatok.num_delta_tokens=64         # K delta tokens/camera (~12:1 compression at full res)
-    model.deltatok.target_channels=1536        # == hidden_size; bottleneck forced below
-    model.deltatok.force_bottleneck=true       # LN(1536) + Linear down/up, as tc512
-    model.deltatok.z_norm=false                # compose sums two z; a sum leaves the LN sphere
+    model.deltatok.target_channels=1536        # == hidden_size -> no z_proj_down/up built
+    model.deltatok.force_bottleneck=false     # raw z: keeps this arm's ckpts resumable
+    model.deltatok.z_row_clip=${Z_ROW_CLIP}     # per-row RMS cap on z; 0 = off
+    training.init_seed=${INIT_SEED}
+    model.deltatok.z_norm=false                # no final LN; parity with the compose arms
     model.deltatok.use_camera_rope=false       # layer-12 no-rope run
     model.deltatok.norm_affine=false           # inert at z_norm=false; kept for name parity
-    model.deltatok.bottleneck_mlp=false        # Linear down/up, not the SiLU MLP variant
+    model.deltatok.bottleneck_mlp=false        # inert at tc1536 (no bottleneck to make nonlinear)
     training.lr=1e-3                           # peak lr, cosine-decayed to 1e-5
     training.grad_clip=0.1                     # tighter than base 1.0; tames early grads
     training.grad_skip_thresh=0.0               # >0 also skips finite grad_norm spikes
@@ -59,8 +65,10 @@ EXTRA_CFG_ARGS=(
     training.sigreg_pool_samples=${SIGREG_POOL_SAMPLES}
     training.sigreg_warmup=${SIGREG_WARMUP}
     training.compose_weight=${COMPOSE_WEIGHT}   # d(t0->t1)+d(t1->t2) decodes f_t2 from f_t0
-    model.deltatok.decode_noise_tau=0.0        # no detached noised decode
-    "training.eval_noise_sigmas=[0.32,0.55,0.82]"       # eval ladder, matches the 2026-09-04 probe grid
+    training.compose_triplet=true               # triplet sampling at weight 0
+    model.deltatok.decode_noise_tau=${DECNOISE_TAU}    # 2nd decode of z.detach()+sigma*eps
+    training.decode_noise_weight=${DECNOISE_WEIGHT}    # weight of that 2nd decode's loss
+    training.decode_noise_warmup=${DECNOISE_WARMUP}    # linear ramp of tau over N iters
     training.max_gap=9                          # triplet spans cap at 9 (= nt10 window - 1)
     training.bsize=2                            # 2 enc + 6 dec/step; halve batch
     training.effective_bsize=16                 # 4 GPU x bsize 2 -> grad_cum 2

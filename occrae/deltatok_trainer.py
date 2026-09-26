@@ -636,17 +636,6 @@ class DeltaTokTrainer(DeltaTokSharedMixin, Trainer):
         if self.is_master:
             print(f"cov_weight={self._cov_weight}")  # 0.0 on a stale trainer = a null for the wrong reason
 
-        # Per-direction whitened recon: cov(x) banked for recon_whiten_warmup steps, then W frozen.
-        self._recon_whiten_alpha = float(self.cfg.training.get("recon_whiten_alpha", 0.0))
-        self._recon_whiten_eps = float(self.cfg.training.get("recon_whiten_eps", 0.05))
-        self._recon_whiten_warmup = int(self.cfg.training.get("recon_whiten_warmup", 500))
-        self._recon_W = None                                            # (C, C) once frozen
-        self._recon_acc = ZSpreadStats(self.device) if self._recon_whiten_alpha > 0 else None
-        self._recon_acc_steps = 0                                       # optim steps banked so far
-        if self.is_master:
-            print(f"recon_whiten_alpha={self._recon_whiten_alpha} eps={self._recon_whiten_eps} "
-                  f"warmup={self._recon_whiten_warmup}")                  # 0.0 on a stale trainer = raw loss
-
         # z-spread diagnostics (Eval/<test>/Z*): how much of the Cz budget the code
         # actually uses. Measured on eval only -- a fixed val set makes it comparable
         # across epochs and runs. Runs with or without SIGReg, which is what makes a
@@ -656,16 +645,18 @@ class DeltaTokTrainer(DeltaTokSharedMixin, Trainer):
         # Eval-only noise ladder: decode z + sigma*N(0,I) per sigma. [] = off, nothing changes.
         self._eval_noise_sigmas = tuple(float(x) for x in self.cfg.training.get("eval_noise_sigmas", []))
         self._eval_noise_keys = tuple(f"LossRecon_noise{x:g}" for x in self._eval_noise_sigmas)
-        if self._recon_whiten_alpha > 0:
-            self._eval_noise_keys += ("LossRecon_W",)  # metric state must exist; reads 0 before W freezes
 
         # Additive composition: sample 3 timesteps, encode both hops, add z_a + z_b,
         # decode the sum. 0 = off (single-pair path is bit-identical).
         self._compose_weight = float(self.cfg.training.get("compose_weight", 0.0))
-        if self._compose_weight > 0:
+        # Triplet sampling even at weight 0: the compose ablation's control path.
+        self._compose_triplet = self._compose_weight > 0 or bool(self.cfg.training.get("compose_triplet", False))
+        if self._compose_triplet:
             assert not bool(self.cfg.model.get("deltatok", {}).get("z_norm", True)), \
                 "compose needs z_norm=false"
             assert self._max_gap >= 2, f"compose needs max_gap >= 2, got {self._max_gap}"
+        if self.is_master:
+            print(f"compose_weight={self._compose_weight}, compose_triplet={self._compose_triplet}")
 
         # Send the composed sum to SIGReg too, cat'd onto both hops. z_a, z_b and z_comp are one
         # population of gap-deltas (hops draw gap ~ U[1,max_gap]; the sum spans g1+g2), so one
@@ -682,7 +673,7 @@ class DeltaTokTrainer(DeltaTokSharedMixin, Trainer):
         # forward. Flushed per epoch. Runs with or without sigreg_compose_z -- that is what makes
         # the arm and its twin comparable.
         self._compose_z_stats = ZSpreadStats(self.device) if (
-            self._compose_weight > 0 and self._z_spread_eval) else None
+            self._compose_triplet and self._z_spread_eval) else None
 
     @torch.no_grad()
     def _log_z_spread(self, stats: "ZSpreadStats", prefix: str) -> None:
@@ -714,34 +705,9 @@ class DeltaTokTrainer(DeltaTokSharedMixin, Trainer):
                   f"ZRowMeanSquare={s['row_mean_square']:.4f} "
                   f"ZMeanAbsMax={s['mean_abs_max']:.4f}", flush=True)
 
-    @torch.no_grad()
-    def _recon_whiten_bank(self, x: torch.Tensor) -> None:
-        """Bank recon targets (..., C) until W is frozen. No-op when off or frozen."""
-        if self._recon_acc is not None:
-            self._recon_acc.update(x.float())                           # (S, C) rows, fp64 inside
-
-    @torch.no_grad()
-    def _recon_whiten_freeze(self) -> None:
-        """Collective: pool cov(x) over ranks, build W, drop the accumulator."""
-        s = self._recon_acc.summary(distributed=self.distributed, full=True)
-        lam, U = s["evals"].double(), s["evecs"].double()               # (C,), (C, C) descending
-        scale = (lam.clamp_min(0) + self._recon_whiten_eps).pow(-self._recon_whiten_alpha / 2)  # (C,)
-        W = ((U * scale) @ U.T).float().to(self.device)                 # (C, C) U diag(scale) Uᵀ
-        if self.distributed:
-            dist.broadcast(W, src=0)                                    # bit-identical W on every rank
-        self._recon_W, self._recon_acc = W, None
-        if self.is_master:
-            print(f"[recon_whiten] froze W at iter {self.cfg.training.iter}: rows={s['rows']} "
-                  f"part_rank={s['part_rank']:.1f} eig[0,100,500,1000]="
-                  f"{[round(float(lam[k]), 4) for k in (0, 100, 500, 1000)]} "
-                  f"W_cond={float(scale.max() / scale.min()):.1f}", flush=True)
-
     def _recon_loss(self, pred: torch.Tensor, tgt: torch.Tensor) -> torch.Tensor:
-        """log-cosh of the residual, through W once frozen. fp32 caller."""
-        diff = pred - tgt                                               # (..., C)
-        if self._recon_W is not None:
-            diff = diff @ self._recon_W                                 # (..., C) per-direction scaled
-        return _log_cosh_diff(diff).mean()
+        """log-cosh of the residual. fp32 caller."""
+        return _log_cosh_diff(pred - tgt).mean()
 
     def _sigreg_pooled(self, z: torch.Tensor):
         """(live, pool, scale): this micro-batch's z rows, a FIFO of detached rows from
@@ -915,7 +881,6 @@ class DeltaTokTrainer(DeltaTokSharedMixin, Trainer):
             "global_epoch": self.cfg.training.global_epoch,
             "model_state_dict": net.state_dict(),
             "optimizer_state_dict": self.optim.state_dict(),
-            "recon_W": None if self._recon_W is None else self._recon_W.cpu(),  # (C, C) or None
         }
         os.makedirs(os.path.dirname(path), exist_ok=True)
         if os.path.isfile(path):
@@ -964,8 +929,6 @@ class DeltaTokTrainer(DeltaTokSharedMixin, Trainer):
                 group.setdefault("initial_lr", group["lr"])
         self.cfg.training.iter = ckpt["iter"]
         self.cfg.training.global_epoch = ckpt["global_epoch"]
-        if ckpt.get("recon_W") is not None and self._recon_whiten_alpha > 0:
-            self._recon_W, self._recon_acc = ckpt["recon_W"].to(self.device), None  # frozen W resumes as-is
         if self.is_master:
             print(f"Number of iteration(s): {self.cfg.training.iter}")
 
@@ -1041,20 +1004,21 @@ class DeltaTokTrainer(DeltaTokSharedMixin, Trainer):
         z = z.reshape(B, 2, *z.shape[1:])                                     # (B, 2, N, K, Cz)
         z_comp = z[:, 0] + z[:, 1]                                            # (B, N, K, Cz)
 
-        # Decode composed delta from frame t0
-        with self.autocast:
-            x_hat_comp = self.tokenizer(                                      # (B, N, P, C)
-                feats[:, 0], None, H, W, num_cameras=num_cameras, z_input=z_comp)
-
-        # Same treatment for the composed sum. Returned separately so its scalar stays
-        # comparable to LossCompose, exactly as loss_dn is to LossRecon.
-        loss_dn_comp = self._detached_noise_loss(feats[:, 0], feats[:, 2], H, W, num_cameras, z_comp)
-
         # Losses
         with torch.autocast(device_type="cuda", enabled=False):
             loss_recon   = self._recon_loss(x_hat.float(), x.detach().float())
-            self._recon_whiten_bank(x)  # (B*2, N, P, C) targets
-            loss_compose = self._recon_loss(x_hat_comp.float(), feats[:, 2].detach().float())
+
+        # Composed decode from t0; weight 0 skips it (triplet-only control).
+        loss_compose = loss_dn_comp = None
+        if self._compose_weight > 0:
+            with self.autocast:
+                x_hat_comp = self.tokenizer(                                  # (B, N, P, C)
+                    feats[:, 0], None, H, W, num_cameras=num_cameras, z_input=z_comp)
+            # Same treatment for the composed sum. Returned separately so its scalar stays
+            # comparable to LossCompose, exactly as loss_dn is to LossRecon.
+            loss_dn_comp = self._detached_noise_loss(feats[:, 0], feats[:, 2], H, W, num_cameras, z_comp)
+            with torch.autocast(device_type="cuda", enabled=False):
+                loss_compose = self._recon_loss(x_hat_comp.float(), feats[:, 2].detach().float())
 
         z = torch.cat([z, z_comp.unsqueeze(1)], dim=1)                        # (B, 3, N, K, Cz)
         return loss_recon, loss_compose, loss_dn, loss_dn_comp, z, step_t
@@ -1161,10 +1125,13 @@ class DeltaTokTrainer(DeltaTokSharedMixin, Trainer):
             num_cameras = batch.get("num_cameras", 1)
 
             loss_compose = loss_dn_comp = None
-            if self._compose_weight > 0:
-                # Triplet: 3 timesteps, 2 hops encoded, z_a+z_b decoded, both losses
+            if self._compose_triplet:
+                # Triplet: 3 timesteps, 2 hops encoded, z_a+z_b decoded when compose_weight > 0
                 loss, loss_compose, loss_dn, loss_dn_comp, z_compose, step_t = self._compose_forward(imgs, num_cameras)
-                loss_total = self._clean_decode_weight * (loss + self._compose_weight * loss_compose)
+                if loss_compose is None:
+                    loss_total = self._clean_decode_weight * loss
+                else:
+                    loss_total = self._clean_decode_weight * (loss + self._compose_weight * loss_compose)
                 # SIGReg z: all three streams (flag on) or one random hop (flag off)
                 if self.sigreg is not None:
                     if self._sigreg_compose_z:
@@ -1200,7 +1167,6 @@ class DeltaTokTrainer(DeltaTokSharedMixin, Trainer):
 
                 with torch.autocast(device_type="cuda", enabled=False):
                     loss = self._recon_loss(x_hat.float(), x.detach().float())
-                self._recon_whiten_bank(x)  # (M, N, P, C) targets
 
                 loss_total = self._clean_decode_weight * loss
 
@@ -1309,11 +1275,6 @@ class DeltaTokTrainer(DeltaTokSharedMixin, Trainer):
                     self.log_add_scalar('Train/LossTot', mini_batch_loss, self.cfg.training.iter)
                     self.log_add_scalar('Train/SpeedSamplesPerSec', speed_samples_per_sec, self.cfg.training.iter)
                     self.log_add_scalar('Train/EncRowAbsMaxZ', zrow_max, self.cfg.training.iter)
-
-                if self._recon_acc is not None:
-                    self._recon_acc_steps += 1
-                    if self._recon_acc_steps >= self._recon_whiten_warmup:
-                        self._recon_whiten_freeze()                     # collective, same step on every rank
 
                 self.cfg.training.iter += 1
 
@@ -1476,9 +1437,6 @@ class DeltaTokTrainer(DeltaTokSharedMixin, Trainer):
                 "LossRecon_AR": loss_recon_ar.detach().float().item(),
                 "LossRecon_Comp": loss_recon_comp.detach().float().item(),
             }
-            if self._recon_W is not None:
-                with torch.autocast(device_type="cuda", enabled=False):
-                    batch_losses["LossRecon_W"] = self._recon_loss(x_hat.float(), x.float()).item()
 
             # Noise ladder: same decode path as Comp above, fed z + sigma*eps at each fixed
             # sigma. Measures how far the decoder tolerates a wrong code, not how good z is.
