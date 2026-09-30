@@ -1,0 +1,25 @@
+defaults:
+  - train_deltatok_flow_alldata_ctx2fwd8_bsc
+  - _self_
+
+# Eval-only: KITTI val + nuScenes val overlapping, Waymo test non-overlapping (window_stride=46 = span 45 + 1).
+# The '<n> @' prefix is overridden by eval_deltatok_flow_sampler.py --num_items.
+dataset:
+  test_dataset: "2000 @ KittiSeqMultiView(KITTI_PREPROCESSED_ROOT='/gpfs/scratch/ehpc1001/occany_data/kitti_processed', \
+      seq_pkl_name='seq_exact_len_sub5_stride9.pkl', \
+      num_timesteps=10, fixed_cams=[0], \
+      z_far=50, split='val', seed=42, \
+      resolution=[(518, 168)]) + \
+      2000 @ Occ3dNuscenesSeqMultiView(NUSCENES_PREPROCESSED_ROOT='/gpfs/scratch/ehpc1001/occany_data/occ3d_nuscenes_val_preprocessed', \
+      seq_pkl_name='seq_surround_temporal_sub1_stride9_fs1_occ3d_nuscenes_val_all.pkl', \
+      num_timesteps=10, num_views_per_timestep=6, fixed_cams=[0], \
+      z_far=50, split='val', seed=42, \
+      resolution=[(518, 266)]) + \
+      2000 @ WaymoSeqMultiView(ROOT='/gpfs/scratch/ehpc1001/quan/data/waymo_test_processed', \
+      seq_pkl_name='seq_surround_temporal_sub5_stride9_fs1_waymo_test_all.pkl', \
+      num_timesteps=10, num_views_per_timestep=5, fixed_cams=[0], \
+      z_far=50, split=None, seed=42, window_stride=46, \
+      resolution=[(518, 266)])"
+
+training:
+  eval_num_items: 2000   # default 256 would cut the set

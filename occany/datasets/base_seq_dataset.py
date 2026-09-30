@@ -3,7 +3,6 @@ import torch
 import os.path as osp
 import numpy as np
 from dust3r.datasets.base.base_stereo_view_dataset import BaseStereoViewDataset, is_good_type, view_name
-from occany.utils.image_util import get_SAM3_transforms
 from dust3r.utils.geometry import depthmap_to_absolute_camera_coordinates
 from occany.utils.helpers import project_lidar_world2camera
 from dust3r.utils.geometry import depthmap_to_camera_coordinates
@@ -29,8 +28,8 @@ class BaseSeqDatasetMultiView(BaseStereoViewDataset, EasyDataset_MUSt3R):
                  max_views_per_timestep=None,
                  anchor_cam=0,
                  *args, ROOT, seq_pkl_name, num_timesteps,
-                 distill_model_name=None,
                  select_scenes=None, exclude_scenes=None,
+                 window_stride=1,
                  use_tar=False,
                  **kwargs):
         # Timesteps in the window every item returns. Keyword-only and
@@ -62,15 +61,8 @@ class BaseSeqDatasetMultiView(BaseStereoViewDataset, EasyDataset_MUSt3R):
         super().__init__(*args, **kwargs)
         self.ROOT = ROOT
         self.use_tar = use_tar  # frames from one uncompressed tar per scene (see tar_store)
-        # distill_model_name=None disables distill-image generation (flow training
-        # doesn't consume view['distill_img']); skips the extra per-view tensor.
-        if distill_model_name is None or str(distill_model_name).lower() == "none":
-            self.distill_img_transform = None
-        elif distill_model_name == "SAM3":
-            self.distill_img_transform = get_SAM3_transforms(resolution=518)
-        else:
-            raise ValueError(f"Unsupported distill_model_name: {distill_model_name}")
         self.seq_pkl_name = seq_pkl_name
+        self.window_stride = int(window_stride)  # min start-frame gap between kept windows; 1 = all
         self._load_data()
         # Config-local scene filtering (default None = no-op), applied before any
         # subclass split filter so both compose. Carves a held-out val set without
@@ -131,6 +123,18 @@ class BaseSeqDatasetMultiView(BaseStereoViewDataset, EasyDataset_MUSt3R):
             # Drop records too short for the fixed window (else _get_views asserts mid-run)
             min_len = self.num_timesteps * self.num_views_per_timestep
             self.seqs = [seq for seq in self.seqs if len(seq[1]) >= min_len]
+
+        # window_stride > 1: thin each scene's windows so kept windows start >= window_stride frames apart
+        if self.window_stride > 1:
+            next_allowed = {}                                      # scene_idx -> first start frame id the next kept window may use
+            kept = []
+            for seq in self.seqs:
+                scene_idx = seq[0]
+                start = int(self.frames[seq[1][0]].split('_')[0])  # first frame's stem "<frame_id>_<cam>" -> frame id
+                if scene_idx not in next_allowed or start >= next_allowed[scene_idx]:
+                    kept.append(seq)
+                    next_allowed[scene_idx] = start + self.window_stride
+            self.seqs = kept
 
         print(f'Loaded {self.get_stats()}')
 
@@ -277,8 +281,6 @@ class BaseSeqDatasetMultiView(BaseStereoViewDataset, EasyDataset_MUSt3R):
             # encode the image
             width, height = view['img'].size
             view['true_shape'] = np.int32((height, width))
-            if self.distill_img_transform is not None:
-                view['distill_img'] = self.distill_img_transform(view['img'])
             img_pil = pil_jitter(view['img']) if pil_jitter is not None else view['img']
             view['img'] = InputProcessor.NORMALIZE(to_tensor(img_pil))
 

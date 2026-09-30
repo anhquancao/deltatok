@@ -120,6 +120,13 @@ DATASET_CONFIGS: Dict[str, dict] = {
         frame_id_format=":06d",
         file_ext=".npz",
     ),
+    # Regenerated val-only copy; the old dir's first 8 val scenes mix in sweeps.
+    "occ3d_nuscenes_val": dict(
+        preprocessed_dir="occ3d_nuscenes_val_preprocessed",
+        cameras=list(range(6)),
+        frame_id_format=":06d",
+        file_ext=".npz",
+    ),
     # OpenScene: 8-cam per-scene tar store (see occany/datasets/tar_store.py), cam ids
     # 0..7, native 2Hz. use_tar switches scene/frame discovery to the .idx.npz sidecars.
     # mini, trainval, and test are separate tar dirs (scene names collide across splits),

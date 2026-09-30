@@ -124,6 +124,10 @@ def get_args_parser() -> argparse.ArgumentParser:
         help="Fréchet distance on OccAny patch tokens (mean-pooled per forecast image) vs GT: "
              "sampled rollout (FVD) and GT-delta rollout (FVD_tok). One line per pass.",
     )
+    parser.add_argument(
+        "--num_items", type=int, default=None,
+        help="Windows per test set; a smaller split is used whole. None = the config's '<n> @'.",
+    )
     parser.add_argument("--seed", type=int, default=0)
     parser.add_argument("--output_dir", type=str, default="results/deltatok_flow_sampler_eval")
     return parser
@@ -139,27 +143,37 @@ def _frechet_distance(a, b):
     return frechet_distance(a.mean(0), torch.cov(a.T), b.mean(0), torch.cov(b.T)).item()  # scalar
 
 
-def _build_test_loaders(cfg):
+def _build_test_loaders(cfg, num_items=None):
     """{test_name: loader} for cfg.dataset.test_dataset — mirrors how
     `DeltaTokFlowMatchingTrainer.fit` builds eval loaders, so `eval_one_epoch`
     sees the exact samples the training logs evaluated."""
     expr = cfg.dataset.get("test_dataset", None)
     if not expr:
         raise RuntimeError("Config has no dataset.test_dataset.")
+    kw = dict(
+        # val_bsize caps eval decode memory (0 = train bsize) — as the trainer does
+        batch_size=int(cfg.training.get("val_bsize", 0)) or int(cfg.training.bsize),
+        num_workers=int(cfg.training.get("val_num_workers", 2)),
+        shuffle=False,
+        drop_last=False,
+    )
     loaders = {}
     for sub in str(expr).split("+"):
         sub = sub.strip()
         if not sub:
             continue
-        test_name = sub.split("(")[0].strip()
-        loaders[test_name] = get_data_loader(
-            sub,
-            # val_bsize caps eval decode memory (0 = train bsize) — as the trainer does
-            batch_size=int(cfg.training.get("val_bsize", 0)) or int(cfg.training.bsize),
-            num_workers=int(cfg.training.get("val_num_workers", 2)),
-            shuffle=False,
-            drop_last=False,
-        )
+        if num_items is not None:
+            ds_expr = sub.split("@", 1)[-1].strip()           # drop the config's "<n> @"
+            loader = get_data_loader(f"{num_items} @ {ds_expr}", **kw)
+            pool = len(loader.dataset.dataset)                # windows in the full split
+            if pool < num_items:
+                # ResizedDataset would repeat windows; take the split whole instead
+                loader = get_data_loader(f"{pool} @ {ds_expr}", **kw)
+            sub = f"{min(num_items, pool)} @ {ds_expr}"
+        else:
+            loader = get_data_loader(sub, **kw)
+        test_name = sub.split("(")[0].strip()                 # tag carries the real count
+        loaders[test_name] = loader
     return loaders
 
 
@@ -223,6 +237,8 @@ def main() -> None:
             cfg.model.img_decoder.ckpt_path = None
         # No TensorBoard; vit_folder is only touched by get_network's makedirs.
         cfg.training.writer_log = ""
+        if args.num_items is not None:
+            cfg.training.eval_num_items = args.num_items   # eval_one_epoch caps each set here
         cfg.training.vit_folder = os.path.join(output_dir, "ckpts") + "/"
 
     # ckpt=None: build a FRESH ViT here. get_network loads with strict=False, which would
@@ -252,7 +268,7 @@ def main() -> None:
     trainer.vit.eval()
 
     # eval_one_epoch iterates trainer.test_loaders (normally built in fit()).
-    trainer.test_loaders = _build_test_loaders(cfg)
+    trainer.test_loaders = _build_test_loaders(cfg, args.num_items)
     if args.z_basis:
         _bank_z_basis(trainer, cfg)
     if args.fvd:

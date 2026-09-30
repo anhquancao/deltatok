@@ -6,38 +6,38 @@ dataset:
   train_dataset: "10000 @ WaymoSeqMultiView(ROOT='/gpfs/scratch/ehpc558/quan/occrae_data/waymo_processed', \
       seq_pkl_name='seq_surround_temporal_sub5_stride9_all.pkl', \
       num_timesteps=5, num_views_per_timestep=5, fixed_cams=[0], \
-      z_far=50, split='train', distill_model_name='SAM3', \
+      z_far=50, split='train', \
       resolution=[(518, 294), (518, 280), (518, 266), (518, 210), (518, 168)]) + \
       5000 @ VKittiSeqMultiView(VKITTI_PROCESSED_ROOT='/gpfs/scratch/ehpc558/quan/occrae_data/vkitti_processed', \
       seq_pkl_name='seq_exact_len_sub5_stride9.pkl', \
       num_timesteps=5, fixed_cams=[0], \
-      z_far=50, split='train', distill_model_name='SAM3', \
+      z_far=50, split='train', \
       resolution=[(518, 294), (518, 280), (518, 266), (518, 210), (518, 168)]) + \
       10000 @ DDADSeqMultiView(DDAD_PREPROCESSED_ROOT='/gpfs/scratch/ehpc558/quan/occrae_data/ddad_processed', \
       seq_pkl_name='seq_surround_temporal_sub5_stride9_all.pkl', \
       num_timesteps=5, num_views_per_timestep=6, fixed_cams=[0], \
-      z_far=50, split='train', distill_model_name='SAM3', \
+      z_far=50, split='train', \
       resolution=[(518, 294), (518, 280), (518, 266), (518, 210), (518, 168)]) + \
       10000 @ PandasetSeqMultiView(PANDASET_PREPROCESSED_ROOT='/gpfs/scratch/ehpc558/quan/occrae_data/pandaset_processed', \
       seq_pkl_name='seq_surround_temporal_sub5_stride9_all.pkl', \
       num_timesteps=5, num_views_per_timestep=6, fixed_cams=[0], \
-      z_far=50, split='train', distill_model_name='SAM3', \
+      z_far=50, split='train', \
       resolution=[(518, 294), (518, 280), (518, 266), (518, 210), (518, 168)]) + \
       10000 @ OnceSeqMultiView(ONCE_PREPROCESSED_ROOT='/gpfs/scratch/ehpc558/quan/occrae_data/once_processed', \
       seq_pkl_name='seq_surround_temporal_sub5_stride9_all.pkl', \
       num_timesteps=5, num_views_per_timestep=5, fixed_cams=[0], \
-      z_far=50, split='train', distill_model_name='SAM3', \
+      z_far=50, split='train', \
       resolution=[(518, 294), (518, 280), (518, 266), (518, 210), (518, 168)])"
   # nuScenes is 2 Hz keyframes: sub1 = 0.5 s, the spacing sub5 buys on the 10 Hz sets.
   test_dataset: "206 @ KittiSeqMultiView(KITTI_PREPROCESSED_ROOT='/gpfs/scratch/ehpc558/quan/occrae_data/kitti_processed', \
       seq_pkl_name='seq_exact_len_sub5_stride9.pkl', \
       num_timesteps=5, fixed_cams=[0], \
-      z_far=50, split='val', seed=42, distill_model_name='SAM3', \
+      z_far=50, split='val', seed=42, \
       resolution=[(518, 168)]) + \
       206 @ Occ3dNuscenesSeqMultiView(NUSCENES_PREPROCESSED_ROOT='/gpfs/scratch/ehpc558/quan/occrae_data/occ3d_nuscenes_processed', \
       seq_pkl_name='seq_surround_temporal_sub1_stride9_all.pkl', \
       num_timesteps=5, num_views_per_timestep=6, fixed_cams=[0], \
-      z_far=50, split='val', seed=42, distill_model_name='SAM3', \
+      z_far=50, split='val', seed=42, \
       resolution=[(518, 294)])"
 
 occrae:
