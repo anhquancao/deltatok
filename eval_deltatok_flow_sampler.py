@@ -27,6 +27,7 @@ Usage (on Jean Zay, from a GPU node; defaults target the
 """
 
 import argparse
+import csv
 import os
 import re
 from pathlib import Path
@@ -125,6 +126,14 @@ def get_args_parser() -> argparse.ArgumentParser:
              "sampled rollout (FVD) and GT-delta rollout (FVD_tok). One line per pass.",
     )
     parser.add_argument(
+        "--test_filter", type=str, default=None,
+        help="Keep only test sets whose expression contains this substring.",
+    )
+    parser.add_argument(
+        "--dump_per_window", action="store_true",
+        help="Write one CSV row per eval batch per pass (run with training.val_bsize=1 for one row per window).",
+    )
+    parser.add_argument(
         "--num_items", type=int, default=None,
         help="Windows per test set; a smaller split is used whole. None = the config's '<n> @'.",
     )
@@ -143,7 +152,7 @@ def _frechet_distance(a, b):
     return frechet_distance(a.mean(0), torch.cov(a.T), b.mean(0), torch.cov(b.T)).item()  # scalar
 
 
-def _build_test_loaders(cfg, num_items=None):
+def _build_test_loaders(cfg, num_items=None, test_filter=None):
     """{test_name: loader} for cfg.dataset.test_dataset — mirrors how
     `DeltaTokFlowMatchingTrainer.fit` builds eval loaders, so `eval_one_epoch`
     sees the exact samples the training logs evaluated."""
@@ -161,6 +170,8 @@ def _build_test_loaders(cfg, num_items=None):
     for sub in str(expr).split("+"):
         sub = sub.strip()
         if not sub:
+            continue
+        if test_filter is not None and test_filter not in sub:
             continue
         if num_items is not None:
             ds_expr = sub.split("@", 1)[-1].strip()           # drop the config's "<n> @"
@@ -268,11 +279,13 @@ def main() -> None:
     trainer.vit.eval()
 
     # eval_one_epoch iterates trainer.test_loaders (normally built in fit()).
-    trainer.test_loaders = _build_test_loaders(cfg, args.num_items)
+    trainer.test_loaders = _build_test_loaders(cfg, args.num_items, args.test_filter)
     if args.z_basis:
         _bank_z_basis(trainer, cfg)
     if args.fvd:
         trainer._fvd_feats = {}  # switches on the trainer's pooled-token collection
+    if args.dump_per_window:
+        trainer._per_window = []  # switches on the trainer's per-batch loss rows
 
     modes = [m.strip() for m in args.step_modes.split(",") if m.strip()]
     # Empty --num_steps keeps the single-pass behaviour at the config's eval_num_steps.
@@ -298,6 +311,14 @@ def main() -> None:
                 loss = trainer.eval_one_epoch()  # prints the [Eval/...] metric line itself
                 print(f"[INFO] steps={n_steps} sampler_step_mode={mode} sigma={sigma}: "
                       f"Eval loss (flow) = {float(loss):.4f}")
+                if trainer._per_window:
+                    out = os.path.join(output_dir, f"per_window_{mode}_steps{n_steps}_sigma{sigma}.csv")
+                    with open(out, "w", newline="") as f:
+                        w = csv.DictWriter(f, fieldnames=list(trainer._per_window[0].keys()))
+                        w.writeheader()
+                        w.writerows(trainer._per_window)
+                    print(f"[INFO] per-window rows: {len(trainer._per_window)} -> {out}", flush=True)
+                    trainer._per_window = []
                 if trainer._err_spectrum:
                     out = os.path.join(output_dir, f"err_spectrum_{mode}_steps{n_steps}_sigma{sigma}.pt")
                     torch.save({k: {"err_dir": e, "lam": l} for k, (e, l) in trainer._err_spectrum.items()}, out)

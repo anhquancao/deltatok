@@ -11,7 +11,7 @@
 #SBATCH --output=slurm/output/eval_deltatok_flow_numsteps_alldata_ctx2fwd8_bsc_%j.out
 #SBATCH --error=slurm/output/eval_deltatok_flow_numsteps_alldata_ctx2fwd8_bsc_%j.err
 
-# Step sweep + FD on the all-data ctx2fwd8 flow arm: KITTI/nuScenes val, Waymo test, <=NUM_ITEMS each.
+# Step sweep + FD, all-data ctx2fwd8 flow arm: KITTI/nuScenes val, Waymo test, sized by window_stride.
 # One eval_one_epoch per NUM_STEPS entry, ode only, 1 GPU so every arm shares the eval seed.
 # Arch flags mirror slurm/deltatok_flow/train_deltatok_flow_alldata_xxl_tc1536mg9_sigreg002seed1_ctx2fwd8_bsc.slurm.
 #   ssh bsc "bash -lc 'cd /gpfs/projects/ehpc1001/code/deltatok && sbatch slurm/eval_deltatok_flow_numsteps_alldata_ctx2fwd8_bsc.slurm'"
@@ -32,7 +32,7 @@ ulimit -n "$(ulimit -Hn)"
 : "${CKPT:=$SCRATCH/quan/deltatok_flow_log/deltatok_flow_alldata_consec10cam0_ctx2fwd8_tc1536mg9sigreg002compose_seed1_ep70tok_xxl_dit/ckpts/iter_050000.pth}"
 : "${OUTPUT_DIR:=results/deltatok_flow_numsteps_alldata_ctx2fwd8}"
 : "${NUM_STEPS:=1,5,10,20}"
-: "${NUM_ITEMS:=2000}"
+: "${NUM_ITEMS:=1000000}"  # above any split: window_stride sets each set's size
 : "${STEP_MODES:=ode}"
 
 CFG_ARGS=(

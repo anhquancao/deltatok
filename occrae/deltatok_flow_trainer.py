@@ -78,6 +78,7 @@ class DeltaTokFlowMatchingTrainer(DeltaTokSharedMixin, Trainer):
         self._z_basis = {}            # {test_name: (U (C,C) evecs desc, lam (C,))} of GT-z cov; set by the sampler script
         self._err_spectrum = {}       # {test_name: (err_dir (C,) mean sq error per eigen-dir, lam)} written by eval_one_epoch
         self._fvd_feats = None        # {test_name: {"flow"|"tok"|"gt": [(B*F, C)]}}; None = off, set by the sampler script's --fvd
+        self._per_window = None       # list of per-batch loss rows; set by the sampler's --dump_per_window
         # Overfit: memoize the frozen OccRAE+DeltaTok encode per data item so the
         # ~1B backbone runs once per unique sample (item-key -> (tokens, feat0, z, H, W)).
         self._cache_frozen_encode = bool(self.cfg.training.get("cache_frozen_encode", False))
@@ -1138,6 +1139,10 @@ class DeltaTokFlowMatchingTrainer(DeltaTokSharedMixin, Trainer):
                                 if saved_path is not None:
                                     print(f"Saved viz: {saved_path}")
                                 num_vis += 1
+
+                    if self._per_window is not None and batch_losses:  # run with val_bsize=1 so each row is one window
+                        self._per_window.append({"test": test_name, "scene": batch["scene_name"][0],
+                                                 "start": batch["frame_stems"][0][0], **batch_losses})
 
                     # Only GT batches enter the metric sums AND the denominator;
                     # counting GT-less batches would silently dilute metrics to 0.

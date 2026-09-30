@@ -38,11 +38,11 @@ dataset:
       resolution=[(518, 266)])"
   # Val: 3 sets x 256 windows, each scored and logged separately. Deterministic:
   # seed=42 reseeds each item at 42+idx, num_timesteps=10 fills the window (start 0),
-  # and eval_one_epoch pins set_epoch(0). Pools: KITTI 4026, nuScenes 582, Waymo 30897.
+  # and eval_one_epoch pins set_epoch(0). Pools: KITTI 269, nuScenes 582, Waymo 806.
   test_dataset: "256 @ KittiSeqMultiView(KITTI_PREPROCESSED_ROOT='/gpfs/scratch/ehpc1001/occany_data/kitti_processed', \
       seq_pkl_name='seq_exact_len_sub5_stride9.pkl', \
       num_timesteps=10, fixed_cams=[0], \
-      z_far=50, split='val', seed=42, \
+      z_far=50, split='val', seed=42, window_stride=15, \
       resolution=[(518, 168)]) + \
       256 @ Occ3dNuscenesSeqMultiView(NUSCENES_PREPROCESSED_ROOT='/gpfs/scratch/ehpc1001/occany_data/occ3d_nuscenes_val_preprocessed', \
       seq_pkl_name='seq_surround_temporal_sub1_stride9_fs1_occ3d_nuscenes_val_all.pkl', \
@@ -52,5 +52,5 @@ dataset:
       256 @ WaymoSeqMultiView(ROOT='/gpfs/scratch/ehpc1001/quan/data/waymo_test_processed', \
       seq_pkl_name='seq_surround_temporal_sub5_stride9_fs1_waymo_test_all.pkl', \
       num_timesteps=10, num_views_per_timestep=5, fixed_cams=[0], \
-      z_far=50, split=None, seed=42, \
+      z_far=50, split=None, seed=42, window_stride=46, \
       resolution=[(518, 266)])"

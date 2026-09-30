@@ -1,0 +1,330 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>About 2,000 windows per eval set is within 0.2 pp of the full-set error; the error stops falling at ~400 KITTI and ~1,000–1,400 nuScenes / Waymo windows</title>
+<style>
+/* ---------- tokens · light only, white slides (no dark variant by request) ---------- */
+:root{
+  color-scheme: light only;
+  --backdrop:#e9e9e6; --page:#f7f7f6; --surface:#ffffff;
+  --ink:#0b0b0b; --ink2:#52514e; --muted:#83817c;
+  --grid:#e4e4de; --axis:#c3c2b7; --border:rgba(11,11,11,.12);
+  --s1:#2a78d6; --s2:#eb6834; --s3:#1baf7a; --s4:#eda100;
+  --s5:#e87ba4; --s6:#008300; --s7:#4a3aa7; --s8:#e34948;
+  --good:#0ca30c; --crit:#d03b3b; --serious:#ec835a;
+  --accent:var(--s1);
+  --serif:"Iowan Old Style","Palatino Linotype",Palatino,Georgia,serif;
+  --sans:system-ui,-apple-system,"Segoe UI",sans-serif;
+  --mono:ui-monospace,"Cascadia Code",Menlo,Consolas,monospace;
+}
+/* ---------- deck chrome ---------- */
+*{box-sizing:border-box;margin:0}
+html,body{height:100%}
+body{background:var(--backdrop);color:var(--ink);font:15px/1.45 var(--sans);overflow:hidden}
+.stage{position:absolute;left:50%;top:50%;width:1280px;height:720px;transform-origin:center center}
+.slide{position:absolute;inset:0;background:var(--surface);border:1px solid var(--border);
+  padding:52px 64px 44px;display:none;flex-direction:column}
+.slide.on{display:flex}
+.eyebrow{font:600 12px/1 var(--mono);letter-spacing:.14em;text-transform:uppercase;color:var(--accent);margin-bottom:14px}
+.eyebrow .dim{color:var(--muted)}
+h1{font:400 42px/1.15 var(--serif);letter-spacing:-.01em;text-wrap:balance}
+h2{font:400 32px/1.2 var(--serif);letter-spacing:-.005em;text-wrap:balance;margin-bottom:6px}
+.sub{color:var(--ink2);font-size:15.5px;max-width:74ch;margin-top:10px}
+.body{flex:1;min-height:0;margin-top:22px}
+.foot{display:flex;justify-content:space-between;align-items:baseline;color:var(--muted);
+  font:11px/1 var(--mono);letter-spacing:.06em;margin-top:16px;border-top:1px solid var(--grid);padding-top:12px}
+.pageno{font-variant-numeric:tabular-nums}
+/* nav */
+.nav{position:fixed;left:50%;bottom:14px;transform:translateX(-50%);display:flex;gap:8px;align-items:center;z-index:5}
+.nav button{width:9px;height:9px;border-radius:50%;border:1px solid var(--muted);background:transparent;cursor:pointer;padding:0}
+.nav button.cur{background:var(--accent);border-color:var(--accent)}
+.nav button:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+.arr{position:fixed;top:50%;transform:translateY(-50%);z-index:5;border:1px solid var(--border);
+  background:var(--surface);color:var(--ink2);width:34px;height:56px;cursor:pointer;font-size:18px;border-radius:4px}
+.arr:hover{color:var(--ink)}
+#prev{left:10px}#next{right:10px}
+/* ---------- shared bits ---------- */
+.mono{font-family:var(--mono)}
+.num{font-variant-numeric:tabular-nums}
+.sw{display:inline-block;width:10px;height:10px;border-radius:2px;vertical-align:-1px}
+.cols{display:grid;gap:30px;min-height:0}
+.c2{grid-template-columns:1fr 1fr}
+.c4{grid-template-columns:1fr 1fr 1fr 1fr}
+.c5{grid-template-columns:repeat(5,1fr)}
+.c58{grid-template-columns:1.25fr 1fr}
+.card{border:1px solid var(--grid);border-radius:6px;padding:15px 17px;background:var(--page)}
+.card h3{font:600 14px/1.3 var(--sans);margin:6px 0}
+.card .tag{font:600 10px/1 var(--mono);letter-spacing:.1em;text-transform:uppercase;color:var(--muted)}
+ul.tight{padding-left:18px;display:flex;flex-direction:column;gap:8px;font-size:14px;color:var(--ink2)}
+ul.tight li{padding-left:2px}
+ul.tight strong{color:var(--ink);font-weight:600}
+table{border-collapse:collapse;width:100%;font-size:12.5px}
+th{font:600 10.5px/1.3 var(--mono);letter-spacing:.08em;text-transform:uppercase;color:var(--muted);
+  text-align:left;padding:6px 10px;border-bottom:1px solid var(--axis)}
+td{padding:6px 10px;border-bottom:1px solid var(--grid);color:var(--ink2);vertical-align:top}
+td.n,th.n{text-align:right;font-variant-numeric:tabular-nums}
+td b{color:var(--ink);font-weight:600}
+tr.hl td{background:color-mix(in srgb,var(--s1) 9%,transparent)}
+tr.sep td{border-top:2px solid var(--axis)}
+td.bad{color:var(--crit);font-weight:600}
+td.ok{color:var(--good);font-weight:600}
+/* stat tiles */
+.tiles{display:grid;gap:13px}
+.tile{border:1px solid var(--grid);border-radius:6px;padding:13px 15px;background:var(--page)}
+.tile .v{font:600 26px/1.1 var(--sans);letter-spacing:-.01em;font-variant-numeric:tabular-nums}
+.tile .k{font:600 10px/1.4 var(--mono);letter-spacing:.1em;text-transform:uppercase;color:var(--muted);margin-bottom:6px}
+.tile .d{font-size:12.5px;color:var(--ink2);margin-top:6px}
+.rulebar{border:1px dashed var(--axis);border-radius:6px;padding:11px 15px;font-size:13.5px;color:var(--ink2);margin-top:12px}
+.rulebar b{color:var(--ink)}
+/* charts */
+.chartwrap{position:relative}
+.panelttl{font:600 10px/1 var(--mono);letter-spacing:.1em;text-transform:uppercase;color:var(--muted);margin-bottom:4px}
+.legend{display:flex;flex-wrap:wrap;gap:6px 20px;font:12.5px/1 var(--sans);color:var(--ink2);margin-bottom:8px}
+.legend span{display:inline-flex;gap:7px;align-items:center}
+svg{display:block}
+svg text{font:10.5px var(--sans);fill:var(--muted)}
+svg .barval{font:10px var(--mono);fill:var(--ink2)}
+svg .axl{font:10px var(--mono);fill:var(--muted)}
+.slide kbd{font:11px var(--mono);border:1px solid var(--axis);border-radius:3px;padding:1px 5px;color:var(--ink2)}
+@media (prefers-reduced-motion: no-preference){
+  .slide.on{animation:fadein .18s ease}
+  @keyframes fadein{from{opacity:.4}to{opacity:1}}
+}
+@media print{
+  body{overflow:visible;background:#fff}
+  .stage{position:static;transform:none!important;width:auto;height:auto}
+  .slide{display:flex;position:static;width:1280px;height:720px;page-break-after:always;margin:0 auto}
+  .nav,.arr{display:none}
+}
+</style>
+</head>
+<body>
+<div class="stage" id="stage">
+
+<!-- ============ SLIDE 1 — answer ============ -->
+<section class="slide on">
+  <div class="eyebrow">DeltaTok-flow eval <span class="dim">— how many windows per eval set · per-window 20-step eval of the ctx2fwd8 arm, ep 24</span></div>
+  <h1>About 2,000 windows per set is within 0.2 pp of the full-set error; the error stops falling at ~400 KITTI and ~1,000–1,400 nuScenes / Waymo windows</h1>
+  <p class="sub">Standard error of the mean eval loss, as % of the mean, from a block bootstrap within scenes.
+    Chosen for the step-sweep eval: <span class="mono">window_stride</span> KITTI 2, nuScenes 2, Waymo 16.</p>
+  <div class="body">
+    <div class="cols" style="grid-template-columns:repeat(3,1fr);gap:14px">
+      <div class="tile"><div class="k">KITTI val · stride 2 · 2,013 windows</div><div class="v">2.3 / 2.3 / 2.3%</div><div class="d">Depth / Pointmap / Raymap SE. All 4,026 windows: 2.2 / 2.3 / 2.2%. One drive (seq 08), so ~2.2% is the floor.</div></div>
+      <div class="tile"><div class="k">nuScenes val · stride 2 · 2,382 → 2,000</div><div class="v">1.5 / 2.4 / 2.9%</div><div class="d">All 4,669 windows: 1.6 / 2.3 / 2.8%. 150 scenes, fixed folder <span class="mono">occ3d_nuscenes_val_preprocessed</span>.</div></div>
+      <div class="tile"><div class="k">Waymo test · stride 16 · 2,018 windows</div><div class="v">1.7 / 2.4 / 3.0%</div><div class="d">Read at the nearest measured count (2,215). Densest run, 6,251 windows: 1.6 / 2.3 / 2.8%. 202 segments.</div></div>
+    </div>
+    <div class="rulebar" style="margin-top:16px"><b>More windows past ~1,000 buy almost nothing.</b>
+      KITTI at 403 windows (stride 10) is 2.2 / 2.5 / 2.6%, nuScenes at 1,032 (stride 5) 1.6 / 2.6 / 3.0%,
+      Waymo at 1,407 (stride ~25) 1.6 / 2.3 / 2.8%. Non-overlapping windows cost little on the multi-scene sets
+      and a lot on KITTI (88 windows: 2.9 / 3.9 / 4.1%). Means do not drift with stride.</div>
+    <p class="sub" style="margin-top:14px;font-size:13.5px"><kbd>←</kbd> <kbd>→</kbd> to navigate ·
+      calibration jobs BSC <span class="mono">46827530</span> (KITTI) · <span class="mono">46827531</span> (nuScenes) · <span class="mono">46827532</span> (Waymo) ·
+      <span class="mono">eval_deltatok_flow_sampler.py --dump_per_window --test_filter</span> · <span class="mono">analyze_eval_windows.py</span>.</p>
+  </div>
+  <div class="foot"><span>DeltaTok-flow · eval window-stride calibration · 30-09-2026</span><span>~2,000 per set, ≤0.2 pp over full</span><span class="pageno">1</span></div>
+</section>
+
+<!-- ============ SLIDE 2 — the measurement ============ -->
+<section class="slide">
+  <div class="eyebrow">The measurement <span class="dim">— one loss row per window, then thin and bootstrap</span></div>
+  <h2>Every window scored once, then thinned with the same rule as <span class="mono">window_stride</span></h2>
+  <p class="sub">One checkpoint, 20 ODE steps, <span class="mono">val_bsize=1</span> so each logged batch is one window.
+    Each window is 10 consecutive 0.5 s frames of cam 0: 2 given, 8 forecast.</p>
+  <div class="body cols c58" style="margin-top:14px">
+    <div>
+      <table>
+        <thead><tr><th>set</th><th class="n">windows scored</th><th class="n">scenes</th><th>pkl · start stride</th><th class="n">job · wall</th></tr></thead>
+        <tbody>
+          <tr><td><b>KITTI val</b></td><td class="n">4,026</td><td class="n">1</td><td class="mono">seq_exact_len_sub5_stride9 · 1</td><td class="n mono">46827530 · 1:23</td></tr>
+          <tr><td><b>nuScenes val</b></td><td class="n">4,669</td><td class="n">150</td><td class="mono">…sub1_stride9_fs1_occ3d_nuscenes_val · 1</td><td class="n mono">46827531 · 2:06</td></tr>
+          <tr><td><b>Waymo test</b></td><td class="n">6,251</td><td class="n">202</td><td class="mono">…sub5_stride9_fs1_waymo_test · 5</td><td class="n mono">46827532 · 2:38</td></tr>
+        </tbody>
+      </table>
+      <div class="rulebar"><b>Standard error.</b> Windows that share frames are resampled together: blocks of
+        ⌈(span + 1) / stride⌉ consecutive windows within a scene, span = 45 frame ids (KITTI, Waymo) or 9 (nuScenes),
+        1,000 bootstrap resamples. Reported as SE / mean.</div>
+    </div>
+    <div>
+      <table>
+        <thead><tr><th>shared</th><th>value</th></tr></thead>
+        <tbody>
+          <tr><td><b>Flow run</b></td><td class="mono">…alldata_consec10cam0_ctx2fwd8_…_xxl_dit</td></tr>
+          <tr><td><b>Checkpoint</b></td><td class="mono">iter_050000.pth · global_epoch 24</td></tr>
+          <tr><td><b>Tokenizer</b></td><td class="mono">tc1536 · pool 24576 · SIGReg 0.02 · epoch_70</td></tr>
+          <tr><td><b>Sampler</b></td><td class="mono">ode · 20 steps · linear · alpha 0</td></tr>
+          <tr><td><b>Metrics</b></td><td class="mono">LossDepth · LossPointmap · LossRaymap · MSEToken</td></tr>
+          <tr><td><b>Seconds / window</b></td><td class="mono">1.08 KITTI · 1.25 nuScenes · 1.27 Waymo</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+  <div class="foot"><span>results/deltatok_flow_calib_{Kitti,Occ3dNuscenes,Waymo}/…/per_window_ode_steps20_sigmaNone.csv</span><span>thin, then bootstrap</span><span class="pageno">2</span></div>
+</section>
+
+<!-- ============ SLIDE 3 — SE vs windows ============ -->
+<section class="slide">
+  <div class="eyebrow">Error vs sample size <span class="dim">— SE as % of the mean, x = windows kept (log)</span></div>
+  <h2>Every curve is flat to ~1,000 windows and only climbs below it</h2>
+  <div class="legend" style="margin-top:8px">
+    <span><svg width="12" height="12" style="display:inline-block"><circle cx="6" cy="6" r="4.6" fill="#fff" stroke="#2a78d6" stroke-width="2.4"/></svg> chosen, ~2,000 windows</span>
+    <span><svg width="12" height="12" style="display:inline-block"><rect x="1.5" y="1.5" width="9" height="9" fill="#d03b3b"/></svg> non-overlapping</span>
+    <span style="color:var(--muted)">rows = eval set · columns = metric · one scale per column</span>
+  </div>
+  <div class="body" style="margin-top:2px;display:grid;grid-template-columns:78px repeat(4,1fr);grid-template-rows:repeat(3,1fr);gap:4px 14px">
+    <div class="panelttl" style="align-self:center">KITTI</div>
+    <div><div class="panelttl">LossDepth</div><div id="k0"></div></div>
+    <div><div class="panelttl">LossPointmap</div><div id="k1"></div></div>
+    <div><div class="panelttl">LossRaymap</div><div id="k2"></div></div>
+    <div><div class="panelttl">MSEToken</div><div id="k3"></div></div>
+    <div class="panelttl" style="align-self:center">nuScenes</div>
+    <div id="n0"></div><div id="n1"></div><div id="n2"></div><div id="n3"></div>
+    <div class="panelttl" style="align-self:center">Waymo</div>
+    <div id="w0"></div><div id="w1"></div><div id="w2"></div><div id="w3"></div>
+  </div>
+  <div class="foot"><span>Waymo starts at stride 5, so its densest point is 6,251 windows, not all 30,897</span><span>flat past ~1,000</span><span class="pageno">3</span></div>
+</section>
+
+<!-- ============ SLIDE 4 — decision ============ -->
+<section class="slide">
+  <div class="eyebrow">The choice <span class="dim">— SE % at the chosen, the saturation and the non-overlapping stride</span></div>
+  <h2>~2,000 per set costs ≤0.2 pp over the densest run; ~1,000 would cost up to 0.5 pp</h2>
+  <div class="body" style="margin-top:12px">
+    <table>
+      <thead><tr><th>set</th><th>setting</th><th class="n">windows</th><th class="n">Depth</th><th class="n">Pointmap</th><th class="n">Raymap</th><th class="n">MSEToken</th></tr></thead>
+      <tbody>
+        <tr><td><b>KITTI</b></td><td>all</td><td class="n">4,026</td><td class="n">2.19</td><td class="n">2.26</td><td class="n">2.22</td><td class="n">0.54</td></tr>
+        <tr class="hl"><td></td><td><b>stride 2 · chosen</b></td><td class="n">2,013</td><td class="n">2.29</td><td class="n">2.31</td><td class="n">2.27</td><td class="n">0.56</td></tr>
+        <tr><td></td><td>stride 10</td><td class="n">403</td><td class="n">2.20</td><td class="n">2.54</td><td class="n">2.58</td><td class="n">0.53</td></tr>
+        <tr><td></td><td>stride 46 · non-overlapping</td><td class="n">88</td><td class="n">2.86</td><td class="n bad">3.90</td><td class="n bad">4.10</td><td class="n">0.57</td></tr>
+        <tr class="sep"><td><b>nuScenes</b></td><td>all</td><td class="n">4,669</td><td class="n">1.59</td><td class="n">2.28</td><td class="n">2.78</td><td class="n">1.58</td></tr>
+        <tr class="hl"><td></td><td><b>stride 2 · chosen</b> (capped at 2,000)</td><td class="n">2,382</td><td class="n">1.54</td><td class="n">2.44</td><td class="n">2.92</td><td class="n">1.57</td></tr>
+        <tr><td></td><td>stride 5</td><td class="n">1,032</td><td class="n">1.61</td><td class="n">2.61</td><td class="n">3.04</td><td class="n">1.49</td></tr>
+        <tr><td></td><td>stride 10 · non-overlapping</td><td class="n">582</td><td class="n">1.61</td><td class="n">2.96</td><td class="n">3.51</td><td class="n">1.52</td></tr>
+        <tr class="sep"><td><b>Waymo</b></td><td>stride 5 · densest run</td><td class="n">6,251</td><td class="n">1.61</td><td class="n">2.29</td><td class="n">2.80</td><td class="n">1.55</td></tr>
+        <tr class="hl"><td></td><td><b>stride 16 · chosen</b> (2,018; read at 2,215)</td><td class="n">2,215</td><td class="n">1.67</td><td class="n">2.41</td><td class="n">2.97</td><td class="n">1.53</td></tr>
+        <tr><td></td><td>stride ~25</td><td class="n">1,407</td><td class="n">1.61</td><td class="n">2.34</td><td class="n">2.84</td><td class="n">1.40</td></tr>
+        <tr><td></td><td>stride ~50 · non-overlapping</td><td class="n">801</td><td class="n">1.71</td><td class="n">2.59</td><td class="n">2.92</td><td class="n">1.43</td></tr>
+      </tbody>
+    </table>
+    <div class="rulebar">Cells are SE as % of the mean. <b>Cost</b> scales with windows: 2,000 windows take ~0.6 h per pass at 20 steps, bsize 1.
+      The bootstrap itself moves ~±0.1 pp between neighbouring strides (Waymo 3,223 windows reads 1.60% or 1.75% depending on block size).</div>
+  </div>
+  <div class="foot"><span>configs/deltatok_flow/eval_deltatok_flow_alldata_ctx2fwd8_bsc.yaml · window_stride 2 / 2 / 16</span><span>chosen rows highlighted</span><span class="pageno">4</span></div>
+</section>
+
+<!-- ============ SLIDE 5 — caveats ============ -->
+<section class="slide">
+  <div class="eyebrow">Caveats <span class="dim">— what this calibration does not establish</span></div>
+  <h2>One checkpoint, one noise draw, single-arm errors</h2>
+  <div class="body cols c2" style="gap:26px;margin-top:14px;align-items:start">
+    <div class="card" style="border-left:3px solid var(--serious)">
+      <div class="tag">Likely underestimates</div>
+      <ul class="tight" style="margin-top:10px;font-size:13px">
+        <li><strong>Only frame-sharing correlation is modelled.</strong> Slower structure along a drive (highway vs city stretches) is not, so every SE is probably low. Comparing strides stays fair.</li>
+        <li><strong>KITTI is one drive.</strong> Its ~2.2% floor is a within-drive error. All 11 odometry sequences are unseen by every training config, so adding them is the way to lower it.</li>
+        <li><strong>Waymo rows below stride 5</strong> are an artifact: the run started at stride 5, so nothing was thinned and the blocks were oversized. They are not shown.</li>
+      </ul>
+    </div>
+    <div class="card" style="border-left:3px solid var(--grid)">
+      <div class="tag">Scope</div>
+      <ul class="tight" style="margin-top:10px;font-size:13px">
+        <li><strong>Single-arm SE, not arm differences.</strong> Arms share windows, so the SE of a difference should be smaller. Not measured; it needs a second arm on the same windows.</li>
+        <li><strong>One checkpoint, 20 steps, one noise seed.</strong> The ctx2fwd8 arm at ep 24. Other step counts are not calibrated.</li>
+        <li><strong>nuScenes uses the fixed val folder.</strong> The 8 corrupted scenes of <span class="mono">occ3d_nuscenes_processed</span> are regenerated keyframe-only.</li>
+      </ul>
+    </div>
+  </div>
+  <div class="foot"><span>per-window CSVs on BSC under results/deltatok_flow_calib_*</span><span>underestimates, but comparable</span><span class="pageno">5</span></div>
+</section>
+
+</div><!-- /stage -->
+
+<button class="arr" id="prev" aria-label="Previous">‹</button>
+<button class="arr" id="next" aria-label="Next">›</button>
+<div class="nav" id="nav" role="tablist"></div>
+
+<script>
+/* ---------- deck nav ---------- */
+const stage=document.getElementById("stage");
+const slides=[...document.querySelectorAll(".slide")];
+const nav=document.getElementById("nav");
+let cur=0;
+slides.forEach((_,i)=>{
+  const b=document.createElement("button");
+  b.setAttribute("role","tab");b.setAttribute("aria-label","Slide "+(i+1));
+  b.addEventListener("click",()=>go(i));
+  nav.appendChild(b);
+});
+function go(i){
+  cur=Math.max(0,Math.min(slides.length-1,i));
+  slides.forEach((s,j)=>s.classList.toggle("on",j===cur));
+  [...nav.children].forEach((b,j)=>b.classList.toggle("cur",j===cur));
+}
+document.getElementById("prev").addEventListener("click",()=>go(cur-1));
+document.getElementById("next").addEventListener("click",()=>go(cur+1));
+addEventListener("keydown",e=>{
+  if(["ArrowRight","PageDown"," "].includes(e.key)){go(cur+1);e.preventDefault();}
+  else if(["ArrowLeft","PageUp"].includes(e.key)){go(cur-1);e.preventDefault();}
+  else if(e.key==="Home")go(0);
+  else if(e.key==="End")go(slides.length-1);
+});
+go(0);
+/* ---------- auto-scale ---------- */
+function fit(){
+  const s=Math.min(innerWidth/1300,(innerHeight-40)/730);
+  stage.style.transform=`translate(-50%,-50%) scale(${Math.min(s,1.4)})`;
+}
+addEventListener("resize",fit);fit();
+
+/* ---------- CSS var resolver ---------- */
+const CV=n=>getComputedStyle(document.documentElement).getPropertyValue(n).trim();
+
+/* ---------- SE-vs-windows panel: log-x windows, y = SE % ----------
+   cfg: {n, se, chosen, nonov, ymax}; chosen point ringed, non-overlapping point a red square. */
+function seChart(el,cfg){
+  const W=260,H=138,L=34,R=8,T=8,B=22, iw=W-L-R, ih=H-T-B;
+  const xmin=Math.log10(40), xmax=Math.log10(7000);
+  const X=v=>L+iw*((Math.log10(v)-xmin)/(xmax-xmin));
+  const ymax=cfg.ymax, Y=v=>T+ih*(1-v/ymax);
+  const yt=cfg.yticks;
+  let s=`<svg viewBox="0 0 ${W} ${H}" width="100%" preserveAspectRatio="xMinYMin meet">`;
+  yt.forEach(t=>{const y=Y(t);
+    s+=`<line x1="${L}" y1="${y}" x2="${L+iw}" y2="${y}" stroke="${CV('--grid')}"/>`;
+    s+=`<text x="${L-5}" y="${y+3}" text-anchor="end" class="axl">${t}%</text>`;});
+  [100,1000].forEach(t=>{const x=X(t);
+    s+=`<line x1="${x}" y1="${T}" x2="${x}" y2="${T+ih}" stroke="${CV('--grid')}"/>`;
+    s+=`<text x="${x}" y="${H-8}" text-anchor="middle" class="axl">${t>=1000?(t/1000)+'k':t}</text>`;});
+  const c=CV('--s1');
+  const pts=cfg.n.map((v,i)=>[X(v),Y(cfg.se[i])]).sort((a,b)=>a[0]-b[0]);
+  s+=`<path d="${pts.map((p,i)=>`${i?'L':'M'}${p[0].toFixed(1)} ${p[1].toFixed(1)}`).join(' ')}" fill="none" stroke="${c}" stroke-width="2"/>`;
+  cfg.n.forEach((v,i)=>{const x=X(v).toFixed(1),y=Y(cfg.se[i]).toFixed(1);
+    if(i===cfg.nonov) s+=`<rect x="${x-4}" y="${y-4}" width="8" height="8" fill="${CV('--crit')}"/>`;
+    else if(i===cfg.chosen) s+=`<circle cx="${x}" cy="${y}" r="4.6" fill="${CV('--surface')}" stroke="${c}" stroke-width="2.4"/>`;
+    else s+=`<circle cx="${x}" cy="${y}" r="2.6" fill="${c}"/>`;});
+  s+=`</svg>`;
+  el.innerHTML=s;
+}
+
+/* ================= DATA =================
+   analyze_eval_windows.py on per_window_ode_steps20_sigmaNone.csv · SE / mean in % · 1,000 block-bootstrap resamples.
+   KITTI strides 1,2,3,5,7,10,16,23,46,92 · nuScenes 1,2,3,5,7,10,16,46 (23 duplicates 16 at 300) ·
+   Waymo (from a stride-5 run) 5,10,12,16,23,33,46,69,92 (7 duplicates 10 at 3,223). */
+const D={
+  k:{n:[4026,2013,1342,806,576,403,252,176,88,44], chosen:1, nonov:8,
+     se:[[2.19,2.29,2.25,2.26,2.32,2.20,2.56,2.48,2.86,4.51],[2.26,2.31,2.28,2.50,2.55,2.54,2.95,2.97,3.90,6.01],
+         [2.22,2.27,2.37,2.38,2.63,2.58,2.93,3.03,4.10,5.52],[0.54,0.56,0.57,0.55,0.55,0.53,0.54,0.56,0.57,0.86]]},
+  n:{n:[4669,2382,1632,1032,750,582,300,150], chosen:1, nonov:5,
+     se:[[1.59,1.54,1.70,1.61,1.77,1.61,2.29,3.36],[2.28,2.44,2.65,2.61,2.93,2.96,4.24,5.82],
+         [2.78,2.92,3.17,3.04,3.52,3.51,4.90,7.17],[1.58,1.57,1.61,1.49,1.75,1.52,2.21,3.22]]},
+  w:{n:[6251,3223,2215,1614,1407,1008,801,604,404], chosen:2, nonov:6,
+     se:[[1.61,1.60,1.67,1.83,1.61,1.82,1.71,2.08,2.55],[2.29,2.19,2.41,2.46,2.34,2.75,2.59,3.09,3.53],
+         [2.80,2.92,2.97,2.94,2.84,3.34,2.92,3.67,4.30],[1.55,1.45,1.53,1.59,1.40,1.55,1.43,1.54,1.95]]},
+};
+const AX=[{ymax:5,yticks:[0,2,4]},{ymax:7,yticks:[0,2,4,6]},{ymax:8,yticks:[0,2,4,6,8]},{ymax:4,yticks:[0,1,2,3,4]}];
+['k','n','w'].forEach(set=>[0,1,2,3].forEach(m=>
+  seChart(document.getElementById(set+m),{n:D[set].n, se:D[set].se[m], chosen:D[set].chosen, nonov:D[set].nonov, ...AX[m]})));
+</script>
+</body>
+</html>
