@@ -1,0 +1,431 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>5 flow steps is near-best on nuScenes and Waymo; KITTI FD worsens 3.4× with steps · all-data ctx2fwd8</title>
+<style>
+/* ---------- tokens · light only, white slides (no dark variant by request) ---------- */
+:root{
+  color-scheme: light only;
+  --backdrop:#e9e9e6; --page:#f7f7f6; --surface:#ffffff;
+  --ink:#0b0b0b; --ink2:#52514e; --muted:#83817c;
+  --grid:#e4e4de; --axis:#c3c2b7; --border:rgba(11,11,11,.12);
+  --s1:#2a78d6; --s2:#eb6834; --s3:#1baf7a; --s4:#eda100;
+  --s5:#e87ba4; --s6:#008300; --s7:#4a3aa7; --s8:#e34948;
+  --good:#0ca30c; --crit:#d03b3b; --serious:#ec835a;
+  --accent:var(--s1);
+  --serif:"Iowan Old Style","Palatino Linotype",Palatino,Georgia,serif;
+  --sans:system-ui,-apple-system,"Segoe UI",sans-serif;
+  --mono:ui-monospace,"Cascadia Code",Menlo,Consolas,monospace;
+}
+/* ---------- deck chrome ---------- */
+*{box-sizing:border-box;margin:0}
+html,body{height:100%}
+body{background:var(--backdrop);color:var(--ink);font:15px/1.45 var(--sans);overflow:hidden}
+.stage{position:absolute;left:50%;top:50%;width:1280px;height:720px;transform-origin:center center}
+.slide{position:absolute;inset:0;background:var(--surface);border:1px solid var(--border);
+  padding:52px 64px 44px;display:none;flex-direction:column}
+.slide.on{display:flex}
+.eyebrow{font:600 12px/1 var(--mono);letter-spacing:.14em;text-transform:uppercase;color:var(--accent);margin-bottom:14px}
+.eyebrow .dim{color:var(--muted)}
+h1{font:400 46px/1.15 var(--serif);letter-spacing:-.01em;text-wrap:balance}
+h2{font:400 32px/1.2 var(--serif);letter-spacing:-.005em;text-wrap:balance;margin-bottom:6px}
+.sub{color:var(--ink2);font-size:15.5px;max-width:74ch;margin-top:10px}
+.body{flex:1;min-height:0;margin-top:22px}
+.foot{display:flex;justify-content:space-between;align-items:baseline;color:var(--muted);
+  font:11px/1 var(--mono);letter-spacing:.06em;margin-top:16px;border-top:1px solid var(--grid);padding-top:12px}
+.pageno{font-variant-numeric:tabular-nums}
+/* nav */
+.nav{position:fixed;left:50%;bottom:14px;transform:translateX(-50%);display:flex;gap:8px;align-items:center;z-index:5}
+.nav button{width:9px;height:9px;border-radius:50%;border:1px solid var(--muted);background:transparent;cursor:pointer;padding:0}
+.nav button.cur{background:var(--accent);border-color:var(--accent)}
+.nav button:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+.arr{position:fixed;top:50%;transform:translateY(-50%);z-index:5;border:1px solid var(--border);
+  background:var(--surface);color:var(--ink2);width:34px;height:56px;cursor:pointer;font-size:18px;border-radius:4px}
+.arr:hover{color:var(--ink)}
+#prev{left:10px}#next{right:10px}
+/* ---------- shared bits ---------- */
+.mono{font-family:var(--mono)}
+.num{font-variant-numeric:tabular-nums}
+.chip{display:inline-block;font:600 10.5px/1 var(--mono);letter-spacing:.05em;padding:4px 7px;border-radius:3px;
+  border:1px solid var(--border);white-space:nowrap}
+.chip.good{color:var(--good);border-color:currentColor}
+.chip.wall{color:var(--serious);border-color:currentColor}
+.chip.dead{color:var(--crit);border-color:currentColor}
+.chip.hero{color:var(--accent);border-color:currentColor}
+.sw{display:inline-block;width:10px;height:10px;border-radius:2px;vertical-align:-1px}
+.cols{display:grid;gap:30px;min-height:0}
+.c2{grid-template-columns:1fr 1fr}
+.c3{grid-template-columns:1fr 1fr 1fr}
+.c4{grid-template-columns:1fr 1fr 1fr 1fr}
+.c5{grid-template-columns:repeat(5,1fr)}
+.c58{grid-template-columns:1.25fr 1fr}
+.card{border:1px solid var(--grid);border-radius:6px;padding:15px 17px;background:var(--page)}
+.card h3{font:600 14px/1.3 var(--sans);margin:6px 0}
+.card .tag{font:600 10px/1 var(--mono);letter-spacing:.1em;text-transform:uppercase;color:var(--muted)}
+ul.tight{padding-left:18px;display:flex;flex-direction:column;gap:8px;font-size:14px;color:var(--ink2)}
+ul.tight li{padding-left:2px}
+ul.tight strong{color:var(--ink);font-weight:600}
+table{border-collapse:collapse;width:100%;font-size:12.5px}
+th{font:600 10.5px/1.3 var(--mono);letter-spacing:.08em;text-transform:uppercase;color:var(--muted);
+  text-align:left;padding:6px 10px;border-bottom:1px solid var(--axis)}
+td{padding:6px 10px;border-bottom:1px solid var(--grid);color:var(--ink2);vertical-align:top}
+td.n,th.n{text-align:right;font-variant-numeric:tabular-nums}
+td b{color:var(--ink);font-weight:600}
+tr.hl td{background:color-mix(in srgb,var(--s1) 9%,transparent)}
+tr.dim td{color:var(--muted)}
+tr.sep td{border-top:2px solid var(--axis)}
+td.bad{color:var(--crit);font-weight:600}
+td.ok{color:var(--good);font-weight:600}
+/* stat tiles */
+.tiles{display:grid;gap:13px}
+.tile{border:1px solid var(--grid);border-radius:6px;padding:13px 15px;background:var(--page)}
+.tile .v{font:600 26px/1.1 var(--sans);letter-spacing:-.01em;font-variant-numeric:tabular-nums}
+.tile .k{font:600 10px/1.4 var(--mono);letter-spacing:.1em;text-transform:uppercase;color:var(--muted);margin-bottom:6px}
+.tile .d{font-size:12.5px;color:var(--ink2);margin-top:6px}
+.rulebar{border:1px dashed var(--axis);border-radius:6px;padding:11px 15px;font-size:13.5px;color:var(--ink2);margin-top:12px}
+.rulebar b{color:var(--ink)}
+/* charts */
+.chartwrap{position:relative}
+.panelttl{font:600 10px/1 var(--mono);letter-spacing:.1em;text-transform:uppercase;color:var(--muted);margin-bottom:4px}
+.legend{display:flex;flex-wrap:wrap;gap:6px 20px;font:12.5px/1 var(--sans);color:var(--ink2);margin-bottom:8px}
+.legend span{display:inline-flex;gap:7px;align-items:center}
+svg{display:block}
+svg text{font:10.5px var(--sans);fill:var(--muted)}
+svg .barlbl{font:600 12px var(--sans);fill:var(--ink)}
+svg .barval{font:10px var(--mono);fill:var(--ink2)}
+svg .axl{font:10px var(--mono);fill:var(--muted)}
+.slide kbd{font:11px var(--mono);border:1px solid var(--axis);border-radius:3px;padding:1px 5px;color:var(--ink2)}
+@media (prefers-reduced-motion: no-preference){
+  .slide.on{animation:fadein .18s ease}
+  @keyframes fadein{from{opacity:.4}to{opacity:1}}
+}
+@media print{
+  body{overflow:visible;background:#fff}
+  .stage{position:static;transform:none!important;width:auto;height:auto}
+  .slide{display:flex;position:static;width:1280px;height:720px;page-break-after:always;margin:0 auto}
+  .nav,.arr{display:none}
+}
+/* 3x4 sweep grid */
+.g34{display:grid;grid-template-columns:92px repeat(4,1fr);gap:4px 14px;align-content:start}
+.rowlbl{font:12.5px/1.4 var(--sans);color:var(--muted);align-self:center}
+.rowlbl b{color:var(--ink);font-size:14px}
+</style>
+</head>
+<body>
+<div class="stage" id="stage">
+
+<!-- ============ SLIDE 1 — answer ============ -->
+<section class="slide on">
+  <div class="eyebrow">DeltaTok-flow <span class="dim">— dedicated eval · all-data ctx2fwd8 flow · iter 50k · ~2,000 windows per set</span></div>
+  <h1>5 steps is near-best on nuScenes and Waymo; on KITTI, FD gets 3.4× worse with steps</h1>
+  <p class="sub">One checkpoint, sampled at 1, 5, 10 and 20 ODE steps on three test sets. FD compares the sampled forecast
+    tokens with the GT tokens as distributions. Depth, Pointmap and Raymap compare each sample with its own GT.</p>
+  <div class="body">
+    <div class="cols c3" style="gap:15px">
+      <div class="tile"><div class="k">nuScenes val · zero-shot · 2,382 windows</div><div class="v" style="color:var(--good)">FD 27.1 → 16.5</div><div class="d">1 → 5 steps, <b>−39%</b>. 5 steps is best on Depth and Raymap and within 2.3% of best on FD and Pointmap.</div></div>
+      <div class="tile"><div class="k">Waymo test · held-out split · 2,018 windows</div><div class="v" style="color:var(--good)">FD 22.6 → 13.1</div><div class="d">1 → 5 steps, <b>−42%</b>. 5 steps is best on Raymap; Depth +1.6% and Pointmap +5.0% over their 1-step best.</div></div>
+      <div class="tile"><div class="k">KITTI val · zero-shot · 2,013 windows</div><div class="v" style="color:var(--crit)">FD 9.6 → 32.7</div><div class="d">1 → 20 steps, <b>+239%</b>. Geometry goes the other way: Raymap −9.8%, Pointmap −7.2% at 20 steps.</div></div>
+    </div>
+    <div class="rulebar" style="margin-top:18px"><b>No step count wins everywhere.</b> Past 5 steps nuScenes and Waymo
+      gain at most 1.9% FD and lose Depth: Waymo Depth is +30% at 20 steps. KITTI is the outlier. Its FD is best at 1 step
+      and its geometry at 20.</div>
+    <p class="sub" style="margin-top:14px;font-size:13.5px"><kbd>←</kbd> <kbd>→</kbd> to navigate ·
+      evals BSC <span class="mono">46837868</span> / <span class="mono">69</span> / <span class="mono">70</span> / <span class="mono">71</span> ·
+      flow run BSC <span class="mono">46503892</span>, <span class="mono">iter_050000.pth</span> (ep 24) ·
+      <span class="mono">eval_deltatok_flow_sampler.py --fvd</span>, 1 GPU.</p>
+  </div>
+  <div class="foot"><span>DeltaTok-flow · all-data step sweep · 30-09-2026</span><span>5 steps on nuScenes and Waymo</span><span class="pageno">1</span></div>
+</section>
+
+<!-- ============ SLIDE 2 — what ran ============ -->
+<section class="slide">
+  <div class="eyebrow">The measurement <span class="dim">— one checkpoint, four step counts, three sets</span></div>
+  <h2>Only the step count changes between the four jobs</h2>
+  <p class="sub">Each job runs one full pass over all three sets on one GPU, with the same windows and the same seed.
+    Window counts come from <span class="mono">window_stride</span>, with no cap.</p>
+  <div class="body cols c58" style="margin-top:14px">
+    <div>
+      <table>
+        <thead><tr><th>component</th><th>value</th></tr></thead>
+        <tbody>
+          <tr class="hl"><td><b>Steps</b></td><td class="mono">1, 5, 10, 20 · one job each · val_bsize 8</td></tr>
+          <tr><td><b>Flow run</b></td><td class="mono">…ctx2fwd8_tc1536mg9sigreg002compose_seed1_ep70tok_xxl_dit</td></tr>
+          <tr><td><b>Checkpoint</b></td><td class="mono">iter_050000.pth · ep 24</td></tr>
+          <tr><td><b>Tokenizer</b></td><td class="mono">tc1536 · pool 24576 · sigreg 0.02 · compose 1.0 · seed 1 · epoch_70</td></tr>
+          <tr><td><b>Flow ViT</b></td><td class="mono">xxlarge_d20 · dit_adaln · loss v · delta_ctx_cross</td></tr>
+          <tr><td><b>Sampler</b></td><td class="mono">ode · linear · alpha 0</td></tr>
+          <tr><td><b>Window</b></td><td class="mono">10 frames at 0.5 s: 0–1 given, 2–9 forecast · cam 0</td></tr>
+          <tr><td><b>Training data</b></td><td class="mono">Waymo train, VKITTI, DDAD, PandaSet, ONCE, …</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <div>
+      <table>
+        <thead><tr><th>set</th><th class="n">stride</th><th class="n">windows</th><th class="n">FD vectors</th></tr></thead>
+        <tbody>
+          <tr><td><b>KITTI val</b> <span style="color:var(--muted)">seq 08 · zero-shot</span></td><td class="n">2</td><td class="n">2,013</td><td class="n">16,104</td></tr>
+          <tr><td><b>nuScenes val</b> <span style="color:var(--muted)">150 scenes · zero-shot</span></td><td class="n">2</td><td class="n">2,382</td><td class="n">19,056</td></tr>
+          <tr><td><b>Waymo test</b> <span style="color:var(--muted)">202 segments · held out</span></td><td class="n">16</td><td class="n">2,018</td><td class="n">16,144</td></tr>
+        </tbody>
+      </table>
+      <div class="tiles" style="margin-top:16px;grid-template-columns:1fr 1fr">
+        <div class="tile"><div class="k">FD features</div><div class="v">8 per window</div><div class="d">One DA3 layer-12 vector per forecast frame, mean over patches. 16k+ vectors in 1536 dims: full-rank covariance.</div></div>
+        <div class="tile"><div class="k">Floor</div><div class="v"><span class="mono" style="font-size:22px">_tok</span></div><div class="d">Same metric on the rollout from the GT deltas. Step-free.</div></div>
+      </div>
+    </div>
+  </div>
+  <div class="foot"><span>slurm/eval_deltatok_flow_numsteps_alldata_ctx2fwd8_bsc.slurm</span><span>one variable: eval_num_steps</span><span class="pageno">2</span></div>
+</section>
+
+<!-- ============ SLIDE 3 — sweep grid ============ -->
+<section class="slide">
+  <div class="eyebrow">The sweep <span class="dim">— lower is better · ringed = lowest · floor = GT-delta rollout, off-scale</span></div>
+  <h2>FD and geometry disagree on KITTI; on the other two sets both flatten by 5 steps</h2>
+  <div class="body g34" style="margin-top:12px">
+    <div></div><div class="panelttl">FD</div><div class="panelttl">LossDepth</div><div class="panelttl">LossPointmap</div><div class="panelttl">LossRaymap</div>
+    <div class="rowlbl"><b>nuScenes</b><br>val · 2,382</div>
+    <div id="nFd"></div><div id="nDp"></div><div id="nPm"></div><div id="nRm"></div>
+    <div class="rowlbl"><b>Waymo</b><br>test · 2,018</div>
+    <div id="wFd"></div><div id="wDp"></div><div id="wPm"></div><div id="wRm"></div>
+    <div class="rowlbl"><b>KITTI</b><br>val · 2,013</div>
+    <div id="kFd"></div><div id="kDp"></div><div id="kPm"></div><div id="kRm"></div>
+  </div>
+  <div class="foot"><span>floors — FD 0.85 / 0.55 / 1.51 · Depth 2.79 / 2.76 / 1.35 · Pointmap 3.77 / 5.24 / 2.35 · Raymap 1.58 / 3.04 / 1.41 (nuScenes / Waymo / KITTI)</span><span class="pageno">3</span></div>
+</section>
+
+<!-- ============ SLIDE 4 — which step count ============ -->
+<section class="slide">
+  <div class="eyebrow">Which step count to report <span class="dim">— bold = best in the row</span></div>
+  <h2>5 steps is within 2.3% of the best on 7 of 8 nuScenes and Waymo metrics</h2>
+  <div class="body cols c58" style="margin-top:12px;gap:28px">
+    <div>
+      <table>
+        <thead><tr><th>set · metric</th><th class="n">1</th><th class="n">5</th><th class="n">10</th><th class="n">20</th><th class="n">5 vs best</th></tr></thead>
+        <tbody id="tbl"></tbody>
+      </table>
+    </div>
+    <div>
+      <div class="card" style="border-left:3px solid var(--good)">
+        <div class="tag">Default</div>
+        <h3>Report 5 steps for nuScenes and Waymo</h3>
+        <p style="font-size:13px;color:var(--ink2)">It is best on 3 of 8 metrics and within 2.3% on 4 more.
+          The miss is Waymo Pointmap, +5.0% over 1 step. Going to 10 steps buys at most 1.9% FD and costs Waymo Depth +16%.</p>
+      </div>
+      <div class="card" style="border-left:3px solid var(--crit);margin-top:14px">
+        <div class="tag">Outlier</div>
+        <h3>KITTI has no good compromise</h3>
+        <p style="font-size:13px;color:var(--ink2)">At 5 steps its FD is 2.3× the 1-step value and its Pointmap and Raymap
+          are 10–11% above their 20-step best. KITTI is one drive (seq 08), so its SE floor is ~2.2% whatever the window count.</p>
+      </div>
+      <div class="card" style="border-left:3px solid var(--s7);margin-top:14px">
+        <div class="tag">Same on all three sets</div>
+        <h3>MSEToken rises 66–72% from 1 to 20 steps</h3>
+        <p style="font-size:13px;color:var(--ink2)">KITTI 1.09 → 1.86, nuScenes 0.64 → 1.09, Waymo 0.63 → 1.04, in delta-token space.</p>
+      </div>
+    </div>
+  </div>
+  <div class="foot"><span>green ≤ 3% above best · red &gt; 3%</span><span>5 steps on nuScenes and Waymo</span><span class="pageno">4</span></div>
+</section>
+
+<!-- ============ SLIDE 5 — checks & caveats ============ -->
+<section class="slide">
+  <div class="eyebrow">Checks <span class="dim">— against the run's own training-log eval at ep 24</span></div>
+  <h2>KITTI matches the training log within 3%; Waymo geometry reads 11–13% lower</h2>
+  <div class="body cols c2" style="gap:26px;margin-top:14px">
+    <div>
+      <table>
+        <thead><tr><th>metric @ 20 steps</th><th class="n">this eval</th><th class="n">log, ep 24</th><th class="n">diff</th></tr></thead>
+        <tbody>
+          <tr class="hl"><td><b>KITTI</b> MSEToken</td><td class="n">1.860</td><td class="n">1.862</td><td class="n ok">−0.1%</td></tr>
+          <tr><td><b>KITTI</b> LossDepth</td><td class="n">3.940</td><td class="n">3.834</td><td class="n">+2.8%</td></tr>
+          <tr><td><b>KITTI</b> LossPointmap</td><td class="n">18.18</td><td class="n">18.17</td><td class="n ok">+0.0%</td></tr>
+          <tr><td><b>KITTI</b> LossRaymap</td><td class="n">17.74</td><td class="n">17.65</td><td class="n ok">+0.5%</td></tr>
+          <tr class="sep"><td><b>Waymo</b> MSEToken</td><td class="n">1.037</td><td class="n">1.040</td><td class="n ok">−0.3%</td></tr>
+          <tr><td><b>Waymo</b> LossDepth</td><td class="n">6.979</td><td class="n">6.953</td><td class="n ok">+0.4%</td></tr>
+          <tr><td><b>Waymo</b> LossPointmap</td><td class="n">16.22</td><td class="n">18.31</td><td class="n bad">−11.4%</td></tr>
+          <tr><td><b>Waymo</b> LossRaymap</td><td class="n">13.78</td><td class="n">15.88</td><td class="n bad">−13.2%</td></tr>
+          <tr class="dim"><td><b>Waymo</b> LossPointmap_tok</td><td class="n">5.237</td><td class="n">5.476</td><td class="n">−4.4%</td></tr>
+          <tr class="dim"><td><b>Waymo</b> LossRaymap_tok</td><td class="n">3.044</td><td class="n">3.202</td><td class="n">−4.9%</td></tr>
+        </tbody>
+      </table>
+      <div class="rulebar" style="margin-top:12px"><b>The log used 256 windows on 4 GPUs</b>, so windows, noise and
+        <span class="mono">t</span> draws all differ. KITTI agrees within 2.8%. Waymo Pointmap and Raymap are 11–13% lower here.
+        The step-free <span class="mono">_tok</span> floors also drop 4–5%, so the window set explains part of it. nuScenes is left out: the log read the corrupted folder.</div>
+    </div>
+    <div>
+      <div class="card" style="border-left:3px solid var(--serious)">
+        <div class="tag">Caveats</div>
+        <h3>What this does <em>not</em> establish</h3>
+        <ul class="tight" style="margin-top:10px;font-size:12.5px">
+          <li><strong>One checkpoint, one noise draw per job.</strong> No other arm, no repeat. ep 24 is mid-training.</li>
+          <li><strong>Noise.</strong> Single-set SE is ~1.6–2.9% of the mean at these window counts. Step differences are paired on the same windows, so their noise is smaller, but that was not measured.</li>
+          <li><strong>Per-image FD, not video.</strong> The 8 forecast frames are pooled into one distribution, despite the <span class="mono">FVD</span> key name.</li>
+          <li><strong>Earlier sweep differs.</strong> On Waymo val with 3 given and 2 forecast frames, FD kept falling to 20 steps. <a href="2026-09-17_flow_fvd_numsteps_tc1536p24576_slides.html">deck</a></li>
+          <li><strong>ODE sampler only, steps ≤ 20.</strong> No decode visuals.</li>
+        </ul>
+      </div>
+    </div>
+  </div>
+  <div class="foot"><span>log: BSC 46503892 · Eval/256 @ … (Epoch 24)</span><span>SE: 2026-09-30 window-stride calibration deck</span><span class="pageno">5</span></div>
+</section>
+
+</div><!-- /stage -->
+
+<button class="arr" id="prev" aria-label="Previous">‹</button>
+<button class="arr" id="next" aria-label="Next">›</button>
+<div class="nav" id="nav" role="tablist"></div>
+
+<script>
+/* ---------- deck nav ---------- */
+const stage=document.getElementById("stage");
+const slides=[...document.querySelectorAll(".slide")];
+const nav=document.getElementById("nav");
+let cur=0;
+slides.forEach((_,i)=>{
+  const b=document.createElement("button");
+  b.setAttribute("role","tab");b.setAttribute("aria-label","Slide "+(i+1));
+  b.addEventListener("click",()=>go(i));
+  nav.appendChild(b);
+});
+function go(i){
+  cur=Math.max(0,Math.min(slides.length-1,i));
+  slides.forEach((s,j)=>s.classList.toggle("on",j===cur));
+  [...nav.children].forEach((b,j)=>b.classList.toggle("cur",j===cur));
+}
+document.getElementById("prev").addEventListener("click",()=>go(cur-1));
+document.getElementById("next").addEventListener("click",()=>go(cur+1));
+addEventListener("keydown",e=>{
+  if(["ArrowRight","PageDown"," "].includes(e.key)){go(cur+1);e.preventDefault();}
+  else if(["ArrowLeft","PageUp"].includes(e.key)){go(cur-1);e.preventDefault();}
+  else if(e.key==="Home")go(0);
+  else if(e.key==="End")go(slides.length-1);
+});
+go(0);
+/* ---------- auto-scale ---------- */
+function fit(){
+  const s=Math.min(innerWidth/1300,(innerHeight-40)/730);
+  stage.style.transform=`translate(-50%,-50%) scale(${Math.min(s,1.4)})`;
+}
+addEventListener("resize",fit);fit();
+
+/* ---------- CSS var resolver ---------- */
+const CV=n=>getComputedStyle(document.documentElement).getPropertyValue(n).trim();
+
+/* ---------- single-series categorical step chart ----------
+   x is the step count as a CATEGORY (1,5,10,15,20 equally spaced).
+   Optional dashed floor = the _tok (GT-delta rollout) value.
+   dir 'up' (rising curve): labels above, first one below-right, clear of the y ticks.
+   dir 'down': labels below, first one above-right. */
+function stepChart(el,cfg){
+  const W=cfg.W||276,H=cfg.H||244,L=cfg.L||40,R=22,T=20,B=30, iw=W-L-R, ih=H-T-B;
+  const down=(cfg.dir==='down');
+  const {ymin,ymax,yticks,cats,data,floor}=cfg;
+  const n=cats.length;
+  const X=i=>L+iw*(i/(n-1));
+  const Y=v=>T+ih*(1-(v-ymin)/(ymax-ymin));
+  const fmt=cfg.fmt||(t=>t.toFixed(2));           // y-axis tick format
+  const vfmt=cfg.vfmt||(v=>v.toFixed(3));         // point-label format
+  const c=CV(cfg.color||'--s1');
+  let s=`<svg viewBox="0 0 ${W} ${H}" width="100%" preserveAspectRatio="xMinYMin meet">`;
+  yticks.forEach(t=>{const y=Y(t);
+    s+=`<line x1="${L}" y1="${y}" x2="${L+iw}" y2="${y}" stroke="${CV('--grid')}"/>`;
+    s+=`<text x="${L-6}" y="${y+3}" text-anchor="end" class="axl">${fmt(t)}</text>`;});
+  cats.forEach((t,i)=>{
+    s+=`<text x="${X(i).toFixed(1)}" y="${H-13}" text-anchor="middle" class="axl">${t}</text>`;});
+  if(floor!=null){const y=Y(floor);
+    s+=`<line x1="${L}" y1="${y.toFixed(1)}" x2="${L+iw}" y2="${y.toFixed(1)}" stroke="${CV('--muted')}" stroke-width="1.4" stroke-dasharray="5 4"/>`;
+    const fx=cfg.floorLeft? L+4 : L+iw;             // floorLeft: tag in the empty lower-left corner
+    s+=`<text x="${fx}" y="${(y-5).toFixed(1)}" text-anchor="${cfg.floorLeft?'start':'end'}" class="barval" fill="${CV('--muted')}">floor ${vfmt(floor)}</text>`;}
+  const d=data.map((v,i)=>`${i?'L':'M'}${X(i).toFixed(1)} ${Y(v).toFixed(1)}`).join(' ');
+  s+=`<path d="${d}" fill="none" stroke="${c}" stroke-width="2.2"/>`;
+  const best=data.indexOf(Math.min(...data));     // ringed = lowest value
+  data.forEach((v,i)=>{
+    const hi=(i===best);
+    s+=`<circle cx="${X(i).toFixed(1)}" cy="${Y(v).toFixed(1)}" r="${hi?4.6:3.2}" `+
+       `fill="${hi?CV('--surface'):c}" stroke="${c}" stroke-width="${hi?2.4:0}"/>`;
+    const first=(i===0);
+    const lx=first? X(i)+8 : X(i);
+    const ly=first? (down? Y(v)-6 : Y(v)+14) : (down? Y(v)+15 : Y(v)-8.5);
+    s+=`<text x="${lx.toFixed(1)}" y="${ly.toFixed(1)}" text-anchor="${first?'start':'middle'}" class="barval" `+
+       `fill="${c}" font-weight="${hi?700:400}">${vfmt(v)}</text>`;
+  });
+  s+=`<text x="${(L+iw/2).toFixed(1)}" y="${H-1}" text-anchor="middle" class="axl">denoising steps</text>`;
+  s+=`</svg>`;
+  el.innerHTML=s;
+}
+
+/* ---------- multi-series % change chart, value tags at the last point ---------- */
+function relChart(el,cfg){
+  const W=cfg.W||600,H=cfg.H||330,L=46,R=58,T=16,B=30, iw=W-L-R, ih=H-T-B;
+  const {ymin,ymax,yticks,cats,series}=cfg;
+  const n=cats.length;
+  const X=i=>L+iw*(i/(n-1));
+  const Y=v=>T+ih*(1-(v-ymin)/(ymax-ymin));
+  let s=`<svg viewBox="0 0 ${W} ${H}" width="100%" preserveAspectRatio="xMinYMin meet">`;
+  yticks.forEach(t=>{const y=Y(t);
+    s+=`<line x1="${L}" y1="${y}" x2="${L+iw}" y2="${y}" stroke="${CV(t===0?'--axis':'--grid')}" stroke-width="${t===0?1.4:1}"/>`;
+    s+=`<text x="${L-6}" y="${y+3}" text-anchor="end" class="axl">${t>0?'+':''}${t}%</text>`;});
+  cats.forEach((t,i)=>{
+    s+=`<text x="${X(i).toFixed(1)}" y="${H-13}" text-anchor="middle" class="axl">${t}</text>`;});
+  series.forEach(se=>{
+    const c=CV(se.color);
+    const d=se.data.map((v,i)=>`${i?'L':'M'}${X(i).toFixed(1)} ${Y(v).toFixed(1)}`).join(' ');
+    s+=`<path d="${d}" fill="none" stroke="${c}" stroke-width="2.2"/>`;
+    se.data.forEach((v,i)=>{
+      s+=`<circle cx="${X(i).toFixed(1)}" cy="${Y(v).toFixed(1)}" r="3" fill="${c}"/>`;});
+    const v=se.data[n-1];
+    s+=`<text x="${(X(n-1)+8).toFixed(1)}" y="${(Y(v)+3.5).toFixed(1)}" class="barval" fill="${c}" font-weight="700">${v>0?'+':''}${v.toFixed(1)}%</text>`;
+  });
+  s+=`<text x="${(L+iw/2).toFixed(1)}" y="${H-1}" text-anchor="middle" class="axl">denoising steps</text>`;
+  s+=`</svg>`;
+  el.innerHTML=s;
+}
+
+/* ---------- auto y-range for the small panels ---------- */
+function niceStep(x){const p=10**Math.floor(Math.log10(x)),m=x/p;return (m<1.5?1:m<3?2:m<7?5:10)*p;}
+function autoCfg(data){
+  const lo=Math.min(...data),hi=Math.max(...data),r=(hi-lo)||hi*0.05;
+  const ymin=lo-0.45*r,ymax=hi+0.45*r,st=niceStep((ymax-ymin)/3);
+  const yticks=[];for(let t=Math.ceil(ymin/st)*st;t<=ymax+1e-9;t+=st)yticks.push(+t.toFixed(6));
+  const dec=st>=1?0:st>=0.1?1:2;
+  return {ymin,ymax,yticks,fmt:t=>t.toFixed(dec)};
+}
+
+/* ================= DATA =================
+   BSC 46837868 / 69 / 70 / 71 · eval_deltatok_flow_sampler.py --fvd · step_modes=ode · 1 GPU.
+   Flow run BSC 46503892, iter_050000.pth (ep 24). Windows: KITTI 2013, nuScenes 2382, Waymo test 2018. */
+const CATS=['1','5','10','20'];
+const D={
+  n:{name:'nuScenes',fd:[27.1280,16.5166,16.2071,17.4473],dp:[4.5709,4.5607,4.7075,4.8944],
+     pm:[15.0295,13.6875,13.3824,14.0717],rm:[13.0448,11.7410,12.1893,13.5504]},
+  w:{name:'Waymo',fd:[22.6343,13.0538,12.8849,13.9092],dp:[5.3742,5.4582,6.3300,6.9788],
+     pm:[14.6498,15.3773,16.1268,16.2168],rm:[14.2498,13.3862,13.6311,13.7829]},
+  k:{name:'KITTI',fd:[9.6397,22.0584,28.0641,32.7161],dp:[4.2161,3.9801,3.9021,3.9403],
+     pm:[19.5877,19.9955,19.3131,18.1810],rm:[19.6806,19.6378,18.9873,17.7430]},
+};
+const COL={fd:'--s1',dp:'--s3',pm:'--s2',rm:'--s8'};
+const LBL={fd:'FD',dp:'LossDepth',pm:'LossPointmap',rm:'LossRaymap'};
+for(const k of ['n','w','k'])for(const m of ['fd','dp','pm','rm']){
+  const a=D[k][m];
+  const dir=(a[a.length-1]<a[0])?'down':'up';        // labels below a falling curve, above a rising one
+  stepChart(document.getElementById(k+m[0].toUpperCase()+m.slice(1)),
+    Object.assign({W:270,H:136,L:40,cats:CATS,data:a,dir,color:COL[m],vfmt:v=>v.toFixed(2)},autoCfg(a)));
+}
+
+/* ---------- slide 4 table ---------- */
+let rows='';
+for(const k of ['n','w','k']){
+  ['fd','dp','pm','rm'].forEach((m,j)=>{
+    const a=D[k][m],best=Math.min(...a),gap=100*(a[1]/best-1);
+    const cls=(gap<=3)?'ok':'bad';
+    rows+=`<tr${j===0?' class="sep"':''}><td>${j===0?`<b>${D[k].name}</b> `:''}${LBL[m]}</td>`+
+      a.map(v=>`<td class="n">${v===best?`<b>${v.toFixed(2)}</b>`:v.toFixed(2)}</td>`).join('')+
+      `<td class="n ${cls}">${gap<0.05?'best':'+'+gap.toFixed(1)+'%'}</td></tr>`;
+  });
+}
+document.getElementById('tbl').innerHTML=rows;
+</script>
+</body>
+</html>
