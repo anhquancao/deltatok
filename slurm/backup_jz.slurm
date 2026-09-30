@@ -3,7 +3,7 @@
 #SBATCH --job-name=backup_occany
 ##SBATCH --nodes=1
 #SBATCH --ntasks-per-node=1
-#SBATCH --time=20:00:00
+#SBATCH --time=04:00:00  # visu cap
 #SBATCH --array=0-9
 
 
@@ -11,8 +11,8 @@
 #SBATCH --error=slurm/output/backup_occany_%A_%a.err
 #SBATCH --hint=nomultithread
 
-##SBATCH --partition=visu
-#SBATCH --partition=archive
+#SBATCH --partition=visu
+##SBATCH --partition=archive
 
 #SBATCH -A trg@cpu
 
@@ -38,4 +38,4 @@ mkdir -p slurm/output
 # fresh dir: the 2025 archive set is stale, and argoverse2/kitti_pair/nuscenes live only there
 export BACKUP_DST_NAME=${BACKUP_DST_NAME:-datasets_preprocess_backup_2026-07}
 
-python dataset_setup/backup.py --pid $SLURM_ARRAY_TASK_ID --world $SLURM_ARRAY_TASK_COUNT --num_workers 10 --dst_name $BACKUP_DST_NAME
+python dataset_setup/backup.py --pid $SLURM_ARRAY_TASK_ID --world $SLURM_ARRAY_TASK_COUNT --num_workers 10 --dst_name $BACKUP_DST_NAME ${EXTRA_ARGS:-}

@@ -28,6 +28,7 @@ from occany.utils.helpers import depth2rgb
 from occany.loss import PointmapLoss, DepthLosses, RaymapLoss
 from occrae.generation_helper import flow_euler_sample
 from occrae.deltatok_trainer import _log_cosh  # the tokenizer's recon loss: LossFeat reads on the LossRecon scale
+from occrae.chamfer_metrics import compute_chamfer_metrics
 
 
 # Fixed eval-loss key order so every rank reduces the same-sized vector even
@@ -39,6 +40,11 @@ _EVAL_KEYS = (
     "LossFeat_tok",                                          # decode of GT z vs GT layer-12 feats: the (finetuned) decoder's own recon
     "LossPointmap", "LossDepth", "LossRaymap",                # sampled-delta rollout vs GT (forecast frames)
     "LossPointmap_tok", "LossDepth_tok", "LossRaymap_tok",    # GT-delta rollout (tokenizer upper bound)
+)
+# training.eval_chamfer: Gen3R point-cloud metrics on the forecast frames (m, after sim(3) alignment).
+_CHAMFER_KEYS = (
+    "ChamferAcc", "ChamferComp", "Chamfer", "ChamferRel",
+    "ChamferAcc_tok", "ChamferComp_tok", "Chamfer_tok", "ChamferRel_tok",
 )
 
 
@@ -831,6 +837,12 @@ class DeltaTokFlowMatchingTrainer(DeltaTokSharedMixin, Trainer):
         noise_probe_sigma = None if noise_probe_sigma is None else float(noise_probe_sigma)
         noise_probe_shaped = bool(self.cfg.training.get("eval_noise_probe_shaped", False))
         assert not noise_probe_shaped or self._z_basis, "eval_noise_probe_shaped needs --z_basis (sampler script)"
+        eval_chamfer = bool(self.cfg.training.get("eval_chamfer", False))
+        eval_keys = _EVAL_KEYS
+        if eval_chamfer:
+            eval_keys = _EVAL_KEYS + _CHAMFER_KEYS
+        if self.is_master:
+            print(f"[INFO] eval_chamfer={eval_chamfer}", flush=True)
         if noise_probe_sigma is not None and self.is_master:
             print(f"[INFO] eval_noise_probe_sigma={noise_probe_sigma} "
                   f"(z_hat := z + sigma*N(0,I) on forecast slots)", flush=True)
@@ -850,7 +862,7 @@ class DeltaTokFlowMatchingTrainer(DeltaTokSharedMixin, Trainer):
             # Run eval on each test loader independently; per-loader metrics are
             # logged under `Eval/<test_name>/...` and viz under `eval_depth/<test_name>`.
             for test_name, loader in self.test_loaders.items():
-                sums = {k: 0.0 for k in _EVAL_KEYS}
+                sums = {k: 0.0 for k in eval_keys}
                 items_seen = 0  # all items (drives the eval-item budget)
                 gt_items = 0    # items with GT only (metric denominator)
                 num_vis = 0
@@ -985,6 +997,23 @@ class DeltaTokFlowMatchingTrainer(DeltaTokSharedMixin, Trainer):
                             "LossDepth_tok": loss_d_tok.item(),
                             "LossRaymap_tok": loss_ray_tok.item(),
                         })
+                        if eval_chamfer:
+                            gt_pointmap = batch["gt_pointmap"][:, pred_slice].to(self.device).float()  # (B, F, H, W, 3)
+                            forecast_mask = batch["gt_mask"][:, pred_slice].to(self.device).bool().reshape(gt_pointmap.shape[:-1])  # (B, F, H, W)
+                            tf32 = torch.backends.cuda.matmul.allow_tf32
+                            torch.backends.cuda.matmul.allow_tf32 = False  # Gen3R's float32 Umeyama must not run in TF32
+                            for suffix, dec in (("", decoded), ("_tok", decoded_tok)):
+                                # Gen3R scores one window per call: (F, H, W, 3) pred / GT, (F, H, W) mask
+                                rows = torch.tensor([[v.item() for v in compute_chamfer_metrics(
+                                    dec["pointmap"][b, pred_slice].float(), gt_pointmap[b], forecast_mask[b])[:4]]
+                                    for b in range(B)])  # (B, 4) acc, comp, chamfer, relative %
+                                batch_losses.update({
+                                    f"ChamferAcc{suffix}": rows[:, 0].mean().item(),
+                                    f"ChamferComp{suffix}": rows[:, 1].mean().item(),
+                                    f"Chamfer{suffix}": rows[:, 2].mean().item(),
+                                    f"ChamferRel{suffix}": rows[:, 3].mean().item(),
+                                })
+                            torch.backends.cuda.matmul.allow_tf32 = tf32
 
                         # Flow-matching loss on the eval set: the SAME objective
                         # as Train/Loss (teacher-forced velocity MSE in delta-token
@@ -1158,7 +1187,7 @@ class DeltaTokFlowMatchingTrainer(DeltaTokSharedMixin, Trainer):
                 # Per-loader reduction over a fixed key vector (DDP-safe: every
                 # rank reduces the same shape even if some saw no GT batches).
                 vec = torch.tensor(
-                    [sums[k] for k in _EVAL_KEYS] + [float(gt_items)],
+                    [sums[k] for k in eval_keys] + [float(gt_items)],
                     device=self.device, dtype=torch.float64,
                 )
                 if self.distributed:
@@ -1166,7 +1195,7 @@ class DeltaTokFlowMatchingTrainer(DeltaTokSharedMixin, Trainer):
                 n = vec[-1].item()
                 if n == 0:
                     continue
-                results = {k: (vec[i] / n).item() for i, k in enumerate(_EVAL_KEYS)}
+                results = {k: (vec[i] / n).item() for i, k in enumerate(eval_keys)}
 
                 overall_loss += results["LossFlow"] * n
                 overall_n += n

@@ -2,6 +2,25 @@
 
 This guide creates a SOCKS5 proxy on your **local machine** and exposes it on **BSC** through a reverse SSH tunnel.
 
+## Quick method (one command, no local sshd)
+
+Verified 2026-09-30 on `alogin1` (the `bsc` alias). OpenSSH's reverse *dynamic* forward makes the local
+ssh client itself the SOCKS5 server, so Steps 1–2 below are not needed:
+
+```sh
+# Machine A: keep running
+ssh -o ExitOnForwardFailure=yes -o ServerAliveInterval=30 -N -R 15432 bsc
+
+# Machine B (same login node the tunnel landed on):
+export http_proxy=socks5h://localhost:15432 https_proxy=socks5h://localhost:15432
+curl -s -o /dev/null -w '%{http_code}\n' https://pypi.org/simple/   # 200
+pip install ...                                                       # PySocks is already in envs/maskgit
+```
+
+- Proxy only works on that login node. Compute nodes have no route: download there, build/install offline in the job.
+- `socks5h` sends DNS through the tunnel; `socks5` also returned 200 on pypi.org (2026-09-30).
+- Steps 3–4 below disagree on the port (`-R 15432` vs `localhost:1080`); the BSC side is whatever `-R` opened.
+
 ## Prerequisite
 
 **Purpose:** make sure SSH login to BSC works without password prompts, so tunnels can be started and kept stable.

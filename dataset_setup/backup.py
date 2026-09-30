@@ -177,6 +177,7 @@ if __name__ == "__main__":
     parser.add_argument('--num_workers', type=int, default=1, help='Number of parallel workers for tar/untar operations')
     # write to a sibling dir under TRG_STORE so a re-backup never overwrites the old archive set
     parser.add_argument('--dst_name', type=str, default='datasets_preprocess_backup', help='Backup dir name under $TRG_STORE')
+    parser.add_argument('--datasets', nargs='*', default=None, help='Only tar/extract these backup_folders (default: all)')
     args = parser.parse_args()
 
     if args.pid < 0 or args.pid >= args.world:
@@ -199,8 +200,12 @@ if __name__ == "__main__":
         "once_processed",
         "kitti_processed",
         "nuscenes_processed",
-        "occ3d_nuscenes_processed"   # present on fsn1 but was never backed up
+        "occ3d_nuscenes_processed",   # present on fsn1 but was never backed up
+        "occ3d_nuscenes_val_preprocessed",  # clean val: the folder above mixes sweeps into 8 val scenes
     ]
+    tar_folders = backup_folders
+    if args.datasets:
+        tar_folders = [f for f in backup_folders if f in args.datasets]
 
     # ------------------------------------------------------------
     # Extraction Mode
@@ -210,7 +215,7 @@ if __name__ == "__main__":
         archives_with_sizes = []
         if os.path.isdir(dst):
             for dataset_name in os.listdir(dst):
-                if dataset_name not in backup_folders:
+                if dataset_name not in tar_folders:
                     continue
                 dataset_path = os.path.join(dst, dataset_name)
                 if not os.path.isdir(dataset_path):
@@ -222,6 +227,20 @@ if __name__ == "__main__":
                         size = os.path.getsize(abs_path)
                         archives_with_sizes.append((rel_path, size))
         
+        # Root-level seq pkls / npz: restored by pid 0 only, never over a live copy
+        if args.pid == 0:
+            for dataset_name in tar_folders:
+                dataset_path = os.path.join(dst, dataset_name)
+                if not os.path.isdir(dataset_path):
+                    continue
+                for f in os.listdir(dataset_path):
+                    target = os.path.join(src_dir, dataset_name, f)
+                    if f.endswith(('.npz', '.pkl')) and not os.path.exists(target):
+                        if not args.dryrun:
+                            os.makedirs(os.path.dirname(target), exist_ok=True)
+                            shutil.copy2(os.path.join(dataset_path, f), target)
+                        print(f"Restored {target}")
+
         if len(archives_with_sizes) == 0:
             print("No archives found to extract")
             exit(0)
@@ -273,11 +292,14 @@ if __name__ == "__main__":
     for folder in backup_folders:
         full_path = os.path.join(src_dir, folder)
         if os.path.isdir(full_path):
-            subdirs = [os.path.join(folder, d) for d in os.listdir(full_path) if os.path.isdir(os.path.join(full_path, d)) and d != "tmp"]
-            all_source_folders.extend(subdirs)
-            
-            # Copy all .npz files in each folder
-            npz_files = [f for f in os.listdir(full_path) if f.endswith('.npz')]
+            if folder in tar_folders:
+                subdirs = [os.path.join(folder, d) for d in os.listdir(full_path) if os.path.isdir(os.path.join(full_path, d)) and d != "tmp"]
+                all_source_folders.extend(subdirs)
+            if args.pid != 0:
+                continue
+
+            # Copy root .npz + seq .pkl (pid 0 only)
+            npz_files = [f for f in os.listdir(full_path) if f.endswith(('.npz', '.pkl'))]
             for npz_file in npz_files:
                 src_file = os.path.join(full_path, npz_file)
                 os.makedirs(os.path.join(dst, folder), exist_ok=True)

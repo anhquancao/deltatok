@@ -3,7 +3,7 @@
 #SBATCH --job-name=extract_backup
 ##SBATCH --nodes=1
 #SBATCH --ntasks-per-node=1
-#SBATCH --time=20:00:00
+#SBATCH --time=04:00:00  # visu cap
 #SBATCH --array=0-9
 
 
@@ -11,8 +11,8 @@
 #SBATCH --error=slurm/output/extract_backup_%j.err
 #SBATCH --hint=nomultithread
 
-##SBATCH --partition=visu
-#SBATCH --partition=archive
+#SBATCH --partition=visu
+##SBATCH --partition=archive
 
 #SBATCH -A trg@cpu
 
