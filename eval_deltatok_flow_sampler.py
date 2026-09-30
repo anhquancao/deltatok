@@ -184,6 +184,9 @@ def _build_test_loaders(cfg, num_items=None, test_filter=None):
         else:
             loader = get_data_loader(sub, **kw)
         test_name = sub.split("(")[0].strip()                 # tag carries the real count
+        m = re.search(r"window_stride=(\d+)", sub)
+        if m:
+            test_name += f" stride{m.group(1)}"   # an unstrided set and its strided twin log under separate names
         loaders[test_name] = loader
     return loaders
 

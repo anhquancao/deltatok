@@ -141,6 +141,7 @@ BSC eval numbers from before 2026-09-30 are **not comparable** with later ones o
 - **nuScenes val reads `occ3d_nuscenes_val_preprocessed` on BSC.** In the old `occ3d_nuscenes_processed`, the first 8 val scenes (`scene-0003`, `scene-0012`–`0018`) mix ~12 Hz sweeps into the 2 Hz keyframes. Jean Zay and Karolina configs still point at the corrupted copy. Rebuild with `dataset_setup/nuscenes/preprocess_nuscenes.py`.
 - **Thin windows with `window_stride`, not a separate pkl.** It is a `BaseSeqDatasetMultiView` kwarg: within each scene, kept windows start at least that many frame ids apart. Point it at the overlapping `_fs1` pkl.
 - **Training-log eval is `256 @` per set.** Strides: KITTI 15 (256 of 269), nuScenes 10 (256 of 582, non-overlapping), Waymo test 46 (256 of 806, non-overlapping).
+- **The pre-change KITTI draw is kept for backward comparison.** It has no stride and logs under its old name, e.g. `206 @ KittiSeqMultiView`. Strided sets log with a ` stride<N>` suffix.
 - **The dedicated flow eval uses about 2,000 windows per set.** Strides: KITTI 2, nuScenes 2, Waymo 16, with no cap: `--num_items` in `eval_deltatok_flow_sampler.py` sits above any split. The calibration is in `docs/research/results/2026-09-30_flow_eval_window_stride_calib_slides.html`.
 - **Only compare evals run on the same GPU count.** The eval RNG is seeded per rank.
 

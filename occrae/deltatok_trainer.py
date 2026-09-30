@@ -5,6 +5,7 @@ OccRAE/DA3 backbone. Each item is a V-frame sequence; we compress every
 consecutive pair (frame_t, frame_{t+1}) into a single delta token z and decode
 (z, frame_t) back to predicted features for frame_{t+1}.
 """
+import re
 import os
 import math
 import time
@@ -1728,6 +1729,9 @@ class DeltaTokTrainer(DeltaTokSharedMixin, Trainer):
                     continue
                 # Match training_da3.py naming: keep the "<count> @ <Class>" prefix.
                 test_name = sub.split("(")[0].strip()
+                m = re.search(r"window_stride=(\d+)", sub)
+                if m:
+                    test_name += f" stride{m.group(1)}"   # an unstrided set and its strided twin log under separate names
                 try:
                     loader = get_data_loader(
                         sub,
@@ -1825,6 +1829,9 @@ class DeltaTokTrainer(DeltaTokSharedMixin, Trainer):
             if not sub:
                 continue
             test_name = sub.split("(")[0].strip()
+            m = re.search(r"window_stride=(\d+)", sub)
+            if m:
+                test_name += f" stride{m.group(1)}"   # an unstrided set and its strided twin log under separate names
             loader = get_data_loader(
                 sub,
                 batch_size=self.cfg.training.bsize,

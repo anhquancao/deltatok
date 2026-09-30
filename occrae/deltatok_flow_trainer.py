@@ -1,4 +1,5 @@
 # Trainer for DeltaTok delta-token Flow Matching
+import re
 import datetime
 import os
 import time
@@ -1247,6 +1248,9 @@ class DeltaTokFlowMatchingTrainer(DeltaTokSharedMixin, Trainer):
                 if not sub:
                     continue
                 test_name = sub.split("(")[0].strip()
+                m = re.search(r"window_stride=(\d+)", sub)
+                if m:
+                    test_name += f" stride{m.group(1)}"   # an unstrided set and its strided twin log under separate names
                 try:
                     loader = get_data_loader(
                         sub,
