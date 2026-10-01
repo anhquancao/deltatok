@@ -1,0 +1,15 @@
+defaults:
+  - train_deltatok_flow_alldata_ctx2fwd8_bsc
+  - _self_
+
+# Waymo test only; same draws as the 3-set config (RNG re-seeded per set).
+# The '<n> @' prefix is overridden by eval_deltatok_flow_sampler.py --num_items.
+dataset:
+  test_dataset: "2000 @ WaymoSeqMultiView(ROOT='/gpfs/scratch/ehpc1001/quan/data/waymo_test_processed', \
+      seq_pkl_name='seq_surround_temporal_sub5_stride9_fs1_waymo_test_all.pkl', \
+      num_timesteps=10, num_views_per_timestep=5, fixed_cams=[0], \
+      z_far=50, split=None, seed=42, window_stride=16, \
+      resolution=[(518, 266)])"
+
+training:
+  eval_num_items: 2000   # default 256 would cut the set
