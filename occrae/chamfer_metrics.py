@@ -1,13 +1,12 @@
 """Point-cloud Accuracy / Completeness / Chamfer, from Gen3R's gen3r/utils/eval_utils.py
-(JaceyHuang/Gen3R @ 1df25b6). Only pytorch3d's farthest-point sampling is kept; open3d
-voxel_down_sample and pytorch3d knn_points are torch twins (test_chamfer_parity.py: same
-voxel sets; NN distances equal to 2.7e-16). Only the masked branch is ported.
-Full pure-torch version (deferred): occrae/chamfer_metrics_torch.py.
+(JaceyHuang/Gen3R @ 1df25b6). Pure torch: open3d voxel_down_sample, pytorch3d FPS and
+knn_points are torch twins (test_chamfer_parity.py: chamfer within 0.15% of Gen3R).
+Only the masked branch is ported. Batched port (deferred): occrae/chamfer_metrics_torch.py.
 """
 import torch
 
 from typing import Tuple
-from pytorch3d.ops import sample_farthest_points
+from occrae.chamfer_metrics_torch import sample_farthest_points as fps_indices
 
 
 def voxel_down_sample(points, voxel_size):
@@ -22,6 +21,16 @@ def voxel_down_sample(points, voxel_size):
     sums = points.new_zeros(M, 3).index_add_(0, inv, points)  # (M, 3)
     counts = torch.bincount(inv, minlength=M).to(points.dtype)  # (M,)
     return sums / counts[:, None]  # (M, 3)
+
+
+def sample_farthest_points(points, K):
+    """pytorch3d sample_farthest_points for one cloud (1, M, 3): K > M zero-pads, as pytorch3d does."""
+    M = points.shape[1]
+    k = min(K, M)
+    idx = fps_indices(points, torch.tensor([M], device=points.device), k)  # (1, k)
+    out = points.new_zeros(1, K, 3)  # (1, K, 3)
+    out[:, :k] = points[:, idx[0]]
+    return out, idx
 
 
 def nn_dist(x, y, chunk=2048):
@@ -118,8 +127,8 @@ def compute_chamfer_metrics(
 ) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
     """
     Gen3R's compute_chamfer_metrics, masked branch: align P to G (Umeyama + scale),
-    voxel-downsample both masked clouds, FPS each to 20k points (pytorch3d), then
-    nearest-neighbour distances both ways. Under 20k points pytorch3d zero-pads the
+    voxel-downsample both masked clouds, FPS each to 20k points, then
+    nearest-neighbour distances both ways. Under 20k points FPS zero-pads the
     sample, as in Gen3R.
 
     Metrics:
