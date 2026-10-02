@@ -700,6 +700,14 @@ class DeltaTokTrainer(DeltaTokSharedMixin, Trainer):
             assert not self._sigreg_gap_sigma, \
                 "sigreg_compose_z and sigreg_gap_sigma are mutually exclusive"
 
+        # Gap control for compose: the t0->t2 decode gets its own encoded z, no sum constraint.
+        self._compose_skip = bool(self.cfg.training.get("compose_skip", False))
+        if self._compose_skip:
+            assert self._compose_weight > 0, "compose_skip replaces the composed decode; needs compose_weight > 0"
+            assert not self._sigreg_compose_z, "compose_skip: z_comp is not a sum, keep it out of SIGReg"
+        if self.is_master:
+            print(f"compose_skip={self._compose_skip}")
+
         # Train-time z spread over the same rows SIGReg pools (Train/Z*), so it costs no extra
         # forward. Flushed per epoch. Runs with or without sigreg_compose_z -- that is what makes
         # the arm and its twin comparable.
@@ -1043,9 +1051,14 @@ class DeltaTokTrainer(DeltaTokSharedMixin, Trainer):
         loss_compose = loss_dn_comp = None
         if self._compose_weight > 0:
             with self.autocast:
-                x_hat_comp = self.tokenizer(                                  # (B, N, P, C)
-                    feats[:, 0], None, H, W, num_cameras=num_cameras, z_input=z_comp,
-                    prev_keep=self._prev_keep(feats[:, 0]))
+                if self._compose_skip:
+                    x_hat_comp, z_comp = self.tokenizer(                      # (B, N, P, C), (B, N, K, Cz)
+                        feats[:, 0], feats[:, 2], H, W, num_cameras=num_cameras, return_z=True,
+                        prev_keep=self._prev_keep(feats[:, 0]))
+                else:
+                    x_hat_comp = self.tokenizer(                              # (B, N, P, C)
+                        feats[:, 0], None, H, W, num_cameras=num_cameras, z_input=z_comp,
+                        prev_keep=self._prev_keep(feats[:, 0]))
             # Same treatment for the composed sum. Returned separately so its scalar stays
             # comparable to LossCompose, exactly as loss_dn is to LossRecon.
             loss_dn_comp = self._detached_noise_loss(feats[:, 0], feats[:, 2], H, W, num_cameras, z_comp)

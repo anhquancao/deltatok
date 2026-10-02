@@ -114,6 +114,7 @@ training:
   # LN sphere). 0 = off; the single-pair path is then bit-identical.
   compose_weight: 0.0
   compose_triplet: false  # triplet path even at compose_weight 0; no composed decode
+  compose_skip: false  # t0->t2 decode reads z encoded from (t0, t2), not z_a + z_b
   prev_mask_ratio: 0.0  # share of the decoder's x_prev patches masked at iter 0; 0 = off
   prev_mask_iters: 0  # linear anneal of that share to 0 over N iters
   # SIGReg (LeJEPA) anti-collapse loss on the z bottleneck: pushes the compressed
