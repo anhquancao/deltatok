@@ -80,6 +80,7 @@ class DeltaTokModule(nn.Module):
         bottleneck_mlp: bool = False,
         force_bottleneck: bool = False,
         z_row_clip: float = 0.0,
+        prev_mask_token: bool = False,
     ):
         super().__init__()
         # Delta tokens per camera per transition (1 = max compression). K query
@@ -129,6 +130,10 @@ class DeltaTokModule(nn.Module):
         nn.init.trunc_normal_(self.z_embed.weight, std=cfg.initializer_range)
         self.xy_embed = nn.Embedding(2, cfg.hidden_size)
         nn.init.trunc_normal_(self.xy_embed.weight, std=cfg.initializer_range)
+        # Masked x_prev patches at the decoder input; zeros init draws no RNG, so seeded streams are unchanged.
+        self.prev_mask_embed = None
+        if prev_mask_token:
+            self.prev_mask_embed = nn.Parameter(torch.zeros(cfg.hidden_size))  # (C,)
 
         self.encoder_blocks = nn.ModuleList(
             [DINOv3ViTLayer(cfg) for _ in range(num_hidden_layers)]
@@ -442,6 +447,7 @@ class DeltaTokModule(nn.Module):
         num_cameras: int = 1,
         return_z: bool = False,
         z_input: torch.Tensor | None = None,
+        prev_keep: torch.Tensor | None = None,
     ) -> torch.Tensor:
         """Reconstruct ``x`` from the (x_prev, x) pair via N delta tokens (one per camera).
 
@@ -453,6 +459,9 @@ class DeltaTokModule(nn.Module):
 
         With ``z_input`` (M, N, K, Cz), the encoder is skipped and the given z is
         decoded directly: the compose sum, the noised decodes and the eval ladder.
+
+        ``prev_keep`` (M, N, P, 1) bool: False patches of the decoder's x_prev become
+        ``prev_mask_embed``; the encoder keeps the clean x_prev.
         """
         if x_prev.dim() == 3:
             x_prev = x_prev.unsqueeze(1)
@@ -471,7 +480,10 @@ class DeltaTokModule(nn.Module):
         else:
             z = self.encode(x_prev, x, rope_local, rope_global)  # (M, N, K, Cz) flow-facing latent
 
-        x_hat = self.decode(z, x_prev, rope_local, rope_global)
+        x_dec = x_prev                                                                     # (M, N, P, C) decoder's previous frame
+        if prev_keep is not None:
+            x_dec = torch.where(prev_keep, x_prev, self.prev_mask_embed.to(x_prev.dtype))  # (M, N, P, C) masked -> token
+        x_hat = self.decode(z, x_dec, rope_local, rope_global)
 
         if squeeze:
             x_hat = x_hat.squeeze(1)
@@ -658,6 +670,24 @@ class DeltaTokTrainer(DeltaTokSharedMixin, Trainer):
             assert self._max_gap >= 2, f"compose needs max_gap >= 2, got {self._max_gap}"
         if self.is_master:
             print(f"compose_weight={self._compose_weight}, compose_triplet={self._compose_triplet}")
+
+        # Decoder-side x_prev masking, linear to 0 over prev_mask_iters. Own generator: the triplet draw is unchanged.
+        self._prev_mask_ratio = float(self.cfg.training.get("prev_mask_ratio", 0.0))
+        self._prev_mask_iters = int(self.cfg.training.get("prev_mask_iters", 0))
+        self._prev_mask_gen = None
+        self._prev_mask_now = 0.0
+        if self._prev_mask_ratio > 0:
+            assert self._compose_triplet, "prev_mask_ratio is wired into the triplet path only"
+            assert self._prev_mask_iters > 0, "prev_mask_ratio needs prev_mask_iters > 0"
+            assert self._unwrapped_tokenizer().prev_mask_embed is not None, \
+                "prev_mask_ratio needs model.deltatok.prev_mask_token=true"
+            self._prev_mask_gen = torch.Generator(device=self.device)
+            self._prev_mask_gen.manual_seed(1000 * max(init_seed, 0) + self.rank)
+        else:
+            assert self._unwrapped_tokenizer().prev_mask_embed is None, \
+                "prev_mask_token=true needs prev_mask_ratio > 0 (an unused parameter breaks DDP)"
+        if self.is_master:
+            print(f"prev_mask_ratio={self._prev_mask_ratio}, prev_mask_iters={self._prev_mask_iters}")
 
         # Send the composed sum to SIGReg too, cat'd onto both hops. z_a, z_b and z_comp are one
         # population of gap-deltas (hops draw gap ~ U[1,max_gap]; the sum spans g1+g2), so one
@@ -996,7 +1026,7 @@ class DeltaTokTrainer(DeltaTokSharedMixin, Trainer):
         x      = feats[:, 1:].reshape(B * 2, N, P, C)                        # (B*2, N, P, C)
         with self.autocast:
             x_hat, z = self.tokenizer(                                        # (B*2, N, P, C), (B*2, N, K, Cz)
-                x_prev, x, H, W, num_cameras=num_cameras, return_z=True)
+                x_prev, x, H, W, num_cameras=num_cameras, return_z=True, prev_keep=self._prev_keep(x_prev))
 
         # Second decode of the same hops, noised and detached: decoder-only gradient.
         loss_dn = self._detached_noise_loss(x_prev, x, H, W, num_cameras, z)  # scalar or None
@@ -1014,7 +1044,8 @@ class DeltaTokTrainer(DeltaTokSharedMixin, Trainer):
         if self._compose_weight > 0:
             with self.autocast:
                 x_hat_comp = self.tokenizer(                                  # (B, N, P, C)
-                    feats[:, 0], None, H, W, num_cameras=num_cameras, z_input=z_comp)
+                    feats[:, 0], None, H, W, num_cameras=num_cameras, z_input=z_comp,
+                    prev_keep=self._prev_keep(feats[:, 0]))
             # Same treatment for the composed sum. Returned separately so its scalar stays
             # comparable to LossCompose, exactly as loss_dn is to LossRecon.
             loss_dn_comp = self._detached_noise_loss(feats[:, 0], feats[:, 2], H, W, num_cameras, z_comp)
@@ -1023,6 +1054,16 @@ class DeltaTokTrainer(DeltaTokSharedMixin, Trainer):
 
         z = torch.cat([z, z_comp.unsqueeze(1)], dim=1)                        # (B, 3, N, K, Cz)
         return loss_recon, loss_compose, loss_dn, loss_dn_comp, z, step_t
+
+    def _prev_keep(self, x_prev):
+        """(M, N, P, 1) keep-mask for the decoder's x_prev; None when off. All-True once annealed, so DDP still sees the token."""
+        it = int(self.cfg.training.iter)
+        if self._prev_mask_gen is None:
+            return None
+        self._prev_mask_now = self._prev_mask_ratio * max(0.0, 1.0 - it / self._prev_mask_iters)  # linear to 0
+        M, N, P, _ = x_prev.shape
+        u = torch.rand(M, N, P, 1, generator=self._prev_mask_gen, device=x_prev.device)  # (M, N, P, 1)
+        return u >= self._prev_mask_now                                                   # True = keep
 
     def _detached_noise_loss(self, x_prev, x, H, W, num_cameras, z):
         """decode(z.detach()+σ·ε) vs x: gradient reaches decoder_blocks + z_proj_up only. None when off."""
@@ -1269,6 +1310,7 @@ class DeltaTokTrainer(DeltaTokSharedMixin, Trainer):
                     self.log_add_scalar('Train/LossRecon', loss, self.cfg.training.iter)
                     self.log_add_scalar('Train/LossSIGReg', loss_sigreg if loss_sigreg is not None else 0.0, self.cfg.training.iter)
                     self.log_add_scalar('Train/DecodeNoiseTau', self._decode_noise_tau, self.cfg.training.iter)
+                    self.log_add_scalar('Train/PrevMaskRatio', self._prev_mask_now, self.cfg.training.iter)
                     self.log_add_scalar('Train/LossCov', loss_cov if loss_cov is not None else 0.0, self.cfg.training.iter)
                     self.log_add_scalar('Train/LossCompose', loss_compose if loss_compose is not None else 0.0, self.cfg.training.iter)
                     self.log_add_scalar('Train/LossDecNoise', loss_dn if loss_dn is not None else 0.0, self.cfg.training.iter)

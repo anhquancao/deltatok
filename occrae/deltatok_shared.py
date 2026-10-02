@@ -503,6 +503,7 @@ class DeltaTokSharedMixin:
             bottleneck_mlp=bool(deltatok_cfg.get("bottleneck_mlp", False)),
             force_bottleneck=bool(deltatok_cfg.get("force_bottleneck", False)),
             z_row_clip=float(deltatok_cfg.get("z_row_clip", 0.0)),
+            prev_mask_token=bool(deltatok_cfg.get("prev_mask_token", False)),
         )
         if self.is_master:
             print(f"[INFO] DeltaTok z_row_clip={net.z_row_clip}", flush=True)

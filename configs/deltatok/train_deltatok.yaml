@@ -79,6 +79,7 @@ model:
     decode_noise_tau: 0.0  # RAE noise finetune: a 2nd decode of z.detach()+σ·ε, σ ~ U(0, tau), trains the decoder alone. 0 = off
     mlp_ratio: 4
     layer_scale_init: 1.0e-5
+    prev_mask_token: false  # learned stand-in for masked x_prev patches at the decoder input
     initializer_range: 0.02
 
 training:
@@ -113,6 +114,8 @@ training:
   # LN sphere). 0 = off; the single-pair path is then bit-identical.
   compose_weight: 0.0
   compose_triplet: false  # triplet path even at compose_weight 0; no composed decode
+  prev_mask_ratio: 0.0  # share of the decoder's x_prev patches masked at iter 0; 0 = off
+  prev_mask_iters: 0  # linear anneal of that share to 0 over N iters
   # SIGReg (LeJEPA) anti-collapse loss on the z bottleneck: pushes the compressed
   # latent toward isotropic N(0,I) so it uses its full budget (tc768 collapses to
   # rank ~290). 0 = off (only meaningful with target_channels > 0).
