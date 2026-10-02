@@ -36,8 +36,8 @@ BSC's scheduler is `sched/backfill` and walltime is absent from the priority for
 
 ## Pre-flight checks (do these every time)
 
-1. **Verify the cluster script matches local.** The user syncs files manually; never
-   sync yourself. Compare checksums and stop if they differ — tell the user to sync first.
+1. **Verify the cluster script matches local.** Compare checksums. If they differ, sync with
+   the `monitor-sync` skill and re-check. Never raw `rsync` / `scp`.
    ```bash
    md5sum slurm/<path>/<script>.slurm
    ssh <host> "bash -lc 'cd <working_dir> && md5sum slurm/<path>/<script>.slurm'"

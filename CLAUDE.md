@@ -57,7 +57,7 @@ Submit from a **login shell**: `ssh <host> "bash -lc '... sbatch ...'"`. Only th
 
 ## Job monitor / knowledge base
 
-`../monitor_jobs` tracks this repo's SLURM jobs. **Read its `data/*.json` directly. Never start its server or call its HTTP API.** Schemas are in the "RAG knowledge base" section of `../monitor_jobs/CLAUDE.md`.
+`../monitor_jobs` tracks this repo's SLURM jobs. **Read its `data/*.json` directly. Use its server and HTTP API only for code sync (`monitor-sync` skill).** Schemas are in the "RAG knowledge base" section of `../monitor_jobs/CLAUDE.md`.
 
 - `monitor_jobs.json`, `archived_jobs.json` — job records keyed `"<Cluster>:<JobID>"`. Search both for full history.
 - `logs/<Cluster>/<name>_<jobid>.{out,err}` — cached stdout/stderr. Grep here for "why did job N fail".
@@ -96,7 +96,7 @@ Use the `chain-slurm-jobs` skill for chained resume jobs. On BSC, chain at 40 h 
 
 ### Critical: verify the cluster copy before `sbatch`
 
-The user syncs manually. Never assume a local edit reached the cluster, and never sync it yourself — no `scp`, no `rsync`. Grep the remote file first, and ask the user to sync if it is stale.
+Never assume a local edit reached the cluster. Grep or md5 the remote file first. If it is stale, sync with the `monitor-sync` skill. It starts the `../monitor_jobs` server if it is down, then starts the per-cluster syncer through the HTTP API. Never use raw `scp` or `rsync`.
 
 ```bash
 ssh jean-zay "bash -lc 'grep -E \"account|partition|time\" \$TRG_WORK/code/deltatok/slurm/<script>.slurm'"

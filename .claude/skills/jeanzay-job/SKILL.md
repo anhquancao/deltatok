@@ -86,6 +86,6 @@ The cluster checkout is the user's — assume it's synced as they want. **Never 
 - `git clean -fd|-f|-x`, `git reset --hard`, `git checkout .`, `git restore .`
 - `git stash drop|clear`
 - `git pull`, `git fetch && git merge`, `git rebase`
-- `rsync` / `scp` of source files local → cluster
+- raw `rsync` / `scp` of source files local → cluster (sync only via the `monitor-sync` skill)
 
-If a Jean Zay operation fails because of sync state, **stop and ask the user** — don't try to "fix" it. Read-only inspection (`git log`, `status`, `diff`, `show`, `cat`, `ls`, `squeue`) is fine.
+If the Jean Zay copy is stale, sync with the `monitor-sync` skill. For any other sync-state failure, **stop and ask the user** — don't try to "fix" it. Read-only inspection (`git log`, `status`, `diff`, `show`, `cat`, `ls`, `squeue`) is fine.
