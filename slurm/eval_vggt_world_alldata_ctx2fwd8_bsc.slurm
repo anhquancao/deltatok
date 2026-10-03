@@ -37,7 +37,7 @@ case "${SET:-}" in
 esac
 : "${CONFIG_NAME:=eval_deltatok_flow_alldata_ctx2fwd8_${SET}_bsc}"
 : "${CKPT:=/gpfs/scratch/ehpc1001/quan/vggt_world/kitti.pt}"
-: "${ROLLOUT:=stride2}"
+: "${ROLLOUT:=stride1}"
 : "${RESOLUTION:=native}"
 : "${NUM_ITEMS:=1000000}"  # above any split: window_stride sets each set's size
 : "${OUTPUT_DIR:=results/vggt_world_alldata_ctx2fwd8}"

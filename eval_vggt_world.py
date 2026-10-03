@@ -86,7 +86,7 @@ def get_args_parser() -> argparse.ArgumentParser:
     parser.add_argument("--test_filter", type=str, default=None)
     parser.add_argument("--bsize", type=int, default=4)
     parser.add_argument("--fm_steps", type=int, default=50)
-    parser.add_argument("--rollout", choices=["stride2", "stride1"], default="stride2")
+    parser.add_argument("--rollout", choices=["stride2", "stride1"], default="stride1")  # authors' default (paper B.3)
     parser.add_argument("--resolution", choices=["native", "448"], default="native")
     parser.add_argument("--da3_metric_model", type=str, default="depth-anything/DA3METRIC-LARGE")
     parser.add_argument("--no_chamfer", action="store_true")

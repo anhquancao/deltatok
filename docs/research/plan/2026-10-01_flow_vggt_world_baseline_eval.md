@@ -44,7 +44,7 @@ Nothing under `third_party/` is edited.
 - **Keep:** the arg-parser skeleton, `--config-dir configs/deltatok_flow`, `--config-name` (one per-set config, §0), the
   Hydra `compose` (used only for `dataset.test_dataset` and `training.val_bsize`), `_build_test_loaders`, `_sanitize`, the per-set JSON dump.
 - **Drop:** the DeltaTok trainer build, the step / mode / noise sweeps, `_bank_z_basis`, `--fvd` and `_frechet_distance`.
-- **Args:** `--ckpt`, `--fm_steps 50`, `--rollout {stride2,stride1}` (default `stride2`),
+- **Args:** `--ckpt`, `--fm_steps 50`, `--rollout {stride2,stride1}` (default `stride1`, the authors' default),
   `--resolution {native,448}` (default `native`), `--da3_metric_model depth-anything/DA3METRIC-LARGE`, `--seed`,
   `--output_dir results/vggt_world_alldata_ctx2fwd8`.
 - **Model:**
@@ -99,7 +99,7 @@ stdout. One file per set, so the 3 jobs never write the same path.
   `--qos=acc_ehpc`, 1 GPU, `--time=03:00:00` (one set per job).
 - Vars: `SET` (required: `kitti` | `nuscenes` | `waymotest`, fail fast otherwise),
   `CONFIG_NAME=eval_deltatok_flow_alldata_ctx2fwd8_${SET}_bsc`,
-  `CKPT=/gpfs/scratch/ehpc1001/quan/vggt_world/kitti.pt`, `ROLLOUT=stride2`, `RESOLUTION=native`,
+  `CKPT=/gpfs/scratch/ehpc1001/quan/vggt_world/kitti.pt`, `ROLLOUT=stride1`, `RESOLUTION=native`,
   `NUM_ITEMS=1000000`, `OUTPUT_DIR=results/vggt_world_alldata_ctx2fwd8`, `HF_HUB_OFFLINE=1`,
   `HF_HOME=/gpfs/scratch/ehpc1001/hf_cache`.
 - Body: one `python eval_vggt_world.py --config-name "$CONFIG_NAME" ...`; drop `CFG_ARGS`.
