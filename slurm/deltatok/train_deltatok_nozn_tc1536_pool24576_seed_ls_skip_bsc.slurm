@@ -7,7 +7,7 @@
 #SBATCH --account=ehpc1001
 #SBATCH --partition=acc
 #SBATCH --qos=acc_ehpc
-#SBATCH --time=06:00:00
+#SBATCH --time=48:00:00
 ##SBATCH --qos=acc_debug
 ##SBATCH --time=02:00:00
 #SBATCH --output=slurm/output/train_deltatok_nozn_tc1536_pool24576_seed_ls_skip_bsc_%j.out
@@ -23,7 +23,7 @@ export DECNOISE_WARMUP=${DECNOISE_WARMUP:-2000}  # tau ramp only
 export DECNOISE_WEIGHT=${DECNOISE_WEIGHT:-1.0}   # loss weight of the detached noised decode
 export INIT_SEED=${INIT_SEED:-2}       # torch.manual_seed(INIT_SEED + rank); 2 = the 46860758 draw
 export Z_ROW_CLIP=${Z_ROW_CLIP:-0}     # per-row RMS cap on z, straight-through; 0 = off, 4 = the clip arm
-export LAYER_SCALE_INIT=${LAYER_SCALE_INIT:-0.1}  # block residual scale at init; 1e-5 in every run so far
+export LAYER_SCALE_INIT=${LAYER_SCALE_INIT:-0.1}  # block residual scale at init
 
 mkdir -p slurm/output
 

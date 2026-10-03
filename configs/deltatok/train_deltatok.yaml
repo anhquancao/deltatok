@@ -78,7 +78,7 @@ model:
     z_norm: true  # false removes the z-norm entirely (SIGReg then regularizes a free z, not one pinned to a sphere)
     decode_noise_tau: 0.0  # RAE noise finetune: a 2nd decode of z.detach()+σ·ε, σ ~ U(0, tau), trains the decoder alone. 0 = off
     mlp_ratio: 4
-    layer_scale_init: 1.0e-5
+    layer_scale_init: 0.1
     prev_mask_token: false  # learned stand-in for masked x_prev patches at the decoder input
     initializer_range: 0.02
 

@@ -488,7 +488,7 @@ class DeltaTokSharedMixin:
             patch_size=int(backbone.patch_size),
             initializer_range=float(deltatok_cfg.get("initializer_range", 0.02)),
             num_hidden_layers=int(deltatok_cfg.get("num_hidden_layers", 12)),
-            layer_scale_init=float(deltatok_cfg.get("layer_scale_init", 1e-5)),
+            layer_scale_init=float(deltatok_cfg.get("layer_scale_init", 0.1)),
             use_qk_norm=bool(deltatok_cfg.get("use_qk_norm", True)),
             use_gated_attn=bool(deltatok_cfg.get("use_gated_attn", True)),
             use_swiglu=bool(deltatok_cfg.get("use_swiglu", True)),

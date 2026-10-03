@@ -65,7 +65,7 @@ class DeltaTokModule(nn.Module):
         patch_size: int,
         initializer_range: float = 0.02,
         num_hidden_layers: int = 12,
-        layer_scale_init: float = 1e-5,
+        layer_scale_init: float = 0.1,
         use_qk_norm: bool = True,
         use_gated_attn: bool = True,
         use_swiglu: bool = True,
@@ -404,7 +404,7 @@ class DeltaTokModule(nn.Module):
         own ``[z_n, x_prev_n]`` sequence; on global blocks all N z's attend
         across all cameras' spatial tokens.
 
-        At init, layer_scale_init=1e-5 makes every block ~identity, so x_hat ≈ x_prev
+        With layer_scale_init=1e-5 every block starts ~identity, so x_hat ≈ x_prev
         (frame_t copied into the frame_{t+1} slot). With adjacent frames sharing
         most of the scene, OccRAE decodes plausible depth before any DeltaTok
         training, so a low recon loss / reasonable pred depth at iter 0 is
