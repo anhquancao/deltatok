@@ -1,0 +1,594 @@
+<!doctype html>
+<!-- thread tc_width · 2026-10-03 · prior cycle: analysis/2026-10-01_tc_width_free_z_decoder_ignores_z.md -->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Stuck tc1536 decoders ignore z; layer_scale_init 0.1 plus a large-gap decode escaped on 3 of 3 runs (KITTI 0.024 at ep 9 vs 0.131 stuck)</title>
+<style>
+/* ---------- tokens · light only, white slides (no dark variant by request) ---------- */
+:root{
+  color-scheme: light only;
+  --backdrop:#e9e9e6; --page:#f7f7f6; --surface:#ffffff;
+  --ink:#0b0b0b; --ink2:#52514e; --muted:#83817c;
+  --grid:#e4e4de; --axis:#c3c2b7; --border:rgba(11,11,11,.12);
+  --s1:#2a78d6; --s2:#eb6834; --s3:#1baf7a; --s4:#eda100; --s5:#8a63c8; --s6:#c2407a; --s7:#0f8b8d; --s8:#8c6d46;
+  --good:#0ca30c; --crit:#d03b3b; --serious:#ec835a;
+  --accent:var(--s1);
+  --serif:"Iowan Old Style","Palatino Linotype",Palatino,Georgia,serif;
+  --sans:system-ui,-apple-system,"Segoe UI",sans-serif;
+  --mono:ui-monospace,"Cascadia Code",Menlo,Consolas,monospace;
+}
+/* ---------- deck chrome ---------- */
+*{box-sizing:border-box;margin:0}
+html,body{height:100%}
+body{background:var(--backdrop);color:var(--ink);font:15px/1.45 var(--sans);overflow:hidden}
+.stage{position:absolute;left:50%;top:50%;width:1280px;height:720px;transform-origin:center center}
+.slide{position:absolute;inset:0;background:var(--surface);border:1px solid var(--border);
+  padding:46px 60px 40px;display:none;flex-direction:column}
+.slide.on{display:flex}
+.eyebrow{font:600 12px/1 var(--mono);letter-spacing:.14em;text-transform:uppercase;color:var(--accent);margin-bottom:12px}
+.eyebrow .dim{color:var(--muted)}
+h1{font:400 42px/1.14 var(--serif);letter-spacing:-.01em;text-wrap:balance}
+h2{font:400 29px/1.2 var(--serif);letter-spacing:-.005em;text-wrap:balance;margin-bottom:4px}
+.sub{color:var(--ink2);font-size:14.5px;max-width:80ch;margin-top:9px}
+.body{flex:1;min-height:0;margin-top:16px}
+.foot{display:flex;justify-content:space-between;align-items:baseline;color:var(--muted);
+  font:11px/1 var(--mono);letter-spacing:.06em;margin-top:12px;border-top:1px solid var(--grid);padding-top:10px}
+.pageno{font-variant-numeric:tabular-nums}
+/* nav */
+.nav{position:fixed;left:50%;bottom:14px;transform:translateX(-50%);display:flex;gap:8px;align-items:center;z-index:5}
+.nav button{width:9px;height:9px;border-radius:50%;border:1px solid var(--muted);background:transparent;cursor:pointer;padding:0}
+.nav button.cur{background:var(--accent);border-color:var(--accent)}
+.nav button:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+.arr{position:fixed;top:50%;transform:translateY(-50%);z-index:5;border:1px solid var(--border);
+  background:var(--surface);color:var(--ink2);width:34px;height:56px;cursor:pointer;font-size:18px;border-radius:4px}
+.arr:hover{color:var(--ink)}
+#prev{left:10px}#next{right:10px}
+/* ---------- shared bits ---------- */
+.mono{font-family:var(--mono)}
+.num{font-variant-numeric:tabular-nums}
+.chip{display:inline-block;font:600 10.5px/1 var(--mono);letter-spacing:.05em;padding:4px 7px;border-radius:3px;
+  border:1px solid var(--border);white-space:nowrap}
+.chip.good{color:var(--good);border-color:currentColor}
+.chip.bad{color:var(--crit);border-color:currentColor}
+.chip.hero{color:var(--accent);border-color:currentColor}
+.sw{display:inline-block;width:14px;height:0;border-top-width:3px;border-top-style:solid;vertical-align:4px}
+.cols{display:grid;gap:24px;min-height:0}
+.c2{grid-template-columns:1fr 1fr}
+.c58{grid-template-columns:1.32fr 1fr}
+.c85{grid-template-columns:1fr 1.28fr}
+.card{border:1px solid var(--grid);border-radius:6px;padding:14px 16px;background:var(--page)}
+.card h3{font:600 14px/1.3 var(--sans);margin:6px 0}
+.card .tag{font:600 10px/1 var(--mono);letter-spacing:.1em;text-transform:uppercase;color:var(--muted)}
+ul.tight{padding-left:18px;display:flex;flex-direction:column;gap:8px;font-size:13.5px;color:var(--ink2)}
+ul.tight li{padding-left:2px}
+ul.tight strong{color:var(--ink);font-weight:600}
+/* stat tiles */
+.tiles{display:grid;gap:12px}
+.tile{border:1px solid var(--grid);border-radius:6px;padding:12px 14px;background:var(--page)}
+.tile .v{font:600 25px/1.1 var(--sans);letter-spacing:-.01em;font-variant-numeric:tabular-nums}
+.tile .k{font:600 10px/1.4 var(--mono);letter-spacing:.1em;text-transform:uppercase;color:var(--muted);margin-bottom:5px}
+.tile .d{font-size:12.5px;color:var(--ink2);margin-top:5px}
+.rulebar{border:1px dashed var(--axis);border-radius:6px;padding:11px 15px;font-size:13.5px;color:var(--ink2)}
+.rulebar b{color:var(--ink)}
+/* tables */
+table{border-collapse:collapse;width:100%;font-size:13px;font-variant-numeric:tabular-nums}
+th,td{text-align:right;padding:5px 8px;border-bottom:1px solid var(--grid)}
+th:first-child,td:first-child{text-align:left}
+thead th{font:600 10px/1.3 var(--mono);letter-spacing:.08em;text-transform:uppercase;color:var(--muted);border-bottom:1px solid var(--axis)}
+tbody tr.hi td{background:#fff6f2}
+td.w{color:var(--crit);font-weight:600}
+td.g{color:var(--good);font-weight:600}
+/* charts */
+.legend{display:flex;flex-wrap:wrap;gap:7px 28px;font:12px/1 var(--sans);color:var(--ink2);margin-bottom:4px}
+.legend span{display:inline-flex;gap:7px;align-items:center}
+svg text{font:10.5px var(--sans);fill:var(--muted)}
+svg .axl{font:9.5px var(--mono);fill:var(--muted)}
+svg .hll{font:600 9.5px var(--mono)}
+svg .barlbl{font:600 12px var(--sans);fill:var(--ink)}
+svg .barval{font:11px var(--mono);fill:var(--ink2)}
+.chartwrap{display:flex;flex-direction:column;height:100%;min-height:0}
+.chartwrap svg{flex:1;min-height:0}
+.ptitle{font:600 12px/1.2 var(--mono);color:var(--ink2);letter-spacing:.02em;margin-bottom:2px}
+.ptitle span{color:var(--muted);font-weight:400}
+.takeaway{border:1px solid var(--grid);border-radius:6px;padding:12px 15px;background:var(--page);display:flex;gap:12px;align-items:flex-start}
+.takeaway .n{font:600 22px/1 var(--serif);color:var(--accent);flex:0 0 auto;width:24px}
+.takeaway .tx{font-size:13.5px;color:var(--ink2)}
+.takeaway .tx b{color:var(--ink)}
+@media (prefers-reduced-motion: no-preference){
+  .slide.on{animation:fadein .18s ease}
+  @keyframes fadein{from{opacity:.4}to{opacity:1}}
+}
+@media print{
+  body{overflow:visible;background:#fff}
+  .stage{position:static;transform:none!important;width:auto;height:auto}
+  .slide{display:flex;position:static;width:1280px;height:720px;page-break-after:always;margin:0 auto}
+  .nav,.arr{display:none}
+}
+/* ---------- small-multiple panel grids (this deck) ---------- */
+.g2{display:grid;grid-template-columns:1fr 1fr;gap:6px 22px;height:100%}
+.g2,.g4,.g6{padding-bottom:7px}
+.g4{display:grid;grid-template-columns:1fr 1fr;grid-template-rows:1fr 1fr;gap:8px 22px;height:100%}
+.g6{display:grid;grid-template-columns:repeat(3,1fr);grid-template-rows:1fr 1fr;gap:8px 16px;height:100%}
+.g8{display:grid;grid-template-columns:repeat(4,1fr);grid-template-rows:1fr 1fr;gap:8px 14px;height:100%}
+.pan{display:flex;flex-direction:column;min-height:0;min-width:0}
+.pan .plot{flex:1;min-height:0}
+.chartwrap svg,.pan .plot svg{display:block}
+.dsl{font:600 10px/1 var(--mono);letter-spacing:.09em;text-transform:uppercase;color:var(--accent)}
+.legend.top{margin:2px 0 12px}
+svg .pt{font:600 9px var(--mono)}
+.body:has(>.legend.top){display:flex;flex-direction:column}
+.body:has(>.legend.top)>.g4,.body:has(>.legend.top)>.g2,.body:has(>.legend.top)>.g6,.body:has(>.legend.top)>.cols{height:auto;flex:1;min-height:0}
+table.mt td,table.mt th{padding:4px 8px}
+.takeaway .n{line-height:1.15}
+.side{display:flex;flex-direction:column;gap:9px;min-height:0}
+.side table{font-size:12px}
+.side table td,.side table th{padding:4px 8px}
+.side .rulebar{font-size:12.5px;padding:9px 13px}
+table.mt tr.grp td{border-top:1px solid var(--axis)}
+/* ---------- visualization grids ---------- */
+.vgrid{display:grid;grid-template-columns:64px repeat(4,240px);gap:3px 5px;justify-content:center;align-items:center}
+.vgrid img,.bgrid img{display:block;width:100%}
+.vh{font:600 10px/1.2 var(--mono);letter-spacing:.06em;text-transform:uppercase;color:var(--muted);text-align:center}
+.vlab{font:10px/1.3 var(--mono);color:var(--muted)}
+.vlab b{display:block;color:var(--ink2);font-weight:600}
+.vt,.bt{position:relative}
+.vt .l1{position:absolute;left:4px;top:3px;font:600 10px/1 var(--mono);color:#fff;background:rgba(0,0,0,.55);padding:2px 4px;border-radius:2px}
+.vscale .bar{height:12px;border-radius:2px;background:linear-gradient(90deg,#000004,#57106e,#bc3754,#f98e09,#fcffa4)}
+.vscale .ends{display:flex;justify-content:space-between;font:10px/1.6 var(--mono);color:var(--muted)}
+.bwrap{display:flex;gap:34px;justify-content:center}
+.bgrid{display:grid;grid-template-columns:64px repeat(3,104px);gap:3px 5px;align-items:center}
+.bt span{display:block;text-align:center;font:10px/1.3 var(--mono);color:var(--ink2)}
+
+</style>
+</head>
+
+<body>
+<div class="stage" id="stage">
+<section class="slide on">
+  <div class="eyebrow">free-z tc1536 · the 0.13 plateau <span class="dim">— raw z · SIGReg 0.02 · pool 24576 · K 64</span></div>
+  <h1 style="font-size:31px">Stuck runs have a decoder that <b>ignores z</b>. <span class="mono" style="font-size:27px">layer_scale_init</span> 0.1 plus a <b>large-gap decode</b> escaped on all 3 runs.</h1>
+  <p class="sub">Every arm on the left except the control uses seed 2 and differs only in the knob named. At 1e-5 that draw sits on the plateau for 17 epochs. At 0.1 it escapes by ep 2, but only when training includes a decode across a large gap.</p>
+  <div class="body">
+    <div class="cols c58" style="height:100%">
+      <div class="chartwrap">
+        <div class="ptitle">KITTI · LossRecon <span>· 206 eval windows · ep 0–9</span></div>
+        <div class="legend">
+          <span><i class="sw" style="border-color:var(--ink2)"></i>1e-5 · compose · 46860758</span>
+          <span><i class="sw" style="border-color:var(--s8)"></i>0.1 · compose off · 46936382</span>
+          <span><i class="sw" style="border-color:var(--s1)"></i>0.1 · compose · 46869813</span>
+          <span><i class="sw" style="border-color:var(--s2)"></i>0.1 · compose_skip · 46943427</span>
+          <span><i class="sw" style="border-color:var(--s5);border-top-style:dashed"></i>control, seed 1, 1e-5 · 45949269</span>
+        </div>
+        <div id="h1" style="flex:1;min-height:0"></div>
+      </div>
+      <div class="tiles" style="grid-template-rows:auto auto auto;align-content:start">
+        <div class="tile"><div class="k">does the decoder read z?</div>
+          <div class="v">+0.1% <span style="color:var(--muted);font-size:17px">stuck</span> · +954% <span style="color:var(--muted);font-size:17px">at 0.1</span></div>
+          <div class="d">KITTI loss change when each window gets another window's z. The stuck decoder does not notice.</div></div>
+        <div class="tile"><div class="k">runs that escaped</div>
+          <div class="v" style="font-size:20px">3 of 3 with 0.1 + large gap</div>
+          <div class="d">Before: 4 of 7 data streams with compose, 0 of 4 without. At 0.1 without compose: 0 of 1. At 1e-2: 0 of 1.</div></div>
+        <div class="tile"><div class="k">adopted 2026-10-03</div>
+          <div class="v" style="font-size:20px">default <span class="mono" style="font-size:18px">layer_scale_init</span> 0.1</div>
+          <div class="d">48 h runs: <span class="mono">46967500</span> (0.1 + compose) and <span class="mono">46967501</span> (0.1 + compose_skip), both resumed from their 6 h checkpoints.</div></div>
+      </div>
+    </div>
+  </div>
+  <div class="foot"><span>BSC 46860758 · 46936382 · 46869813 · 46943427 (running, ep 0–6) · control 45949269 · LossRecon from [Eval/206 @ KittiSeqMultiView]</span><span class="pageno">01 / 09</span></div>
+</section>
+
+<section class="slide">
+  <div class="eyebrow">the problem <span class="dim">— before any fix, layer_scale_init 1e-5</span></div>
+  <h2>Runs either leave ~0.13 between ep 3 and 5, or stay there. Which one is a draw.</h2>
+  <p class="sub">The control and the seed-2 runs share the recipe. All reach train recon ~0.105 by optimizer step ~4k, then split as the lr warm-up ends at step 5,000. The stuck run is still at 0.129 at ep 17.</p>
+  <div class="body">
+    <div class="cols c58" style="height:100%">
+      <div class="chartwrap">
+        <div class="ptitle">KITTI · LossRecon <span>· ep 0–17</span></div>
+        <div class="legend">
+          <span><i class="sw" style="border-color:var(--s5)"></i>control · seed 1 · compose · 45949269</span>
+          <span><i class="sw" style="border-color:var(--ink2)"></i>seed 2 · compose · 46860758</span>
+          <span><i class="sw" style="border-color:var(--s8)"></i>seed 2 · compose off · 46860759</span>
+        </div>
+        <div id="p2" style="flex:1;min-height:0"></div>
+      </div>
+      <div class="side">
+        <table class="mt">
+          <thead><tr><th>recipe</th><th>escaped</th><th>stuck</th></tr></thead>
+          <tbody>
+            <tr><td>compose on</td><td class="g">4 streams</td><td class="w">3 streams</td></tr>
+            <tr><td style="color:var(--muted);font-size:11.5px" colspan="3">escaped: seed-1 stream, 45727710, 45725881, 45610897 · stuck: 46860758, 46838176 (sw2000), 45861170 (reg4)</td></tr>
+            <tr class="grp"><td>compose off</td><td class="w">0</td><td>4 streams, 6 jobs</td></tr>
+          </tbody>
+        </table>
+        <div class="rulebar"><b>Count streams, not jobs.</b> Step-0 loss fingerprints the data stream, because at 1e-5 every block starts as a near-identity and the decoder copies <span class="mono">x_prev</span>. Three "reliable" escapes were one stream (step-0 loss 0.173695 each).</div>
+        <div class="rulebar"><b>Ruled out:</b> row clip 4, 4 register tokens, half SIGReg (all stuck). The SIGReg warm-up twins ran a different stream, so that read is confounded.</div>
+        <div class="rulebar"><b>The z blow-up is not the trap.</b> It hits escaped and stuck runs alike at step ~1k. A compose-off clip-4 run never spiked and stayed stuck.</div>
+      </div>
+    </div>
+  </div>
+  <div class="foot"><span>stream tally from analysis/2026-10-01_tc_width_free_z_decoder_ignores_z.md §3 · eval sets changed 2026-09-30, KITTI 206 set unchanged</span><span class="pageno">02 / 09</span></div>
+</section>
+
+<section class="slide">
+  <div class="eyebrow">diagnosis <span class="dim">— z-swap probe on epoch_10.pth</span></div>
+  <h2>A stuck decoder gives the same output whatever z it gets. It learned a predictor that never reads z.</h2>
+  <p class="sub">Each checkpoint decodes 64 KITTI windows from <span class="mono">x_prev</span> with a changed z. Swap: each pair gets the z of another window at the same step. The test does not depend on z's scale.</p>
+  <div class="body">
+    <div class="cols c85" style="height:100%">
+      <div class="chartwrap">
+        <div class="ptitle">KITTI loss change when z is swapped <span>· % vs the unchanged decode</span></div>
+        <div class="legend"><span><i class="sw" style="border-color:var(--s1)"></i>escaped</span><span><i class="sw" style="border-color:var(--ink2)"></i>stuck</span></div>
+        <div id="p3" style="flex:1;min-height:0"></div>
+      </div>
+      <div class="side">
+        <table class="mt">
+          <thead><tr><th>run</th><th>base</th><th>z → mean</th><th>noise 1σ</th><th>copy x_prev</th></tr></thead>
+          <tbody>
+            <tr><td>E control 45949269</td><td>0.0483</td><td>+244%</td><td>+111%</td><td>+361%</td></tr>
+            <tr><td>E no SIGReg 46013197</td><td>0.0485</td><td>+284%</td><td>+115%</td><td>+359%</td></tr>
+            <tr><td>E decnoise 45725881</td><td>0.0366</td><td>+475%</td><td>+455%</td><td>+507%</td></tr>
+            <tr class="grp"><td>S compose s2 46860758</td><td>0.1294</td><td>+0.7%</td><td>+1.3%</td><td>+72%</td></tr>
+            <tr><td>S sw2000 46838176</td><td>0.1310</td><td>+4.1%</td><td>+4.3%</td><td>+70%</td></tr>
+            <tr><td>S triplet s1 46641176</td><td>0.1298</td><td>+0.0%</td><td>−0.0%</td><td>+71%</td></tr>
+            <tr><td>S triplet s2 46860759</td><td>0.1285</td><td>+0.1%</td><td>−0.1%</td><td>+73%</td></tr>
+            <tr><td>S pair s1 46250879</td><td>0.1345</td><td>−0.0%</td><td>−0.0%</td><td>+65%</td></tr>
+          </tbody>
+        </table>
+        <div class="rulebar"><b>The plateau is a z-free predictor.</b> Stuck decoders beat copying <span class="mono">x_prev</span> by 65–73% without reading z. That is the 0.13.</div>
+        <div class="rulebar"><b>Not a scale artifact.</b> At ep 7–9 eval z had a similar mean square in both runs (0.9–1.7). The absolute noise ladder still moved the stuck loss 7–15× less.</div>
+      </div>
+    </div>
+  </div>
+  <div class="foot"><span>probe BSC 46880769 · 16 batches × 4 windows · decoding the stored z reproduces the forward loss exactly · nuScenes gives the same picture</span><span class="pageno">03 / 09</span></div>
+</section>
+
+<section class="slide">
+  <div class="eyebrow">escape is luck <span class="dim">— replay of the control, same data and weights</span></div>
+  <h2>A replay of the escaped control matched it to 4 decimals, drifted at the z blow-up, and stayed stuck.</h2>
+  <p class="sub"><span class="mono">46868776</span> reran <span class="mono">45949269</span> on its old eval sets, so the train stream is the same. Loss matched at every logged batch to 600. The first difference, 1e-4, is at batch 800, as z blows up. GPU run-to-run noise in bf16 is the only thing left.</p>
+  <div class="body">
+    <div class="legend top">
+      <span><i class="sw" style="border-color:var(--s5)"></i>control · 45949269</span>
+      <span><i class="sw" style="border-color:var(--s6)"></i>replay · 46868776</span>
+    </div>
+    <div class="g2">
+      <div class="pan"><div class="ptitle">train zrow_max <span>· log · dotted = first loss gap</span></div><div class="plot" id="p4a"></div></div>
+      <div class="pan"><div class="ptitle">KITTI · LossRecon <span>· ep 0–14</span></div><div class="plot" id="p4b"></div></div>
+    </div>
+  </div>
+  <div class="foot"><span>stdout Training lines every 20 micro-batches · replay cancelled 2026-10-02 at ep 15 · KITTI LossRecon 0.1305 at ep 14 vs 0.0392 for the control</span><span class="pageno">04 / 09</span></div>
+</section>
+
+<section class="slide">
+  <div class="eyebrow">fixes on the stuck draw <span class="dim">— seed 2, one knob changed per arm</span></div>
+  <h2><span class="mono" style="font-size:25px">layer_scale_init</span> 0.1 and <span class="mono" style="font-size:25px">x_prev</span> masking both rescue it, but only with compose.</h2>
+  <p class="sub">Masking: 50% of the decoder's <span class="mono">x_prev</span> patches become a learned token at step 0, annealed to 0 by step 6,000. At 0.1 the blocks no longer start as near-identities. 1e-2 is too small.</p>
+  <div class="body">
+    <div class="g6" style="grid-template-columns:repeat(3,1fr);grid-template-rows:auto 1fr">
+      <div class="legend" style="grid-column:1;font-size:11px;gap:5px 14px">
+        <span><i class="sw" style="border-color:var(--ink2)"></i>1e-5</span><span><i class="sw" style="border-color:var(--s4)"></i>1e-2</span><span><i class="sw" style="border-color:var(--s1)"></i>0.1</span><span><i class="sw" style="border-color:var(--s3)"></i>masked, 1e-5</span></div>
+      <div class="legend" style="grid-column:2;font-size:11px;gap:5px 14px">
+        <span><i class="sw" style="border-color:var(--ink2)"></i>1e-5</span><span><i class="sw" style="border-color:var(--s1)"></i>0.1</span><span><i class="sw" style="border-color:var(--s3)"></i>masked, 1e-5</span></div>
+      <div class="legend" style="grid-column:3;font-size:11px;gap:5px 14px">
+        <span><i class="sw" style="border-color:var(--s1)"></i>0.1 · seed 2</span><span><i class="sw" style="border-color:var(--s7)"></i>0.1 · seed 3</span><span><i class="sw" style="border-color:var(--s5);border-top-style:dashed"></i>control 1e-5</span></div>
+      <div class="pan"><div class="ptitle">compose on · KITTI LossRecon</div><div class="plot" id="p5a"></div></div>
+      <div class="pan"><div class="ptitle">compose off · KITTI LossRecon</div><div class="plot" id="p5b"></div></div>
+      <div class="pan"><div class="ptitle">0.1 + compose · a second draw</div><div class="plot" id="p5c"></div></div>
+    </div>
+  </div>
+  <div class="foot"><span>compose on: 46860758 / 46869812 / 46869813 / 46883974 · compose off: 46860759 / 46936382 / 46883975 · seed 3: 46936383 · 6 h jobs, ep 0–9</span><span class="pageno">05 / 09</span></div>
+</section>
+
+<section class="slide">
+  <div class="eyebrow">why compose matters <span class="dim">— the gap each decode spans</span></div>
+  <h2>Compose adds a decode across two hops. A large gap makes copying <span class="mono" style="font-size:25px">x_prev</span> a poor guess, so reading z pays.</h2>
+  <p class="sub">The triplet path picks 3 of the 10 frames at random and ignores <span class="mono">max_gap</span> (<span class="mono">occrae/deltatok_trainer.py:1017</span>). Its hops are short. The composed decode from frame t0 to t2 spans both.</p>
+  <div class="body">
+    <div class="cols c58" style="height:100%">
+      <div class="chartwrap">
+        <div class="ptitle">share of decodes per gap <span>· frames between x_prev and the target</span></div>
+        <div class="legend">
+          <span><i class="sw" style="border-color:var(--ink2)"></i>triplet hop · mean 2.75</span>
+          <span><i class="sw" style="border-color:var(--s1)"></i>t0 → t2 (compose, compose_skip) · mean 5.5</span>
+          <span><i class="sw" style="border-color:var(--s4);border-top-style:dashed"></i>pair path, max_gap 9 · mean 5.0</span>
+        </div>
+        <div id="p6" style="flex:1;min-height:0"></div>
+      </div>
+      <div class="side">
+        <div class="rulebar"><b>Compose vs triplet only:</b> the one difference is the t0 → t2 decode. Compose escaped on 4 of 7 streams, the triplet path on 0 of 4.</div>
+        <div class="rulebar"><b>August pair sweep:</b> <span class="mono">max_gap</span> ≥ 4 escaped 4 of 4 arms, ≤ 3 escaped 1 of 3. One seed per arm.</div>
+        <div class="rulebar"><b>Both fixes need it:</b> masking and 0.1 escape with compose and stay stuck without (slide 5).</div>
+        <div class="rulebar"><b>Against "gap alone":</b> the September pair arm <span class="mono">46250879</span> decoded gaps up to 9 (mean 5) and stayed stuck. One stream, and escape is partly luck.</div>
+        <div class="rulebar"><b>Open alternative:</b> the sum constraint z<sub>a</sub> + z<sub>b</sub> itself. The next slide separates the two.</div>
+      </div>
+    </div>
+  </div>
+  <div class="foot"><span>gap shares are exact for 3 of 10 uniform frames: hop (9−g)(10−g)/240 per hop · span (10−r)(r−1)/120 · pair 1/9</span><span class="pageno">06 / 09</span></div>
+</section>
+
+<section class="slide">
+  <div class="eyebrow">gap vs sum <span class="dim">— training.compose_skip</span></div>
+  <h2>With z encoded straight from (t0, t2), and no sum anywhere, both runs still escape. The gap is what matters.</h2>
+  <p class="sub"><span class="mono">compose_skip=true</span> replaces z<sub>a</sub> + z<sub>b</sub> with a z encoded from the (t0, t2) pair. Its single-step recon is better: 0.0252 vs 0.0343 at ep 8 masked, 0.0248 vs 0.0299 at ep 5 at 0.1. It gives up additivity: <span class="mono">LossRecon_Comp</span>, the decode of the summed hop codes, stalls near 0.11.</p>
+  <div class="body">
+    <div class="legend top">
+      <span><i class="sw" style="border-color:var(--s1)"></i>compose (sum)</span>
+      <span><i class="sw" style="border-color:var(--s2)"></i>compose_skip (direct z)</span>
+      <span><i class="sw" style="border-color:var(--ink2)"></i>compose off</span>
+    </div>
+    <div class="g4">
+      <div class="pan"><div class="ptitle">masked x_prev · LossRecon <span>· KITTI</span></div><div class="plot" id="p7a"></div></div>
+      <div class="pan"><div class="ptitle">masked x_prev · LossRecon_Comp <span>· KITTI</span></div><div class="plot" id="p7b"></div></div>
+      <div class="pan"><div class="ptitle">layer_scale_init 0.1 · LossRecon <span>· KITTI</span></div><div class="plot" id="p7c"></div></div>
+      <div class="pan"><div class="ptitle">layer_scale_init 0.1 · LossRecon_Comp <span>· KITTI</span></div><div class="plot" id="p7d"></div></div>
+    </div>
+  </div>
+  <div class="foot"><span>masked: 46883974 sum / 46937610 skip / 46883975 off · 0.1: 46869813 sum / 46943427 skip (running, ep 0–6) / 46936382 off</span><span class="pageno">07 / 09</span></div>
+</section>
+
+<section class="slide">
+  <div class="eyebrow">after the fix <span class="dim">— probe on epoch_10.pth, BSC 46936420</span></div>
+  <h2>Every escaped run reads z. Every stuck run ignores it, with a large encoder MLP layer scale.</h2>
+  <p class="sub">Same z-swap probe as slide 3, plus the learned layer scales λ. The fixed runs react to a wrong z 1.7–2.6× more strongly than the control.</p>
+  <div class="body">
+    <div class="cols" style="height:100%;grid-template-columns:1.7fr 1fr">
+      <table class="mt" style="align-self:start;font-size:12.5px">
+        <thead><tr><th>run</th><th>base</th><th>swap z</th><th>z → mean</th><th>z top-1 energy</th><th>enc MLP max |λ|</th><th>dec attn mean |λ|</th></tr></thead>
+        <tbody>
+          <tr><td>E control 1e-5 45949269</td><td>0.0483</td><td class="g">+370%</td><td>+244%</td><td>0.004</td><td>0.241</td><td>0.037</td></tr>
+          <tr><td>E 0.1 compose 46869813</td><td>0.0233</td><td class="g">+954%</td><td>+804%</td><td>0.005</td><td>0.259</td><td>0.068</td></tr>
+          <tr><td>E masked compose 46883974</td><td>0.0323</td><td class="g">+634%</td><td>+560%</td><td>0.002</td><td>0.241</td><td>0.040</td></tr>
+          <tr class="grp"><td>S 1e-5 compose 46860758</td><td>0.1294</td><td class="w">+0.1%</td><td>+0.7%</td><td>0.181</td><td>0.543</td><td>0.016</td></tr>
+          <tr><td>S 1e-2 compose 46869812</td><td>0.1292</td><td class="w">+0.0%</td><td>−0.1%</td><td>0.318</td><td>0.554</td><td>0.016</td></tr>
+          <tr><td>S masked compose off 46883975</td><td>0.1283</td><td class="w">+0.0%</td><td>−0.0%</td><td>0.232</td><td>0.548</td><td>0.018</td></tr>
+        </tbody>
+      </table>
+      <div class="side">
+        <div class="rulebar"><b>Stuck signature in these 6:</b> encoder MLP max |λ| 0.54–0.55 vs 0.24–0.26, and decoder attention λ 2–4× smaller.</div>
+        <div class="rulebar"><b>One channel in many blocks is not it.</b> The 0.1 run has channel 1105 as the top encoder MLP λ in 11 of 12 blocks, at max 0.26, and reads z.</div>
+        <div class="rulebar"><b>z energy is not a clean marker.</b> The escaped decnoise run <span class="mono">45725881</span> holds 79% of z energy in one channel and still reads it (slide 3).</div>
+        <div class="rulebar"><b>Cause or effect is open.</b> The probe shows what a stuck run looks like at ep 10, not what sent it there.</div>
+      </div>
+    </div>
+  </div>
+  <div class="foot"><span>KITTI, 64 windows · λ: encoder_blocks.*.layer_scale2, decoder_blocks.*.layer_scale1 · acao_probe/{ls,zswap}_probe3.py</span><span class="pageno">08 / 09</span></div>
+</section>
+
+<section class="slide">
+  <div class="eyebrow">what changed and what is open</div>
+  <h2><span class="mono" style="font-size:25px">layer_scale_init</span> 0.1 is the default. Compose vs compose_skip depends on whether the flow needs additive z.</h2>
+  <p class="sub">Changed 2026-10-03: <span class="mono">configs/deltatok/train_deltatok.yaml:81</span>, the <span class="mono">DeltaTokModule</span> default (<span class="mono">occrae/deltatok_trainer.py:68</span>) and the builder fallback (<span class="mono">occrae/deltatok_shared.py:491</span>). Resumed runs keep their trained λ.</p>
+  <div class="body">
+    <div class="cols c2" style="height:100%">
+      <div style="display:flex;flex-direction:column;gap:12px;min-height:0">
+        <table class="mt">
+          <thead><tr><th>48 h run</th><th>job</th><th>resumes from</th><th>keeps additivity</th></tr></thead>
+          <tbody>
+            <tr><td>0.1 + compose, seed 2</td><td class="mono">46967500</td><td>46869813 at ep 9</td><td>yes</td></tr>
+            <tr><td>0.1 + compose_skip, seed 2</td><td class="mono">46967501</td><td>46943427 at its end</td><td>no, Comp ~0.11</td></tr>
+          </tbody>
+        </table>
+        <div class="rulebar"><b>Pick compose</b> if the flow model relies on z<sub>a</sub> + z<sub>b</sub> decoding the far frame. <b>Pick compose_skip</b> if only single-step recon matters: 17% lower at ep 5 at 0.1.</div>
+        <div class="rulebar"><b>Masking is dropped.</b> It rescues only with compose, like 0.1, and costs a learned token, an anneal schedule, its own RNG and a DDP workaround.</div>
+      </div>
+      <div class="side">
+        <div class="card"><div class="tag">open</div>
+          <ul class="tight" style="margin-top:8px">
+            <li><strong>Threshold.</strong> 1e-2 failed and 0.1 worked. Nothing in between is tested.</li>
+            <li><strong>Draws.</strong> 0.1 + compose escaped on 2 of 2 streams, 0.1 + compose_skip on 1 of 1.</li>
+            <li><strong>Long run.</strong> Every 0.1 result stops at ep 9. z scale is large: train <span class="mono">zrow_max</span> reached ~8,000 on seed 3.</li>
+            <li><strong>Flow.</strong> No flow model has been trained on a 0.1 tokenizer yet.</li>
+            <li><strong>Why.</strong> Why a near-identity start lets the decoder settle on a z-free predictor is not explained.</li>
+          </ul></div>
+      </div>
+    </div>
+  </div>
+  <div class="foot"><span>prior cycle: analysis/2026-10-01_tc_width_free_z_decoder_ignores_z.md · code c785146 (compose_skip) · board docs/research/questions.json</span><span class="pageno">09 / 09</span></div>
+</section>
+
+</div>
+
+<button class="arr" id="prev" aria-label="Previous slide">‹</button>
+<button class="arr" id="next" aria-label="Next slide">›</button>
+<div class="nav" id="nav" role="tablist" aria-label="Slides"></div>
+
+<script>
+/* ---------- deck nav ---------- */
+const stage=document.getElementById("stage");
+const slides=[...document.querySelectorAll(".slide")];
+const nav=document.getElementById("nav");
+let cur=0;
+slides.forEach((_,i)=>{
+  const b=document.createElement("button");
+  b.setAttribute("role","tab");b.setAttribute("aria-label","Slide "+(i+1));
+  b.addEventListener("click",()=>go(i));
+  nav.appendChild(b);
+});
+function go(i){
+  cur=Math.max(0,Math.min(slides.length-1,i));
+  slides.forEach((s,j)=>s.classList.toggle("on",j===cur));
+  [...nav.children].forEach((b,j)=>b.classList.toggle("cur",j===cur));
+}
+document.getElementById("prev").addEventListener("click",()=>go(cur-1));
+document.getElementById("next").addEventListener("click",()=>go(cur+1));
+addEventListener("keydown",e=>{
+  if(["ArrowRight","PageDown"," "].includes(e.key)){go(cur+1);e.preventDefault();}
+  else if(["ArrowLeft","PageUp"].includes(e.key)){go(cur-1);e.preventDefault();}
+  else if(e.key==="Home")go(0);
+  else if(e.key==="End")go(slides.length-1);
+});
+go(0);
+/* ---------- auto-scale ---------- */
+function fit(){
+  const s=Math.min(innerWidth/1300,(innerHeight-40)/730);
+  stage.style.transform=`translate(-50%,-50%) scale(${Math.min(s,1.4)})`;
+}
+addEventListener("resize",fit);fit();
+
+/* ---------- CSS var resolver (for SVG strokes) ---------- */
+const CV=n=>getComputedStyle(document.documentElement).getPropertyValue(n).trim();
+
+/* ---------- multi-series epoch line chart; data[i] is epoch xmin+i (or se.xs[i]); vlines = dotted epoch markers ---------- */
+function lineChart(el,cfg){
+  const W=cfg.W||600,H=cfg.H||300,L=cfg.L||44,R=cfg.R||52,T=cfg.T||10,B=cfg.B||26,
+        iw=W-L-R, ih=H-T-B;
+  const {ymin,ymax,yticks,xmax,xticks,log}=cfg, xmin=cfg.xmin||0, span=xmax-xmin;
+  const f=log?Math.log10:(v=>v), y0=f(ymin), y1=f(ymax);
+  const XE=e=>L+iw*((e-xmin)/span);
+  const Y=v=>T+ih*(1-(f(Math.min(Math.max(v,ymin),ymax))-y0)/(y1-y0));
+  const fmt=cfg.fmt||(t=>t.toFixed(4));
+  let s=`<svg viewBox="0 0 ${W} ${H}" width="100%" height="100%" preserveAspectRatio="xMidYMid meet">`;
+  yticks.forEach(t=>{const y=Y(t);
+    s+=`<line x1="${L}" y1="${y}" x2="${L+iw}" y2="${y}" stroke="${CV('--grid')}"/>`;
+    s+=`<text x="${L-6}" y="${y+3}" text-anchor="end" class="axl">${fmt(t)}</text>`;});
+  xticks.forEach(t=>s+=`<text x="${XE(t)}" y="${H-9}" text-anchor="middle" class="axl">${t}</text>`);
+  (cfg.vlines||[]).forEach(x=>s+=`<line x1="${XE(x)}" y1="${T}" x2="${XE(x)}" y2="${T+ih}" stroke="${CV('--muted')}" stroke-dasharray="2 3"/>`);
+  cfg.series.forEach(se=>{const c=CV(se.color);
+    const X=i=>se.xs?se.xs[i]:xmin+i, d=se.data.map((v,i)=>`${i?'L':'M'}${XE(X(i)).toFixed(1)} ${Y(v).toFixed(1)}`).join(' ');
+    s+=`<path d="${d}" fill="none" stroke="${c}" stroke-width="${se.width||1.8}" opacity="${se.faint?.5:1}" ${se.dash?`stroke-dasharray="${se.dash}"`:''}/>`;
+    if(se.dash) return;
+    const n=se.data.length-1, lx=XE(X(n)), ly=Y(se.data[n]);
+    s+=`<circle cx="${lx.toFixed(1)}" cy="${ly.toFixed(1)}" r="2.4" fill="${c}" opacity="${se.faint?.5:1}"/>`;
+    if(se.tag&&!se.faint) s+=`<text x="${lx+5}" y="${ly+3.5}" class="hll" fill="${c}">${se.tag}</text>`;});
+  s+=`<text x="${L+iw/2}" y="${H-0.5}" text-anchor="middle" class="axl">${cfg.xlab||'epoch'}</text></svg>`;
+  el.innerHTML=s;
+}
+
+/* ---------- x/y line chart for the noise ladder (explicit x values, not epochs) ---------- */
+function xyChart(el,cfg){
+  const W=cfg.W||560,H=cfg.H||300,L=46,R=62,T=10,B=30, iw=W-L-R, ih=H-T-B;
+  const {xmin,xmax,ymin,ymax,xticks,yticks}=cfg;
+  const xf=cfg.xfmt||(t=>t), yf=cfg.yfmt||(t=>t+'%');
+  const X=v=>L+iw*(v-xmin)/(xmax-xmin), Y=v=>T+ih*(1-(v-ymin)/(ymax-ymin));
+  let s=`<svg viewBox="0 0 ${W} ${H}" width="100%" height="100%" preserveAspectRatio="xMidYMid meet">`;
+  yticks.forEach(t=>{const y=Y(t);
+    s+=`<line x1="${L}" y1="${y}" x2="${L+iw}" y2="${y}" stroke="${CV('--grid')}"/>`;
+    s+=`<text x="${L-6}" y="${y+3}" text-anchor="end" class="axl">${yf(t)}</text>`;});
+  xticks.forEach(t=>s+=`<text x="${X(t)}" y="${H-12}" text-anchor="middle" class="axl">${xf(t)}</text>`);
+  cfg.series.forEach(se=>{const c=CV(se.color);
+    const d=se.pts.map((p,i)=>`${i?'L':'M'}${X(p[0]).toFixed(1)} ${Y(p[1]).toFixed(1)}`).join(' ');
+    s+=`<path d="${d}" fill="none" stroke="${c}" stroke-width="1.9" ${se.dash?`stroke-dasharray="${se.dash}"`:''}/>`;
+    se.pts.forEach(p=>s+=`<circle cx="${X(p[0]).toFixed(1)}" cy="${Y(p[1]).toFixed(1)}" r="2.6" fill="${c}"/>`);
+    const lp=se.pts[se.pts.length-1];
+    if(se.tag) s+=`<text x="${(X(lp[0])+5).toFixed(1)}" y="${(Y(lp[1])+3.5).toFixed(1)}" class="hll" fill="${c}">${se.tag}</text>`;});
+  s+=`<text x="${L+iw/2}" y="${H-1}" text-anchor="middle" class="axl">${cfg.xlab||'σ'}</text></svg>`;
+  el.innerHTML=s;
+}
+
+
+/* ---------- grouped bar panel: one bar per arm ---------- */
+function barChart(el,cfg){
+  const W=cfg.W||260,H=cfg.H||300,L=44,R=10,T=22,B=26, iw=W-L-R, ih=H-T-B;
+  const {ymax,yticks,bars}=cfg, fmt=cfg.fmt||(t=>''+t);
+  const Y=v=>T+ih*(1-v/ymax), bw=iw/bars.length*0.5;
+  let s=`<svg viewBox="0 0 ${W} ${H}" width="100%" height="100%" preserveAspectRatio="xMidYMid meet">`;
+  yticks.forEach(t=>{const y=Y(t);
+    s+=`<line x1="${L}" y1="${y}" x2="${L+iw}" y2="${y}" stroke="${CV('--grid')}"/>`;
+    s+=`<text x="${L-6}" y="${y+3}" text-anchor="end" class="axl">${fmt(t)}</text>`;});
+  bars.forEach((b,i)=>{const cx=L+iw*(i+.5)/bars.length, y=Y(b.v);
+    s+=`<rect x="${(cx-bw/2).toFixed(1)}" y="${y.toFixed(1)}" width="${bw.toFixed(1)}" height="${(T+ih-y).toFixed(1)}" fill="${CV(b.color)}"/>`;
+    s+=`<text x="${cx}" y="${(y-5).toFixed(1)}" text-anchor="middle" class="barval">${b.lbl}</text>`;
+    s+=`<text x="${cx}" y="${H-9}" text-anchor="middle" class="axl">${b.name}</text>`;});
+  el.innerHTML=s+'</svg>';
+}
+
+
+/* ================= DATA =================
+   KITTI [Eval/206 @ KittiSeqMultiView] LossRecon / LossRecon_Comp per epoch (index = epoch) from each job's BSC stdout.
+   TR = stdout Training lines every 20 micro-batches, first 4,500: [k micro-batch, loss, zrow_max].
+   ======================================== */
+const D={"45949269":{"rec":[0.1407,0.1366,0.1339,0.1297,0.1119,0.0932,0.0751,0.0615,0.0541,0.0497,0.0467,0.0442,0.0419,0.0407,0.0392,0.0379,0.0372,0.0365,0.0355,0.0349,0.0344,0.0339,0.0333,0.0327,0.0323,0.0318,0.0316,0.0311,0.0306,0.0304,0.03,0.0299,0.0295,0.0292,0.0288,0.0285,0.0287,0.0287,0.0283,0.0279,0.0278,0.0277,0.0276,0.0273,0.0271,0.027,0.0269,0.0269,0.0269,0.0267,0.0266,0.0266,0.0266,0.0266,0.0265,0.0264,0.0264,0.0264,0.0263,0.0262,0.0261,0.0259,0.0258,0.0258,0.0258,0.0257,0.0256,0.0256,0.0256,0.0255,0.0255,0.0254,0.0254,0.0253,0.0253,0.0253,0.0251,0.0251,0.0251,0.025],"comp":[0.1487,0.1448,0.1432,0.1393,0.1209,0.1009,0.0791,0.0635,0.0554,0.0511,0.0475,0.0451,0.0429,0.0414,0.0398,0.0385,0.0378,0.0372,0.0362,0.0356,0.035,0.0342,0.0337,0.0333,0.0327,0.0321,0.0319,0.0316,0.0309,0.0308,0.0305,0.0303,0.03,0.0295,0.0289,0.029,0.0289,0.0291,0.0287,0.0284,0.0281,0.028,0.0279,0.0276,0.0274,0.0273,0.0272,0.0273,0.0271,0.0271,0.0271,0.027,0.0268,0.0269,0.0269,0.0267,0.0267,0.0267,0.0267,0.0264,0.0262,0.0262,0.0258,0.026,0.0262,0.026,0.0258,0.0259,0.0259,0.0256,0.0258,0.0257,0.0256,0.0255,0.0255,0.0255,0.0254,0.0253,0.0255,0.0252]},"46860758":{"rec":[0.1398,0.1368,0.1333,0.1325,0.134,0.1323,0.1318,0.1316,0.1312,0.1309,0.1308,0.1302,0.1306,0.1304,0.1313,0.1294,0.1309,0.129],"comp":[0.1475,0.1457,0.1425,0.1425,0.1438,0.1419,0.1422,0.1413,0.1422,0.1425,0.141,0.1408,0.1419,0.1407,0.1413,0.1414,0.1418,0.1402]},"46860759":{"rec":[0.1398,0.1363,0.1325,0.1324,0.1319,0.1317,0.1307,0.1305,0.1305,0.1296,0.1304],"comp":[0.1482,0.1503,0.1452,0.1436,0.1469,0.1437,0.1437,0.1443,0.1434,0.1452,0.1436]},"46868776":{"rec":[0.1406,0.1369,0.1335,0.1335,0.1327,0.1335,0.1319,0.1307,0.131,0.131,0.131,0.1323,0.1306,0.1296,0.1305],"comp":[0.1485,0.1449,0.1434,0.1427,0.1429,0.1421,0.1421,0.1409,0.1412,0.1422,0.1408,0.1415,0.1417,0.1407,0.1413]},"46869812":{"rec":[0.1406,0.1378,0.134,0.1341,0.1329,0.1358,0.1314,0.1313,0.1299,0.1303],"comp":[0.1481,0.1456,0.1427,0.1428,0.1433,0.142,0.1418,0.141,0.1407,0.1418]},"46869813":{"rec":[0.1397,0.1202,0.0654,0.0417,0.034,0.0299,0.0276,0.026,0.025,0.024],"comp":[0.1467,0.1257,0.0683,0.0427,0.0345,0.0305,0.0279,0.0262,0.0252,0.0243]},"46883974":{"rec":[0.1413,0.1395,0.1233,0.081,0.0608,0.0434,0.0388,0.0359,0.0343,0.0333],"comp":[0.1489,0.1474,0.1294,0.0853,0.0567,0.0441,0.0393,0.0362,0.0347,0.0337]},"46883975":{"rec":[0.153,0.1403,0.1327,0.1313,0.1313,0.1304,0.13,0.1303,0.1298,0.1294],"comp":[0.1672,0.1543,0.1463,0.1448,0.1462,0.1437,0.1437,0.1441,0.1445,0.146]},"46936382":{"rec":[0.1383,0.1349,0.1329,0.1317,0.1322,0.1312,0.1312,0.1316,0.1303,0.1297],"comp":[0.1469,0.148,0.1446,0.1432,0.1469,0.1433,0.1433,0.1448,0.1433,0.1455]},"46936383":{"rec":[0.1398,0.1264,0.0831,0.0491,0.0391,0.0338,0.0307,0.0284,0.0267,0.0254],"comp":[0.147,0.1317,0.0885,0.0503,0.0398,0.0346,0.031,0.0288,0.0271,0.0257]},"46937610":{"rec":[0.1416,0.146,0.0894,0.0593,0.0462,0.0364,0.0313,0.0278,0.0252],"comp":[0.1492,0.1576,0.121,0.1148,0.1144,0.1123,0.1134,0.1128,0.1145]},"46943427":{"rec":[0.1394,0.1194,0.0585,0.0357,0.029,0.0248,0.0225],"comp":[0.1468,0.1327,0.1104,0.1089,0.1085,0.115,0.1173]}};
+const TR={"C":[[0.0,0.02,0.04,0.06,0.08,0.1,0.12,0.14,0.16,0.18,0.2,0.22,0.24,0.26,0.28,0.3,0.32,0.34,0.36,0.38,0.4,0.42,0.44,0.46,0.48,0.5,0.52,0.54,0.56,0.58,0.6,0.62,0.64,0.66,0.68,0.7,0.72,0.74,0.76,0.78,0.8,0.82,0.84,0.86,0.88,0.9,0.92,0.94,0.96,0.98,1.0,1.02,1.04,1.06,1.08,1.1,1.12,1.14,1.16,1.18,1.2,1.22,1.24,1.26,1.28,1.3,1.32,1.34,1.36,1.38,1.4,1.42,1.44,1.46,1.48,1.5,1.52,1.54,1.56,1.58,1.6,1.62,1.64,1.66,1.68,1.7,1.72,1.74,1.76,1.78,1.8,1.82,1.84,1.86,1.88,1.9,1.92,1.94,1.96,1.98,2.0,2.02,2.04,2.06,2.08,2.1,2.12,2.14,2.16,2.18,2.2,2.22,2.24,2.249,2.25,2.27,2.29,2.31,2.33,2.35,2.37,2.39,2.41,2.43,2.45,2.47,2.49,2.51,2.53,2.55,2.57,2.59,2.61,2.63,2.65,2.67,2.69,2.71,2.73,2.75,2.77,2.79,2.81,2.83,2.85,2.87,2.89,2.91,2.93,2.95,2.97,2.99,3.01,3.03,3.05,3.07,3.09,3.11,3.13,3.15,3.17,3.19,3.21,3.23,3.25,3.27,3.29,3.31,3.33,3.35,3.37,3.39,3.41,3.43,3.45,3.47,3.49,3.51,3.53,3.55,3.57,3.59,3.61,3.63,3.65,3.67,3.69,3.71,3.73,3.75,3.77,3.79,3.81,3.83,3.85,3.87,3.89,3.91,3.93,3.95,3.97,3.99,4.01,4.03,4.05,4.07,4.09,4.11,4.13,4.15,4.17,4.19,4.21,4.23,4.25,4.27,4.29,4.31,4.33,4.35,4.37,4.39,4.41,4.43,4.45,4.47,4.49,4.499,4.5],[0.429,0.4534,0.5526,0.6084,0.6272,0.7209,0.6354,0.6369,0.6137,0.6488,0.5986,0.6623,0.6749,0.6443,0.5972,0.6259,0.6066,0.6072,0.7092,0.6203,0.7308,0.6632,0.6479,0.6218,0.6057,0.6551,0.6405,0.6244,0.5691,0.5451,0.6739,0.6098,0.4993,0.6012,0.6194,0.5052,0.6546,0.4871,0.581,0.5106,0.4988,0.5148,0.3998,0.3363,0.2856,0.2933,0.2995,0.2734,0.3165,0.3159,0.2571,0.2856,0.314,0.2625,0.2526,0.3039,0.307,0.27,0.2771,0.2813,0.2424,0.2525,0.2803,0.2762,0.2504,0.2554,0.2844,0.2501,0.263,0.2724,0.2536,0.2334,0.2601,0.2498,0.2547,0.272,0.2557,0.2506,0.2707,0.2414,0.2503,0.2855,0.2645,0.2498,0.2887,0.2647,0.2565,0.2854,0.2883,0.2509,0.2884,0.3055,0.2556,0.2676,0.3023,0.2589,0.259,0.302,0.2676,0.2366,0.2742,0.2719,0.259,0.2794,0.2822,0.2504,0.2739,0.2903,0.2623,0.2691,0.2888,0.2695,0.2476,0.2597,0.2373,0.2138,0.2323,0.2511,0.2639,0.2425,0.2641,0.2776,0.2685,0.2724,0.3054,0.2685,0.2747,0.3086,0.26,0.2648,0.3198,0.278,0.2737,0.2984,0.2643,0.2684,0.2955,0.2888,0.2802,0.2685,0.2759,0.3152,0.3122,0.3117,0.3089,0.3228,0.3404,0.3987,0.366,0.3641,0.3567,0.3611,0.3976,0.4376,0.3979,0.3694,0.3583,0.375,0.3687,0.3359,0.3301,0.3182,0.2884,0.2704,0.266,0.2607,0.261,0.2575,0.2604,0.2524,0.27,0.3143,0.2783,0.2975,0.2978,0.2832,0.2758,0.2637,0.263,0.2826,0.2818,0.2913,0.2596,0.2656,0.2905,0.2932,0.2701,0.2702,0.2766,0.2979,0.2738,0.2887,0.3071,0.3056,0.2951,0.2799,0.2895,0.2823,0.2701,0.2894,0.287,0.2743,0.2495,0.2753,0.2654,0.265,0.2484,0.2536,0.2557,0.2619,0.2739,0.3234,0.3569,0.3215,0.3003,0.3043,0.297,0.2807,0.3002,0.296,0.289,0.2736,0.2444,0.2589,0.2504,0.2421,0.2605,0.2709,0.2494],[0.0918,0.0918,0.0919,0.092,0.0922,0.0925,0.0929,0.0933,0.0937,0.0942,0.0948,0.0955,0.0963,0.0971,0.0979,0.0991,0.1,0.1014,0.1028,0.104,0.1061,0.1081,0.1113,0.115,0.1187,0.1226,0.1276,0.1363,0.1664,0.2137,0.2914,0.4333,0.7117,1.363,3.2914,9.0573,14.7658,17.36,20.3391,23.7416,27.9955,32.4416,37.7606,43.9804,49.9883,50.6689,43.3297,23.5544,19.3738,35.7595,46.3241,50.5133,46.1366,36.6364,27.2741,31.1001,39.3493,46.6556,49.2908,42.8272,32.1183,24.2155,29.055,37.9742,45.3186,46.3098,38.9295,30.0168,27.2811,33.1399,39.1645,42.5462,39.0142,31.6544,25.1771,27.4828,34.0456,39.213,37.1427,29.3597,23.7343,25.4326,32.1633,39.5643,39.3774,30.8476,20.7563,23.5159,31.2493,39.7525,42.6979,35.9704,24.6688,19.002,25.7931,36.0076,44.1383,42.167,31.8392,22.8887,24.2238,32.7276,43.6742,47.371,38.0224,25.3818,20.8933,29.382,41.4754,49.6856,45.4686,31.7549,21.6344,21.6344,26.2945,31.6654,42.6842,48.2585,41.0394,28.1247,22.8663,31.4172,44.1028,51.0732,42.8406,23.6147,16.2553,35.9875,57.6371,67.8484,41.1709,46.9669,81.8086,128.2146,170.2727,224.0379,273.2843,351.8502,436.1776,567.7341,679.3205,815.0066,955.5543,1103.0486,1270.6213,1475.4677,1645.4731,1809.8232,1881.2559,1938.3113,1938.7946,1937.649,1985.9126,1946.3905,1860.912,1715.5973,1455.6918,1174.9567,874.9624,626.1198,558.5762,495.9973,425.4855,365.373,291.9182,243.8312,55.4057,35.731,84.5132,145.2824,196.9387,259.9747,323.6356,428.4463,533.5542,648.4499,802.8027,960.4727,1125.194,1263.0187,1444.3698,1641.4144,1877.9261,2144.8425,2508.5859,2898.2715,3320.0117,3812.344,4261.9062,4286.2993,3942.8728,3507.4626,3198.5085,2806.7473,2416.54,2491.4858,2382.4927,2086.3003,1769.1273,1697.835,1664.2417,1591.8492,1462.8108,1320.7881,1211.4305,2080.1885,768.5452,378.9069,194.7085,95.9308,176.2132,558.8911,2007.995,1980.5488,1774.6514,1607.4087,1502.889,1700.1951,1823.7572,1892.8568,2012.2371,328.2495,31.3484,355.1856,617.2205,1039.0536,1717.9138,1980.67,2168.9146]],"R":[[0.0,0.02,0.04,0.06,0.08,0.1,0.12,0.14,0.16,0.18,0.2,0.22,0.24,0.26,0.28,0.3,0.32,0.34,0.36,0.38,0.4,0.42,0.44,0.46,0.48,0.5,0.52,0.54,0.56,0.58,0.6,0.62,0.64,0.66,0.68,0.7,0.72,0.74,0.76,0.78,0.8,0.82,0.84,0.86,0.88,0.9,0.92,0.94,0.96,0.98,1.0,1.02,1.04,1.06,1.08,1.1,1.12,1.14,1.16,1.18,1.2,1.22,1.24,1.26,1.28,1.3,1.32,1.34,1.36,1.38,1.4,1.42,1.44,1.46,1.48,1.5,1.52,1.54,1.56,1.58,1.6,1.62,1.64,1.66,1.68,1.7,1.72,1.74,1.76,1.78,1.8,1.82,1.84,1.86,1.88,1.9,1.92,1.94,1.96,1.98,2.0,2.02,2.04,2.06,2.08,2.1,2.12,2.14,2.16,2.18,2.2,2.22,2.24,2.249,2.25,2.27,2.29,2.31,2.33,2.35,2.37,2.39,2.41,2.43,2.45,2.47,2.49,2.51,2.53,2.55,2.57,2.59,2.61,2.63,2.65,2.67,2.69,2.71,2.73,2.75,2.77,2.79,2.81,2.83,2.85,2.87,2.89,2.91,2.93,2.95,2.97,2.99,3.01,3.03,3.05,3.07,3.09,3.11,3.13,3.15,3.17,3.19,3.21,3.23,3.25,3.27,3.29,3.31,3.33,3.35,3.37,3.39,3.41,3.43,3.45,3.47,3.49,3.51,3.53,3.55,3.57,3.59,3.61,3.63,3.65,3.67,3.69,3.71,3.73,3.75,3.77,3.79,3.81,3.83,3.85,3.87,3.89,3.91,3.93,3.95,3.97,3.99,4.01,4.03,4.05,4.07,4.09,4.11,4.13,4.15,4.17,4.19,4.21,4.23,4.25,4.27,4.29,4.31,4.33,4.35,4.37,4.39,4.41,4.43,4.45,4.47,4.49,4.499,4.5],[0.429,0.4534,0.5526,0.6084,0.6272,0.7209,0.6354,0.6369,0.6137,0.6488,0.5986,0.6623,0.6749,0.6443,0.5972,0.6259,0.6066,0.6072,0.7092,0.6203,0.7308,0.6632,0.6479,0.6218,0.6057,0.6551,0.6405,0.6244,0.5691,0.5451,0.6739,0.6098,0.4993,0.6012,0.6194,0.5052,0.6546,0.4871,0.581,0.5106,0.4987,0.5148,0.3998,0.3363,0.2856,0.2933,0.2995,0.2734,0.3166,0.3158,0.2571,0.2857,0.314,0.2625,0.2526,0.3039,0.307,0.27,0.2771,0.2812,0.2423,0.2528,0.2794,0.276,0.2506,0.2592,0.2862,0.2495,0.2642,0.2783,0.2533,0.2334,0.2686,0.2638,0.2543,0.2677,0.271,0.2465,0.2734,0.2558,0.2463,0.2691,0.2896,0.2416,0.2724,0.2921,0.2497,0.2627,0.2998,0.2623,0.2581,0.3074,0.2722,0.2495,0.2831,0.2816,0.3139,0.3216,0.2827,0.2824,0.3052,0.3114,0.3205,0.3182,0.3264,0.3107,0.3117,0.3162,0.3271,0.3209,0.3313,0.3268,0.3033,0.312,0.2408,0.2448,0.3123,0.3286,0.3208,0.3354,0.3415,0.3689,0.4136,0.3706,0.3621,0.4341,0.3803,0.416,0.4575,0.421,0.4716,0.5124,0.6738,0.6236,0.6306,0.6877,0.735,0.7538,0.8486,1.2535,0.9068,1.3737,1.3841,1.4028,1.4186,1.4468,1.4241,1.4725,1.3524,0.9164,0.8995,1.3902,1.4256,1.4496,1.4342,0.9027,1.3861,1.4086,1.4137,0.9291,0.8934,1.3978,0.8858,0.8607,0.8753,1.2916,1.3914,0.869,0.8722,0.8794,1.3694,1.2991,1.2968,0.8488,0.8462,1.3052,0.8739,1.3251,0.8801,1.3852,1.3473,1.4246,1.3251,0.9056,1.4157,1.2086,0.9112,0.6224,0.654,0.6691,0.5978,0.6185,0.5044,0.6026,0.6153,0.5177,0.4502,0.5336,0.5651,0.5038,0.6502,0.6723,0.6276,0.6477,0.5411,0.5552,0.7534,0.6058,0.8403,0.6359,0.9291,1.1091,1.3134,1.393,1.2841,0.8722,0.8317,0.9553,0.5946,0.423,0.3217,0.3552,0.3284,0.3114,0.3038,0.3507,0.3835,0.377,0.2412],[0.0918,0.0918,0.0919,0.092,0.0922,0.0925,0.0929,0.0933,0.0937,0.0943,0.0948,0.0955,0.0963,0.0971,0.0979,0.0991,0.1,0.1014,0.1028,0.104,0.1061,0.1081,0.1113,0.1151,0.1188,0.1226,0.1276,0.1361,0.1665,0.2147,0.2914,0.4334,0.7121,1.3631,3.2914,9.0571,14.7656,17.36,20.3386,23.7414,27.9949,32.442,37.7601,43.9784,49.987,50.6683,43.325,23.5504,19.4474,35.7599,46.326,50.5119,46.1321,36.6341,27.2721,31.1002,39.3506,46.6501,49.2747,42.8208,32.1124,24.2325,29.0774,38.0241,45.4796,46.3492,39.245,29.7986,25.8833,31.6889,38.5779,43.6982,41.2953,34.3608,25.6835,24.9709,32.1988,39.0899,40.675,33.3933,24.4224,22.3036,29.081,37.065,41.3081,36.0789,24.8899,20.6393,25.6936,35.0026,42.911,39.7062,29.4335,21.0464,25.3766,36.2877,58.8712,94.719,139.3105,211.6142,294.5803,382.0706,497.3002,606.5166,754.7863,911.2406,1077.7783,1228.9255,1424.3926,1623.3376,1801.7207,2011.6943,2253.3491,2318.0454,2400.1641,2551.8101,2855.6133,3103.0723,3078.6812,3072.3965,3104.3245,3328.0537,3585.2783,3577.2812,3527.9683,3503.4314,3484.1362,3322.3979,3263.3105,3423.3521,3750.3203,4079.4639,4201.4219,4290.3354,4451.7153,4589.8633,4630.6279,4390.9526,4105.814,4003.6851,4112.918,4463.7275,4937.5078,4971.897,4960.5156,4986.3247,4882.7715,5038.9463,5036.0728,5038.4282,5320.2837,5476.2773,5488.502,5389.6509,5486.1367,5370.8921,5363.4092,5489.73,5498.6328,5683.1123,5553.3076,5753.9731,5715.1465,5663.1499,5708.0039,5698.4453,5724.292,5558.1958,5585.1836,5525.8774,5471.25,5015.9844,4561.8853,4265.1484,4605.835,4901.894,5141.6416,5420.5332,5415.9097,4987.2061,4832.4614,4854.8735,4754.9375,4581.6855,4289.4043,3922.1929,3903.9834,4243.377,4722.6104,4988.0283,4936.9297,4642.9785,4609.5117,4527.7334,4553.0532,4553.9585,4623.0688,4637.6318,4605.9883,4637.7886,4604.394,4322.6382,4341.396,4196.96,4181.9907,4305.749,4071.6545,3986.76,4511.042,5138.3271,5731.8853,5744.3467,5294.9736,5013.4121,4492.9263,3933.3718,3397.1707,2858.8711,2188.0957,1390.0193,868.6879,1023.0057,1076.6793,957.3967,1058.3301,1569.9922,2493.842,2732.9265,3030.05]]};
+
+const LOGF=t=>t>=1e3?(t/1e3)+'k':(t<1?t.toString():''+t);
+const F2=t=>t.toFixed(2);
+/* arm list -> lineChart; a = {j, key, color, tag, dash, faint, x1} */
+function ep(id,arms,o){
+  o=o||{}; const x0=0, x1=o.x1, series=[];
+  arms.forEach(a=>{
+    let d=D[a.j][a.key||'rec'].slice(x0,(a.x1===undefined?x1:a.x1)+1);
+    series.push({color:a.color,data:d,tag:a.tag,dash:a.dash,faint:a.faint,width:a.width});
+  });
+  lineChart(document.getElementById(id),Object.assign({W:400,H:230,xmin:x0,xmax:x1,
+    ymin:0.0,ymax:0.16,yticks:[0,0.04,0.08,0.12,0.16],fmt:F2,series},o));
+}
+
+/* slide 1 */
+ep('h1',[
+  {j:'45949269',color:'--s5',dash:'4 3',width:1.5},
+  {j:'46860758',color:'--ink2'},
+  {j:'46936382',color:'--s8'},
+  {j:'46869813',color:'--s1',tag:'0.1'},
+  {j:'46943427',color:'--s2',tag:'skip'},
+],{W:620,H:330,x1:9,xticks:[0,1,2,3,4,5,6,7,8,9]});
+
+/* slide 2 */
+ep('p2',[
+  {j:'45949269',color:'--s5',tag:'ctrl'},
+  {j:'46860758',color:'--ink2',tag:'s2'},
+  {j:'46860759',color:'--s8',x1:10},
+],{W:620,H:330,x1:17,xticks:[0,3,6,9,12,15]});
+
+/* slide 3: z-swap bars */
+barChart(document.getElementById('p3'),{W:560,H:440,ymax:600,yticks:[0,200,400,600],fmt:t=>t+'%',bars:[
+  {name:'control',v:369.6,lbl:'+370%',color:'--s1'},
+  {name:'no SIGReg',v:369.7,lbl:'+370%',color:'--s1'},
+  {name:'decnoise',v:535.9,lbl:'+536%',color:'--s1'},
+  {name:'comp s2',v:0.1,lbl:'+0.1%',color:'--ink2'},
+  {name:'sw2000',v:0.0,lbl:'+0.0%',color:'--ink2'},
+  {name:'tri s1',v:0.0,lbl:'+0.0%',color:'--ink2'},
+  {name:'tri s2',v:0.0,lbl:'−0.0%',color:'--ink2'},
+  {name:'pair s1',v:0.0,lbl:'+0.0%',color:'--ink2'}]});
+
+/* slide 4: replay vs control */
+lineChart(document.getElementById('p4a'),{W:560,H:300,xmin:0,xmax:4.5,ymin:0.05,ymax:10000,log:true,
+  yticks:[0.1,1,10,100,1000,10000],fmt:LOGF,xticks:[0,1,2,3,4],vlines:[0.8],xlab:'k micro-batches',
+  series:[{color:'--s5',xs:TR.C[0],data:TR.C[2],width:1.4},
+          {color:'--s6',xs:TR.R[0],data:TR.R[2],width:1.4}]});
+ep('p4b',[
+  {j:'45949269',color:'--s5',tag:'ctrl'},
+  {j:'46868776',color:'--s6',tag:'replay'},
+],{W:560,H:300,x1:14,xticks:[0,2,4,6,8,10,12,14]});
+
+/* slide 5 */
+const G={W:400,H:420,x1:9,xticks:[0,3,6,9]};
+ep('p5a',[
+  {j:'46860758',color:'--ink2'},
+  {j:'46869812',color:'--s4'},
+  {j:'46883974',color:'--s3',tag:'mask'},
+  {j:'46869813',color:'--s1',tag:'0.1'},
+],G);
+ep('p5b',[
+  {j:'46860759',color:'--ink2',x1:9},
+  {j:'46883975',color:'--s3'},
+  {j:'46936382',color:'--s1'},
+],G);
+ep('p5c',[
+  {j:'45949269',color:'--s5',dash:'4 3',width:1.5},
+  {j:'46869813',color:'--s1'},
+  {j:'46936383',color:'--s7'},
+],G);
+
+/* slide 6: gap distributions (exact for 3 of 10 uniform frames) */
+const hop=[],span=[],pair=[];
+for(let g=1;g<=8;g++) hop.push([g,100*(9-g)*(10-g)/240]);
+for(let r=2;r<=9;r++) span.push([r,100*(10-r)*(r-1)/120]);
+for(let g=1;g<=9;g++) pair.push([g,100/9]);
+xyChart(document.getElementById('p6'),{W:620,H:330,xmin:1,xmax:9,ymin:0,ymax:32,xticks:[1,2,3,4,5,6,7,8,9],
+  yticks:[0,10,20,30],yfmt:t=>t+'%',xlab:'gap (frames)',
+  series:[{pts:hop,color:'--ink2',tag:'hop'},{pts:span,color:'--s1',tag:'t0→t2'},{pts:pair,color:'--s4',dash:'4 3',tag:'pair'}]});
+
+/* slide 7: compose vs compose_skip vs off */
+const G7={W:600,H:185,x1:9,xticks:[0,3,6,9]};
+const C7={W:600,H:185,x1:9,xticks:[0,3,6,9]};
+ep('p7a',[{j:'46883975',color:'--ink2'},{j:'46883974',color:'--s1',tag:'sum'},{j:'46937610',color:'--s2',tag:'skip'}],G7);
+ep('p7b',[{j:'46883975',key:'comp',color:'--ink2'},{j:'46883974',key:'comp',color:'--s1',tag:'sum'},{j:'46937610',key:'comp',color:'--s2',tag:'skip'}],C7);
+ep('p7c',[{j:'46936382',color:'--ink2'},{j:'46869813',color:'--s1',tag:'sum'},{j:'46943427',color:'--s2',tag:'skip'}],G7);
+ep('p7d',[{j:'46936382',key:'comp',color:'--ink2'},{j:'46869813',key:'comp',color:'--s1',tag:'sum'},{j:'46943427',key:'comp',color:'--s2',tag:'skip'}],C7);
+
+</script>
+</body>
+</html>
