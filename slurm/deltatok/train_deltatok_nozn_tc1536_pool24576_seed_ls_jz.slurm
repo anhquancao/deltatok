@@ -1,34 +1,36 @@
 #!/bin/bash
-#SBATCH --job-name=deltatok_dn1536_p24576_seed_compose0tri
+#SBATCH --job-name=deltatok_dn1536_p24576_seed_ls_jz
 #SBATCH --nodes=1
 #SBATCH --ntasks-per-node=4
 #SBATCH --gres=gpu:4
-#SBATCH --cpus-per-task=20
-#SBATCH --account=ehpc1001
-#SBATCH --partition=acc
-#SBATCH --qos=acc_ehpc
-#SBATCH --time=48:00:00
-##SBATCH --qos=acc_debug
+#SBATCH --cpus-per-task=24
+#SBATCH --hint=nomultithread
+#SBATCH -C h100
+#SBATCH --account=trg@h100
+#SBATCH --qos=qos_gpu_h100-t3
+#SBATCH --time=20:00:00
+##SBATCH --qos=qos_gpu_h100-dev
 ##SBATCH --time=02:00:00
-#SBATCH --output=slurm/output/train_deltatok_nozn_tc1536_pool24576_seed_compose0tri_bsc_%j.out
-#SBATCH --error=slurm/output/train_deltatok_nozn_tc1536_pool24576_seed_compose0tri_bsc_%j.err
+#SBATCH --output=slurm/output/train_deltatok_nozn_tc1536_pool24576_seed_ls_jz_%j.out
+#SBATCH --error=slurm/output/train_deltatok_nozn_tc1536_pool24576_seed_ls_jz_%j.err
 
-# BSC:45949269 twin: triplet path kept, compose loss off (compose_weight 0).
-#   ssh bsc "bash -lc 'cd /gpfs/projects/ehpc1001/code/deltatok && sbatch slurm/deltatok/train_deltatok_nozn_tc1536_pool24576_seed_compose0tri_bsc.slurm'"
+# BSC:46860758 draw (INIT_SEED=2) with a larger layer_scale_init.
+#   ssh jean-zay "bash -lc 'cd \$TRG_WORK/code/deltatok && sbatch slurm/deltatok/train_deltatok_nozn_tc1536_pool24576_seed_ls_jz.slurm'"
 
-export COMPOSE_WEIGHT=${COMPOSE_WEIGHT:-0}
+export COMPOSE_WEIGHT=${COMPOSE_WEIGHT:-1.0}
 export SIGREG_WEIGHT=${SIGREG_WEIGHT:-0.02}    # as BSC:45727710
 export DECNOISE_TAU=${DECNOISE_TAU:-0}         # 0 = off; 45727710 ran 0.8
 export DECNOISE_WARMUP=${DECNOISE_WARMUP:-2000}  # tau ramp only
 export DECNOISE_WEIGHT=${DECNOISE_WEIGHT:-1.0}   # loss weight of the detached noised decode
-export INIT_SEED=${INIT_SEED:-1}       # torch.manual_seed(INIT_SEED + rank); 45727710 ran on torch's default
+export INIT_SEED=${INIT_SEED:-2}       # torch.manual_seed(INIT_SEED + rank); 2 = the 46860758 draw
 export Z_ROW_CLIP=${Z_ROW_CLIP:-0}     # per-row RMS cap on z, straight-through; 0 = off, 4 = the clip arm
+export LAYER_SCALE_INIT=${LAYER_SCALE_INIT:-0.1}  # block residual scale at init
 
 mkdir -p slurm/output
 
-cd /gpfs/projects/ehpc1001/code/deltatok
+cd /lustre/fswork/projects/rech/trg/uyl37fq/code/deltatok
 
-source env_bsc.sh
+source env_jz_h100.sh
 
 export OMP_NUM_THREADS="${OMP_NUM_THREADS:-4}"
 export TORCH_NCCL_HEARTBEAT_TIMEOUT_SEC="${TORCH_NCCL_HEARTBEAT_TIMEOUT_SEC:-1000}"
@@ -36,8 +38,8 @@ export TORCH_NCCL_HEARTBEAT_TIMEOUT_SEC="${TORCH_NCCL_HEARTBEAT_TIMEOUT_SEC:-100
 # file_descriptor shm strategy holds an fd per shared tensor per worker
 ulimit -n "$(ulimit -Hn)"
 
-export CONFIG_NAME=train_deltatok_nt10_bsc   # num_timesteps=10 -> triplet spans up to max_gap=9
-export LOG_AND_CKPT_DIR="$SCRATCH/deltatok_log"
+export CONFIG_NAME=train_deltatok_nt10_jeanzay   # num_timesteps=10 -> triplet spans up to max_gap=9
+export LOG_AND_CKPT_DIR="/lustre/fswork/projects/rech/trg/uyl37fq/deltatok_log"
 export RESULTS_DIR="$LOG_AND_CKPT_DIR"
 
 export SIGREG_NUM_SLICES=${SIGREG_NUM_SLICES:-3072}      # 2*Cz at tc1536
@@ -45,15 +47,16 @@ export SIGREG_POOL_SAMPLES=${SIGREG_POOL_SAMPLES:-24576}  # as BSC:45727710
 export SIGREG_WARMUP=${SIGREG_WARMUP:-0}                 # anchor on from step 0
 
 # ${RUN_NAME:-} so the eval-only ladder can point at a fresh dir instead of resuming this arm.
-export RUN_NAME=${RUN_NAME:-deltatok_l12_dtok64_tc1536_nozn_maxgap9_vpt1to2_sigreg${SIGREG_WEIGHT}_ns${SIGREG_NUM_SLICES}_pool${SIGREG_POOL_SAMPLES}_compose${COMPOSE_WEIGHT}tri_decnoise${DECNOISE_TAU}_sw${SIGREG_WARMUP}_seed${INIT_SEED}_rclip${Z_ROW_CLIP}}
+export RUN_NAME=${RUN_NAME:-deltatok_l12_dtok64_tc1536_nozn_maxgap9_vpt1to2_sigreg${SIGREG_WEIGHT}_ns${SIGREG_NUM_SLICES}_pool${SIGREG_POOL_SAMPLES}_compose${COMPOSE_WEIGHT}_sw${SIGREG_WARMUP}_seed${INIT_SEED}_ls${LAYER_SCALE_INIT}_3pairs}
 
 EXTRA_CFG_ARGS=(
     model.deltatok.num_delta_tokens=64         # K delta tokens/camera (~12:1 compression at full res)
     model.deltatok.target_channels=1536        # == hidden_size -> no z_proj_down/up built
     model.deltatok.force_bottleneck=false     # raw z: keeps this arm's ckpts resumable
     model.deltatok.z_row_clip=${Z_ROW_CLIP}     # per-row RMS cap on z; 0 = off
+    model.deltatok.layer_scale_init=${LAYER_SCALE_INIT}
     training.init_seed=${INIT_SEED}
-    model.deltatok.z_norm=false                # no final LN; parity with the compose arms
+    model.deltatok.z_norm=false                # compose sums two z; a sum leaves the LN sphere
     model.deltatok.use_camera_rope=false       # layer-12 no-rope run
     model.deltatok.norm_affine=false           # inert at z_norm=false; kept for name parity
     model.deltatok.bottleneck_mlp=false        # inert at tc1536 (no bottleneck to make nonlinear)
@@ -68,6 +71,7 @@ EXTRA_CFG_ARGS=(
     model.deltatok.decode_noise_tau=${DECNOISE_TAU}    # 2nd decode of z.detach()+sigma*eps
     training.decode_noise_weight=${DECNOISE_WEIGHT}    # weight of that 2nd decode's loss
     training.decode_noise_warmup=${DECNOISE_WARMUP}    # linear ramp of tau over N iters
+    "training.eval_noise_sigmas=[0.32,0.55,0.82]"       # eval ladder, matches the 2026-09-04 probe grid
     training.max_gap=9                          # triplet spans cap at 9 (= nt10 window - 1)
     training.bsize=2                            # 2 enc + 6 dec/step; halve batch
     training.effective_bsize=16                 # 4 GPU x bsize 2 -> grad_cum 2

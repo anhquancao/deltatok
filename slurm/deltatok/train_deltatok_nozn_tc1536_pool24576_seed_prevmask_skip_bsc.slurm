@@ -13,10 +13,10 @@
 #SBATCH --output=slurm/output/train_deltatok_nozn_tc1536_pool24576_seed_prevmask_skip_bsc_%j.out
 #SBATCH --error=slurm/output/train_deltatok_nozn_tc1536_pool24576_seed_prevmask_skip_bsc_%j.err
 
-# BSC:46883974 with the t0->t2 decode on its own z (compose_skip).
+# BSC:46883974, triplet without the z_a + z_b decode.
 #   ssh bsc "bash -lc 'cd /gpfs/projects/ehpc1001/code/deltatok && sbatch slurm/deltatok/train_deltatok_nozn_tc1536_pool24576_seed_prevmask_skip_bsc.slurm'"
 
-export COMPOSE_WEIGHT=${COMPOSE_WEIGHT:-1.0}
+export COMPOSE_WEIGHT=${COMPOSE_WEIGHT:-0}
 export SIGREG_WEIGHT=${SIGREG_WEIGHT:-0.02}    # as BSC:45727710
 export DECNOISE_TAU=${DECNOISE_TAU:-0}         # 0 = off; 45727710 ran 0.8
 export DECNOISE_WARMUP=${DECNOISE_WARMUP:-2000}  # tau ramp only
@@ -70,7 +70,6 @@ EXTRA_CFG_ARGS=(
     training.sigreg_pool_samples=${SIGREG_POOL_SAMPLES}
     training.sigreg_warmup=${SIGREG_WARMUP}
     training.compose_weight=${COMPOSE_WEIGHT}   # d(t0->t1)+d(t1->t2) decodes f_t2 from f_t0
-    training.compose_skip=true                  # t0->t2 decode on its own encoded z
     model.deltatok.decode_noise_tau=${DECNOISE_TAU}    # 2nd decode of z.detach()+sigma*eps
     training.decode_noise_weight=${DECNOISE_WEIGHT}    # weight of that 2nd decode's loss
     training.decode_noise_warmup=${DECNOISE_WARMUP}    # linear ramp of tau over N iters

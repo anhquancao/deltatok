@@ -70,7 +70,6 @@ EXTRA_CFG_ARGS=(
     training.sigreg_pool_samples=${SIGREG_POOL_SAMPLES}
     training.sigreg_warmup=${SIGREG_WARMUP}
     training.compose_weight=${COMPOSE_WEIGHT}   # d(t0->t1)+d(t1->t2) decodes f_t2 from f_t0
-    training.compose_triplet=true               # triplet sampling at weight 0
     "training.eval_noise_sigmas=[0.32,0.55,0.82]"       # eval ladder, matches the 2026-09-04 probe grid
     model.deltatok.decode_noise_tau=${DECNOISE_TAU}    # 2nd decode of z.detach()+sigma*eps
     training.decode_noise_weight=${DECNOISE_WEIGHT}    # weight of that 2nd decode's loss

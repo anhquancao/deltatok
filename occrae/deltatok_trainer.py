@@ -659,17 +659,16 @@ class DeltaTokTrainer(DeltaTokSharedMixin, Trainer):
         self._eval_noise_sigmas = tuple(float(x) for x in self.cfg.training.get("eval_noise_sigmas", []))
         self._eval_noise_keys = tuple(f"LossRecon_noise{x:g}" for x in self._eval_noise_sigmas)
 
-        # Additive composition: sample 3 timesteps, encode both hops, add z_a + z_b,
-        # decode the sum. 0 = off (single-pair path is bit-identical).
+        # Triplet path: decode t0->t1, t1->t2 and t0->t2. False = one pair per sequence.
+        self._triplet = bool(self.cfg.training.get("triplet", True))
+        # Additive composition: also decode z_a + z_b from t0. 0 = off.
         self._compose_weight = float(self.cfg.training.get("compose_weight", 0.0))
-        # Triplet sampling even at weight 0: the compose ablation's control path.
-        self._compose_triplet = self._compose_weight > 0 or bool(self.cfg.training.get("compose_triplet", False))
-        if self._compose_triplet:
+        if self._compose_weight > 0:
+            assert self._triplet, "compose_weight > 0 needs triplet=true"
             assert not bool(self.cfg.model.get("deltatok", {}).get("z_norm", True)), \
                 "compose needs z_norm=false"
-            assert self._max_gap >= 2, f"compose needs max_gap >= 2, got {self._max_gap}"
         if self.is_master:
-            print(f"compose_weight={self._compose_weight}, compose_triplet={self._compose_triplet}")
+            print(f"triplet={self._triplet}, compose_weight={self._compose_weight}")
 
         # Decoder-side x_prev masking, linear to 0 over prev_mask_iters. Own generator: the triplet draw is unchanged.
         self._prev_mask_ratio = float(self.cfg.training.get("prev_mask_ratio", 0.0))
@@ -677,7 +676,7 @@ class DeltaTokTrainer(DeltaTokSharedMixin, Trainer):
         self._prev_mask_gen = None
         self._prev_mask_now = 0.0
         if self._prev_mask_ratio > 0:
-            assert self._compose_triplet, "prev_mask_ratio is wired into the triplet path only"
+            assert self._triplet, "prev_mask_ratio is wired into the triplet path only"
             assert self._prev_mask_iters > 0, "prev_mask_ratio needs prev_mask_iters > 0"
             assert self._unwrapped_tokenizer().prev_mask_embed is not None, \
                 "prev_mask_ratio needs model.deltatok.prev_mask_token=true"
@@ -689,9 +688,7 @@ class DeltaTokTrainer(DeltaTokSharedMixin, Trainer):
         if self.is_master:
             print(f"prev_mask_ratio={self._prev_mask_ratio}, prev_mask_iters={self._prev_mask_iters}")
 
-        # Send the composed sum to SIGReg too, cat'd onto both hops. z_a, z_b and z_comp are one
-        # population of gap-deltas (hops draw gap ~ U[1,max_gap]; the sum spans g1+g2), so one
-        # pooled CF test covers all three. Off = one random hop, bit-identical to before.
+        # Also send z_a + z_b to SIGReg, as a 4th stream beside the three pairs.
         self._sigreg_compose_z = bool(self.cfg.training.get("sigreg_compose_z", False))
         if self._sigreg_compose_z:
             assert self._compose_weight > 0 and self._sigreg_weight > 0, \
@@ -700,19 +697,11 @@ class DeltaTokTrainer(DeltaTokSharedMixin, Trainer):
             assert not self._sigreg_gap_sigma, \
                 "sigreg_compose_z and sigreg_gap_sigma are mutually exclusive"
 
-        # Gap control for compose: the t0->t2 decode gets its own encoded z, no sum constraint.
-        self._compose_skip = bool(self.cfg.training.get("compose_skip", False))
-        if self._compose_skip:
-            assert self._compose_weight > 0, "compose_skip replaces the composed decode; needs compose_weight > 0"
-            assert not self._sigreg_compose_z, "compose_skip: z_comp is not a sum, keep it out of SIGReg"
-        if self.is_master:
-            print(f"compose_skip={self._compose_skip}")
-
         # Train-time z spread over the same rows SIGReg pools (Train/Z*), so it costs no extra
         # forward. Flushed per epoch. Runs with or without sigreg_compose_z -- that is what makes
         # the arm and its twin comparable.
         self._compose_z_stats = ZSpreadStats(self.device) if (
-            self._compose_triplet and self._z_spread_eval) else None
+            self._triplet and self._z_spread_eval) else None
 
     @torch.no_grad()
     def _log_z_spread(self, stats: "ZSpreadStats", prefix: str) -> None:
@@ -1017,9 +1006,10 @@ class DeltaTokTrainer(DeltaTokSharedMixin, Trainer):
         return self._rollout_from_z(net, feats[:, 0], z, height, width, num_cameras)  # (B*(T-1), N, P, C)
 
     def _compose_forward(self, imgs, num_cameras):
-        """Triplet compose step: sample 3 timesteps, encode both hops, add, decode, loss."""
+        """Triplet step: decode t0->t1, t1->t2, t0->t2, and z_a + z_b when composing."""
         B = imgs.shape[0]
         T = imgs.shape[1] // num_cameras
+        assert T >= 3, f"triplet needs num_timesteps >= 3, got {T}"
 
         # Sample 3 distinct timesteps per sequence
         step_t = torch.rand(B, T, device=imgs.device).argsort(dim=1)[:, :3]
@@ -1029,44 +1019,38 @@ class DeltaTokTrainer(DeltaTokSharedMixin, Trainer):
         feats, H, W = self._extract_triplet_feats(imgs, num_cameras, step_t)  # (B, 3, N, P, C)
         N, P, C = feats.shape[2:]
 
-        # Encode both hops
-        x_prev = feats[:, :2].reshape(B * 2, N, P, C)                        # (B*2, N, P, C)
-        x      = feats[:, 1:].reshape(B * 2, N, P, C)                        # (B*2, N, P, C)
+        # Encode the three pairs: t0->t1, t1->t2, t0->t2
+        x_prev = feats[:, [0, 1, 0]].reshape(B * 3, N, P, C)                 # (B*3, N, P, C)
+        x      = feats[:, [1, 2, 2]].reshape(B * 3, N, P, C)                 # (B*3, N, P, C)
         with self.autocast:
-            x_hat, z = self.tokenizer(                                        # (B*2, N, P, C), (B*2, N, K, Cz)
+            x_hat, z = self.tokenizer(                                        # (B*3, N, P, C), (B*3, N, K, Cz)
                 x_prev, x, H, W, num_cameras=num_cameras, return_z=True, prev_keep=self._prev_keep(x_prev))
 
-        # Second decode of the same hops, noised and detached: decoder-only gradient.
+        # Second decode of the same pairs, noised and detached: decoder-only gradient.
         loss_dn = self._detached_noise_loss(x_prev, x, H, W, num_cameras, z)  # scalar or None
 
         # z_a + z_b
-        z = z.reshape(B, 2, *z.shape[1:])                                     # (B, 2, N, K, Cz)
+        z = z.reshape(B, 3, *z.shape[1:])                                     # (B, 3, N, K, Cz)
         z_comp = z[:, 0] + z[:, 1]                                            # (B, N, K, Cz)
 
         # Losses
         with torch.autocast(device_type="cuda", enabled=False):
             loss_recon   = self._recon_loss(x_hat.float(), x.detach().float())
 
-        # Composed decode from t0; weight 0 skips it (triplet-only control).
+        # Composed decode of z_a + z_b from t0; weight 0 skips it.
         loss_compose = loss_dn_comp = None
         if self._compose_weight > 0:
             with self.autocast:
-                if self._compose_skip:
-                    x_hat_comp, z_comp = self.tokenizer(                      # (B, N, P, C), (B, N, K, Cz)
-                        feats[:, 0], feats[:, 2], H, W, num_cameras=num_cameras, return_z=True,
-                        prev_keep=self._prev_keep(feats[:, 0]))
-                else:
-                    x_hat_comp = self.tokenizer(                              # (B, N, P, C)
-                        feats[:, 0], None, H, W, num_cameras=num_cameras, z_input=z_comp,
-                        prev_keep=self._prev_keep(feats[:, 0]))
+                x_hat_comp = self.tokenizer(                                  # (B, N, P, C)
+                    feats[:, 0], None, H, W, num_cameras=num_cameras, z_input=z_comp,
+                    prev_keep=self._prev_keep(feats[:, 0]))
             # Same treatment for the composed sum. Returned separately so its scalar stays
             # comparable to LossCompose, exactly as loss_dn is to LossRecon.
             loss_dn_comp = self._detached_noise_loss(feats[:, 0], feats[:, 2], H, W, num_cameras, z_comp)
             with torch.autocast(device_type="cuda", enabled=False):
                 loss_compose = self._recon_loss(x_hat_comp.float(), feats[:, 2].detach().float())
 
-        z = torch.cat([z, z_comp.unsqueeze(1)], dim=1)                        # (B, 3, N, K, Cz)
-        return loss_recon, loss_compose, loss_dn, loss_dn_comp, z, step_t
+        return loss_recon, loss_compose, loss_dn, loss_dn_comp, z, z_comp, step_t
 
     def _prev_keep(self, x_prev):
         """(M, N, P, 1) keep-mask for the decoder's x_prev; None when off. All-True once annealed, so DDP still sees the token."""
@@ -1180,24 +1164,22 @@ class DeltaTokTrainer(DeltaTokSharedMixin, Trainer):
             num_cameras = batch.get("num_cameras", 1)
 
             loss_compose = loss_dn_comp = None
-            if self._compose_triplet:
-                # Triplet: 3 timesteps, 2 hops encoded, z_a+z_b decoded when compose_weight > 0
-                loss, loss_compose, loss_dn, loss_dn_comp, z_compose, step_t = self._compose_forward(imgs, num_cameras)
+            if self._triplet:
+                # Triplet: 3 pairs decoded, plus z_a+z_b when compose_weight > 0
+                loss, loss_compose, loss_dn, loss_dn_comp, z_tri, z_comp, step_t = self._compose_forward(imgs, num_cameras)
                 if loss_compose is None:
                     loss_total = self._clean_decode_weight * loss
                 else:
                     loss_total = self._clean_decode_weight * (loss + self._compose_weight * loss_compose)
-                # SIGReg z: all three streams (flag on) or one random hop (flag off)
+                # SIGReg z: all three pairs, plus z_a + z_b with sigreg_compose_z
                 if self.sigreg is not None:
+                    if self._sigreg_gap_sigma:
+                        gap_t = (step_t[:, [1, 2, 2]] - step_t[:, [0, 1, 0]]).float()  # (B, 3) g1, g2, g1+g2
+                        z_tri = z_tri / gap_t.sqrt()[:, :, None, None, None]     # z/√gap → N(0, I)
+                    streams = [z_tri[:, 0], z_tri[:, 1], z_tri[:, 2]]
                     if self._sigreg_compose_z:
-                        z_bneck = torch.cat([z_compose[:, 0], z_compose[:, 1],
-                                             z_compose[:, 2]], dim=0)            # (3B, N, K, Cz)
-                    else:
-                        hop_idx = torch.randint(0, 2, ()).item()                 # 0 or 1: pick hop t0→t1 or t1→t2
-                        z_bneck = z_compose[:, hop_idx]                          # (B, N, K, Cz)
-                        if self._sigreg_gap_sigma:
-                            gap_t = (step_t[:, hop_idx + 1] - step_t[:, hop_idx]).float()  # (B,)
-                            z_bneck = z_bneck / gap_t.sqrt()[:, None, None, None]  # z/√gap → N(0, I)
+                        streams.append(z_comp)
+                    z_bneck = torch.cat(streams, dim=0)                          # (3B or 4B, N, K, Cz)
                     if self._compose_z_stats is not None:
                         self._compose_z_stats.update(z_bneck)
             else:

@@ -28,4 +28,6 @@ module load pytorch-gpu/py3/2.5.0
 
 cd $TRG_WORK/code/deltatok
 
-python dataset_setup/backup.py --pid $SLURM_ARRAY_TASK_ID --world $SLURM_ARRAY_TASK_COUNT --extract --num_workers 10
+python dataset_setup/backup.py --pid $SLURM_ARRAY_TASK_ID --world $SLURM_ARRAY_TASK_COUNT --extract --num_workers 10 \
+    --dst_name datasets_preprocess_backup_2026-07 \
+    --datasets waymo_processed ddad_processed pandaset_processed vkitti_processed once_processed kitti_processed

@@ -109,12 +109,11 @@ training:
   freeze_except_decoder: false
   grad_clip: 1.0
   grad_skip_thresh: 0.0  # >0 skips optim steps whose pre-clip grad_norm exceeds this (finite-spike guard)
-  # Additive composition: sample 3 timesteps/sequence, encode both hops, and make
-  # d(t0->t1) + d(t1->t2) decode f_t2 from f_t0. Needs z_norm=false (a sum leaves the
-  # LN sphere). 0 = off; the single-pair path is then bit-identical.
+  triplet: true  # t0->t1, t1->t2, t0->t2 decodes; false = one-pair path
+  # Additive composition: sample 3 timesteps/sequence, encode 3 pairs, and make
+  # d(t0->t1) + d(t1->t2) decode f_t2 from f_t0. Needs triplet, z_norm=false (a sum leaves
+  # the LN sphere). 0 = off.
   compose_weight: 0.0
-  compose_triplet: false  # triplet path even at compose_weight 0; no composed decode
-  compose_skip: false  # t0->t2 decode reads z encoded from (t0, t2), not z_a + z_b
   prev_mask_ratio: 0.0  # share of the decoder's x_prev patches masked at iter 0; 0 = off
   prev_mask_iters: 0  # linear anneal of that share to 0 over N iters
   # SIGReg (LeJEPA) anti-collapse loss on the z bottleneck: pushes the compressed
@@ -135,7 +134,7 @@ training:
   # before that change are not weight-comparable.
   sigreg_pool_samples: 8192
   sigreg_gap_sigma: false  # z/√gap before SIGReg (Brownian: Var ∝ gap)
-  sigreg_compose_z: false  # cat all 3 compose streams into SIGReg
+  sigreg_compose_z: false  # + z_a + z_b as a 4th SIGReg stream
   cov_weight: 0.0  # + ||E[zz^T]-I||_F^2/Cz on the SIGReg pool: spectrum shape directly. Needs sigreg_weight > 0
   # z-spread diagnostics (Eval/<test>/Z*): effective rank of the z covariance, i.e. how
   # much of the Cz budget the code uses. One measurement per eval loader, over that
