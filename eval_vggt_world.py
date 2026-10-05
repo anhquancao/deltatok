@@ -1,11 +1,11 @@
 #!/usr/bin/env python3
-"""Dump pretrained VGGT-World forecasts (depth, K, c2w at DA3 scale) on the
-DeltaTok flow-eval windows; score with eval_forecast_metrics.py.
+"""Dump pretrained VGGT-World forecasts (depth, points, c2w at DA3 scale, GT-mask
+pixels only) on the DeltaTok flow-eval windows; score with eval_forecast_metrics.py.
 
 Frames 0-1 are context, 2..T-1 are forecast. VGGT-World's flow model rolls the
 part1 tokens forward, part2 + heads decode all T frames in frame-0 coordinates,
 and DA3METRIC-LARGE on the context frames (predicted K) sets the metric scale.
-Writes <output_dir>/<run>/<set>/<n:05d>.pt, n = window index in loader order.
+Writes <output_dir>/<run>/<set>/<n:05d>.npz, n = window index in loader order.
 Plan: docs/research/plan/2026-10-05_flow_forecast_dump_then_score.md
 
 Usage (BSC GPU node):
@@ -59,7 +59,9 @@ from depth_anything_3.utils.alignment import (  # noqa: E402
 )
 
 from occany.datasets import get_data_loader  # noqa: E402
+from occany.utils.helpers import convert_depth_to_point_cloud  # noqa: E402
 from occrae.deltatok_shared import DeltaTokSharedMixin  # noqa: E402
+from occrae.forecast_dump import save_windows  # noqa: E402
 
 IMAGENET_MEAN = torch.tensor([0.485, 0.456, 0.406]).view(1, 1, 3, 1, 1)
 IMAGENET_STD = torch.tensor([0.229, 0.224, 0.225]).view(1, 1, 3, 1, 1)
@@ -275,28 +277,25 @@ def main() -> None:
             h, w = xv.shape[-2:]
             patch_hw = (h // 14, w // 14)
 
-            tok_fc = _forecast_tokens(model, xv, T, args.fm_steps, args.rollout, patch_hw)  # (B, T, Ntot, C)
-            dec_fc = _decode(model, tok_fc, xv, patch_hw, (H, W))                       # depth, conf, K, c2w
+            tokens = _forecast_tokens(model, xv, T, args.fm_steps, args.rollout, patch_hw)  # (B, T, Ntot, C)
+            depth, conf, K, c2w = _decode(model, tokens, xv, patch_hw, (H, W))          # (B, T, H, W) x 2, (B, T, 3, 3), (B, T, 4, 4)
 
             with torch.no_grad():
                 m = da3_metric(imgs[:, :N_CTX], export_feat_layers=[])
             m_depth, m_sky = m["depth"].float(), m["sky"].float()                        # (B, 2, H, W)
 
-            s_fc, fb_fc = _da3_scale(m_depth, m_sky, dec_fc[0], dec_fc[1], dec_fc[2])
-            depth = dec_fc[0] * s_fc[:, None, None, None]                                  # (B, T, H, W) metres
-            c2w = dec_fc[3].clone()
-            c2w[..., :3, 3] *= s_fc[:, None, None]                                         # (B, T, 4, 4)
-            for b in range(B):
-                torch.save({"depth": depth[b].cpu(), "K": dec_fc[2][b].cpu(), "c2w": c2w[b].cpu(),
-                            "scene_name": batch["scene_name"][b], "frame_stems": list(batch["frame_stems"][b])},
-                           os.path.join(set_dir, f"{n_items + b:05d}.pt"))
+            scale, fallback = _da3_scale(m_depth, m_sky, depth, conf, K)                 # (B,), (B,)
+            depth = depth * scale[:, None, None, None]                                     # (B, T, H, W) metres
+            c2w[..., :3, 3] *= scale[:, None, None]                                        # (B, T, 4, 4)
+            point = convert_depth_to_point_cloud(depth, K, c2w)                            # (B, T, H, W, 3) frame-0 coords
+            save_windows(set_dir, n_items, depth, point, c2w, batch)
             n_items += B
-            n_fallback += int(fb_fc.sum())
+            n_fallback += int(fallback.sum())
 
             if it < args.verbose_batches:
                 print(f"[DBG/{test_name}] imgs [{imgs.min():.3f}, {imgs.max():.3f}] -> x01 [{x01.min():.3f}, "
                       f"{x01.max():.3f}]  vggt in {tuple(xv.shape[-2:])}  patch_hw {patch_hw}", flush=True)
-                print(f"[DBG/{test_name}] s_da3 {s_fc.tolist()}  fallback {fb_fc.tolist()}", flush=True)
+                print(f"[DBG/{test_name}] s_da3 {scale.tolist()}  fallback {fallback.tolist()}", flush=True)
             if it % 50 == 0:
                 print(f"[INFO] {test_name}: {n_items} windows, {(time.time() - t0) / n_items:.2f} s/window",
                       flush=True)

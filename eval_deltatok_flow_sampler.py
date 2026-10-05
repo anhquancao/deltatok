@@ -134,6 +134,10 @@ def get_args_parser() -> argparse.ArgumentParser:
         help="Write one CSV row per eval batch per pass (run with training.val_bsize=1 for one row per window).",
     )
     parser.add_argument(
+        "--dump_dir", type=str, default=None,
+        help="Write eval_forecast_metrics.py inputs: <dump_dir>/<mode>_steps<n>_sigma<s>/<set>/<n>.npz.",
+    )
+    parser.add_argument(
         "--num_items", type=int, default=None,
         help="Windows per test set; a smaller split is used whole. None = the config's '<n> @'.",
     )
@@ -307,6 +311,11 @@ def main() -> None:
                     # panel filenames carry no step/mode, so one dir per pass or they overwrite
                     cfg.training.eval_viz_dir = os.path.join(
                         output_dir, "eval_viz", f"{mode}_steps{n_steps}_sigma{sigma}")
+                if args.dump_dir:  # one dir per pass, as eval_viz_dir
+                    trainer._dump_dirs = {name: os.path.join(args.dump_dir, f"{mode}_steps{n_steps}_sigma{sigma}",
+                                                             _sanitize(name)) for name in trainer.test_loaders}
+                    for d in trainer._dump_dirs.values():
+                        os.makedirs(d, exist_ok=True)
                 print(f"\n[INFO] ===== sampler_step_mode={mode} "
                       f"(eval_num_steps={n_steps}, "
                       f"eval_noise_probe_sigma={sigma}, "

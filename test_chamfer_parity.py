@@ -170,7 +170,7 @@ def main():
         # 5 end to end
         (acc, comp, cd, rel, _), t_g3 = timed(lambda: g3.compute_chamfer_metrics(P, G, m))
         mine, t_ours = timed(lambda: ours.compute_chamfer_metrics(P[None], G[None], m[None], num_points=args.num_points))
-        (_, _, cd_h, _, _), t_h = timed(lambda: hybrid.compute_chamfer_metrics(P, G, m))
+        (_, _, cd_h, _, _), t_h = timed(lambda: hybrid.compute_chamfer_metrics(P, G, m, align=True))
         times.append((t_g3, t_ours, t_h))
         hybrid_rows.append((cd.item(), cd_h.item()))
         print(f"[e2e {w:2d}] chamfer gen3r {cd.item():.5f} hybrid {cd_h.item():.5f}", flush=True)

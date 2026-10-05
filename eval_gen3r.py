@@ -1,12 +1,12 @@
 #!/usr/bin/env python3
-"""Dump pretrained Gen3R forecasts (depth, K, c2w at DA3 scale) on the DeltaTok
-flow-eval windows; score with eval_forecast_metrics.py.
+"""Dump pretrained Gen3R forecasts (depth, points, c2w at DA3 scale, GT-mask pixels
+only) on the DeltaTok flow-eval windows; score with eval_forecast_metrics.py.
 
 Frames 0-1 are context, 2..T-1 are forecast. Window frame k sits in slot k * slot_step
 of one Gen3R clip (4k+1 slots; 13 at step 1); only the context slots are given, with
 zero Plücker (camera-free) and an empty prompt (text-free). Its geometry adapter and VGGT
 heads decode the slots in frame-0 coordinates, and DA3METRIC-LARGE on the context frames
-(predicted K) sets the metric scale. Writes <output_dir>/<run>/<set>/<n:05d>.pt.
+(predicted K) sets the metric scale. Writes <output_dir>/<run>/<set>/<n:05d>.npz.
 Plan: docs/research/plan/2026-10-04_flow_gen3r_baseline_eval.md
 
 Usage (BSC GPU node):
@@ -52,7 +52,9 @@ from depth_anything_3.utils.alignment import (  # noqa: E402
 )
 
 from occany.datasets import get_data_loader  # noqa: E402
+from occany.utils.helpers import convert_depth_to_point_cloud  # noqa: E402
 from occrae.deltatok_shared import DeltaTokSharedMixin  # noqa: E402
+from occrae.forecast_dump import save_windows  # noqa: E402
 
 IMAGENET_MEAN = torch.tensor([0.485, 0.456, 0.406]).view(1, 1, 3, 1, 1)
 IMAGENET_STD = torch.tensor([0.229, 0.224, 0.225]).view(1, 1, 3, 1, 1)
@@ -249,27 +251,25 @@ def main() -> None:
 
             gen = torch.Generator(device).manual_seed(args.seed + it)                   # per-window noise
             lat = _generate(pipe, x01[0, :N_CTX], args.ctx_mode, args.slot_step, n_slots, hw, args, gen)
-            dec_fc = _decode(pipe, lat, slots, (H, W))                                  # depth, conf, K, c2w
+            depth, conf, K, c2w = _decode(pipe, lat, slots, (H, W))                     # (1, T, H, W) x 2, (1, T, 3, 3), (1, T, 4, 4)
 
             with torch.no_grad():
                 m = da3_metric(imgs[:, :N_CTX], export_feat_layers=[])
             m_depth, m_sky = m["depth"].float(), m["sky"].float()                        # (B, 2, H, W)
 
-            s_fc, fb_fc = _da3_scale(m_depth, m_sky, dec_fc[0], dec_fc[1], dec_fc[2])
-            depth = dec_fc[0] * s_fc[:, None, None, None]                                  # (1, T, H, W) metres
-            c2w = dec_fc[3].clone()
-            c2w[..., :3, 3] *= s_fc[:, None, None]                                         # (1, T, 4, 4)
-            torch.save({"depth": depth[0].cpu(), "K": dec_fc[2][0].cpu(), "c2w": c2w[0].cpu(),
-                        "scene_name": batch["scene_name"][0], "frame_stems": list(batch["frame_stems"][0])},
-                       os.path.join(set_dir, f"{n_items:05d}.pt"))
+            scale, fallback = _da3_scale(m_depth, m_sky, depth, conf, K)                 # (1,), (1,)
+            depth = depth * scale[:, None, None, None]                                     # (1, T, H, W) metres
+            c2w[..., :3, 3] *= scale[:, None, None]                                        # (1, T, 4, 4)
+            point = convert_depth_to_point_cloud(depth, K, c2w)                            # (1, T, H, W, 3) frame-0 coords
+            save_windows(set_dir, n_items, depth, point, c2w, batch)
             n_items += B
-            n_fallback += int(fb_fc.sum())
+            n_fallback += int(fallback.sum())
 
             if it < args.verbose_batches:
                 print(f"[DBG/{test_name}] x01 [{x01.min():.3f}, {x01.max():.3f}]  gen3r in {hw}  slots {slots} of "
                       f"{n_slots}  ctx {args.ctx_mode}  peak mem {torch.cuda.max_memory_allocated() / 2**30:.1f} GiB",
                       flush=True)
-                print(f"[DBG/{test_name}] s_da3 {s_fc.tolist()}  fallback {fb_fc.tolist()}", flush=True)
+                print(f"[DBG/{test_name}] s_da3 {scale.tolist()}  fallback {fallback.tolist()}", flush=True)
             if it % 50 == 0:
                 print(f"[INFO] {test_name}: {n_items} windows, {(time.time() - t0) / n_items:.2f} s/window",
                       flush=True)

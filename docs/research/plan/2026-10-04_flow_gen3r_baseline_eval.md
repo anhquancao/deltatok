@@ -126,7 +126,7 @@
   - Each window gets `gen = torch.Generator("cuda").manual_seed(args.seed + it)`.
   - **Debug prints:** the scorer prints per-frame depth L1 for all T frames. Context frames 0–1 check that the slot-0/1 conditioning landed.
     It also prints the predicted step length after the oracle scale, next to GT.
-- **Output:** `<run>/<set>/<n:05d>.pt` (depth, K, c2w), scored and drawn by `eval_forecast_metrics.py`.
+- **Output:** `<run>/<set>/<n:05d>.npz` (depth, K, c2w), scored and drawn by `eval_forecast_metrics.py`.
 
 ## 4. `slurm/eval_gen3r_alldata_ctx2fwd8_bsc.slurm` (new)
 

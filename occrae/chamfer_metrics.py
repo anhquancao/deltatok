@@ -124,9 +124,10 @@ def compute_chamfer_metrics(
     require_downsample: bool=True, 
     in_mm: bool=False, 
     voxel_size: float=0.005, 
+    align: bool=False,
 ) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
     """
-    Gen3R's compute_chamfer_metrics, masked branch: align P to G (Umeyama + scale),
+    Gen3R's compute_chamfer_metrics, masked branch: [align: Umeyama + scale fit],
     voxel-downsample both masked clouds, FPS each to 20k points, then
     nearest-neighbour distances both ways. Under 20k points FPS zero-pads the
     sample, as in Gen3R.
@@ -145,10 +146,11 @@ def compute_chamfer_metrics(
         require_downsample: If `True`, run voxel downsampling before FPS.
         in_mm: If `True`, converts accuracy/completeness/chamfer from meters to millimeters.
         voxel_size: Voxel size of the downsampling.
+        align: If `True`, Umeyama sim(3)-fit P to G first (Gen3R's protocol).
 
     Returns:
         accuracy, completeness, chamfer, relative_percent: Tensors of shape `(1,)`;
-        P: Aligned predicted point cloud (F, H, W, 3).
+        P: Scored prediction (F, H, W, 3).
     """
     P, G = P.float(), G.float()
     if P.ndim == 5:
@@ -157,7 +159,8 @@ def compute_chamfer_metrics(
         G = G.squeeze(0)
 
     # align P to G, extract valid points
-    P = umeyama_alignment(P, G, mask)[-1]
+    if align:  # default False: score metric predictions as they are
+        P = umeyama_alignment(P, G, mask)[-1]
     P_flat = P[mask][None, ...]  # (1, N, 3)
     G_flat = G[mask][None, ...]  # (1, N, 3)
 

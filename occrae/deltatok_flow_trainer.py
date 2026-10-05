@@ -29,6 +29,7 @@ from occany.loss import PointmapLoss, DepthLosses, RaymapLoss
 from occrae.generation_helper import flow_euler_sample
 from occrae.deltatok_trainer import _log_cosh  # the tokenizer's recon loss: LossFeat reads on the LossRecon scale
 from occrae.chamfer_metrics import compute_chamfer_metrics
+from occrae.forecast_dump import save_windows
 
 
 # Fixed eval-loss key order so every rank reduces the same-sized vector even
@@ -86,6 +87,7 @@ class DeltaTokFlowMatchingTrainer(DeltaTokSharedMixin, Trainer):
         self._err_spectrum = {}       # {test_name: (err_dir (C,) mean sq error per eigen-dir, lam)} written by eval_one_epoch
         self._fvd_feats = None        # {test_name: {"flow"|"tok"|"gt": [(B*F, C)]}}; None = off, set by the sampler script's --fvd
         self._per_window = None       # list of per-batch loss rows; set by the sampler's --dump_per_window
+        self._dump_dirs = None        # {test_name: dir} for eval_forecast_metrics.py; set by the sampler's --dump_dir
         # Overfit: memoize the frozen OccRAE+DeltaTok encode per data item so the
         # ~1B backbone runs once per unique sample (item-key -> (tokens, feat0, z, H, W)).
         self._cache_frozen_encode = bool(self.cfg.training.get("cache_frozen_encode", False))
@@ -971,6 +973,13 @@ class DeltaTokFlowMatchingTrainer(DeltaTokSharedMixin, Trainer):
 
                         ray_conf = decoded.get("ray_conf")
                         ray_conf_tok = decoded_tok.get("ray_conf")
+
+                        if self._dump_dirs is not None:  # eval_forecast_metrics.py input; c2w is a pinhole fit to the decoded rays
+                            with torch.autocast("cuda", enabled=False):
+                                c2w, _ = self.occ_rae.model._process_ray_pose_estimation(
+                                    decoded["ray"].float(), ray_conf.float(), height, width)  # (B, V, 3, 4) frame-0 coords
+                            save_windows(self._dump_dirs[test_name], items_seen, decoded["depth"],
+                                         decoded["pointmap"], c2w, batch)  # point = depth * ray dir + ray origin
 
                         # 4. Losses on forecast views only. Given frames = timestep 0
                         # (rollout seed) + timesteps 1..n_ctx (GT context deltas, delta_ctx

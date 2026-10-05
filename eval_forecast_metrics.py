@@ -1,10 +1,9 @@
 #!/usr/bin/env python3
 """Score dumped forecasts with the DeltaTok flow-eval metrics.
 
-Reads <pred_dir>/<set>/<n:05d>.pt (depth, K, c2w in frame-0 coordinates, metric
-scale; eval_vggt_world.py / eval_gen3r.py) for loader window n. Frames 0-1 are
-context, 2..T-1 are forecast. Depth / Pointmap / Raymap losses and Chamfer are
-the trainer's own code (``_compute_frame_losses``, ``compute_chamfer_metrics``).
+Reads <pred_dir>/<set>/<n:05d>.npz for loader window n (format: occrae/forecast_dump.py).
+Frames 0-1 are context, 2..T-1 are forecast. No fit or alignment: depth (LossDepth, AbsRel, delta1), points
+(LossPointmap, Chamfer without Umeyama) and pose (ATE, RTE, RRE) as predicted.
 
 Rows: main (saved scale), ``_oracle`` (median GT scale on forecast frames).
 Plan: docs/research/plan/2026-10-05_flow_forecast_dump_then_score.md
@@ -31,14 +30,14 @@ from occany.utils.runtime_paths import prepend_vendored_import_paths
 
 REPO_ROOT = prepend_vendored_import_paths(Path(__file__).resolve().parent)
 
-torch.backends.cuda.matmul.allow_tf32 = True
-torch.backends.cudnn.allow_tf32 = True
+torch.backends.cuda.matmul.allow_tf32 = False  # float32 NN distances must not run in TF32
 
+from depth_anything_3.utils.geometry import affine_inverse  # noqa: E402
 from occany.datasets import get_data_loader  # noqa: E402
-from occany.loss import PointmapLoss, DepthLosses, RaymapLoss  # noqa: E402
-from occany.utils.helpers import convert_depth_to_point_cloud, intrinsics_c2w_to_raymap  # noqa: E402
+from occany.loss import PointmapLoss, DepthLosses  # noqa: E402
 from occrae.chamfer_metrics import compute_chamfer_metrics  # noqa: E402
 from occrae.deltatok_shared import DeltaTokSharedMixin  # noqa: E402
+from occrae.forecast_dump import load_windows  # noqa: E402
 from occrae.visualization_helper import _build_bev_panel, _log_viz_sample  # noqa: E402
 
 N_CTX = 2  # frames 0-1 given
@@ -104,13 +103,26 @@ def _build_test_loaders(cfg, num_items=None, test_filter=None):
 
 
 class _Scorer(DeltaTokSharedMixin):
-    """The trainer's batch conversion and frame losses; criteria as deltatok_flow_trainer.py:181-183."""
+    """The trainer's batch conversion and frame losses; criteria as deltatok_flow_trainer.py:181-182."""
 
     def __init__(self, device):
         self.device = device
         self.pointmap_criterion = PointmapLoss(lambda_c=0.0, gt_scale=True, loss_type="L2")
         self.depth_criterion = DepthLosses(lambda_c=0.0, gt_scale=True, alpha=0.0)
-        self.raymap_criterion = RaymapLoss(lambda_c=0.0, gt_scale=True, loss_type="L2")
+
+    def _frame_losses(self, dec, batch, fslice):
+        """_compute_frame_losses (deltatok_shared.py:415) without the raymap term."""
+        mask = batch["gt_mask"][:, fslice].to(self.device)                              # (B, F, H, W)
+        B, F, H, W = mask.shape
+        loss_pm, _ = self.pointmap_criterion(
+            dec["pointmap"][:, fslice].float(),
+            batch["gt_pointmap"][:, fslice].to(self.device).float(),
+            mask=mask
+        )
+        pred_d = dec["depth"][:, fslice].float().reshape(B * F, 1, H, W)
+        gt_d = batch["gt_depth"][:, fslice].to(self.device).float().reshape(B * F, 1, H, W)
+        loss_d, _ = self.depth_criterion(pred_d, gt_d, confidence=None, mask=mask.reshape(B * F, 1, H, W).float())
+        return loss_pm, loss_d
 
 
 def _oracle_scale(depth, gt_depth, gt_mask, fslice):
@@ -124,28 +136,49 @@ def _oracle_scale(depth, gt_depth, gt_mask, fslice):
     return scale
 
 
-def _scaled_outputs(depth, K, c2w, scale):
-    """Apply a per-window scale; build the dict _compute_frame_losses reads."""
-    H, W = depth.shape[-2:]
-    depth_s = depth * scale[:, None, None, None]                                       # (B, T, H, W)
+def _scaled_outputs(depth, point, c2w, scale):
+    """Apply a per-window scale about the frame-0 origin."""
+    s = scale[:, None, None, None]                                                     # (B, 1, 1, 1)
     c2w_s = c2w.clone()
     c2w_s[..., :3, 3] = c2w_s[..., :3, 3] * scale[:, None, None]                       # (B, T, 4, 4)
-    return {
-        "depth": depth_s,
-        "pointmap": convert_depth_to_point_cloud(depth_s, K, c2w_s),                   # (B, T, H, W, 3)
-        "ray": intrinsics_c2w_to_raymap(K, c2w_s, H, W),                                # (B, T, H, W, 6)
-    }
+    return {"depth": depth * s, "pointmap": point * s[..., None], "c2w": c2w_s}
+
+
+def _depth_metrics(depth, gt_depth, gt_mask, fslice):
+    """Per-window AbsRel and delta1 over valid forecast pixels. (B,), (B,)"""
+    d, g = depth[:, fslice], gt_depth[:, fslice]                                       # (B, F, H, W)
+    m = gt_mask[:, fslice].float()                                                     # (B, F, H, W)
+    n = m.sum((1, 2, 3)).clamp_min(1)                                                  # (B,)
+    abs_rel = ((d - g).abs() / g.clamp_min(1e-6) * m).sum((1, 2, 3)) / n              # (B,)
+    ratio = torch.maximum(d / g.clamp_min(1e-6), g / d.clamp_min(1e-6))                # (B, F, H, W)
+    delta1 = ((ratio < 1.25).float() * m).sum((1, 2, 3)) / n                           # (B,)
+    return abs_rel, delta1
+
+
+def _pose_errors(c2w, gt_c2w, fslice):
+    """Per-window ATE (m), RTE (m), RRE (deg): no fit or alignment, frame-0 coordinates.
+    ATE: RMSE of camera positions c2w[:3, 3] over forecast frames. RTE / RRE: RMSE of the
+    error in each step f-1 -> f into a forecast frame, in the previous camera's axes. (B,) x 3"""
+    P, P_gt = c2w.double(), gt_c2w.double()                                            # (B, T, 4, 4)
+    ate = (P[:, fslice, :3, 3] - P_gt[:, fslice, :3, 3]).norm(dim=-1).pow(2).mean(1).sqrt()  # (B,)
+    cur = torch.arange(fslice.start, P.shape[1], device=P.device)                      # (F,) forecast frames
+    step = affine_inverse(P[:, cur - 1]) @ P[:, cur]                                   # (B, F, 4, 4) predicted motion f-1 -> f
+    step_gt = affine_inverse(P_gt[:, cur - 1]) @ P_gt[:, cur]                          # (B, F, 4, 4)
+    E = affine_inverse(step_gt) @ step                                                 # (B, F, 4, 4) per-step error
+    rte = E[..., :3, 3].norm(dim=-1).pow(2).mean(1).sqrt()                             # (B,)
+    R = E[..., :3, :3]                                                                 # (B, F, 3, 3) per-step rotation error
+    v = torch.stack([R[..., 2, 1] - R[..., 1, 2], R[..., 0, 2] - R[..., 2, 0],
+                     R[..., 1, 0] - R[..., 0, 1]], dim=-1)                             # (B, F, 3) = 2 sin(θ) · axis
+    ang = torch.atan2(v.norm(dim=-1), R.diagonal(dim1=-2, dim2=-1).sum(-1) - 1)       # (B, F) rad; tr - 1 = 2 cos(θ)
+    rre = torch.rad2deg(ang).pow(2).mean(1).sqrt()                                     # (B,)
+    return ate, rte, rre
 
 
 def _chamfer_rows(pointmap, gt_pointmap, mask):
     """Gen3R metrics per window: (B, 4) acc, comp, chamfer, relative %."""
-    tf32 = torch.backends.cuda.matmul.allow_tf32
-    torch.backends.cuda.matmul.allow_tf32 = False  # Gen3R's float32 Umeyama must not run in TF32
     rows = []
     for b in range(pointmap.shape[0]):
-        p = pointmap[b].float().contiguous()                                           # (F, H, W, 3); Umeyama .view()s it
-        rows.append([v.item() for v in compute_chamfer_metrics(p, gt_pointmap[b], mask[b])[:4]])
-    torch.backends.cuda.matmul.allow_tf32 = tf32
+        rows.append([v.item() for v in compute_chamfer_metrics(pointmap[b], gt_pointmap[b], mask[b], align=False)[:4]])
     return torch.tensor(rows)                                                           # (B, 4)
 
 
@@ -183,37 +216,40 @@ def main() -> None:
             fslice = slice(N_CTX, T)
             gt_mask = batch["gt_mask"].to(device).bool().reshape(gt_depth.shape)         # (B, T, H, W)
 
-            preds = [torch.load(os.path.join(set_dir, f"{n_items + b:05d}.pt")) for b in range(B)]
-            for b, p in enumerate(preds):
-                assert (p["scene_name"], tuple(p["frame_stems"])) == (batch["scene_name"][b], tuple(batch["frame_stems"][b])), \
-                    (n_items + b, p["scene_name"], batch["scene_name"][b])
-            depth, K, c2w = (torch.stack([p[k] for p in preds]).to(device).float()
-                             for k in ("depth", "K", "c2w"))                             # (B, T, H, W), (B, T, 3, 3), (B, T, 4, 4)
+            depth, point, c2w, dense = load_windows(set_dir, n_items, batch, device)    # (B, T, H, W), (B, T, H, W, 3), (B, T, 4, 4)
             s_or = _oracle_scale(depth, gt_depth, gt_mask, fslice)                       # (B,) on top of the saved scale
 
             rows = {
-                "": _scaled_outputs(depth, K, c2w, torch.ones_like(s_or)),
-                "_oracle": _scaled_outputs(depth, K, c2w, s_or),
+                "": {"depth": depth, "pointmap": point, "c2w": c2w},
+                "_oracle": _scaled_outputs(depth, point, c2w, s_or),
             }
             for b in range(min(B, args.viz - n_items)):  # deltatok_flow_trainer.py eval panel layout
+                if dense[b] is None:  # only the dumps' first N_DENSE (16) windows per set
+                    continue
                 order = sorted(range(T), key=lambda v: int(batch["timesteps"][b][v]))
                 bev = [_build_bev_panel(c, order, H, H) for c in (c2w[b], batch["gt_c2w"][b])]
-                _log_viz_sample(batch, {"depth": depth}, b, 0, 0, os.path.join(args.pred_dir, "eval_viz"),
+                vis = depth.clone()
+                vis[b] = dense[b]                                                        # (T, H, W)
+                _log_viz_sample(batch, {"depth": vis}, b, 0, 0, os.path.join(args.pred_dir, "eval_viz"),
                                 None, f"eval_depth/{test_name}", extra_panels=bev, view_order=order,
                                 context_mask=[int(batch["timesteps"][b][v]) < N_CTX for v in order],
                                 col_titles=["RGB", "Pred Depth", "BEV (pred)", "BEV (GT)"])
+            gt_c2w = batch["gt_c2w"].to(device).float()                                  # (B, T, 4, 4) frame-0 coords
+            gt_pm = batch["gt_pointmap"][:, fslice].to(device).float()                   # (B, F, H, W, 3)
             batch_losses = {}
             for suffix, dec in rows.items():
-                l_pm, l_d, l_ray = scorer._compute_frame_losses(dec, batch, fslice, None, B, H, W)
-                batch_losses[f"LossPointmap{suffix}"] = l_pm.item()
-                batch_losses[f"LossDepth{suffix}"] = l_d.item()
-                batch_losses[f"LossRaymap{suffix}"] = l_ray.item()
-            if not args.no_chamfer:
-                gt_pm = batch["gt_pointmap"][:, fslice].to(device).float()               # (B, F, H, W, 3)
-                f_mask = gt_mask[:, fslice]                                              # (B, F, H, W)
-                cr = _chamfer_rows(rows[""]["pointmap"][:, fslice], gt_pm, f_mask)       # Sim(3)-aligned: _oracle equal
-                for j, k in enumerate(("ChamferAcc", "ChamferComp", "Chamfer", "ChamferRel")):
-                    batch_losses[k] = cr[:, j].mean().item()
+                l_pm, l_d = scorer._frame_losses(dec, batch, fslice)
+                abs_rel, delta1 = _depth_metrics(dec["depth"], gt_depth, gt_mask, fslice)
+                ate, rte, rre = _pose_errors(dec["c2w"], gt_c2w, fslice)
+                batch_losses.update({f"LossDepth{suffix}": l_d.item(), f"AbsRel{suffix}": abs_rel.mean().item(),
+                                     f"Delta1{suffix}": delta1.mean().item(), f"LossPointmap{suffix}": l_pm.item(),
+                                     f"ATE{suffix}": ate.mean().item(), f"RTE{suffix}": rte.mean().item()})
+                if not suffix:  # rotation does not depend on scale
+                    batch_losses["RRE"] = rre.mean().item()
+                if not args.no_chamfer:  # unaligned, so _oracle differs
+                    cr = _chamfer_rows(dec["pointmap"][:, fslice], gt_pm, gt_mask[:, fslice])
+                    for j, k in enumerate(("ChamferAcc", "ChamferComp", "Chamfer", "ChamferRel")):
+                        batch_losses[f"{k}{suffix}"] = cr[:, j].mean().item()
 
             for k, v in batch_losses.items():
                 sums[k] += v * B
@@ -221,17 +257,15 @@ def main() -> None:
             ratios.append((1 / s_or).cpu())                                              # saved scale / GT-median scale
 
             if it < args.verbose_batches:
-                print(f"[DBG/{test_name}] s_oracle {s_or.tolist()}", flush=True)
-                gt_c2w = batch["gt_c2w"][0].to(device).double()                          # (T, 4, 4)
-                gt_t = (torch.linalg.inv(gt_c2w[0]) @ gt_c2w)[:, :3, 3]                  # (T, 3) frame-0 world
-                pr_t = c2w[0, :, :3, 3].double() * s_or[0]                               # (T, 3) oracle scale
-                for f in range(T):
-                    mk = gt_mask[:, f]
-                    e = (depth[:, f] - gt_depth[:, f]).abs()[mk].mean().item()
-                    step_gt = (gt_t[f] - gt_t[f - 1]).norm().item() if f else 0.0
-                    step_pr = (pr_t[f] - pr_t[f - 1]).norm().item() if f else 0.0
-                    print(f"[DBG/{test_name}]   frame {f}{' (ctx)' if f < N_CTX else ''}: depth L1 {e:.3f} m  "
-                          f"step {step_pr:.2f} m (GT {step_gt:.2f} m)", flush=True)
+                print(f"[DBG/{test_name}] s_oracle {s_or.tolist()}  frame-0 position error "
+                      f"{(c2w[:, 0, :3, 3] - gt_c2w[:, 0, :3, 3]).norm(dim=-1).tolist()} m", flush=True)
+                gt_t = gt_c2w[0, :, :3, 3].double()                                      # (T, 3) frame-0 coords
+                pr_t = c2w[0, :, :3, 3].double()                                         # (T, 3) saved scale
+                for f in range(1, T):
+                    e = (depth[:, f] - gt_depth[:, f]).abs()[gt_mask[:, f]].mean().item()
+                    print(f"[DBG/{test_name}]   frame {f}: depth L1 {e:.3f} m  step "
+                          f"{(pr_t[f] - pr_t[f - 1]).norm().item():.2f} m (GT {(gt_t[f] - gt_t[f - 1]).norm().item():.2f} m)",
+                          flush=True)
             if it % 50 == 0:
                 print(f"[INFO] {test_name}: {n_items} windows, {(time.time() - t0) / n_items:.2f} s/window",
                       flush=True)

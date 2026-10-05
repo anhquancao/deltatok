@@ -6,8 +6,8 @@
 
 ## 0. Layout
 
-- **Generators** (`eval_vggt_world.py`, `eval_gen3r.py`) only forecast. They write `<output_dir>/<run>/<set>/<n:05d>.pt`, where `n` is the window index in loader order.
-  - Keys: `depth` (T, H, W) float32 metres, `K` (T, 3, 3), `c2w` (T, 4, 4) in frame-0 coordinates, `scene_name`, `frame_stems`.
+- **Generators** (`eval_vggt_world.py`, `eval_gen3r.py`) only forecast. They write `<output_dir>/<run>/<set>/<n:05d>.npz`, where `n` is the window index in loader order.
+  - Keys: superseded by `plan/2026-10-05_flow_deltatok_dump_for_scorer.md` §0. They are `depth` (N,) and `point` (N, 3) on GT-mask pixels, `c2w` (T, 4, 4), `scene_name`, `frame_stems`, and `depth_dense` / `point_dense` for the first 16 windows. Format is masked fp32 + zlib.
   - All T frames are saved with the DA3 scale applied.
   - About 31 GB per model for the three sets.
 - **Scorer** `eval_forecast_metrics.py --pred_dir <run>` rebuilds the same loader and loads window `n` for loader item `n`.
