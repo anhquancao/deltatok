@@ -1,6 +1,6 @@
 # VGGT-World technical details — checkpoints, stages, rollout stride, eval protocol
 
-Created 2026-10-03 · thread `flow` · plan: `plan/2026-10-01_flow_vggt_world_baseline_eval.md`
+Created 2026-10-03 · thread `flow` · plan: `plan/2026-10-01_flow_vggt_world_baseline_eval.md` · deck: `results/2026-10-04_flow_vggt_world_baseline_slides.html`
 · paper: arXiv 2603.12655 · code: `third_party/VGGT-World` · our runner: `eval_vggt_world.py`
 
 **Use stride 1.** It is the authors' default rollout. Paper appendix B.3: "we maintain a consistent
@@ -32,6 +32,10 @@ Both from the README's OneDrive `ckpt/` folder, both 7,623,097,862 B. On BSC: `/
 - **`kitti.pt` is stage 1.** The repo has only a stage-1 config for KITTI (`training_fm/config/default_kitti.yaml`).
 - **`cityscapes.pt` is probably stage 2.** It is epoch 6, and `eval/cityscapes_val_mid.py` defaults to
   `exp000_cityscapes_finetune_1/ckpts/checkpoint_6.pt`. Only Cityscapes has a stage-2 config (`default_cityscapes_stage2.yaml`).
+- **Same VGGT, unrelated flow models.** 1,797 / 1,797 non-FM tensors are byte-identical (VGGT frozen). The FM
+  (432.6M params) has global cosine 0.017 between the two files, relative diff 1.40 (√2 ≈ 1.41 for unrelated vectors).
+  So `cityscapes.pt` is **not** fine-tuned from `kitti.pt`, nor the reverse. README: stage 2 resumes from a Cityscapes `stage1.pt`.
+  The `_tok` rows are therefore identical across checkpoints.
 - **We load `ckpt["model"]`** (online weights), as their eval scripts do. There are no EMA weights to compare.
 - **Load check:** `missing=0`, 456 unexpected keys, all `point_head` / `track_head` (disabled in our build).
 

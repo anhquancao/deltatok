@@ -582,6 +582,7 @@ class Gen3RPipeline(DiffusionPipeline):
         cfg_skip_ratio: int = None,
         shift: int = 5,
         min_max_depth_mask: bool = False,
+        control_index: Optional[List[int]] = None,
     ) -> Union[Gen3RPipelineOutput, Tuple]:
         """
         Function invoked when calling the pipeline for generation.
@@ -692,7 +693,9 @@ class Gen3RPipeline(DiffusionPipeline):
         # Prepare control latents
         F = control_cameras.shape[1]
         B, _, C, H, W = control_images.shape
-        if control_images.shape[1] == 1:
+        if control_index is not None:  # frames already at their slots in an F-long control_images
+            pass
+        elif control_images.shape[1] == 1:
             control_images = torch.cat([control_images, torch.zeros(B, F-1, C, H, W).to(control_images.device)], dim=1)  # [B, F, 3, H, W]
             control_index = [0]
         elif control_images.shape[1] == 2:

@@ -1,29 +1,29 @@
 #!/usr/bin/env python3
-"""Dump pretrained VGGT-World forecasts (depth, K, c2w at DA3 scale) on the
-DeltaTok flow-eval windows; score with eval_forecast_metrics.py.
+"""Dump pretrained Gen3R forecasts (depth, K, c2w at DA3 scale) on the DeltaTok
+flow-eval windows; score with eval_forecast_metrics.py.
 
-Frames 0-1 are context, 2..T-1 are forecast. VGGT-World's flow model rolls the
-part1 tokens forward, part2 + heads decode all T frames in frame-0 coordinates,
-and DA3METRIC-LARGE on the context frames (predicted K) sets the metric scale.
-Writes <output_dir>/<run>/<set>/<n:05d>.pt, n = window index in loader order.
-Plan: docs/research/plan/2026-10-05_flow_forecast_dump_then_score.md
+Frames 0-1 are context, 2..T-1 are forecast. Window frame k sits in slot k * slot_step
+of one Gen3R clip (4k+1 slots; 13 at step 1); only the context slots are given, with
+zero Plücker (camera-free) and an empty prompt (text-free). Its geometry adapter and VGGT
+heads decode the slots in frame-0 coordinates, and DA3METRIC-LARGE on the context frames
+(predicted K) sets the metric scale. Writes <output_dir>/<run>/<set>/<n:05d>.pt.
+Plan: docs/research/plan/2026-10-04_flow_gen3r_baseline_eval.md
 
 Usage (BSC GPU node):
-  source env_bsc.sh && python eval_vggt_world.py \
+  source env_bsc.sh && python eval_gen3r.py \
       --config-name eval_deltatok_flow_alldata_ctx2fwd8_kitti_bsc \
-      --ckpt /gpfs/scratch/ehpc1001/quan/vggt_world/kitti.pt
+      --ckpt /gpfs/scratch/ehpc1001/quan/gen3r/checkpoints
 """
 
 import argparse
 import os
 import re
-import sys
 import time
-import types
 from pathlib import Path
 
 import torch
 import torch.nn.functional as F
+from einops import rearrange
 from hydra import compose, initialize_config_dir
 from omegaconf import open_dict
 
@@ -32,23 +32,16 @@ from occany.utils.runtime_paths import prepend_vendored_import_paths
 REPO_ROOT = prepend_vendored_import_paths(
     Path(__file__).resolve().parent,
     extra=[
-        "third_party/VGGT-World",
+        "third_party/Gen3R",
     ],
 )
 
 torch.backends.cuda.matmul.allow_tf32 = True
 torch.backends.cudnn.allow_tf32 = True
 
-# VGGT-World imports tensorboardX only for a training SummaryWriter; not in the BSC venv.
-try:
-    import tensorboardX  # noqa: F401
-except ModuleNotFoundError:
-    _tbx = types.ModuleType("tensorboardX")
-    _tbx.SummaryWriter = object
-    sys.modules["tensorboardX"] = _tbx
-
-from vggt.models.vggt import VGGT  # noqa: E402
-from vggt.utils.pose_enc import pose_encoding_to_extri_intri  # noqa: E402
+from gen3r.pipeline import Gen3RPipeline  # noqa: E402
+from gen3r.utils.common_utils import convert_to_token_list  # noqa: E402
+from gen3r.models.vggt.utils.pose_enc import pose_encoding_to_extri_intri  # noqa: E402
 from depth_anything_3.api import DepthAnything3  # noqa: E402
 from depth_anything_3.utils.alignment import (  # noqa: E402
     apply_metric_scaling,
@@ -64,25 +57,30 @@ from occrae.deltatok_shared import DeltaTokSharedMixin  # noqa: E402
 IMAGENET_MEAN = torch.tensor([0.485, 0.456, 0.406]).view(1, 1, 3, 1, 1)
 IMAGENET_STD = torch.tensor([0.229, 0.224, 0.225]).view(1, 1, 3, 1, 1)
 N_CTX = 2  # frames 0-1 given
+GEN3R_HW = {(168, 518): (336, 1008), (266, 518): (448, 896)}  # loader (H, W) -> multiples of 112, ~560² px
+NEG_PROMPT = "bad detailed"  # infer.py
 
 
 def get_args_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser("VGGT-World on the DeltaTok flow eval", add_help=True)
+    parser = argparse.ArgumentParser("Gen3R on the DeltaTok flow eval", add_help=True)
     parser.add_argument("--config-dir", type=str, default="configs/deltatok_flow")
     parser.add_argument("--config-name", type=str, default="eval_deltatok_flow_alldata_ctx2fwd8_kitti_bsc")
-    parser.add_argument("--ckpt", type=str, required=True)
+    parser.add_argument("--ckpt", type=str, default="/gpfs/scratch/ehpc1001/quan/gen3r/checkpoints")
     parser.add_argument("--num_items", type=int, default=None,
                         help="Windows per set; above the split takes it whole (window_stride sets the size).")
     parser.add_argument("--test_filter", type=str, default=None)
-    parser.add_argument("--bsize", type=int, default=4)
-    parser.add_argument("--fm_steps", type=int, default=50)
-    parser.add_argument("--rollout", choices=["stride2", "stride1"], default="stride1")  # authors' default (paper B.3)
-    parser.add_argument("--resolution", choices=["native", "448"], default="native")
+    parser.add_argument("--steps", type=int, default=50)
+    parser.add_argument("--guidance", type=float, default=5.0)  # infer.py
+    parser.add_argument("--slot_step", type=int, default=1,
+                        help="Clip slots per window frame: 1 = 13-slot clip, 5 = 49 slots at 10 Hz.")
+    parser.add_argument("--ctx_mode", choices=["both", "first"], default="both",
+                        help="first = ctx 0 only, Gen3R's trained 1view mask (smoke comparison).")
+    parser.add_argument("--prompt", type=str, default="")  # text-free, as VGGT-World Table 3; trained w/ 20% drop
     parser.add_argument("--da3_metric_model", type=str, default="depth-anything/DA3METRIC-LARGE")
     parser.add_argument("--verbose_batches", type=int, default=1,
                         help="Print per-window scales for the first N batches of each set.")
     parser.add_argument("--seed", type=int, default=42)
-    parser.add_argument("--output_dir", type=str, default="results/vggt_world_alldata_ctx2fwd8")
+    parser.add_argument("--output_dir", type=str, default="results/gen3r_alldata_ctx2fwd8")
     return parser
 
 
@@ -129,73 +127,53 @@ def _build_test_loaders(cfg, num_items=None, test_filter=None):
     return loaders
 
 
-def _load_vggt_world(ckpt_path, device):
-    model = VGGT(enable_camera=True, enable_depth=True, enable_point=False, enable_track=False)
-    data = torch.load(ckpt_path, map_location="cpu", weights_only=False)
-    if isinstance(data, dict):
-        print(f"[INFO] ckpt top-level keys: {list(data.keys())[:10]}", flush=True)
-    state = data["model"] if isinstance(data, dict) and "model" in data else data
-    missing, unexpected = model.load_state_dict(state, strict=False)
-    print(f"[INFO] VGGT-World load: missing={len(missing)} unexpected={len(unexpected)}", flush=True)
-    print(f"[INFO]   missing (first 10): {missing[:10]}", flush=True)
-    print(f"[INFO]   unexpected prefixes: {sorted({k.split('.')[0] for k in unexpected})}", flush=True)
-    del data, state
-    model.to(device).eval()
-    return model
+def _load_gen3r(path, device):
+    pipe = Gen3RPipeline.from_pretrained(path)
+    pipe.to(device).to(torch.bfloat16)                                                 # as infer.py
+    for name, comp in pipe.components.items():
+        print(f"[INFO] Gen3R {name}: {type(comp).__name__}", flush=True)
+    return pipe
 
 
 @torch.no_grad()
-def _forecast_tokens(model, xv, n_frames, fm_steps, rollout, patch_hw):
-    """Context part1 tokens of frames 0-1, rolled forward by the flow model to n_frames."""
-    with torch.autocast("cuda", dtype=torch.bfloat16):
-        ctx = model.aggregator.part1(xv[:, :N_CTX])[0][0]           # (B, 2, Ntot, C)
-    B, _, Ntot, C = ctx.shape
-    fm_dtype = next(model.fm.parameters()).dtype
-    shape_like = torch.zeros((B, 2, Ntot, C), device=ctx.device, dtype=fm_dtype)  # (B, 2, Ntot, C)
-    frames = [ctx[:, 0:1], ctx[:, 1:2]]                             # T x (B, 1, Ntot, C)
-    while len(frames) < n_frames:
-        # stride2: condition on the 2 newest frames, keep both predictions.
-        # stride1 (eval/kitti_val_mid.py): shift by one, keep only the new frame.
-        first = len(frames) == N_CTX
-        if rollout == "stride2" or first:
-            cond = torch.cat(frames[-2:], dim=1)                    # (B, 2, Ntot, C)
-        else:
-            cond = torch.cat(frames[-3:-1], dim=1)                  # (B, 2, Ntot, C)
-        gen = model.fm.sample_euler(
-            cond_layers=[cond.to(fm_dtype)], shape_like=shape_like, steps=fm_steps, patch_hw=patch_hw,
-        )                                                           # 2 x (B, 1, Ntot, C)
-        if rollout == "stride2" or first:
-            frames += gen
-        else:
-            frames.append(gen[1])
-    return torch.cat(frames[:n_frames], dim=1)                      # (B, T, Ntot, C)
+def _generate(pipe, x, ctx_mode, slot_step, n_slots, hw, args, gen):
+    """One window: context frames at their slots, camera-free; returns the denoised latents."""
+    x = F.interpolate(x, size=hw, mode="bilinear", align_corners=False, antialias=True)  # (2, 3, h, w) ctx in [0, 1]
+    ctrl = torch.zeros(1, n_slots, 3, *hw, device=x.device)                             # (1, S, 3, h, w)
+    idx = [0, slot_step] if ctx_mode == "both" else [0]
+    ctrl[0, idx] = x[: len(idx)]
+    cams = torch.zeros(1, n_slots, 6, *hw, device=x.device)                              # (1, S, 6, h, w) camera-free
+    return pipe(prompt=args.prompt, negative_prompt=NEG_PROMPT, control_cameras=cams.to(torch.bfloat16),
+                control_images=ctrl.to(torch.bfloat16), control_index=idx, num_frames=n_slots,
+                height=hw[0], width=hw[1], num_inference_steps=args.steps, guidance_scale=args.guidance,
+                generator=gen, output_type="latent", return_dict=False)[0]               # (1, 16, (S-1)/4+1, h/8, 2w/8)
 
 
 @torch.no_grad()
-def _decode(model, tokens, xv, patch_hw, out_hw):
-    """part2 + depth / camera heads over all T frames; depth, conf and K returned at out_hw."""
-    B, T = tokens.shape[:2]
-    h, w = xv.shape[-2:]
+def _decode(pipe, latents, slots, out_hw):
+    """Geometry adapter + VGGT heads; depth, conf and K of the window's slots at out_hw, c2w."""
+    geo = latents.chunk(2, dim=-1)[1]                                                  # (1, 16, f, h/8, w/8)
+    tok = pipe.geo_adapter.decode(geo).sample                                          # (1, 5C, S, h/14, w/14)
+    agg, frames = convert_to_token_list(rearrange(tok, "b c f h w -> b f h w c"), pipe.vggt.aggregator.patch_size)  # 4 x (1, S, 5+P, C)
+    h, w = frames.shape[-2:]
     H, W = out_hw
-    with torch.autocast("cuda", dtype=torch.bfloat16):
-        agg, psi = model.aggregator.part2([tokens.to(torch.bfloat16)], patch_hw=patch_hw)
-    agg = [a.float() for a in agg]
-    with torch.autocast("cuda", enabled=False):
-        depth, conf = model.depth_head(agg, images=xv.float(), patch_start_idx=psi)  # (B, T, h, w, 1), (B, T, h, w)
-        pose_enc = model.camera_head(agg)[-1]                                          # (B, T, 9)
-        w2c, K = pose_encoding_to_extri_intri(pose_enc, (h, w))                       # (B, T, 3, 4), (B, T, 3, 3)
-    depth = depth[..., 0]                                                              # (B, T, h, w)
+    T = len(slots)
+    # bf16 heads, as Gen3RPipeline.decode_latents
+    pose_enc = pipe.vggt.camera_head(agg)[-1].float()                                  # (1, S, 9) trunk attends over all S
+    w2c, K = pose_encoding_to_extri_intri(pose_enc[:, slots], (h, w))                  # (1, T, 3, 4), (1, T, 3, 3)
+    depth, conf = pipe.vggt.depth_head([a[:, slots] for a in agg], frames[:, slots], 5)  # (1, T, h, w, 1), (1, T, h, w)
+    depth, conf = depth[..., 0].float(), conf.float()                                  # (1, T, h, w)
     if (h, w) != (H, W):
         depth = F.interpolate(depth.flatten(0, 1)[:, None], size=(H, W), mode="bilinear",
-                              align_corners=False).view(B, T, H, W)                    # (B, T, H, W)
+                              align_corners=False).view(1, T, H, W)                    # (1, T, H, W)
         conf = F.interpolate(conf.flatten(0, 1)[:, None], size=(H, W), mode="bilinear",
-                             align_corners=False).view(B, T, H, W)                     # (B, T, H, W)
+                             align_corners=False).view(1, T, H, W)                     # (1, T, H, W)
         K = K.clone()
         K[..., 0, :] *= W / w
         K[..., 1, :] *= H / h
-    w2c44 = torch.eye(4, device=w2c.device, dtype=torch.float64).repeat(B, T, 1, 1)   # (B, T, 4, 4)
+    w2c44 = torch.eye(4, device=w2c.device, dtype=torch.float64).repeat(1, T, 1, 1)   # (1, T, 4, 4)
     w2c44[..., :3, :] = w2c.double()
-    c2w = torch.linalg.inv(w2c44).float()                                              # (B, T, 4, 4)
+    c2w = torch.linalg.inv(w2c44).float()                                              # (1, T, 4, 4)
     return depth.float(), conf.float(), K.float(), c2w
 
 
@@ -229,17 +207,16 @@ def main() -> None:
     args = get_args_parser().parse_args()
     device = torch.device("cuda")
 
-    ckpt_stem = _sanitize(Path(args.ckpt).stem)
-    output_dir = os.path.join(os.path.abspath(args.output_dir), f"{ckpt_stem}_{args.rollout}_{args.resolution}")
+    output_dir = os.path.join(os.path.abspath(args.output_dir), f"{args.ctx_mode}_step{args.slot_step}_native")
     os.makedirs(output_dir, exist_ok=True)
 
     config_dir = Path(args.config_dir).expanduser().resolve()
     with initialize_config_dir(version_base=None, config_dir=str(config_dir)):
         cfg = compose(config_name=args.config_name)
     with open_dict(cfg):
-        cfg.training.val_bsize = args.bsize
+        cfg.training.val_bsize = 1  # the pipeline's camera reshape is batch-1 (pipeline_gen3r.py:684)
 
-    model = _load_vggt_world(args.ckpt, device)
+    pipe = _load_gen3r(args.ckpt, device)
     da3_metric = DepthAnything3.from_pretrained(args.da3_metric_model).to(device).eval()
     da3_metric.requires_grad_(False)
     batcher = DeltaTokSharedMixin()  # only _normalize_batch
@@ -262,40 +239,36 @@ def main() -> None:
         t0 = time.time()
         for it, raw in enumerate(loader):
             batch = batcher._normalize_batch(raw)
-            imgs = batch["imgs"].to(device, non_blocking=True)                          # (B, T, 3, H, W) DA3-normed
+            imgs = batch["imgs"].to(device, non_blocking=True)                          # (1, T, 3, H, W) DA3-normed
             B, T, _, H, W = imgs.shape
-            assert batch["num_cameras"] == 1, "cam-0 windows only"
-            x01 = (imgs * std + mean).clamp(0, 1)                                       # (B, T, 3, H, W)
-            if args.resolution == "448":
-                xv = F.interpolate(x01.flatten(0, 1), size=(224, 448), mode="bilinear", align_corners=False,
-                                   antialias=True).view(B, T, 3, 224, 448)              # (B, T, 3, 224, 448)
-            else:
-                assert H % 14 == 0 and W % 14 == 0, (H, W)
-                xv = x01
-            h, w = xv.shape[-2:]
-            patch_hw = (h // 14, w // 14)
+            assert B == 1 and batch["num_cameras"] == 1, "one cam-0 window per batch"
+            x01 = (imgs * std + mean).clamp(0, 1)                                       # (1, T, 3, H, W)
+            hw = GEN3R_HW[(H, W)]
+            slots = [k * args.slot_step for k in range(T)]                              # window frame -> clip slot
+            n_slots = 4 * ((slots[-1] + 3) // 4) + 1                                    # 4k+1: 13 at step 1, 49 at 5
 
-            tok_fc = _forecast_tokens(model, xv, T, args.fm_steps, args.rollout, patch_hw)  # (B, T, Ntot, C)
-            dec_fc = _decode(model, tok_fc, xv, patch_hw, (H, W))                       # depth, conf, K, c2w
+            gen = torch.Generator(device).manual_seed(args.seed + it)                   # per-window noise
+            lat = _generate(pipe, x01[0, :N_CTX], args.ctx_mode, args.slot_step, n_slots, hw, args, gen)
+            dec_fc = _decode(pipe, lat, slots, (H, W))                                  # depth, conf, K, c2w
 
             with torch.no_grad():
                 m = da3_metric(imgs[:, :N_CTX], export_feat_layers=[])
             m_depth, m_sky = m["depth"].float(), m["sky"].float()                        # (B, 2, H, W)
 
             s_fc, fb_fc = _da3_scale(m_depth, m_sky, dec_fc[0], dec_fc[1], dec_fc[2])
-            depth = dec_fc[0] * s_fc[:, None, None, None]                                  # (B, T, H, W) metres
+            depth = dec_fc[0] * s_fc[:, None, None, None]                                  # (1, T, H, W) metres
             c2w = dec_fc[3].clone()
-            c2w[..., :3, 3] *= s_fc[:, None, None]                                         # (B, T, 4, 4)
-            for b in range(B):
-                torch.save({"depth": depth[b].cpu(), "K": dec_fc[2][b].cpu(), "c2w": c2w[b].cpu(),
-                            "scene_name": batch["scene_name"][b], "frame_stems": list(batch["frame_stems"][b])},
-                           os.path.join(set_dir, f"{n_items + b:05d}.pt"))
+            c2w[..., :3, 3] *= s_fc[:, None, None]                                         # (1, T, 4, 4)
+            torch.save({"depth": depth[0].cpu(), "K": dec_fc[2][0].cpu(), "c2w": c2w[0].cpu(),
+                        "scene_name": batch["scene_name"][0], "frame_stems": list(batch["frame_stems"][0])},
+                       os.path.join(set_dir, f"{n_items:05d}.pt"))
             n_items += B
             n_fallback += int(fb_fc.sum())
 
             if it < args.verbose_batches:
-                print(f"[DBG/{test_name}] imgs [{imgs.min():.3f}, {imgs.max():.3f}] -> x01 [{x01.min():.3f}, "
-                      f"{x01.max():.3f}]  vggt in {tuple(xv.shape[-2:])}  patch_hw {patch_hw}", flush=True)
+                print(f"[DBG/{test_name}] x01 [{x01.min():.3f}, {x01.max():.3f}]  gen3r in {hw}  slots {slots} of "
+                      f"{n_slots}  ctx {args.ctx_mode}  peak mem {torch.cuda.max_memory_allocated() / 2**30:.1f} GiB",
+                      flush=True)
                 print(f"[DBG/{test_name}] s_da3 {s_fc.tolist()}  fallback {fb_fc.tolist()}", flush=True)
             if it % 50 == 0:
                 print(f"[INFO] {test_name}: {n_items} windows, {(time.time() - t0) / n_items:.2f} s/window",

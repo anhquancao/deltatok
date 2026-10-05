@@ -1,0 +1,511 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>DeltaTok-flow beats VGGT-World (cityscapes.pt) on depth everywhere and on all of Waymo; KITTI and nuScenes geometry is split · all-data ctx2fwd8</title>
+<style>
+/* ---------- tokens · light only, white slides (no dark variant by request) ---------- */
+:root{
+  color-scheme: light only;
+  --backdrop:#e9e9e6; --page:#f7f7f6; --surface:#ffffff;
+  --ink:#0b0b0b; --ink2:#52514e; --muted:#83817c;
+  --grid:#e4e4de; --axis:#c3c2b7; --border:rgba(11,11,11,.12);
+  --s1:#2a78d6; --s2:#eb6834; --s3:#1baf7a; --s4:#eda100;
+  --s5:#e87ba4; --s6:#008300; --s7:#4a3aa7; --s8:#e34948;
+  --good:#0ca30c; --crit:#d03b3b; --serious:#ec835a;
+  --accent:var(--s1);
+  --serif:"Iowan Old Style","Palatino Linotype",Palatino,Georgia,serif;
+  --sans:system-ui,-apple-system,"Segoe UI",sans-serif;
+  --mono:ui-monospace,"Cascadia Code",Menlo,Consolas,monospace;
+}
+/* ---------- deck chrome ---------- */
+*{box-sizing:border-box;margin:0}
+html,body{height:100%}
+body{background:var(--backdrop);color:var(--ink);font:15px/1.45 var(--sans);overflow:hidden}
+.stage{position:absolute;left:50%;top:50%;width:1280px;height:720px;transform-origin:center center}
+.slide{position:absolute;inset:0;background:var(--surface);border:1px solid var(--border);
+  padding:52px 64px 44px;display:none;flex-direction:column}
+.slide.on{display:flex}
+.eyebrow{font:600 12px/1 var(--mono);letter-spacing:.14em;text-transform:uppercase;color:var(--accent);margin-bottom:14px}
+.eyebrow .dim{color:var(--muted)}
+h1{font:400 46px/1.15 var(--serif);letter-spacing:-.01em;text-wrap:balance}
+h2{font:400 32px/1.2 var(--serif);letter-spacing:-.005em;text-wrap:balance;margin-bottom:6px}
+.sub{color:var(--ink2);font-size:15.5px;max-width:74ch;margin-top:10px}
+.body{flex:1;min-height:0;margin-top:22px}
+.foot{display:flex;justify-content:space-between;align-items:baseline;color:var(--muted);
+  font:11px/1 var(--mono);letter-spacing:.06em;margin-top:16px;border-top:1px solid var(--grid);padding-top:12px}
+.pageno{font-variant-numeric:tabular-nums}
+/* nav */
+.nav{position:fixed;left:50%;bottom:14px;transform:translateX(-50%);display:flex;gap:8px;align-items:center;z-index:5}
+.nav button{width:9px;height:9px;border-radius:50%;border:1px solid var(--muted);background:transparent;cursor:pointer;padding:0}
+.nav button.cur{background:var(--accent);border-color:var(--accent)}
+.nav button:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+.arr{position:fixed;top:50%;transform:translateY(-50%);z-index:5;border:1px solid var(--border);
+  background:var(--surface);color:var(--ink2);width:34px;height:56px;cursor:pointer;font-size:18px;border-radius:4px}
+.arr:hover{color:var(--ink)}
+#prev{left:10px}#next{right:10px}
+/* ---------- shared bits ---------- */
+.mono{font-family:var(--mono)}
+.num{font-variant-numeric:tabular-nums}
+.chip{display:inline-block;font:600 10.5px/1 var(--mono);letter-spacing:.05em;padding:4px 7px;border-radius:3px;
+  border:1px solid var(--border);white-space:nowrap}
+.chip.good{color:var(--good);border-color:currentColor}
+.chip.wall{color:var(--serious);border-color:currentColor}
+.chip.dead{color:var(--crit);border-color:currentColor}
+.chip.hero{color:var(--accent);border-color:currentColor}
+.sw{display:inline-block;width:10px;height:10px;border-radius:2px;vertical-align:-1px}
+.cols{display:grid;gap:30px;min-height:0}
+.c2{grid-template-columns:1fr 1fr}
+.c3{grid-template-columns:1fr 1fr 1fr}
+.c4{grid-template-columns:1fr 1fr 1fr 1fr}
+.c5{grid-template-columns:repeat(5,1fr)}
+.c58{grid-template-columns:1.25fr 1fr}
+.card{border:1px solid var(--grid);border-radius:6px;padding:15px 17px;background:var(--page)}
+.card h3{font:600 14px/1.3 var(--sans);margin:6px 0}
+.card .tag{font:600 10px/1 var(--mono);letter-spacing:.1em;text-transform:uppercase;color:var(--muted)}
+ul.tight{padding-left:18px;display:flex;flex-direction:column;gap:8px;font-size:14px;color:var(--ink2)}
+ul.tight li{padding-left:2px}
+ul.tight strong{color:var(--ink);font-weight:600}
+table{border-collapse:collapse;width:100%;font-size:12.5px}
+th{font:600 10.5px/1.3 var(--mono);letter-spacing:.08em;text-transform:uppercase;color:var(--muted);
+  text-align:left;padding:6px 10px;border-bottom:1px solid var(--axis)}
+td{padding:6px 10px;border-bottom:1px solid var(--grid);color:var(--ink2);vertical-align:top}
+td.n,th.n{text-align:right;font-variant-numeric:tabular-nums}
+td b{color:var(--ink);font-weight:600}
+tr.hl td{background:color-mix(in srgb,var(--s1) 9%,transparent)}
+tr.dim td{color:var(--muted)}
+tr.sep td{border-top:2px solid var(--axis)}
+td.bad{color:var(--crit);font-weight:600}
+td.ok{color:var(--good);font-weight:600}
+/* stat tiles */
+.tiles{display:grid;gap:13px}
+.tile{border:1px solid var(--grid);border-radius:6px;padding:13px 15px;background:var(--page)}
+.tile .v{font:600 26px/1.1 var(--sans);letter-spacing:-.01em;font-variant-numeric:tabular-nums}
+.tile .k{font:600 10px/1.4 var(--mono);letter-spacing:.1em;text-transform:uppercase;color:var(--muted);margin-bottom:6px}
+.tile .d{font-size:12.5px;color:var(--ink2);margin-top:6px}
+.rulebar{border:1px dashed var(--axis);border-radius:6px;padding:11px 15px;font-size:13.5px;color:var(--ink2);margin-top:12px}
+.rulebar b{color:var(--ink)}
+/* charts */
+.chartwrap{position:relative}
+.panelttl{font:600 10px/1 var(--mono);letter-spacing:.1em;text-transform:uppercase;color:var(--muted);margin-bottom:4px}
+.legend{display:flex;flex-wrap:wrap;gap:6px 20px;font:12.5px/1 var(--sans);color:var(--ink2);margin-bottom:8px}
+.legend span{display:inline-flex;gap:7px;align-items:center}
+svg{display:block}
+svg text{font:10.5px var(--sans);fill:var(--muted)}
+svg .barlbl{font:600 12px var(--sans);fill:var(--ink)}
+svg .barval{font:10px var(--mono);fill:var(--ink2)}
+svg .axl{font:10px var(--mono);fill:var(--muted)}
+.slide kbd{font:11px var(--mono);border:1px solid var(--axis);border-radius:3px;padding:1px 5px;color:var(--ink2)}
+@media (prefers-reduced-motion: no-preference){
+  .slide.on{animation:fadein .18s ease}
+  @keyframes fadein{from{opacity:.4}to{opacity:1}}
+}
+@media print{
+  body{overflow:visible;background:#fff}
+  .stage{position:static;transform:none!important;width:auto;height:auto}
+  .slide{display:flex;position:static;width:1280px;height:720px;page-break-after:always;margin:0 auto}
+  .nav,.arr{display:none}
+}
+/* 3x3 grid: row label + three panels */
+.g33{display:grid;grid-template-columns:92px repeat(3,1fr);gap:2px 18px;align-content:start}
+.rowlbl{font:12.5px/1.4 var(--sans);color:var(--muted);align-self:center}
+.rowlbl b{color:var(--ink);font-size:14px}
+.reftag{font:600 10px/1.2 var(--mono);text-align:right;height:13px;white-space:nowrap;overflow:hidden}
+td span.ok{color:var(--good);font-weight:600}
+svg .barval{paint-order:stroke;stroke:var(--surface);stroke-width:3px;stroke-linejoin:round}
+#score{font-size:11.5px}#score td,#score th{padding:3px 10px;line-height:1.25}
+</style>
+</head>
+<body>
+<div class="stage" id="stage">
+
+<!-- ============ SLIDE 1 — answer ============ -->
+<section class="slide on">
+  <div class="eyebrow">VGGT-World baseline <span class="dim">— cityscapes.pt (stage 2, inferred · ep 6) · stride-1 rollout · all-data ctx2fwd8 · ~2,000 windows per set</span></div>
+  <h1>DeltaTok-flow wins depth on all three sets and every metric on Waymo; on KITTI and nuScenes, VGGT-World trades wins</h1>
+  <p class="sub">Both models see frames 0–1 and forecast frames 2–9, 0.5 s apart. Same windows, same scoring code, 1 GPU each.
+    VGGT-World is <span class="mono">cityscapes.pt</span>, the authors' stage-2 checkpoint, rolled out with their stride-1 window.</p>
+  <div class="body">
+    <div class="cols c3" style="gap:15px">
+      <div class="tile"><div class="k">Waymo test · DeltaTok trained on Waymo train</div><div class="v" style="color:var(--good)">6 / 6 to DeltaTok</div><div class="d">VGGT-World is worse on every metric at every step count: <b>+23% to +44%</b> vs DeltaTok's best.</div></div>
+      <div class="tile"><div class="k">nuScenes val · zero-shot for both</div><div class="v">Acc −14% · Comp +23%</div><div class="d">VGGT-World's points sit closer to real surfaces; DeltaTok covers more of the scene. Pointmap and Chamfer tie (≤ 0.1%).</div></div>
+      <div class="tile"><div class="k">KITTI val · zero-shot for both</div><div class="v">Raymap −2.8%</div><div class="d">VGGT-World's only win over DeltaTok at 20 steps. Against 5 steps it wins 5 of 6 metrics; only depth goes to DeltaTok.</div></div>
+    </div>
+    <div class="rulebar" style="margin-top:18px"><b>Depth goes to DeltaTok everywhere:</b> VGGT-World is +12% on KITTI, +6% on nuScenes
+      and +35% on Waymo. Percentages compare with DeltaTok's best of 1 / 5 / 10 / 20 steps for each metric, which favours
+      DeltaTok. Slides 3–5 show every step count.</div>
+    <p class="sub" style="margin-top:14px;font-size:13.5px"><kbd>←</kbd> <kbd>→</kbd> to navigate ·
+      VGGT-World evals BSC <span class="mono">46962868</span> / <span class="mono">69</span> / <span class="mono">70</span> ·
+      DeltaTok evals BSC <span class="mono">46861907</span>–<span class="mono">18</span> ·
+      <span class="mono">kitti.pt</span> results in the appendix (slides 8–10).</p>
+  </div>
+  <div class="foot"><span>VGGT-World baseline · all-data ctx2fwd8 · 04-10-2026</span><span>cityscapes.pt vs DeltaTok-flow</span><span class="pageno">1</span></div>
+</section>
+
+<!-- ============ SLIDE 2 — what ran ============ -->
+<section class="slide">
+  <div class="eyebrow">The measurement <span class="dim">— two forecasters, same windows, same scoring</span></div>
+  <h2>Only the forecaster changes; windows, frames and scoring code are shared</h2>
+  <div class="body cols c58" style="margin-top:14px;gap:26px">
+    <div>
+      <table>
+        <thead><tr><th></th><th>DeltaTok-flow</th><th>VGGT-World</th></tr></thead>
+        <tbody>
+          <tr class="hl"><td><b>Checkpoint</b></td><td class="mono">flow iter_050000 (ep 24) · tokenizer epoch_70</td><td class="mono">cityscapes.pt · stage 2 (inferred) · ep 6 · online weights</td></tr>
+          <tr><td><b>Trained on</b></td><td class="mono">Waymo train, VKITTI, DDAD, PandaSet, ONCE, …</td><td class="mono">Cityscapes · VGGT frozen, flow trained</td></tr>
+          <tr><td><b>Input</b></td><td colspan="2" class="mono">frames 0–1 → forecast 2–9 · 0.5 s apart · cam 0 · native resolution</td></tr>
+          <tr><td><b>Sampler</b></td><td class="mono">ODE · 1, 5, 10, 20 steps</td><td class="mono">50 Euler steps per call · stride-1 window · 7 calls</td></tr>
+          <tr><td><b>Decode</b></td><td class="mono">DeltaTok decode → occ_rae.decode (rest of DA3)</td><td class="mono">part2 + depth / camera heads over all 10 frames</td></tr>
+          <tr><td><b>Metric scale</b></td><td class="mono">DA3 output as is · no fitting</td><td class="mono">1 LSQ scale per window vs DA3METRIC-LARGE on frames 0–1</td></tr>
+          <tr><td><b>Script</b></td><td class="mono">eval_deltatok_flow_sampler.py</td><td class="mono">eval_vggt_world.py</td></tr>
+        </tbody>
+      </table>
+      <div class="rulebar"><b>Stride 1 is the authors' rollout</b> (paper B.3): the 2-frame window slides one frame per call,
+        so call 2 sees (real frame 1, predicted frame 2), the input stage 2 trains on. Details:
+        <span class="mono">analysis/2026-10-03_flow_vggt_world_technical_details.md</span>.</div>
+    </div>
+    <div>
+      <table>
+        <thead><tr><th>set</th><th class="n">windows</th><th>domain</th></tr></thead>
+        <tbody>
+          <tr><td><b>KITTI val</b></td><td class="n">2,013</td><td>zero-shot for both</td></tr>
+          <tr><td><b>nuScenes val</b></td><td class="n">2,382</td><td>zero-shot for both</td></tr>
+          <tr><td><b>Waymo test</b></td><td class="n">2,018</td><td>DeltaTok trained on Waymo train</td></tr>
+        </tbody>
+      </table>
+      <div class="tiles" style="margin-top:16px;grid-template-columns:1fr 1fr">
+        <div class="tile"><div class="k">Depth · Pointmap · Raymap</div><div class="v" style="font-size:20px">trainer losses</div><div class="d"><span class="mono">_compute_frame_losses</span> over frames 2–9. Lower is better.</div></div>
+        <div class="tile"><div class="k">Acc · Comp · Chamfer</div><div class="v" style="font-size:20px">metres</div><div class="d">Acc = pred → GT, Comp = GT → pred, Chamfer = mean. After Sim(3) alignment.</div></div>
+      </div>
+    </div>
+  </div>
+  <div class="foot"><span>slurm/eval_vggt_world_alldata_ctx2fwd8_bsc.slurm · slurm/eval_deltatok_flow_numsteps_alldata_ctx2fwd8_bsc.slurm</span><span class="pageno">2</span></div>
+</section>
+
+<!-- ============ SLIDE 3 — geometry grid ============ -->
+<section class="slide">
+  <div class="eyebrow">Geometry <span class="dim">— lower is better · ringed = DeltaTok's best step count</span></div>
+  <h2>DeltaTok wins depth on every set; VGGT-World wins KITTI raymap at every step count and pointmap up to 10 steps</h2>
+  <div class="legend" style="margin-top:10px"><span><i class="sw" style="background:var(--s1)"></i>DeltaTok-flow, by denoising steps</span><span><i class="sw" style="background:var(--s2)"></i>VGGT-World cityscapes.pt (dashed, one value)</span></div>
+  <div class="body g33">
+    <div></div><div class="panelttl">LossDepth</div><div class="panelttl">LossPointmap</div><div class="panelttl">LossRaymap</div>
+    <div class="rowlbl"><b>KITTI</b><br>val · 2,013</div><div id="g_k0"></div><div id="g_k1"></div><div id="g_k2"></div>
+    <div class="rowlbl"><b>nuScenes</b><br>val · 2,382</div><div id="g_n0"></div><div id="g_n1"></div><div id="g_n2"></div>
+    <div class="rowlbl"><b>Waymo</b><br>test · 2,018</div><div id="g_w0"></div><div id="g_w1"></div><div id="g_w2"></div>
+  </div>
+  <div class="foot"><span>true-token decode, off-scale — DeltaTok / VGGT depth 1.35 / 1.88 · 2.78 / 3.59 · 2.76 / 4.98 (KITTI / nuScenes / Waymo)</span><span class="pageno">3</span></div>
+</section>
+
+<!-- ============ SLIDE 4 — chamfer grid ============ -->
+<section class="slide">
+  <div class="eyebrow">Point clouds <span class="dim">— metres, after Sim(3) alignment · lower is better</span></div>
+  <h2>VGGT-World is more accurate on nuScenes; DeltaTok is more complete on all three sets at 10–20 steps</h2>
+  <div class="legend" style="margin-top:10px"><span><i class="sw" style="background:var(--s1)"></i>DeltaTok-flow, by denoising steps</span><span><i class="sw" style="background:var(--s2)"></i>VGGT-World cityscapes.pt (dashed, one value)</span></div>
+  <div class="body g33">
+    <div></div><div class="panelttl">Accuracy · pred → GT</div><div class="panelttl">Completeness · GT → pred</div><div class="panelttl">Chamfer · mean of both</div>
+    <div class="rowlbl"><b>KITTI</b><br>val · 2,013</div><div id="g_k3"></div><div id="g_k4"></div><div id="g_k5"></div>
+    <div class="rowlbl"><b>nuScenes</b><br>val · 2,382</div><div id="g_n3"></div><div id="g_n4"></div><div id="g_n5"></div>
+    <div class="rowlbl"><b>Waymo</b><br>test · 2,018</div><div id="g_w3"></div><div id="g_w4"></div><div id="g_w5"></div>
+  </div>
+  <div class="foot"><span>true-token decode, off-scale — DeltaTok / VGGT Chamfer 0.49 / 0.51 · 0.60 / 0.73 · 0.53 / 0.86 (KITTI / nuScenes / Waymo)</span><span class="pageno">4</span></div>
+</section>
+
+<!-- ============ SLIDE 5 — scoreboard ============ -->
+<section class="slide">
+  <div class="eyebrow">Scoreboard <span class="dim">— VGGT-World cityscapes.pt relative to DeltaTok · green = VGGT-World better</span></div>
+  <h2>Against 5 steps VGGT-World wins 8 of 10 non-depth cells on KITTI and nuScenes; against DeltaTok's best, 2 plus 2 ties</h2>
+  <div class="body" style="margin-top:12px">
+    <table id="score">
+      <thead><tr><th>set · metric</th><th class="n">VGGT-World</th><th class="n">DeltaTok 5 steps</th><th class="n">vs 5 steps</th><th class="n">DeltaTok best</th><th class="n">best at</th><th class="n">vs best</th></tr></thead>
+      <tbody id="tblScore"></tbody>
+    </table>
+  </div>
+  <div class="foot"><span>green: VGGT-World lower by &gt; 0.5% · red: higher by &gt; 0.5% · grey: within ±0.5%</span><span class="pageno">5</span></div>
+</section>
+
+<!-- ============ SLIDE 6 — where VGGT-World loses ============ -->
+<section class="slide">
+  <div class="eyebrow">Where the gap comes from <span class="dim">— VGGT-World cityscapes.pt</span></div>
+  <h2>On Waymo, scale and decoder explain most of the depth gap; on KITTI and nuScenes the scale is fine</h2>
+  <div class="body cols c2" style="gap:26px;margin-top:14px">
+    <div>
+      <div class="panelttl" style="margin-bottom:8px">LossDepth by scale source · DA3-scale ratio to GT-median scale</div>
+      <table>
+        <thead><tr><th>set</th><th class="n">DA3 scale</th><th class="n">GT-median scale</th><th class="n">true tokens</th><th class="n">ratio p10 / p50 / p90</th></tr></thead>
+        <tbody id="tblScale"></tbody>
+      </table>
+      <div class="rulebar"><b>Scale only matters on Waymo.</b> Fitting the scale to future ground truth drops Waymo depth from
+        7.27 to 5.14, below DeltaTok's 5.38, but that row uses the answer. On KITTI and nuScenes it changes depth by ≤ 5%.
+        DA3's scale is 0.73× the GT-median one on Waymo (median), 0.88–0.95× elsewhere. No fallbacks.</div>
+    </div>
+    <div>
+      <div class="panelttl" style="margin-bottom:8px">Decoding the true future tokens · DeltaTok / VGGT-World</div>
+      <table>
+        <thead><tr><th>metric</th><th class="n">KITTI</th><th class="n">nuScenes</th><th class="n">Waymo</th></tr></thead>
+        <tbody id="tblTok"></tbody>
+      </table>
+      <div class="rulebar"><b>VGGT-World's decoder starts behind</b> on 17 of 18 cells: its true-token depth is 1.39× / 1.29× /
+        1.80× DeltaTok's. Only KITTI accuracy goes to VGGT (0.46 vs 0.49). Both VGGT checkpoints share this decoder exactly.</div>
+    </div>
+  </div>
+  <div class="foot"><span>true tokens = each model's decoder on the real frames 0–9; no forecasting</span><span class="pageno">6</span></div>
+</section>
+
+<!-- ============ SLIDE 7 — caveats ============ -->
+<section class="slide">
+  <div class="eyebrow">Caveats <span class="dim">— what this comparison does not establish</span></div>
+  <h2>This is our benchmark, not the paper's; VGGT-World runs far outside its training regime</h2>
+  <div class="body cols c2" style="gap:26px;margin-top:14px">
+    <div class="card" style="border-left:3px solid var(--serious)">
+      <div class="tag">Protocol</div>
+      <h3>Paper numbers are not comparable</h3>
+      <ul class="tight" style="margin-top:10px;font-size:13px">
+        <li><strong>They score one frame.</strong> KITTI frame 13 or Cityscapes frame 19, depth AbsRel / δ1 only, after per-frame median scaling.</li>
+        <li><strong>Shorter horizon.</strong> Their frames are 0.2 s apart and the mid-term target is 3 steps (0.6 s) ahead. Ours are 0.5 s apart, out to 8 steps (4 s).</li>
+        <li><strong>Pose counts here.</strong> Pointmap, raymap and Chamfer use the predicted cameras; their eval never scores pose.</li>
+        <li><strong>Metric scale counts here.</strong> Our main row needs DA3's scale; theirs is scale-free.</li>
+      </ul>
+    </div>
+    <div class="card" style="border-left:3px solid var(--s7)">
+      <div class="tag">Setup</div>
+      <h3>What else could move the ranking</h3>
+      <ul class="tight" style="margin-top:10px;font-size:13px">
+        <li><strong>Domain.</strong> cityscapes.pt never saw KITTI, nuScenes or Waymo. DeltaTok trained on Waymo train, so Waymo is not zero-shot for it.</li>
+        <li><strong>Stage 2 is inferred.</strong> The file stores no config; epoch 6 matches the authors' default <span class="mono">checkpoint_6.pt</span>.</li>
+        <li><strong>Best-of-steps favours DeltaTok.</strong> It picks the best of 4 step counts per metric.</li>
+        <li><strong>One noise draw per job.</strong> Single-set SE is ~1.6–2.9% of the mean at these window counts.</li>
+        <li><strong>No FD.</strong> VGGT-World's tokens live in a different space from the DA3 features FD uses.</li>
+      </ul>
+    </div>
+  </div>
+  <div class="foot"><span>paper: arXiv 2603.12655, appendix B.2 / B.3 · eval/*_val_mid.py</span><span class="pageno">7</span></div>
+</section>
+
+<!-- ============ SLIDE 8 — appendix: kitti.pt geometry ============ -->
+<section class="slide">
+  <div class="eyebrow">Appendix A · kitti.pt <span class="dim">— stage 1, ep 15 · its flow model is unrelated to cityscapes.pt's</span></div>
+  <h2>kitti.pt is strong on KITTI pointmap and raymap, but still loses depth everywhere and all of Waymo</h2>
+  <div class="legend" style="margin-top:10px"><span><i class="sw" style="background:var(--s1)"></i>DeltaTok-flow, by denoising steps</span><span><i class="sw" style="background:var(--s7)"></i>kitti.pt, stride 1 (dashed)</span><span><i class="sw" style="background:var(--muted)"></i>kitti.pt, stride 2 (dotted)</span></div>
+  <div class="body g33">
+    <div></div><div class="panelttl">LossDepth</div><div class="panelttl">LossPointmap</div><div class="panelttl">LossRaymap</div>
+    <div class="rowlbl"><b>KITTI</b><br>val · 2,013</div><div id="a_k0"></div><div id="a_k1"></div><div id="a_k2"></div>
+    <div class="rowlbl"><b>nuScenes</b><br>val · 2,382</div><div id="a_n0"></div><div id="a_n1"></div><div id="a_n2"></div>
+    <div class="rowlbl"><b>Waymo</b><br>test · 2,018</div><div id="a_w0"></div><div id="a_w1"></div><div id="a_w2"></div>
+  </div>
+  <div class="foot"><span>kitti.pt evals BSC 46936417–19 (stride 1) · 46921883–85 (stride 2)</span><span class="pageno">8</span></div>
+</section>
+
+<!-- ============ SLIDE 9 — appendix: kitti.pt chamfer ============ -->
+<section class="slide">
+  <div class="eyebrow">Appendix A · kitti.pt <span class="dim">— metres, after Sim(3) alignment · lower is better</span></div>
+  <h2>kitti.pt beats DeltaTok's accuracy on KITTI and nuScenes; completeness goes to DeltaTok at 20 steps on every set</h2>
+  <div class="legend" style="margin-top:10px"><span><i class="sw" style="background:var(--s1)"></i>DeltaTok-flow, by denoising steps</span><span><i class="sw" style="background:var(--s7)"></i>kitti.pt, stride 1 (dashed)</span><span><i class="sw" style="background:var(--muted)"></i>kitti.pt, stride 2 (dotted)</span></div>
+  <div class="body g33">
+    <div></div><div class="panelttl">Accuracy · pred → GT</div><div class="panelttl">Completeness · GT → pred</div><div class="panelttl">Chamfer · mean of both</div>
+    <div class="rowlbl"><b>KITTI</b><br>val · 2,013</div><div id="a_k3"></div><div id="a_k4"></div><div id="a_k5"></div>
+    <div class="rowlbl"><b>nuScenes</b><br>val · 2,382</div><div id="a_n3"></div><div id="a_n4"></div><div id="a_n5"></div>
+    <div class="rowlbl"><b>Waymo</b><br>test · 2,018</div><div id="a_w3"></div><div id="a_w4"></div><div id="a_w5"></div>
+  </div>
+  <div class="foot"><span>stride 1 = the authors' rollout · stride 2 = ours, comparison only</span><span class="pageno">9</span></div>
+</section>
+
+<!-- ============ SLIDE 10 — appendix: checkpoints + stride ============ -->
+<section class="slide">
+  <div class="eyebrow">Appendix B · checkpoints and stride <span class="dim">— why kitti.pt is only an appendix</span></div>
+  <h2>The two checkpoints share VGGT but not the flow model; stride 1 vs 2 moves kitti.pt by at most 6.1%</h2>
+  <div class="body cols c2" style="gap:26px;margin-top:14px">
+    <div>
+      <table>
+        <thead><tr><th></th><th>kitti.pt</th><th>cityscapes.pt</th></tr></thead>
+        <tbody>
+          <tr><td><b>Stage</b></td><td>1 · teacher forcing</td><td>2 (inferred) · flow forcing</td></tr>
+          <tr><td><b>Epoch · steps</b></td><td class="mono">15 · 25,632</td><td class="mono">6 · 14,230</td></tr>
+          <tr><td><b>EMA</b></td><td>none</td><td>none</td></tr>
+          <tr><td><b>md5</b></td><td class="mono">fa5b6974…</td><td class="mono">1b6428e6…</td></tr>
+        </tbody>
+      </table>
+      <div class="tiles" style="margin-top:16px;grid-template-columns:1fr 1fr">
+        <div class="tile"><div class="k">VGGT backbone + heads</div><div class="v">1,797 / 1,797</div><div class="d">tensors byte-identical. VGGT is frozen; true-token rows match exactly.</div></div>
+        <div class="tile"><div class="k">Flow model · 432.6M params</div><div class="v">cosine 0.017</div><div class="d">Unrelated: cityscapes.pt is not fine-tuned from kitti.pt, nor the reverse.</div></div>
+      </div>
+    </div>
+    <div>
+      <div class="panelttl" style="margin-bottom:8px">kitti.pt · stride 1 relative to stride 2 · green = stride 1 better</div>
+      <table>
+        <thead><tr><th>metric</th><th class="n">KITTI</th><th class="n">nuScenes</th><th class="n">Waymo</th></tr></thead>
+        <tbody id="tblStride"></tbody>
+      </table>
+      <div class="rulebar"><b>Stride 1 costs 1.2–1.3× the wall time</b> (KITTI 10.7 vs 8.8 s per window on 1 H100).
+        It is the authors' default, so the main slides use it.</div>
+    </div>
+  </div>
+  <div class="foot"><span>weights compared on BSC from ckpt["model"] · README: stage 2 resumes from a Cityscapes stage1.pt</span><span class="pageno">10</span></div>
+</section>
+
+</div><!-- /stage -->
+
+<button class="arr" id="prev" aria-label="Previous">‹</button>
+<button class="arr" id="next" aria-label="Next">›</button>
+<div class="nav" id="nav" role="tablist"></div>
+
+<script>
+/* ---------- deck nav ---------- */
+const stage=document.getElementById("stage");
+const slides=[...document.querySelectorAll(".slide")];
+const nav=document.getElementById("nav");
+let cur=0;
+slides.forEach((_,i)=>{
+  const b=document.createElement("button");
+  b.setAttribute("role","tab");b.setAttribute("aria-label","Slide "+(i+1));
+  b.addEventListener("click",()=>go(i));
+  nav.appendChild(b);
+});
+function go(i){
+  cur=Math.max(0,Math.min(slides.length-1,i));
+  slides.forEach((s,j)=>s.classList.toggle("on",j===cur));
+  [...nav.children].forEach((b,j)=>b.classList.toggle("cur",j===cur));
+}
+document.getElementById("prev").addEventListener("click",()=>go(cur-1));
+document.getElementById("next").addEventListener("click",()=>go(cur+1));
+addEventListener("keydown",e=>{
+  if(["ArrowRight","PageDown"," "].includes(e.key)){go(cur+1);e.preventDefault();}
+  else if(["ArrowLeft","PageUp"].includes(e.key)){go(cur-1);e.preventDefault();}
+  else if(e.key==="Home")go(0);
+  else if(e.key==="End")go(slides.length-1);
+});
+go(0);
+/* ---------- auto-scale ---------- */
+function fit(){
+  const s=Math.min(innerWidth/1300,(innerHeight-40)/730);
+  stage.style.transform=`translate(-50%,-50%) scale(${Math.min(s,1.4)})`;
+}
+addEventListener("resize",fit);fit();
+
+/* ---------- CSS var resolver ---------- */
+const CV=n=>getComputedStyle(document.documentElement).getPropertyValue(n).trim();
+
+/* ---------- step chart with horizontal reference lines ----------
+   x is the DeltaTok step count as a CATEGORY (1,5,10,20 equally spaced).
+   refs: [{v, color, dash}] = one-value models drawn across the panel; their values sit in the panel tag.
+   dir 'up' (rising curve): labels above; 'down': labels below. */
+function stepChart(el,cfg){
+  const W=cfg.W||330,H=cfg.H||126,L=cfg.L||40,R=14,T=12,B=30, iw=W-L-R, ih=H-T-B;
+  const down=(cfg.dir==='down');
+  const {ymin,ymax,yticks,cats,data}=cfg;
+  const refs=cfg.refs||[];
+  const n=cats.length;
+  const X=i=>L+iw*(i/(n-1));
+  const Y=v=>T+ih*(1-(v-ymin)/(ymax-ymin));
+  const fmt=cfg.fmt||(t=>t.toFixed(2));
+  const vfmt=cfg.vfmt||(v=>v.toFixed(2));
+  const c=CV(cfg.color||'--s1');
+  let s=`<svg viewBox="0 0 ${W} ${H}" width="100%" preserveAspectRatio="xMinYMin meet">`;
+  yticks.forEach(t=>{const y=Y(t);
+    s+=`<line x1="${L}" y1="${y}" x2="${L+iw}" y2="${y}" stroke="${CV('--grid')}"/>`;
+    s+=`<text x="${L-6}" y="${y+3}" text-anchor="end" class="axl">${fmt(t)}</text>`;});
+  cats.forEach((t,i)=>{
+    s+=`<text x="${X(i).toFixed(1)}" y="${H-16}" text-anchor="middle" class="axl">${t}</text>`;});
+  refs.forEach(r=>{const y=Y(r.v);
+    s+=`<line x1="${L}" y1="${y.toFixed(1)}" x2="${L+iw}" y2="${y.toFixed(1)}" stroke="${CV(r.color)}" stroke-width="${r.w||2}" stroke-dasharray="${r.dash||'6 4'}"/>`;});
+  const d=data.map((v,i)=>`${i?'L':'M'}${X(i).toFixed(1)} ${Y(v).toFixed(1)}`).join(' ');
+  s+=`<path d="${d}" fill="none" stroke="${c}" stroke-width="2.2"/>`;
+  const best=data.indexOf(Math.min(...data));     // ringed = DeltaTok's lowest
+  data.forEach((v,i)=>{
+    const hi=(i===best);
+    s+=`<circle cx="${X(i).toFixed(1)}" cy="${Y(v).toFixed(1)}" r="${hi?4.4:3}" `+
+       `fill="${hi?CV('--surface'):c}" stroke="${c}" stroke-width="${hi?2.2:0}"/>`;
+    const first=(i===0), last=(i===n-1);
+    const lx=first? X(i)+7 : (last? X(i)-7 : X(i));
+    const anchor=first?'start':(last?'end':'middle');
+    const ly=down? Y(v)+14 : Y(v)-7;
+    s+=`<text x="${lx.toFixed(1)}" y="${ly.toFixed(1)}" text-anchor="${anchor}" class="barval" `+
+       `fill="${c}" font-weight="${hi?700:400}">${vfmt(v)}</text>`;
+  });
+  s+=`<text x="${(L+iw/2).toFixed(1)}" y="${H-4}" text-anchor="middle" class="axl">DeltaTok denoising steps</text>`;
+  s+=`</svg>`;
+  el.innerHTML=s;
+}
+
+/* ---------- auto y-range including the reference lines ---------- */
+function niceStep(x){const p=10**Math.floor(Math.log10(x)),m=x/p;return (m<1.5?1:m<3?2:m<7?5:10)*p;}
+function autoCfg(vals){
+  const lo=Math.min(...vals),hi=Math.max(...vals),r=(hi-lo)||hi*0.05;
+  const ymin=lo-0.32*r,ymax=hi+0.32*r,st=niceStep((ymax-ymin)/3);
+  const yticks=[];for(let t=Math.ceil(ymin/st)*st;t<=ymax+1e-9;t+=st)yticks.push(+t.toFixed(6));
+  const dec=st>=1?0:st>=0.1?1:2;
+  return {ymin,ymax,yticks,fmt:t=>t.toFixed(dec)};
+}
+
+/* ================= DATA =================
+   DeltaTok-flow: BSC 46861907–18 · flow iter_050000 (ep 24) · tokenizer epoch_70 · steps 1/5/10/20 · 1 GPU.
+   VGGT-World (eval_vggt_world.py, native res, 50 Euler steps, 1 GPU):
+     cs = cityscapes.pt stride 1 (BSC 46962868–70) · k1 = kitti.pt stride 1 (46936417–19) · k2 = kitti.pt stride 2 (46921883–85).
+   Metric order: [LossDepth, LossPointmap, LossRaymap, ChamferAcc, ChamferComp, Chamfer]. */
+const D={"dt":{"k":[[4.2105,19.593,19.6857,2.0408,2.4279,2.2344],[3.9688,19.9904,19.6087,2.1196,2.32,2.2198],[3.9017,19.3566,19.0224,2.0007,2.0252,2.013],[3.9339,18.2594,17.7784,1.9128,1.7673,1.8401]],"n":[[4.5598,15.0623,13.0504,1.4193,1.6544,1.5368],[4.5416,13.8689,11.9888,1.4138,1.363,1.3884],[4.7034,13.5706,12.3893,1.4444,1.1577,1.3011],[4.8918,14.0265,13.4365,1.4836,1.1196,1.3016]],"w":[[5.379,14.6939,14.2378,1.5449,1.6199,1.5824],[5.4288,15.4212,13.3975,1.8182,1.3904,1.6043],[6.2942,15.9555,13.6295,1.8048,1.2774,1.5411],[6.854,16.3657,14.0531,1.8332,1.2769,1.555]]},"dtTok":{"k":[1.3542,2.3507,1.4117,0.4948,0.4851,0.49],"n":[2.7808,3.7623,1.5785,0.6528,0.5478,0.6003],"w":[2.7635,5.2617,3.0444,0.5795,0.4763,0.5279]},"cs":{"k":{"main":[4.3832,18.409,17.2744,2.0156,2.1562,2.0859],"oracle":[4.2688,16.6658,16.3169],"tok":[1.8821,3.2455,1.6357,0.4614,0.5508,0.5061],"ratio":[0.67,0.876,1.113],"fb":0,"n":2013},"n":{"main":[4.8043,13.5563,12.1415,1.2205,1.3807,1.3006],"oracle":[5.0233,14.601,12.6237],"tok":[3.5915,5.3585,2.6445,0.7842,0.6813,0.7328],"ratio":[0.683,0.952,1.172],"fb":0,"n":2382},"w":{"main":[7.266,21.1073,18.6942,1.9897,1.8014,1.8955],"oracle":[5.1424,21.6267,21.275],"tok":[4.9843,9.8602,6.3168,1.1377,0.5759,0.8568],"ratio":[0.615,0.731,0.902],"fb":0,"n":2018}},"k1":{"k":{"main":[4.0905,15.0231,14.1065,1.7189,1.8204,1.7697],"oracle":[4.0591,14.0409,13.449],"tok":[1.8821,3.2455,1.6357,0.4614,0.5508,0.5061],"ratio":[0.758,0.94,1.138],"fb":0,"n":2013},"n":{"main":[5.1882,13.2526,11.2818,1.1971,1.3817,1.2894],"oracle":[5.3106,13.3428,11.2594],"tok":[3.5915,5.3585,2.6445,0.7842,0.6813,0.7328],"ratio":[0.729,0.939,1.164],"fb":0,"n":2382},"w":{"main":[7.3828,20.0876,16.8111,2.5003,1.6307,2.0655],"oracle":[5.6529,18.175,17.1195],"tok":[4.9843,9.8602,6.3168,1.1377,0.5759,0.8568],"ratio":[0.579,0.7,0.878],"fb":0,"n":2018}},"k2":{"k":{"main":[4.0953,14.954,14.0127,1.6918,1.8215,1.7567],"oracle":[4.0707,13.9463,13.3335],"tok":[1.8821,3.2454,1.6356,0.4614,0.5508,0.5061],"ratio":[0.755,0.939,1.132],"fb":0,"n":2013},"n":{"main":[5.283,13.7388,11.7503,1.2193,1.4142,1.3167],"oracle":[5.4215,13.9026,11.7819],"tok":[3.5912,5.3576,2.6434,0.7842,0.6813,0.7328],"ratio":[0.727,0.941,1.172],"fb":0,"n":2382},"w":{"main":[7.4066,20.5595,17.502,2.3576,1.7082,2.0329],"oracle":[5.7602,19.6465,18.7203],"tok":[4.9842,9.8602,6.3168,1.1377,0.5759,0.8568],"ratio":[0.579,0.702,0.883],"fb":0,"n":2018}}};
+const CATS=['1','5','10','20'];
+const SETS=[['k','KITTI'],['n','nuScenes'],['w','Waymo']];
+const MET=['LossDepth','LossPointmap','LossRaymap','Accuracy','Completeness','Chamfer'];
+const col=(s,j)=>D.dt[s].map(r=>r[j]);                // DeltaTok values over steps for metric j
+
+function drawGrid(prefix,refsOf){
+  for(const [s] of SETS)for(let j=0;j<6;j++){
+    const a=col(s,j), refs=refsOf(s,j);
+    const dir=(a[a.length-1]<a[0])?'down':'up';
+    const el=document.getElementById(prefix+s+j);
+    const tag=refs.map(r=>`<span style="color:${CV(r.color)}">${r.label} ${r.v.toFixed(j<3?2:3)}</span>`).join(' · ');
+    el.innerHTML='';
+    const box=document.createElement('div');
+    box.className='reftag';box.innerHTML=tag;el.appendChild(box);
+    const ch=document.createElement('div');el.appendChild(ch);
+    stepChart(ch,Object.assign({cats:CATS,data:a,dir,refs,vfmt:v=>v.toFixed(j<3?2:3)},
+      autoCfg(a.concat(refs.map(r=>r.v)))));
+  }
+}
+drawGrid('g_',(s,j)=>[{v:D.cs[s].main[j],color:'--s2',label:'VGGT-World'}]);
+drawGrid('a_',(s,j)=>[{v:D.k1[s].main[j],color:'--s7',label:'stride 1'},
+                      {v:D.k2[s].main[j],color:'--muted',label:'stride 2',dash:'2 3',w:1.6}]);
+
+/* ---------- slide 5 scoreboard ---------- */
+const pct=(a,b)=>100*(a/b-1);
+const cls=p=>p<-0.5?'ok':(p>0.5?'bad':'');
+const sg=p=>(p>0?'+':'')+p.toFixed(1)+'%';
+let rows='';
+for(const [s,name] of SETS){
+  for(let j=0;j<6;j++){
+    const v=D.cs[s].main[j], a=col(s,j), five=a[1], best=Math.min(...a), at=CATS[a.indexOf(best)];
+    const p5=pct(v,five), pb=pct(v,best), f=j<3?2:3;
+    rows+=`<tr${j===0?' class="sep"':''}><td>${j===0?`<b>${name}</b> `:''}${MET[j]}</td>`+
+      `<td class="n">${v.toFixed(f)}</td><td class="n">${five.toFixed(f)}</td><td class="n ${cls(p5)}">${sg(p5)}</td>`+
+      `<td class="n">${best.toFixed(f)}</td><td class="n">${at}</td><td class="n ${cls(pb)}">${sg(pb)}</td></tr>`;
+  }
+}
+document.getElementById('tblScore').innerHTML=rows;
+
+/* ---------- slide 6 tables ---------- */
+let sc='';
+for(const [s,name] of SETS){
+  const e=D.cs[s];
+  sc+=`<tr><td><b>${name}</b></td><td class="n">${e.main[0].toFixed(2)}</td><td class="n">${e.oracle[0].toFixed(2)}</td>`+
+      `<td class="n">${e.tok[0].toFixed(2)}</td><td class="n">${e.ratio.map(x=>x.toFixed(2)).join(' / ')}</td></tr>`;
+}
+document.getElementById('tblScale').innerHTML=sc;
+let tk='';
+for(let j=0;j<6;j++){
+  tk+=`<tr><td><b>${MET[j]}</b></td>`+SETS.map(([s])=>{
+    const a=D.dtTok[s][j], b=D.cs[s].tok[j], f=j<3?2:2;
+    return `<td class="n">${a.toFixed(f)} / <span class="${b<a?'ok':''}">${b.toFixed(f)}</span></td>`;}).join('')+`</tr>`;
+}
+document.getElementById('tblTok').innerHTML=tk;
+
+/* ---------- slide 10 stride table ---------- */
+let st='';
+for(let j=0;j<6;j++){
+  st+=`<tr><td><b>${MET[j]}</b></td>`+SETS.map(([s])=>{
+    const p=pct(D.k1[s].main[j],D.k2[s].main[j]);
+    return `<td class="n ${cls(p)}">${sg(p)}</td>`;}).join('')+`</tr>`;
+}
+document.getElementById('tblStride').innerHTML=st;
+</script>
+</body>
+</html>

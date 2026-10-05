@@ -25,12 +25,16 @@ from ...dist import parallel_magvit_vae  # type: ignore
 CACHE_T = 2
 
 class Interpolate(nn.Module):
-    def __init__(self, size=None):
+    def __init__(self, size=None, ratio=None):
         super().__init__()
         self.size = size
+        self.ratio = ratio  # (num, den): size = dim * num // den
 
     def forward(self, x):
-        return F.interpolate(x, size=self.size, mode='nearest-exact')
+        size = self.size
+        if self.ratio is not None:
+            size = (x.shape[-2] * self.ratio[0] // self.ratio[1], x.shape[-1] * self.ratio[0] // self.ratio[1])
+        return F.interpolate(x.float(), size=size, mode='nearest-exact').type_as(x)
 
 
 class CausalConv3d(nn.Conv3d):
@@ -121,7 +125,7 @@ class Resample(nn.Module):
             )
         elif mode == 'downsample2d':
             self.resample = nn.Sequential(
-                Upsample(size=(80, 80), mode='nearest-exact'),  # 70, 70 -> 80, 80
+                Interpolate(ratio=(8, 7)),  # 70, 70 -> 80, 80 at 560
                 nn.ZeroPad2d((0, 1, 0, 1)),  # 80, 80 -> 81, 81
                 nn.Conv2d(dim, dim * resample_scale, 3, stride=(2, 2))  # 81, 81 -> 40, 40
             )

@@ -1,5 +1,5 @@
 #!/bin/bash
-#SBATCH --job-name=eval_vggt_world_alldata_ctx2fwd8
+#SBATCH --job-name=eval_gen3r_alldata_ctx2fwd8
 #SBATCH --nodes=1
 #SBATCH --ntasks-per-node=1
 #SBATCH --gres=gpu:1
@@ -7,18 +7,19 @@
 #SBATCH --account=ehpc1001
 #SBATCH --partition=acc
 #SBATCH --qos=acc_ehpc
-#SBATCH --time=16:00:00
-#SBATCH --output=slurm/output/eval_vggt_world_alldata_ctx2fwd8_bsc_%j.out
-#SBATCH --error=slurm/output/eval_vggt_world_alldata_ctx2fwd8_bsc_%j.err
+#SBATCH --time=03:00:00
+#SBATCH --output=slurm/output/eval_gen3r_alldata_ctx2fwd8_bsc_%j.out
+#SBATCH --error=slurm/output/eval_gen3r_alldata_ctx2fwd8_bsc_%j.err
 
-# Dump VGGT-World forecasts for one ctx2fwd8 eval set, 1 GPU.
-#   ssh bsc "bash -lc 'cd /gpfs/projects/ehpc1001/code/deltatok && sbatch --export=ALL,SET=kitti slurm/eval_vggt_world_alldata_ctx2fwd8_bsc.slurm'"
+# Dump Gen3R forecasts for one ctx2fwd8 eval set, 1 GPU (same windows as the flow and VGGT-World evals).
+#   ssh bsc "bash -lc 'cd /gpfs/projects/ehpc1001/code/deltatok && sbatch --export=ALL,SET=kitti slurm/eval_gen3r_alldata_ctx2fwd8_bsc.slurm'"
 
 mkdir -p slurm/output
 
 cd /gpfs/projects/ehpc1001/code/deltatok
 
 source env_bsc.sh
+[ -d /gpfs/projects/ehpc1001/venvs/gen3r ] && source /gpfs/projects/ehpc1001/venvs/gen3r/bin/activate  # Gen3R extras over the BSC venv
 
 export TF_CPP_MIN_LOG_LEVEL=3
 export TF_ENABLE_ONEDNN_OPTS=0
@@ -36,18 +37,18 @@ case "${SET:-}" in
     *) echo "SET must be kitti | nuscenes | waymotest, got '${SET:-}'" >&2; exit 1 ;;
 esac
 : "${CONFIG_NAME:=eval_deltatok_flow_alldata_ctx2fwd8_${SET}_bsc}"
-: "${CKPT:=/gpfs/scratch/ehpc1001/quan/vggt_world/kitti.pt}"
-: "${ROLLOUT:=stride1}"
-: "${RESOLUTION:=native}"
+: "${CKPT:=/gpfs/scratch/ehpc1001/quan/gen3r/checkpoints}"
+: "${CTX_MODE:=both}"
+: "${SLOT_STEP:=1}"  # 1 = 13-slot clip; 5 = 49 slots at 10 Hz
 : "${NUM_ITEMS:=1000000}"  # above any split: window_stride sets each set's size
-: "${OUTPUT_DIR:=/gpfs/scratch/ehpc1001/quan/forecast_preds/vggt_world_alldata_ctx2fwd8}"
+: "${OUTPUT_DIR:=/gpfs/scratch/ehpc1001/quan/forecast_preds/gen3r_alldata_ctx2fwd8}"
 
-srun python eval_vggt_world.py \
+srun python eval_gen3r.py \
     --config-dir configs/deltatok_flow \
     --config-name "$CONFIG_NAME" \
     --num_items "$NUM_ITEMS" \
     --ckpt "$CKPT" \
-    --rollout "$ROLLOUT" \
-    --resolution "$RESOLUTION" \
+    --ctx_mode "$CTX_MODE" \
+    --slot_step "$SLOT_STEP" \
     --output_dir "$OUTPUT_DIR" \
     ${EXTRA_ARGS:-}
