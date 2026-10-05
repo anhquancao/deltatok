@@ -1,10 +1,10 @@
 <!doctype html>
-<!-- thread tc_width · 2026-10-03 · prior cycle: analysis/2026-10-01_tc_width_free_z_decoder_ignores_z.md -->
+<!-- thread tc_width · 2026-10-05 · prior cycle: analysis/2026-10-01_tc_width_free_z_decoder_ignores_z.md -->
 <html lang="en">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Stuck tc1536 decoders ignore z; layer_scale_init 0.1 plus a large-gap decode escaped on 3 of 3 runs (KITTI 0.024 at ep 9 vs 0.131 stuck)</title>
+<title>Stuck tc1536 runs are a random draw in which the decoder ignores z; layer_scale_init 0.1 plus a large-gap decode escaped on 6 of 6 runs (best: compose + direct, KITTI 0.0148 vs 0.0216 at ep 23)</title>
 <style>
 /* ---------- tokens · light only, white slides (no dark variant by request) ---------- */
 :root{
@@ -148,12 +148,17 @@ table.mt tr.grp td{border-top:1px solid var(--axis)}
 <div class="stage" id="stage">
 <section class="slide on">
   <div class="eyebrow">free-z tc1536 · the 0.13 plateau <span class="dim">— raw z · SIGReg 0.02 · pool 24576 · K 64</span></div>
-  <h1 style="font-size:31px">Stuck runs have a decoder that <b>ignores z</b>. <span class="mono" style="font-size:27px">layer_scale_init</span> 0.1 plus a <b>large-gap decode</b> escaped on all 3 runs.</h1>
-  <p class="sub">Every arm on the left except the control uses seed 2 and differs only in the knob named. At 1e-5 that draw sits on the plateau for 17 epochs. At 0.1 it escapes by ep 2, but only when training includes a decode across a large gap.</p>
+  <h1 style="font-size:31px">The stuck runs are a <b>random draw</b> in which the decoder <b>ignores z</b>. <span class="mono" style="font-size:27px">layer_scale_init</span> 0.1 plus a <b>large-gap decode</b> fixes it.</h1>
   <div class="body">
-    <div class="cols c58" style="height:100%">
+    <div class="cols" style="height:100%;grid-template-columns:1fr 1.25fr">
+      <div style="display:flex;flex-direction:column;gap:12px;min-height:0">
+        <div class="takeaway"><div class="n">1</div><div class="tx"><b>The stuck is random.</b> One recipe escaped on 4 of 7 data streams. A replay that matched an escaped run to 4 decimals stayed stuck. <span class="mono">slides 2–3</span></div></div>
+        <div class="takeaway"><div class="n">2</div><div class="tx"><b>The stuck decoder ignores z.</b> Giving each window another window's z changes its loss by +0.1%. Escaped decoders: +370% or more. <span class="mono">slide 4</span></div></div>
+        <div class="takeaway"><div class="n">3</div><div class="tx"><b>Fix: <span class="mono">layer_scale_init</span> 0.1 plus a large-gap decode.</b> Escaped on 6 of 6 runs. 0.1 without a large-gap decode stays stuck. <span class="mono">slides 5–7</span></div></div>
+        <div class="takeaway"><div class="n">+</div><div class="tx"><b>Best variant: compose plus a direct t0→t2 decode.</b> KITTI 0.0148 at ep 23, against 0.0216 for compose, with additivity kept. One draw. <span class="mono">slide 8</span></div></div>
+      </div>
       <div class="chartwrap">
-        <div class="ptitle">KITTI · LossRecon <span>· 206 eval windows · ep 0–9</span></div>
+        <div class="ptitle">KITTI · LossRecon <span>· the stuck seed-2 draw, one knob changed · ep 0–9</span></div>
         <div class="legend">
           <span><i class="sw" style="border-color:var(--ink2)"></i>1e-5 · compose · 46860758</span>
           <span><i class="sw" style="border-color:var(--s8)"></i>0.1 · compose off · 46936382</span>
@@ -163,25 +168,14 @@ table.mt tr.grp td{border-top:1px solid var(--axis)}
         </div>
         <div id="h1" style="flex:1;min-height:0"></div>
       </div>
-      <div class="tiles" style="grid-template-rows:auto auto auto;align-content:start">
-        <div class="tile"><div class="k">does the decoder read z?</div>
-          <div class="v">+0.1% <span style="color:var(--muted);font-size:17px">stuck</span> · +954% <span style="color:var(--muted);font-size:17px">at 0.1</span></div>
-          <div class="d">KITTI loss change when each window gets another window's z. The stuck decoder does not notice.</div></div>
-        <div class="tile"><div class="k">runs that escaped</div>
-          <div class="v" style="font-size:20px">3 of 3 with 0.1 + large gap</div>
-          <div class="d">Before: 4 of 7 data streams with compose, 0 of 4 without. At 0.1 without compose: 0 of 1. At 1e-2: 0 of 1.</div></div>
-        <div class="tile"><div class="k">adopted 2026-10-03</div>
-          <div class="v" style="font-size:20px">default <span class="mono" style="font-size:18px">layer_scale_init</span> 0.1</div>
-          <div class="d">48 h runs: <span class="mono">46967500</span> (0.1 + compose) and <span class="mono">46967501</span> (0.1 + compose_skip), both resumed from their 6 h checkpoints.</div></div>
-      </div>
     </div>
   </div>
-  <div class="foot"><span>BSC 46860758 · 46936382 · 46869813 · 46943427 (running, ep 0–6) · control 45949269 · LossRecon from [Eval/206 @ KittiSeqMultiView]</span><span class="pageno">01 / 09</span></div>
+  <div class="foot"><span>BSC 46860758 · 46936382 · 46869813 · 46943427 (6 h job, ep 0–6) · control 45949269 · LossRecon from [Eval/206 @ KittiSeqMultiView]</span><span class="pageno">01 / 10</span></div>
 </section>
 
 <section class="slide">
-  <div class="eyebrow">the problem <span class="dim">— before any fix, layer_scale_init 1e-5</span></div>
-  <h2>Runs either leave ~0.13 between ep 3 and 5, or stay there. Which one is a draw.</h2>
+  <div class="eyebrow">1 · the stuck is random <span class="dim">— before any fix, layer_scale_init 1e-5</span></div>
+  <h2>Same recipe, different outcome. Runs leave ~0.13 between ep 3 and 5, or stay there for good.</h2>
   <p class="sub">The control and the seed-2 runs share the recipe. All reach train recon ~0.105 by optimizer step ~4k, then split as the lr warm-up ends at step 5,000. The stuck run is still at 0.129 at ep 17.</p>
   <div class="body">
     <div class="cols c58" style="height:100%">
@@ -209,12 +203,29 @@ table.mt tr.grp td{border-top:1px solid var(--axis)}
       </div>
     </div>
   </div>
-  <div class="foot"><span>stream tally from analysis/2026-10-01_tc_width_free_z_decoder_ignores_z.md §3 · eval sets changed 2026-09-30, KITTI 206 set unchanged</span><span class="pageno">02 / 09</span></div>
+  <div class="foot"><span>stream tally from analysis/2026-10-01_tc_width_free_z_decoder_ignores_z.md §3 · eval sets changed 2026-09-30, KITTI 206 set unchanged</span><span class="pageno">02 / 10</span></div>
 </section>
 
 <section class="slide">
-  <div class="eyebrow">diagnosis <span class="dim">— z-swap probe on epoch_10.pth</span></div>
-  <h2>A stuck decoder gives the same output whatever z it gets. It learned a predictor that never reads z.</h2>
+  <div class="eyebrow">1 · the stuck is random <span class="dim">— replay of the escaped control, same data and weights</span></div>
+  <h2>Even an exact replay can fall in. It matched the escaped control to 4 decimals, drifted at the z blow-up, and stayed stuck.</h2>
+  <p class="sub"><span class="mono">46868776</span> reran <span class="mono">45949269</span> on its old eval sets, so the train stream is the same. Loss matched at every logged batch to 600. The first difference, 1e-4, is at batch 800, as z blows up. GPU run-to-run noise in bf16 is the only thing left.</p>
+  <div class="body">
+    <div class="legend top">
+      <span><i class="sw" style="border-color:var(--s5)"></i>control · 45949269</span>
+      <span><i class="sw" style="border-color:var(--s6)"></i>replay · 46868776</span>
+    </div>
+    <div class="g2">
+      <div class="pan"><div class="ptitle">train zrow_max <span>· log · dotted = first loss gap</span></div><div class="plot" id="p4a"></div></div>
+      <div class="pan"><div class="ptitle">KITTI · LossRecon <span>· ep 0–14</span></div><div class="plot" id="p4b"></div></div>
+    </div>
+  </div>
+  <div class="foot"><span>stdout Training lines every 20 micro-batches · replay cancelled 2026-10-02 at ep 15 · KITTI LossRecon 0.1305 at ep 14 vs 0.0392 for the control</span><span class="pageno">03 / 10</span></div>
+</section>
+
+<section class="slide">
+  <div class="eyebrow">2 · the decoder ignores z <span class="dim">— z-swap probe on epoch_10.pth</span></div>
+  <h2>So what is different in a stuck run? Its decoder gives the same output whatever z it gets.</h2>
   <p class="sub">Each checkpoint decodes 64 KITTI windows from <span class="mono">x_prev</span> with a changed z. Swap: each pair gets the z of another window at the same step. The test does not depend on z's scale.</p>
   <div class="body">
     <div class="cols c85" style="height:100%">
@@ -242,36 +253,19 @@ table.mt tr.grp td{border-top:1px solid var(--axis)}
       </div>
     </div>
   </div>
-  <div class="foot"><span>probe BSC 46880769 · 16 batches × 4 windows · decoding the stored z reproduces the forward loss exactly · nuScenes gives the same picture</span><span class="pageno">03 / 09</span></div>
+  <div class="foot"><span>probe BSC 46880769 · 16 batches × 4 windows · decoding the stored z reproduces the forward loss exactly · nuScenes gives the same picture</span><span class="pageno">04 / 10</span></div>
 </section>
 
 <section class="slide">
-  <div class="eyebrow">escape is luck <span class="dim">— replay of the control, same data and weights</span></div>
-  <h2>A replay of the escaped control matched it to 4 decimals, drifted at the z blow-up, and stayed stuck.</h2>
-  <p class="sub"><span class="mono">46868776</span> reran <span class="mono">45949269</span> on its old eval sets, so the train stream is the same. Loss matched at every logged batch to 600. The first difference, 1e-4, is at batch 800, as z blows up. GPU run-to-run noise in bf16 is the only thing left.</p>
-  <div class="body">
-    <div class="legend top">
-      <span><i class="sw" style="border-color:var(--s5)"></i>control · 45949269</span>
-      <span><i class="sw" style="border-color:var(--s6)"></i>replay · 46868776</span>
-    </div>
-    <div class="g2">
-      <div class="pan"><div class="ptitle">train zrow_max <span>· log · dotted = first loss gap</span></div><div class="plot" id="p4a"></div></div>
-      <div class="pan"><div class="ptitle">KITTI · LossRecon <span>· ep 0–14</span></div><div class="plot" id="p4b"></div></div>
-    </div>
-  </div>
-  <div class="foot"><span>stdout Training lines every 20 micro-batches · replay cancelled 2026-10-02 at ep 15 · KITTI LossRecon 0.1305 at ep 14 vs 0.0392 for the control</span><span class="pageno">04 / 09</span></div>
-</section>
-
-<section class="slide">
-  <div class="eyebrow">fixes on the stuck draw <span class="dim">— seed 2, one knob changed per arm</span></div>
-  <h2><span class="mono" style="font-size:25px">layer_scale_init</span> 0.1 and <span class="mono" style="font-size:25px">x_prev</span> masking both rescue it, but only with compose.</h2>
-  <p class="sub">Masking: 50% of the decoder's <span class="mono">x_prev</span> patches become a learned token at step 0, annealed to 0 by step 6,000. At 0.1 the blocks no longer start as near-identities. 1e-2 is too small.</p>
+  <div class="eyebrow">3 · the fix: layer_scale_init 0.1 <span class="dim">— the stuck seed-2 draw, one knob changed per arm</span></div>
+  <h2>Raising <span class="mono" style="font-size:25px">layer_scale_init</span> to 0.1 rescues the stuck draw, but only when training has the compose decode.</h2>
+  <p class="sub">At 1e-5 every block starts near identity, so the decoder starts out copying <span class="mono">x_prev</span>. At 0.1 the blocks do real work from step 0. 1e-2 is too small.</p>
   <div class="body">
     <div class="g6" style="grid-template-columns:repeat(3,1fr);grid-template-rows:auto 1fr">
       <div class="legend" style="grid-column:1;font-size:11px;gap:5px 14px">
-        <span><i class="sw" style="border-color:var(--ink2)"></i>1e-5</span><span><i class="sw" style="border-color:var(--s4)"></i>1e-2</span><span><i class="sw" style="border-color:var(--s1)"></i>0.1</span><span><i class="sw" style="border-color:var(--s3)"></i>masked, 1e-5</span></div>
+        <span><i class="sw" style="border-color:var(--ink2)"></i>1e-5</span><span><i class="sw" style="border-color:var(--s4)"></i>1e-2</span><span><i class="sw" style="border-color:var(--s1)"></i>0.1</span></div>
       <div class="legend" style="grid-column:2;font-size:11px;gap:5px 14px">
-        <span><i class="sw" style="border-color:var(--ink2)"></i>1e-5</span><span><i class="sw" style="border-color:var(--s1)"></i>0.1</span><span><i class="sw" style="border-color:var(--s3)"></i>masked, 1e-5</span></div>
+        <span><i class="sw" style="border-color:var(--ink2)"></i>1e-5</span><span><i class="sw" style="border-color:var(--s1)"></i>0.1</span></div>
       <div class="legend" style="grid-column:3;font-size:11px;gap:5px 14px">
         <span><i class="sw" style="border-color:var(--s1)"></i>0.1 · seed 2</span><span><i class="sw" style="border-color:var(--s7)"></i>0.1 · seed 3</span><span><i class="sw" style="border-color:var(--s5);border-top-style:dashed"></i>control 1e-5</span></div>
       <div class="pan"><div class="ptitle">compose on · KITTI LossRecon</div><div class="plot" id="p5a"></div></div>
@@ -279,11 +273,11 @@ table.mt tr.grp td{border-top:1px solid var(--axis)}
       <div class="pan"><div class="ptitle">0.1 + compose · a second draw</div><div class="plot" id="p5c"></div></div>
     </div>
   </div>
-  <div class="foot"><span>compose on: 46860758 / 46869812 / 46869813 / 46883974 · compose off: 46860759 / 46936382 / 46883975 · seed 3: 46936383 · 6 h jobs, ep 0–9</span><span class="pageno">05 / 09</span></div>
+  <div class="foot"><span>compose on: 46860758 / 46869812 / 46869813 · compose off: 46860759 / 46936382 · seed 3: 46936383 · 6 h jobs, ep 0–9</span><span class="pageno">05 / 10</span></div>
 </section>
 
 <section class="slide">
-  <div class="eyebrow">why compose matters <span class="dim">— the gap each decode spans</span></div>
+  <div class="eyebrow">3 · the fix: a large-gap decode <span class="dim">— the gap each decode spans</span></div>
   <h2>Compose adds a decode across two hops. A large gap makes copying <span class="mono" style="font-size:25px">x_prev</span> a poor guess, so reading z pays.</h2>
   <p class="sub">The triplet path picks 3 of the 10 frames at random and ignores <span class="mono">max_gap</span> (<span class="mono">occrae/deltatok_trainer.py:1017</span>). Its hops are short. The composed decode from frame t0 to t2 spans both.</p>
   <div class="body">
@@ -300,17 +294,17 @@ table.mt tr.grp td{border-top:1px solid var(--axis)}
       <div class="side">
         <div class="rulebar"><b>Compose vs triplet only:</b> the one difference is the t0 → t2 decode. Compose escaped on 4 of 7 streams, the triplet path on 0 of 4.</div>
         <div class="rulebar"><b>August pair sweep:</b> <span class="mono">max_gap</span> ≥ 4 escaped 4 of 4 arms, ≤ 3 escaped 1 of 3. One seed per arm.</div>
-        <div class="rulebar"><b>Both fixes need it:</b> masking and 0.1 escape with compose and stay stuck without (slide 5).</div>
+        <div class="rulebar"><b>0.1 needs it:</b> it escapes with compose and stays stuck without (slide 5).</div>
         <div class="rulebar"><b>Against "gap alone":</b> the September pair arm <span class="mono">46250879</span> decoded gaps up to 9 (mean 5) and stayed stuck. One stream, and escape is partly luck.</div>
         <div class="rulebar"><b>Open alternative:</b> the sum constraint z<sub>a</sub> + z<sub>b</sub> itself. The next slide separates the two.</div>
       </div>
     </div>
   </div>
-  <div class="foot"><span>gap shares are exact for 3 of 10 uniform frames: hop (9−g)(10−g)/240 per hop · span (10−r)(r−1)/120 · pair 1/9</span><span class="pageno">06 / 09</span></div>
+  <div class="foot"><span>gap shares are exact for 3 of 10 uniform frames: hop (9−g)(10−g)/240 per hop · span (10−r)(r−1)/120 · pair 1/9</span><span class="pageno">06 / 10</span></div>
 </section>
 
 <section class="slide">
-  <div class="eyebrow">gap vs sum <span class="dim">— training.compose_skip</span></div>
+  <div class="eyebrow">3 · the fix: the gap, not the sum <span class="dim">— training.compose_skip</span></div>
   <h2>With z encoded straight from (t0, t2), and no sum anywhere, both runs still escape. The gap is what matters.</h2>
   <p class="sub"><span class="mono">compose_skip=true</span> replaces z<sub>a</sub> + z<sub>b</sub> with a z encoded from the (t0, t2) pair. Its single-step recon is better: 0.0252 vs 0.0343 at ep 8 masked, 0.0248 vs 0.0299 at ep 5 at 0.1. It gives up additivity: <span class="mono">LossRecon_Comp</span>, the decode of the summed hop codes, stalls near 0.11.</p>
   <div class="body">
@@ -326,13 +320,49 @@ table.mt tr.grp td{border-top:1px solid var(--axis)}
       <div class="pan"><div class="ptitle">layer_scale_init 0.1 · LossRecon_Comp <span>· KITTI</span></div><div class="plot" id="p7d"></div></div>
     </div>
   </div>
-  <div class="foot"><span>masked: 46883974 sum / 46937610 skip / 46883975 off · 0.1: 46869813 sum / 46943427 skip (running, ep 0–6) / 46936382 off</span><span class="pageno">07 / 09</span></div>
+  <div class="foot"><span>masked: 46883974 sum / 46937610 skip / 46883975 off · 0.1: 46869813 sum / 46943427 skip (6 h job, ep 0–6) / 46936382 off</span><span class="pageno">07 / 10</span></div>
 </section>
 
 <section class="slide">
-  <div class="eyebrow">after the fix <span class="dim">— probe on epoch_10.pth, BSC 46936420</span></div>
+  <div class="eyebrow">3 · the fix: best variant <span class="dim">— training.compose_direct_weight · Jean Zay · seed 2</span></div>
+  <h2>A direct t0→t2 decode beside the sum gives the best recon and keeps additivity.</h2>
+  <p class="sub"><span class="mono">compose_direct_weight=1.0</span> adds a decode of f<sub>t2</sub> from z encoded on (t0, t2), beside the decode of z<sub>a</sub> + z<sub>b</sub>. All three ran on Jean Zay from ep 0, same init and data order.</p>
+  <div class="body">
+    <div class="legend top">
+      <span><i class="sw" style="border-color:var(--s1)"></i>compose (sum) · 575545</span>
+      <span><i class="sw" style="border-color:var(--s2)"></i>compose_skip · 575546</span>
+      <span><i class="sw" style="border-color:var(--s3)"></i>compose + direct · 575547</span>
+    </div>
+    <div class="cols c58" style="grid-template-rows:minmax(0,1fr)">
+      <div class="g4">
+        <div class="pan"><div class="ptitle">KITTI · LossRecon <span>· log</span></div><div class="plot" id="p8a"></div></div>
+        <div class="pan"><div class="ptitle">KITTI · LossRecon_Comp <span>· log</span></div><div class="plot" id="p8b"></div></div>
+        <div class="pan"><div class="ptitle">nuScenes · LossRecon <span>· log</span></div><div class="plot" id="p8c"></div></div>
+        <div class="pan"><div class="ptitle">nuScenes · LossRecon_Comp <span>· log</span></div><div class="plot" id="p8d"></div></div>
+      </div>
+      <div class="side">
+        <table class="mt">
+          <thead><tr><th>ep 23</th><th>KITTI</th><th>_Comp</th><th>nuSc.</th><th>_Comp</th><th>s / it</th></tr></thead>
+          <tbody>
+            <tr><td>compose</td><td>0.0216</td><td>0.0221</td><td>0.0139</td><td>0.0144</td><td>0.43</td></tr>
+            <tr><td>compose_skip</td><td>0.0186</td><td class="w">0.1305</td><td>0.0133</td><td class="w">0.0844</td><td>0.53</td></tr>
+            <tr><td>compose + direct</td><td class="g">0.0148</td><td class="g">0.0161</td><td class="g">0.0101</td><td class="g">0.0109</td><td>0.58</td></tr>
+          </tbody>
+        </table>
+        <div class="rulebar"><b>Best recon on both sets.</b> 31% below compose and 20% below compose_skip on KITTI. 27% and 24% on nuScenes.</div>
+        <div class="rulebar"><b>Additivity kept.</b> Its _Comp stays within 0.0013 of LossRecon. compose_skip's climbs from 0.113 at ep 4 to 0.131 at ep 26.</div>
+        <div class="rulebar"><b>Worth the cost.</b> Each step takes 35% longer. At equal wall-clock it still leads: 0.0148 at ep 23, against 0.0204 for compose at ep 30.</div>
+        <div class="rulebar"><b>One draw each.</b> Jean Zay runs sit 20–38% above their BSC twins at matched epochs, cause unknown. The gap to compose_skip is the same size. BSC 46995113 is the second draw.</div>
+      </div>
+    </div>
+  </div>
+  <div class="foot"><span>Jean Zay 575545 / 575546 / 575547 · KITTI = [Eval/206 @ KittiSeqMultiView] · nuScenes = 256 @ stride10 · s / it = seconds per micro-batch</span><span class="pageno">08 / 10</span></div>
+</section>
+
+<section class="slide">
+  <div class="eyebrow">check · fixed runs read z <span class="dim">— probe on epoch_10.pth, BSC 46936420</span></div>
   <h2>Every escaped run reads z. Every stuck run ignores it, with a large encoder MLP layer scale.</h2>
-  <p class="sub">Same z-swap probe as slide 3, plus the learned layer scales λ. The fixed runs react to a wrong z 1.7–2.6× more strongly than the control.</p>
+  <p class="sub">Same z-swap probe as slide 4, plus the learned layer scales λ. The fixed runs react to a wrong z 1.7–2.6× more strongly than the control.</p>
   <div class="body">
     <div class="cols" style="height:100%;grid-template-columns:1.7fr 1fr">
       <table class="mt" style="align-self:start;font-size:12.5px">
@@ -349,44 +379,47 @@ table.mt tr.grp td{border-top:1px solid var(--axis)}
       <div class="side">
         <div class="rulebar"><b>Stuck signature in these 6:</b> encoder MLP max |λ| 0.54–0.55 vs 0.24–0.26, and decoder attention λ 2–4× smaller.</div>
         <div class="rulebar"><b>One channel in many blocks is not it.</b> The 0.1 run has channel 1105 as the top encoder MLP λ in 11 of 12 blocks, at max 0.26, and reads z.</div>
-        <div class="rulebar"><b>z energy is not a clean marker.</b> The escaped decnoise run <span class="mono">45725881</span> holds 79% of z energy in one channel and still reads it (slide 3).</div>
+        <div class="rulebar"><b>z energy is not a clean marker.</b> The escaped decnoise run <span class="mono">45725881</span> holds 79% of z energy in one channel and still reads it (slide 4).</div>
         <div class="rulebar"><b>Cause or effect is open.</b> The probe shows what a stuck run looks like at ep 10, not what sent it there.</div>
       </div>
     </div>
   </div>
-  <div class="foot"><span>KITTI, 64 windows · λ: encoder_blocks.*.layer_scale2, decoder_blocks.*.layer_scale1 · acao_probe/{ls,zswap}_probe3.py</span><span class="pageno">08 / 09</span></div>
+  <div class="foot"><span>KITTI, 64 windows · λ: encoder_blocks.*.layer_scale2, decoder_blocks.*.layer_scale1 · acao_probe/{ls,zswap}_probe3.py</span><span class="pageno">09 / 10</span></div>
 </section>
 
 <section class="slide">
-  <div class="eyebrow">what changed and what is open</div>
-  <h2><span class="mono" style="font-size:25px">layer_scale_init</span> 0.1 is the default. Compose vs compose_skip depends on whether the flow needs additive z.</h2>
-  <p class="sub">Changed 2026-10-03: <span class="mono">configs/deltatok/train_deltatok.yaml:81</span>, the <span class="mono">DeltaTokModule</span> default (<span class="mono">occrae/deltatok_trainer.py:68</span>) and the builder fallback (<span class="mono">occrae/deltatok_shared.py:491</span>). Resumed runs keep their trained λ.</p>
+  <div class="eyebrow">summary · defaults and open questions</div>
+  <h2><span class="mono" style="font-size:25px">layer_scale_init</span> 0.1 and compose + direct are the defaults. Without compose, use compose_skip.</h2>
+  <p class="sub">Changed 2026-10-03: <span class="mono">layer_scale_init</span> 0.1 in <span class="mono">configs/deltatok/train_deltatok.yaml:81</span>, <span class="mono">occrae/deltatok_trainer.py:68</span> and <span class="mono">occrae/deltatok_shared.py:491</span>. Changed 2026-10-05: <span class="mono">compose_direct_weight</span> 1.0 (<span class="mono">train_deltatok.yaml:118</span>, <span class="mono">deltatok_trainer.py:712</span>), applied only beside the sum decode.</p>
   <div class="body">
     <div class="cols c2" style="height:100%">
       <div style="display:flex;flex-direction:column;gap:12px;min-height:0">
         <table class="mt">
-          <thead><tr><th>48 h run</th><th>job</th><th>resumes from</th><th>keeps additivity</th></tr></thead>
+          <thead><tr><th>run, seed 2</th><th>job</th><th>KITTI</th><th>_Comp</th><th>at</th></tr></thead>
           <tbody>
-            <tr><td>0.1 + compose, seed 2</td><td class="mono">46967500</td><td>46869813 at ep 9</td><td>yes</td></tr>
-            <tr><td>0.1 + compose_skip, seed 2</td><td class="mono">46967501</td><td>46943427 at its end</td><td>no, Comp ~0.11</td></tr>
+            <tr><td>BSC · compose</td><td class="mono">46967500</td><td>0.0189</td><td>0.0192</td><td>ep 19</td></tr>
+            <tr><td>BSC · compose_skip</td><td class="mono">46967501</td><td>0.0150</td><td class="w">0.1311</td><td>ep 17</td></tr>
+            <tr class="grp"><td>JZ · compose</td><td class="mono">575545</td><td>0.0201</td><td>0.0208</td><td>ep 31</td></tr>
+            <tr><td>JZ · compose_skip</td><td class="mono">575546</td><td>0.0181</td><td class="w">0.1312</td><td>ep 26</td></tr>
+            <tr><td>JZ · compose + direct</td><td class="mono">575547</td><td class="g">0.0148</td><td class="g">0.0161</td><td>ep 23</td></tr>
           </tbody>
         </table>
-        <div class="rulebar"><b>Pick compose</b> if the flow model relies on z<sub>a</sub> + z<sub>b</sub> decoding the far frame. <b>Pick compose_skip</b> if only single-step recon matters: 17% lower at ep 5 at 0.1.</div>
+        <div class="rulebar"><b>With compose:</b> keep the sum decode and add the direct one (slide 8). <b>Without compose:</b> set <span class="mono">compose_skip=true</span>. Compose off without skip stayed stuck at 0.1 (slide 5).</div>
         <div class="rulebar"><b>Masking is dropped.</b> It rescues only with compose, like 0.1, and costs a learned token, an anneal schedule, its own RNG and a DDP workaround.</div>
       </div>
       <div class="side">
         <div class="card"><div class="tag">open</div>
           <ul class="tight" style="margin-top:8px">
             <li><strong>Threshold.</strong> 1e-2 failed and 0.1 worked. Nothing in between is tested.</li>
-            <li><strong>Draws.</strong> 0.1 + compose escaped on 2 of 2 streams, 0.1 + compose_skip on 1 of 1.</li>
-            <li><strong>Long run.</strong> Every 0.1 result stops at ep 9. z scale is large: train <span class="mono">zrow_max</span> reached ~8,000 on seed 3.</li>
+            <li><strong>Draws.</strong> 0.1 + a large-gap decode escaped on 6 of 6 runs. The direct decode has one draw. BSC 46995113 is queued as the second.</li>
+            <li><strong>Cluster gap.</strong> Jean Zay runs sit 20–38% above their BSC twins at matched epochs. The cause is not known.</li>
             <li><strong>Flow.</strong> No flow model has been trained on a 0.1 tokenizer yet.</li>
             <li><strong>Why.</strong> Why a near-identity start lets the decoder settle on a z-free predictor is not explained.</li>
           </ul></div>
       </div>
     </div>
   </div>
-  <div class="foot"><span>prior cycle: analysis/2026-10-01_tc_width_free_z_decoder_ignores_z.md · code c785146 (compose_skip) · board docs/research/questions.json</span><span class="pageno">09 / 09</span></div>
+  <div class="foot"><span>prior cycle: analysis/2026-10-01_tc_width_free_z_decoder_ignores_z.md · BSC 46967500/1 died NODE_FAIL 2026-10-03 · JZ runs still training</span><span class="pageno">10 / 10</span></div>
 </section>
 
 </div>
@@ -497,10 +530,11 @@ function barChart(el,cfg){
 
 
 /* ================= DATA =================
-   KITTI [Eval/206 @ KittiSeqMultiView] LossRecon / LossRecon_Comp per epoch (index = epoch) from each job's BSC stdout.
+   KITTI [Eval/206 @ KittiSeqMultiView] LossRecon / LossRecon_Comp per epoch (index = epoch) from each job's stdout.
+   575545-7 (Jean Zay) also carry nurec / nucomp from [Eval/256 @ Occ3dNuscenesSeqMultiView stride10].
    TR = stdout Training lines every 20 micro-batches, first 4,500: [k micro-batch, loss, zrow_max].
    ======================================== */
-const D={"45949269":{"rec":[0.1407,0.1366,0.1339,0.1297,0.1119,0.0932,0.0751,0.0615,0.0541,0.0497,0.0467,0.0442,0.0419,0.0407,0.0392,0.0379,0.0372,0.0365,0.0355,0.0349,0.0344,0.0339,0.0333,0.0327,0.0323,0.0318,0.0316,0.0311,0.0306,0.0304,0.03,0.0299,0.0295,0.0292,0.0288,0.0285,0.0287,0.0287,0.0283,0.0279,0.0278,0.0277,0.0276,0.0273,0.0271,0.027,0.0269,0.0269,0.0269,0.0267,0.0266,0.0266,0.0266,0.0266,0.0265,0.0264,0.0264,0.0264,0.0263,0.0262,0.0261,0.0259,0.0258,0.0258,0.0258,0.0257,0.0256,0.0256,0.0256,0.0255,0.0255,0.0254,0.0254,0.0253,0.0253,0.0253,0.0251,0.0251,0.0251,0.025],"comp":[0.1487,0.1448,0.1432,0.1393,0.1209,0.1009,0.0791,0.0635,0.0554,0.0511,0.0475,0.0451,0.0429,0.0414,0.0398,0.0385,0.0378,0.0372,0.0362,0.0356,0.035,0.0342,0.0337,0.0333,0.0327,0.0321,0.0319,0.0316,0.0309,0.0308,0.0305,0.0303,0.03,0.0295,0.0289,0.029,0.0289,0.0291,0.0287,0.0284,0.0281,0.028,0.0279,0.0276,0.0274,0.0273,0.0272,0.0273,0.0271,0.0271,0.0271,0.027,0.0268,0.0269,0.0269,0.0267,0.0267,0.0267,0.0267,0.0264,0.0262,0.0262,0.0258,0.026,0.0262,0.026,0.0258,0.0259,0.0259,0.0256,0.0258,0.0257,0.0256,0.0255,0.0255,0.0255,0.0254,0.0253,0.0255,0.0252]},"46860758":{"rec":[0.1398,0.1368,0.1333,0.1325,0.134,0.1323,0.1318,0.1316,0.1312,0.1309,0.1308,0.1302,0.1306,0.1304,0.1313,0.1294,0.1309,0.129],"comp":[0.1475,0.1457,0.1425,0.1425,0.1438,0.1419,0.1422,0.1413,0.1422,0.1425,0.141,0.1408,0.1419,0.1407,0.1413,0.1414,0.1418,0.1402]},"46860759":{"rec":[0.1398,0.1363,0.1325,0.1324,0.1319,0.1317,0.1307,0.1305,0.1305,0.1296,0.1304],"comp":[0.1482,0.1503,0.1452,0.1436,0.1469,0.1437,0.1437,0.1443,0.1434,0.1452,0.1436]},"46868776":{"rec":[0.1406,0.1369,0.1335,0.1335,0.1327,0.1335,0.1319,0.1307,0.131,0.131,0.131,0.1323,0.1306,0.1296,0.1305],"comp":[0.1485,0.1449,0.1434,0.1427,0.1429,0.1421,0.1421,0.1409,0.1412,0.1422,0.1408,0.1415,0.1417,0.1407,0.1413]},"46869812":{"rec":[0.1406,0.1378,0.134,0.1341,0.1329,0.1358,0.1314,0.1313,0.1299,0.1303],"comp":[0.1481,0.1456,0.1427,0.1428,0.1433,0.142,0.1418,0.141,0.1407,0.1418]},"46869813":{"rec":[0.1397,0.1202,0.0654,0.0417,0.034,0.0299,0.0276,0.026,0.025,0.024],"comp":[0.1467,0.1257,0.0683,0.0427,0.0345,0.0305,0.0279,0.0262,0.0252,0.0243]},"46883974":{"rec":[0.1413,0.1395,0.1233,0.081,0.0608,0.0434,0.0388,0.0359,0.0343,0.0333],"comp":[0.1489,0.1474,0.1294,0.0853,0.0567,0.0441,0.0393,0.0362,0.0347,0.0337]},"46883975":{"rec":[0.153,0.1403,0.1327,0.1313,0.1313,0.1304,0.13,0.1303,0.1298,0.1294],"comp":[0.1672,0.1543,0.1463,0.1448,0.1462,0.1437,0.1437,0.1441,0.1445,0.146]},"46936382":{"rec":[0.1383,0.1349,0.1329,0.1317,0.1322,0.1312,0.1312,0.1316,0.1303,0.1297],"comp":[0.1469,0.148,0.1446,0.1432,0.1469,0.1433,0.1433,0.1448,0.1433,0.1455]},"46936383":{"rec":[0.1398,0.1264,0.0831,0.0491,0.0391,0.0338,0.0307,0.0284,0.0267,0.0254],"comp":[0.147,0.1317,0.0885,0.0503,0.0398,0.0346,0.031,0.0288,0.0271,0.0257]},"46937610":{"rec":[0.1416,0.146,0.0894,0.0593,0.0462,0.0364,0.0313,0.0278,0.0252],"comp":[0.1492,0.1576,0.121,0.1148,0.1144,0.1123,0.1134,0.1128,0.1145]},"46943427":{"rec":[0.1394,0.1194,0.0585,0.0357,0.029,0.0248,0.0225],"comp":[0.1468,0.1327,0.1104,0.1089,0.1085,0.115,0.1173]}};
+const D=Object.assign({"575545":{"rec":[0.1399,0.1298,0.0865,0.0526,0.0415,0.0366,0.0337,0.032,0.0303,0.0293,0.0282,0.0271,0.0261,0.0256,0.0249,0.0243,0.0238,0.0231,0.0229,0.0227,0.0224,0.022,0.0219,0.0216,0.0213,0.0211,0.0209,0.021,0.0206,0.0204,0.0204,0.0201],"comp":[0.1475,0.1359,0.0921,0.0541,0.0423,0.0374,0.0344,0.0325,0.0309,0.03,0.0289,0.0278,0.0268,0.0261,0.0255,0.025,0.0243,0.0237,0.0234,0.0234,0.0228,0.0225,0.0224,0.0221,0.0219,0.0217,0.0216,0.0215,0.0212,0.0208,0.0209,0.0208],"nurec":[0.1009,0.0898,0.0608,0.0356,0.0269,0.0234,0.0214,0.0204,0.0192,0.0186,0.0179,0.0173,0.0168,0.0164,0.0159,0.0157,0.0152,0.0149,0.0147,0.0146,0.0143,0.0142,0.0141,0.0139,0.0137,0.0136,0.0134,0.0134,0.0132,0.013,0.013,0.0128],"nucomp":[0.1075,0.0978,0.0668,0.0375,0.028,0.0243,0.0223,0.0212,0.0199,0.0192,0.0186,0.0179,0.0174,0.017,0.0165,0.0162,0.0157,0.0154,0.0153,0.0151,0.0148,0.0146,0.0146,0.0144,0.0141,0.014,0.0139,0.0138,0.0136,0.0135,0.0134,0.0132]},"575546":{"rec":[0.1399,0.1302,0.1087,0.0842,0.0546,0.0438,0.0362,0.0329,0.0306,0.0286,0.0265,0.0253,0.0245,0.024,0.0223,0.0219,0.0218,0.0207,0.0205,0.02,0.0198,0.0195,0.0193,0.0186,0.0186,0.0185,0.0181],"comp":[0.1471,0.1391,0.1275,0.1187,0.1134,0.1136,0.1141,0.1145,0.1168,0.1198,0.1211,0.1226,0.1236,0.1262,0.1262,0.1269,0.1259,0.1261,0.1263,0.1285,0.127,0.1264,0.1272,0.1305,0.1299,0.1303,0.1312],"nurec":[0.1022,0.0889,0.0749,0.0593,0.0361,0.0289,0.0241,0.022,0.0204,0.0193,0.0181,0.0173,0.0169,0.0165,0.0154,0.0153,0.0153,0.0146,0.0145,0.0143,0.0141,0.0138,0.0137,0.0133,0.0132,0.0132,0.0129],"nucomp":[0.108,0.0964,0.0884,0.0814,0.0731,0.0725,0.0727,0.0725,0.0737,0.0765,0.0779,0.0786,0.0795,0.0802,0.0806,0.0812,0.0809,0.0821,0.0822,0.0837,0.0824,0.0821,0.0838,0.0844,0.0845,0.0837,0.0851]},"575547":{"rec":[0.1394,0.0996,0.0489,0.035,0.0289,0.025,0.0229,0.0214,0.0203,0.02,0.0189,0.0182,0.0176,0.0173,0.0171,0.0167,0.0164,0.016,0.0158,0.0167,0.0155,0.0152,0.0151,0.0148],"comp":[0.1459,0.1088,0.052,0.037,0.0306,0.0267,0.0244,0.0228,0.0217,0.0215,0.0203,0.0195,0.0189,0.0186,0.0185,0.0181,0.0177,0.0173,0.0172,0.0185,0.0168,0.0164,0.0164,0.0161],"nurec":[0.1005,0.0701,0.0335,0.0231,0.0192,0.0167,0.0153,0.0144,0.0137,0.0133,0.0127,0.0122,0.0118,0.0116,0.0115,0.0113,0.011,0.0108,0.0108,0.0113,0.0105,0.0103,0.0102,0.0101],"nucomp":[0.106,0.0774,0.0362,0.0247,0.0206,0.0179,0.0164,0.0154,0.0146,0.0143,0.0135,0.0129,0.0126,0.0124,0.0123,0.0121,0.0118,0.0116,0.0115,0.0124,0.0113,0.011,0.0109,0.0109]}},{"45949269":{"rec":[0.1407,0.1366,0.1339,0.1297,0.1119,0.0932,0.0751,0.0615,0.0541,0.0497,0.0467,0.0442,0.0419,0.0407,0.0392,0.0379,0.0372,0.0365,0.0355,0.0349,0.0344,0.0339,0.0333,0.0327,0.0323,0.0318,0.0316,0.0311,0.0306,0.0304,0.03,0.0299,0.0295,0.0292,0.0288,0.0285,0.0287,0.0287,0.0283,0.0279,0.0278,0.0277,0.0276,0.0273,0.0271,0.027,0.0269,0.0269,0.0269,0.0267,0.0266,0.0266,0.0266,0.0266,0.0265,0.0264,0.0264,0.0264,0.0263,0.0262,0.0261,0.0259,0.0258,0.0258,0.0258,0.0257,0.0256,0.0256,0.0256,0.0255,0.0255,0.0254,0.0254,0.0253,0.0253,0.0253,0.0251,0.0251,0.0251,0.025],"comp":[0.1487,0.1448,0.1432,0.1393,0.1209,0.1009,0.0791,0.0635,0.0554,0.0511,0.0475,0.0451,0.0429,0.0414,0.0398,0.0385,0.0378,0.0372,0.0362,0.0356,0.035,0.0342,0.0337,0.0333,0.0327,0.0321,0.0319,0.0316,0.0309,0.0308,0.0305,0.0303,0.03,0.0295,0.0289,0.029,0.0289,0.0291,0.0287,0.0284,0.0281,0.028,0.0279,0.0276,0.0274,0.0273,0.0272,0.0273,0.0271,0.0271,0.0271,0.027,0.0268,0.0269,0.0269,0.0267,0.0267,0.0267,0.0267,0.0264,0.0262,0.0262,0.0258,0.026,0.0262,0.026,0.0258,0.0259,0.0259,0.0256,0.0258,0.0257,0.0256,0.0255,0.0255,0.0255,0.0254,0.0253,0.0255,0.0252]},"46860758":{"rec":[0.1398,0.1368,0.1333,0.1325,0.134,0.1323,0.1318,0.1316,0.1312,0.1309,0.1308,0.1302,0.1306,0.1304,0.1313,0.1294,0.1309,0.129],"comp":[0.1475,0.1457,0.1425,0.1425,0.1438,0.1419,0.1422,0.1413,0.1422,0.1425,0.141,0.1408,0.1419,0.1407,0.1413,0.1414,0.1418,0.1402]},"46860759":{"rec":[0.1398,0.1363,0.1325,0.1324,0.1319,0.1317,0.1307,0.1305,0.1305,0.1296,0.1304],"comp":[0.1482,0.1503,0.1452,0.1436,0.1469,0.1437,0.1437,0.1443,0.1434,0.1452,0.1436]},"46868776":{"rec":[0.1406,0.1369,0.1335,0.1335,0.1327,0.1335,0.1319,0.1307,0.131,0.131,0.131,0.1323,0.1306,0.1296,0.1305],"comp":[0.1485,0.1449,0.1434,0.1427,0.1429,0.1421,0.1421,0.1409,0.1412,0.1422,0.1408,0.1415,0.1417,0.1407,0.1413]},"46869812":{"rec":[0.1406,0.1378,0.134,0.1341,0.1329,0.1358,0.1314,0.1313,0.1299,0.1303],"comp":[0.1481,0.1456,0.1427,0.1428,0.1433,0.142,0.1418,0.141,0.1407,0.1418]},"46869813":{"rec":[0.1397,0.1202,0.0654,0.0417,0.034,0.0299,0.0276,0.026,0.025,0.024],"comp":[0.1467,0.1257,0.0683,0.0427,0.0345,0.0305,0.0279,0.0262,0.0252,0.0243]},"46883974":{"rec":[0.1413,0.1395,0.1233,0.081,0.0608,0.0434,0.0388,0.0359,0.0343,0.0333],"comp":[0.1489,0.1474,0.1294,0.0853,0.0567,0.0441,0.0393,0.0362,0.0347,0.0337]},"46883975":{"rec":[0.153,0.1403,0.1327,0.1313,0.1313,0.1304,0.13,0.1303,0.1298,0.1294],"comp":[0.1672,0.1543,0.1463,0.1448,0.1462,0.1437,0.1437,0.1441,0.1445,0.146]},"46936382":{"rec":[0.1383,0.1349,0.1329,0.1317,0.1322,0.1312,0.1312,0.1316,0.1303,0.1297],"comp":[0.1469,0.148,0.1446,0.1432,0.1469,0.1433,0.1433,0.1448,0.1433,0.1455]},"46936383":{"rec":[0.1398,0.1264,0.0831,0.0491,0.0391,0.0338,0.0307,0.0284,0.0267,0.0254],"comp":[0.147,0.1317,0.0885,0.0503,0.0398,0.0346,0.031,0.0288,0.0271,0.0257]},"46937610":{"rec":[0.1416,0.146,0.0894,0.0593,0.0462,0.0364,0.0313,0.0278,0.0252],"comp":[0.1492,0.1576,0.121,0.1148,0.1144,0.1123,0.1134,0.1128,0.1145]},"46943427":{"rec":[0.1394,0.1194,0.0585,0.0357,0.029,0.0248,0.0225],"comp":[0.1468,0.1327,0.1104,0.1089,0.1085,0.115,0.1173]}});
 const TR={"C":[[0.0,0.02,0.04,0.06,0.08,0.1,0.12,0.14,0.16,0.18,0.2,0.22,0.24,0.26,0.28,0.3,0.32,0.34,0.36,0.38,0.4,0.42,0.44,0.46,0.48,0.5,0.52,0.54,0.56,0.58,0.6,0.62,0.64,0.66,0.68,0.7,0.72,0.74,0.76,0.78,0.8,0.82,0.84,0.86,0.88,0.9,0.92,0.94,0.96,0.98,1.0,1.02,1.04,1.06,1.08,1.1,1.12,1.14,1.16,1.18,1.2,1.22,1.24,1.26,1.28,1.3,1.32,1.34,1.36,1.38,1.4,1.42,1.44,1.46,1.48,1.5,1.52,1.54,1.56,1.58,1.6,1.62,1.64,1.66,1.68,1.7,1.72,1.74,1.76,1.78,1.8,1.82,1.84,1.86,1.88,1.9,1.92,1.94,1.96,1.98,2.0,2.02,2.04,2.06,2.08,2.1,2.12,2.14,2.16,2.18,2.2,2.22,2.24,2.249,2.25,2.27,2.29,2.31,2.33,2.35,2.37,2.39,2.41,2.43,2.45,2.47,2.49,2.51,2.53,2.55,2.57,2.59,2.61,2.63,2.65,2.67,2.69,2.71,2.73,2.75,2.77,2.79,2.81,2.83,2.85,2.87,2.89,2.91,2.93,2.95,2.97,2.99,3.01,3.03,3.05,3.07,3.09,3.11,3.13,3.15,3.17,3.19,3.21,3.23,3.25,3.27,3.29,3.31,3.33,3.35,3.37,3.39,3.41,3.43,3.45,3.47,3.49,3.51,3.53,3.55,3.57,3.59,3.61,3.63,3.65,3.67,3.69,3.71,3.73,3.75,3.77,3.79,3.81,3.83,3.85,3.87,3.89,3.91,3.93,3.95,3.97,3.99,4.01,4.03,4.05,4.07,4.09,4.11,4.13,4.15,4.17,4.19,4.21,4.23,4.25,4.27,4.29,4.31,4.33,4.35,4.37,4.39,4.41,4.43,4.45,4.47,4.49,4.499,4.5],[0.429,0.4534,0.5526,0.6084,0.6272,0.7209,0.6354,0.6369,0.6137,0.6488,0.5986,0.6623,0.6749,0.6443,0.5972,0.6259,0.6066,0.6072,0.7092,0.6203,0.7308,0.6632,0.6479,0.6218,0.6057,0.6551,0.6405,0.6244,0.5691,0.5451,0.6739,0.6098,0.4993,0.6012,0.6194,0.5052,0.6546,0.4871,0.581,0.5106,0.4988,0.5148,0.3998,0.3363,0.2856,0.2933,0.2995,0.2734,0.3165,0.3159,0.2571,0.2856,0.314,0.2625,0.2526,0.3039,0.307,0.27,0.2771,0.2813,0.2424,0.2525,0.2803,0.2762,0.2504,0.2554,0.2844,0.2501,0.263,0.2724,0.2536,0.2334,0.2601,0.2498,0.2547,0.272,0.2557,0.2506,0.2707,0.2414,0.2503,0.2855,0.2645,0.2498,0.2887,0.2647,0.2565,0.2854,0.2883,0.2509,0.2884,0.3055,0.2556,0.2676,0.3023,0.2589,0.259,0.302,0.2676,0.2366,0.2742,0.2719,0.259,0.2794,0.2822,0.2504,0.2739,0.2903,0.2623,0.2691,0.2888,0.2695,0.2476,0.2597,0.2373,0.2138,0.2323,0.2511,0.2639,0.2425,0.2641,0.2776,0.2685,0.2724,0.3054,0.2685,0.2747,0.3086,0.26,0.2648,0.3198,0.278,0.2737,0.2984,0.2643,0.2684,0.2955,0.2888,0.2802,0.2685,0.2759,0.3152,0.3122,0.3117,0.3089,0.3228,0.3404,0.3987,0.366,0.3641,0.3567,0.3611,0.3976,0.4376,0.3979,0.3694,0.3583,0.375,0.3687,0.3359,0.3301,0.3182,0.2884,0.2704,0.266,0.2607,0.261,0.2575,0.2604,0.2524,0.27,0.3143,0.2783,0.2975,0.2978,0.2832,0.2758,0.2637,0.263,0.2826,0.2818,0.2913,0.2596,0.2656,0.2905,0.2932,0.2701,0.2702,0.2766,0.2979,0.2738,0.2887,0.3071,0.3056,0.2951,0.2799,0.2895,0.2823,0.2701,0.2894,0.287,0.2743,0.2495,0.2753,0.2654,0.265,0.2484,0.2536,0.2557,0.2619,0.2739,0.3234,0.3569,0.3215,0.3003,0.3043,0.297,0.2807,0.3002,0.296,0.289,0.2736,0.2444,0.2589,0.2504,0.2421,0.2605,0.2709,0.2494],[0.0918,0.0918,0.0919,0.092,0.0922,0.0925,0.0929,0.0933,0.0937,0.0942,0.0948,0.0955,0.0963,0.0971,0.0979,0.0991,0.1,0.1014,0.1028,0.104,0.1061,0.1081,0.1113,0.115,0.1187,0.1226,0.1276,0.1363,0.1664,0.2137,0.2914,0.4333,0.7117,1.363,3.2914,9.0573,14.7658,17.36,20.3391,23.7416,27.9955,32.4416,37.7606,43.9804,49.9883,50.6689,43.3297,23.5544,19.3738,35.7595,46.3241,50.5133,46.1366,36.6364,27.2741,31.1001,39.3493,46.6556,49.2908,42.8272,32.1183,24.2155,29.055,37.9742,45.3186,46.3098,38.9295,30.0168,27.2811,33.1399,39.1645,42.5462,39.0142,31.6544,25.1771,27.4828,34.0456,39.213,37.1427,29.3597,23.7343,25.4326,32.1633,39.5643,39.3774,30.8476,20.7563,23.5159,31.2493,39.7525,42.6979,35.9704,24.6688,19.002,25.7931,36.0076,44.1383,42.167,31.8392,22.8887,24.2238,32.7276,43.6742,47.371,38.0224,25.3818,20.8933,29.382,41.4754,49.6856,45.4686,31.7549,21.6344,21.6344,26.2945,31.6654,42.6842,48.2585,41.0394,28.1247,22.8663,31.4172,44.1028,51.0732,42.8406,23.6147,16.2553,35.9875,57.6371,67.8484,41.1709,46.9669,81.8086,128.2146,170.2727,224.0379,273.2843,351.8502,436.1776,567.7341,679.3205,815.0066,955.5543,1103.0486,1270.6213,1475.4677,1645.4731,1809.8232,1881.2559,1938.3113,1938.7946,1937.649,1985.9126,1946.3905,1860.912,1715.5973,1455.6918,1174.9567,874.9624,626.1198,558.5762,495.9973,425.4855,365.373,291.9182,243.8312,55.4057,35.731,84.5132,145.2824,196.9387,259.9747,323.6356,428.4463,533.5542,648.4499,802.8027,960.4727,1125.194,1263.0187,1444.3698,1641.4144,1877.9261,2144.8425,2508.5859,2898.2715,3320.0117,3812.344,4261.9062,4286.2993,3942.8728,3507.4626,3198.5085,2806.7473,2416.54,2491.4858,2382.4927,2086.3003,1769.1273,1697.835,1664.2417,1591.8492,1462.8108,1320.7881,1211.4305,2080.1885,768.5452,378.9069,194.7085,95.9308,176.2132,558.8911,2007.995,1980.5488,1774.6514,1607.4087,1502.889,1700.1951,1823.7572,1892.8568,2012.2371,328.2495,31.3484,355.1856,617.2205,1039.0536,1717.9138,1980.67,2168.9146]],"R":[[0.0,0.02,0.04,0.06,0.08,0.1,0.12,0.14,0.16,0.18,0.2,0.22,0.24,0.26,0.28,0.3,0.32,0.34,0.36,0.38,0.4,0.42,0.44,0.46,0.48,0.5,0.52,0.54,0.56,0.58,0.6,0.62,0.64,0.66,0.68,0.7,0.72,0.74,0.76,0.78,0.8,0.82,0.84,0.86,0.88,0.9,0.92,0.94,0.96,0.98,1.0,1.02,1.04,1.06,1.08,1.1,1.12,1.14,1.16,1.18,1.2,1.22,1.24,1.26,1.28,1.3,1.32,1.34,1.36,1.38,1.4,1.42,1.44,1.46,1.48,1.5,1.52,1.54,1.56,1.58,1.6,1.62,1.64,1.66,1.68,1.7,1.72,1.74,1.76,1.78,1.8,1.82,1.84,1.86,1.88,1.9,1.92,1.94,1.96,1.98,2.0,2.02,2.04,2.06,2.08,2.1,2.12,2.14,2.16,2.18,2.2,2.22,2.24,2.249,2.25,2.27,2.29,2.31,2.33,2.35,2.37,2.39,2.41,2.43,2.45,2.47,2.49,2.51,2.53,2.55,2.57,2.59,2.61,2.63,2.65,2.67,2.69,2.71,2.73,2.75,2.77,2.79,2.81,2.83,2.85,2.87,2.89,2.91,2.93,2.95,2.97,2.99,3.01,3.03,3.05,3.07,3.09,3.11,3.13,3.15,3.17,3.19,3.21,3.23,3.25,3.27,3.29,3.31,3.33,3.35,3.37,3.39,3.41,3.43,3.45,3.47,3.49,3.51,3.53,3.55,3.57,3.59,3.61,3.63,3.65,3.67,3.69,3.71,3.73,3.75,3.77,3.79,3.81,3.83,3.85,3.87,3.89,3.91,3.93,3.95,3.97,3.99,4.01,4.03,4.05,4.07,4.09,4.11,4.13,4.15,4.17,4.19,4.21,4.23,4.25,4.27,4.29,4.31,4.33,4.35,4.37,4.39,4.41,4.43,4.45,4.47,4.49,4.499,4.5],[0.429,0.4534,0.5526,0.6084,0.6272,0.7209,0.6354,0.6369,0.6137,0.6488,0.5986,0.6623,0.6749,0.6443,0.5972,0.6259,0.6066,0.6072,0.7092,0.6203,0.7308,0.6632,0.6479,0.6218,0.6057,0.6551,0.6405,0.6244,0.5691,0.5451,0.6739,0.6098,0.4993,0.6012,0.6194,0.5052,0.6546,0.4871,0.581,0.5106,0.4987,0.5148,0.3998,0.3363,0.2856,0.2933,0.2995,0.2734,0.3166,0.3158,0.2571,0.2857,0.314,0.2625,0.2526,0.3039,0.307,0.27,0.2771,0.2812,0.2423,0.2528,0.2794,0.276,0.2506,0.2592,0.2862,0.2495,0.2642,0.2783,0.2533,0.2334,0.2686,0.2638,0.2543,0.2677,0.271,0.2465,0.2734,0.2558,0.2463,0.2691,0.2896,0.2416,0.2724,0.2921,0.2497,0.2627,0.2998,0.2623,0.2581,0.3074,0.2722,0.2495,0.2831,0.2816,0.3139,0.3216,0.2827,0.2824,0.3052,0.3114,0.3205,0.3182,0.3264,0.3107,0.3117,0.3162,0.3271,0.3209,0.3313,0.3268,0.3033,0.312,0.2408,0.2448,0.3123,0.3286,0.3208,0.3354,0.3415,0.3689,0.4136,0.3706,0.3621,0.4341,0.3803,0.416,0.4575,0.421,0.4716,0.5124,0.6738,0.6236,0.6306,0.6877,0.735,0.7538,0.8486,1.2535,0.9068,1.3737,1.3841,1.4028,1.4186,1.4468,1.4241,1.4725,1.3524,0.9164,0.8995,1.3902,1.4256,1.4496,1.4342,0.9027,1.3861,1.4086,1.4137,0.9291,0.8934,1.3978,0.8858,0.8607,0.8753,1.2916,1.3914,0.869,0.8722,0.8794,1.3694,1.2991,1.2968,0.8488,0.8462,1.3052,0.8739,1.3251,0.8801,1.3852,1.3473,1.4246,1.3251,0.9056,1.4157,1.2086,0.9112,0.6224,0.654,0.6691,0.5978,0.6185,0.5044,0.6026,0.6153,0.5177,0.4502,0.5336,0.5651,0.5038,0.6502,0.6723,0.6276,0.6477,0.5411,0.5552,0.7534,0.6058,0.8403,0.6359,0.9291,1.1091,1.3134,1.393,1.2841,0.8722,0.8317,0.9553,0.5946,0.423,0.3217,0.3552,0.3284,0.3114,0.3038,0.3507,0.3835,0.377,0.2412],[0.0918,0.0918,0.0919,0.092,0.0922,0.0925,0.0929,0.0933,0.0937,0.0943,0.0948,0.0955,0.0963,0.0971,0.0979,0.0991,0.1,0.1014,0.1028,0.104,0.1061,0.1081,0.1113,0.1151,0.1188,0.1226,0.1276,0.1361,0.1665,0.2147,0.2914,0.4334,0.7121,1.3631,3.2914,9.0571,14.7656,17.36,20.3386,23.7414,27.9949,32.442,37.7601,43.9784,49.987,50.6683,43.325,23.5504,19.4474,35.7599,46.326,50.5119,46.1321,36.6341,27.2721,31.1002,39.3506,46.6501,49.2747,42.8208,32.1124,24.2325,29.0774,38.0241,45.4796,46.3492,39.245,29.7986,25.8833,31.6889,38.5779,43.6982,41.2953,34.3608,25.6835,24.9709,32.1988,39.0899,40.675,33.3933,24.4224,22.3036,29.081,37.065,41.3081,36.0789,24.8899,20.6393,25.6936,35.0026,42.911,39.7062,29.4335,21.0464,25.3766,36.2877,58.8712,94.719,139.3105,211.6142,294.5803,382.0706,497.3002,606.5166,754.7863,911.2406,1077.7783,1228.9255,1424.3926,1623.3376,1801.7207,2011.6943,2253.3491,2318.0454,2400.1641,2551.8101,2855.6133,3103.0723,3078.6812,3072.3965,3104.3245,3328.0537,3585.2783,3577.2812,3527.9683,3503.4314,3484.1362,3322.3979,3263.3105,3423.3521,3750.3203,4079.4639,4201.4219,4290.3354,4451.7153,4589.8633,4630.6279,4390.9526,4105.814,4003.6851,4112.918,4463.7275,4937.5078,4971.897,4960.5156,4986.3247,4882.7715,5038.9463,5036.0728,5038.4282,5320.2837,5476.2773,5488.502,5389.6509,5486.1367,5370.8921,5363.4092,5489.73,5498.6328,5683.1123,5553.3076,5753.9731,5715.1465,5663.1499,5708.0039,5698.4453,5724.292,5558.1958,5585.1836,5525.8774,5471.25,5015.9844,4561.8853,4265.1484,4605.835,4901.894,5141.6416,5420.5332,5415.9097,4987.2061,4832.4614,4854.8735,4754.9375,4581.6855,4289.4043,3922.1929,3903.9834,4243.377,4722.6104,4988.0283,4936.9297,4642.9785,4609.5117,4527.7334,4553.0532,4553.9585,4623.0688,4637.6318,4605.9883,4637.7886,4604.394,4322.6382,4341.396,4196.96,4181.9907,4305.749,4071.6545,3986.76,4511.042,5138.3271,5731.8853,5744.3467,5294.9736,5013.4121,4492.9263,3933.3718,3397.1707,2858.8711,2188.0957,1390.0193,868.6879,1023.0057,1076.6793,957.3967,1058.3301,1569.9922,2493.842,2732.9265,3030.05]]};
 
 const LOGF=t=>t>=1e3?(t/1e3)+'k':(t<1?t.toString():''+t);
@@ -523,7 +557,7 @@ ep('h1',[
   {j:'46936382',color:'--s8'},
   {j:'46869813',color:'--s1',tag:'0.1'},
   {j:'46943427',color:'--s2',tag:'skip'},
-],{W:620,H:330,x1:9,xticks:[0,1,2,3,4,5,6,7,8,9]});
+],{W:620,H:400,x1:9,xticks:[0,1,2,3,4,5,6,7,8,9]});
 
 /* slide 2 */
 ep('p2',[
@@ -532,7 +566,7 @@ ep('p2',[
   {j:'46860759',color:'--s8',x1:10},
 ],{W:620,H:330,x1:17,xticks:[0,3,6,9,12,15]});
 
-/* slide 3: z-swap bars */
+/* slide 4: z-swap bars */
 barChart(document.getElementById('p3'),{W:560,H:440,ymax:600,yticks:[0,200,400,600],fmt:t=>t+'%',bars:[
   {name:'control',v:369.6,lbl:'+370%',color:'--s1'},
   {name:'no SIGReg',v:369.7,lbl:'+370%',color:'--s1'},
@@ -543,7 +577,7 @@ barChart(document.getElementById('p3'),{W:560,H:440,ymax:600,yticks:[0,200,400,6
   {name:'tri s2',v:0.0,lbl:'−0.0%',color:'--ink2'},
   {name:'pair s1',v:0.0,lbl:'+0.0%',color:'--ink2'}]});
 
-/* slide 4: replay vs control */
+/* slide 3: replay vs control */
 lineChart(document.getElementById('p4a'),{W:560,H:300,xmin:0,xmax:4.5,ymin:0.05,ymax:10000,log:true,
   yticks:[0.1,1,10,100,1000,10000],fmt:LOGF,xticks:[0,1,2,3,4],vlines:[0.8],xlab:'k micro-batches',
   series:[{color:'--s5',xs:TR.C[0],data:TR.C[2],width:1.4},
@@ -558,12 +592,10 @@ const G={W:400,H:420,x1:9,xticks:[0,3,6,9]};
 ep('p5a',[
   {j:'46860758',color:'--ink2'},
   {j:'46869812',color:'--s4'},
-  {j:'46883974',color:'--s3',tag:'mask'},
   {j:'46869813',color:'--s1',tag:'0.1'},
 ],G);
 ep('p5b',[
   {j:'46860759',color:'--ink2',x1:9},
-  {j:'46883975',color:'--s3'},
   {j:'46936382',color:'--s1'},
 ],G);
 ep('p5c',[
@@ -588,6 +620,14 @@ ep('p7a',[{j:'46883975',color:'--ink2'},{j:'46883974',color:'--s1',tag:'sum'},{j
 ep('p7b',[{j:'46883975',key:'comp',color:'--ink2'},{j:'46883974',key:'comp',color:'--s1',tag:'sum'},{j:'46937610',key:'comp',color:'--s2',tag:'skip'}],C7);
 ep('p7c',[{j:'46936382',color:'--ink2'},{j:'46869813',color:'--s1',tag:'sum'},{j:'46943427',color:'--s2',tag:'skip'}],G7);
 ep('p7d',[{j:'46936382',key:'comp',color:'--ink2'},{j:'46869813',key:'comp',color:'--s1',tag:'sum'},{j:'46943427',key:'comp',color:'--s2',tag:'skip'}],C7);
+
+/* slide 8: compose vs compose_skip vs compose + direct (Jean Zay) */
+const G8={W:400,H:235,x1:31,xticks:[0,10,20,30],log:true,ymin:0.008,ymax:0.16,yticks:[0.01,0.02,0.04,0.08,0.16],fmt:t=>''+t};
+const A8=k=>[{j:'575545',key:k,color:'--s1',tag:'sum'},{j:'575546',key:k,color:'--s2',tag:'skip'},{j:'575547',key:k,color:'--s3',tag:'dir'}];
+ep('p8a',A8('rec'),G8);
+ep('p8b',A8('comp'),G8);
+ep('p8c',A8('nurec'),G8);
+ep('p8d',A8('nucomp'),G8);
 
 </script>
 </body>
