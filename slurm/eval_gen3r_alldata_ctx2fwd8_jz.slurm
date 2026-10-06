@@ -51,5 +51,7 @@ srun python eval_gen3r.py \
     --ckpt "$CKPT" \
     --ctx_mode "$CTX_MODE" \
     --slot_step "$SLOT_STEP" \
+    --shard "${SLURM_ARRAY_TASK_ID:-0}" \
+    --num_shards "${NUM_SHARDS:-1}" \
     --output_dir "$OUTPUT_DIR" \
     ${EXTRA_ARGS:-}

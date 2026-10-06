@@ -82,6 +82,8 @@ def get_args_parser() -> argparse.ArgumentParser:
     parser.add_argument("--verbose_batches", type=int, default=1,
                         help="Print per-window scales for the first N batches of each set.")
     parser.add_argument("--seed", type=int, default=42)
+    parser.add_argument("--shard", type=int, default=0, help="Slurm array task: windows n with n %% num_shards == shard.")
+    parser.add_argument("--num_shards", type=int, default=1)
     parser.add_argument("--output_dir", type=str, default="results/gen3r_alldata_ctx2fwd8")
     return parser
 
@@ -240,6 +242,9 @@ def main() -> None:
         n_fallback, n_items = 0, 0
         t0 = time.time()
         for it, raw in enumerate(loader):
+            if it % args.num_shards != args.shard:  # another array task's window
+                continue
+            torch.manual_seed(args.seed + it)  # DA3's quantile draw per window, same whatever the split
             batch = batcher._normalize_batch(raw)
             imgs = batch["imgs"].to(device, non_blocking=True)                          # (1, T, 3, H, W) DA3-normed
             B, T, _, H, W = imgs.shape
@@ -261,16 +266,16 @@ def main() -> None:
             depth = depth * scale[:, None, None, None]                                     # (1, T, H, W) metres
             c2w[..., :3, 3] *= scale[:, None, None]                                        # (1, T, 4, 4)
             point = convert_depth_to_point_cloud(depth, K, c2w)                            # (1, T, H, W, 3) frame-0 coords
-            save_windows(set_dir, n_items, depth, point, c2w, batch)
+            save_windows(set_dir, it, depth, point, c2w, batch)                           # B = 1, so it = window index
             n_items += B
             n_fallback += int(fallback.sum())
 
-            if it < args.verbose_batches:
+            if n_items <= args.verbose_batches:
                 print(f"[DBG/{test_name}] x01 [{x01.min():.3f}, {x01.max():.3f}]  gen3r in {hw}  slots {slots} of "
                       f"{n_slots}  ctx {args.ctx_mode}  peak mem {torch.cuda.max_memory_allocated() / 2**30:.1f} GiB",
                       flush=True)
                 print(f"[DBG/{test_name}] s_da3 {scale.tolist()}  fallback {fallback.tolist()}", flush=True)
-            if it % 50 == 0:
+            if n_items % 50 == 1:
                 print(f"[INFO] {test_name}: {n_items} windows, {(time.time() - t0) / n_items:.2f} s/window",
                       flush=True)
 
