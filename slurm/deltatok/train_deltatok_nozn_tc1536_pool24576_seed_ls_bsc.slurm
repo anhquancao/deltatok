@@ -46,7 +46,7 @@ export SIGREG_POOL_SAMPLES=${SIGREG_POOL_SAMPLES:-24576}  # as BSC:45727710
 export SIGREG_WARMUP=${SIGREG_WARMUP:-0}                 # anchor on from step 0
 
 # ${RUN_NAME:-} so the eval-only ladder can point at a fresh dir instead of resuming this arm.
-export RUN_NAME=${RUN_NAME:-deltatok_l12_dtok64_tc1536_nozn_maxgap9_vpt1to2_sigreg${SIGREG_WEIGHT}_ns${SIGREG_NUM_SLICES}_pool${SIGREG_POOL_SAMPLES}_compose${COMPOSE_WEIGHT}_decnoise${DECNOISE_TAU}_sw${SIGREG_WARMUP}_seed${INIT_SEED}_rclip${Z_ROW_CLIP}_ls${LAYER_SCALE_INIT}}
+export RUN_NAME=${RUN_NAME:-deltatok_l12_dtok64_tc1536_nozn_maxgap9_vpt1to2_sigreg${SIGREG_WEIGHT}_ns${SIGREG_NUM_SLICES}_pool${SIGREG_POOL_SAMPLES}_compose${COMPOSE_WEIGHT}_sw${SIGREG_WARMUP}_seed${INIT_SEED}_ls${LAYER_SCALE_INIT}_3pairs}
 
 EXTRA_CFG_ARGS=(
     model.deltatok.num_delta_tokens=64         # K delta tokens/camera (~12:1 compression at full res)
