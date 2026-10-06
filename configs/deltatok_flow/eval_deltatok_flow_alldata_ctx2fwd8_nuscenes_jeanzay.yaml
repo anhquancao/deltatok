@@ -1,0 +1,15 @@
+defaults:
+  - train_deltatok_flow_alldata_ctx2fwd8_bsc  # supplies training.* only; test roots below are JZ
+  - _self_
+
+# nuScenes val only; same draws as the 3-set config (RNG re-seeded per set).
+# The '<n> @' prefix is overridden by eval_deltatok_flow_sampler.py --num_items.
+dataset:
+  test_dataset: "2000 @ Occ3dNuscenesSeqMultiView(NUSCENES_PREPROCESSED_ROOT='/lustre/fsn1/projects/rech/trg/uyl37fq/occany_dataset/occ3d_nuscenes_val_preprocessed', \
+      seq_pkl_name='seq_surround_temporal_sub1_stride9_fs1_occ3d_nuscenes_val_all.pkl', \
+      num_timesteps=10, num_views_per_timestep=6, fixed_cams=[0], \
+      z_far=50, split='val', seed=42, window_stride=2, \
+      resolution=[(518, 266)])"
+
+training:
+  eval_num_items: 2000   # default 256 would cut the set

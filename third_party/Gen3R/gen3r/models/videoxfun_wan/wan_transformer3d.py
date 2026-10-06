@@ -2,6 +2,7 @@
 # Copyright 2024-2025 The Alibaba Wan Team Authors. All rights reserved.
 
 import glob
+import inspect
 import json
 import math
 import os
@@ -31,7 +32,7 @@ from .wan_camera_adapter import SimpleAdapter
 
 try:
     import flash_attn_interface  # type: ignore
-    FLASH_ATTN_3_AVAILABLE = True
+    FLASH_ATTN_3_AVAILABLE = "seqused_q" in inspect.signature(flash_attn_interface.flash_attn_varlen_func).parameters  # JZ's 3.0.0b1 predates it
 except ModuleNotFoundError:
     FLASH_ATTN_3_AVAILABLE = False
 

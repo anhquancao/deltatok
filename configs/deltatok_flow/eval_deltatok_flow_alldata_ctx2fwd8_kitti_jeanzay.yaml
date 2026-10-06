@@ -1,0 +1,15 @@
+defaults:
+  - train_deltatok_flow_alldata_ctx2fwd8_bsc  # supplies training.* only; test roots below are JZ
+  - _self_
+
+# KITTI val only; same draws as the 3-set config (RNG re-seeded per set).
+# The '<n> @' prefix is overridden by eval_deltatok_flow_sampler.py --num_items.
+dataset:
+  test_dataset: "2000 @ KittiSeqMultiView(KITTI_PREPROCESSED_ROOT='/lustre/fsn1/projects/rech/trg/uyl37fq/occany_dataset/kitti_processed', \
+      seq_pkl_name='seq_exact_len_sub5_stride9.pkl', \
+      num_timesteps=10, fixed_cams=[0], \
+      z_far=50, split='val', seed=42, window_stride=2, \
+      resolution=[(518, 168)])"
+
+training:
+  eval_num_items: 2000   # default 256 would cut the set
