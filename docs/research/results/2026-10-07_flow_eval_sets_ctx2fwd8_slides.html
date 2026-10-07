@@ -1,0 +1,437 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Three driving test sets, 6,413 windows: 2 frames in, the next 8 out, 0.5 s apart · all-data ctx2fwd8 eval sets</title>
+<style>
+/* ---------- tokens · light only, white slides (no dark variant by request) ---------- */
+:root{
+  color-scheme: light only;
+  --backdrop:#e9e9e6; --page:#f7f7f6; --surface:#ffffff;
+  --ink:#0b0b0b; --ink2:#52514e; --muted:#83817c;
+  --grid:#e4e4de; --axis:#c3c2b7; --border:rgba(11,11,11,.12);
+  --s1:#2a78d6; --s2:#eb6834; --s3:#1baf7a; --s4:#eda100;
+  --s5:#e87ba4; --s6:#008300; --s7:#4a3aa7; --s8:#e34948;
+  --good:#0ca30c; --crit:#d03b3b; --serious:#ec835a;
+  --accent:var(--s1);
+  --serif:"Iowan Old Style","Palatino Linotype",Palatino,Georgia,serif;
+  --sans:system-ui,-apple-system,"Segoe UI",sans-serif;
+  --mono:ui-monospace,"Cascadia Code",Menlo,Consolas,monospace;
+}
+/* ---------- deck chrome ---------- */
+*{box-sizing:border-box;margin:0}
+html,body{height:100%}
+body{background:var(--backdrop);color:var(--ink);font:15px/1.45 var(--sans);overflow:hidden}
+.stage{position:absolute;left:50%;top:50%;width:1280px;height:720px;transform-origin:center center}
+.slide{position:absolute;inset:0;background:var(--surface);border:1px solid var(--border);
+  padding:52px 64px 44px;display:none;flex-direction:column}
+.slide.on{display:flex}
+.eyebrow{font:600 12px/1 var(--mono);letter-spacing:.14em;text-transform:uppercase;color:var(--accent);margin-bottom:14px}
+.eyebrow .dim{color:var(--muted)}
+h1{font:400 46px/1.15 var(--serif);letter-spacing:-.01em;text-wrap:balance}
+h2{font:400 32px/1.2 var(--serif);letter-spacing:-.005em;text-wrap:balance;margin-bottom:6px}
+.sub{color:var(--ink2);font-size:15.5px;max-width:74ch;margin-top:10px}
+.body{flex:1;min-height:0;margin-top:22px}
+.foot{display:flex;justify-content:space-between;align-items:baseline;color:var(--muted);
+  font:11px/1 var(--mono);letter-spacing:.06em;margin-top:16px;border-top:1px solid var(--grid);padding-top:12px}
+.pageno{font-variant-numeric:tabular-nums}
+/* nav */
+.nav{position:fixed;left:50%;bottom:14px;transform:translateX(-50%);display:flex;gap:8px;align-items:center;z-index:5}
+.nav button{width:9px;height:9px;border-radius:50%;border:1px solid var(--muted);background:transparent;cursor:pointer;padding:0}
+.nav button.cur{background:var(--accent);border-color:var(--accent)}
+.nav button:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+.arr{position:fixed;top:50%;transform:translateY(-50%);z-index:5;border:1px solid var(--border);
+  background:var(--surface);color:var(--ink2);width:34px;height:56px;cursor:pointer;font-size:18px;border-radius:4px}
+.arr:hover{color:var(--ink)}
+#prev{left:10px}#next{right:10px}
+/* ---------- shared bits ---------- */
+.mono{font-family:var(--mono)}
+.num{font-variant-numeric:tabular-nums}
+.chip{display:inline-block;font:600 10.5px/1 var(--mono);letter-spacing:.05em;padding:4px 7px;border-radius:3px;
+  border:1px solid var(--border);white-space:nowrap}
+.chip.good{color:var(--good);border-color:currentColor}
+.chip.wall{color:var(--serious);border-color:currentColor}
+.chip.dead{color:var(--crit);border-color:currentColor}
+.chip.hero{color:var(--accent);border-color:currentColor}
+.sw{display:inline-block;width:10px;height:10px;border-radius:2px;vertical-align:-1px}
+.cols{display:grid;gap:30px;min-height:0}
+.c2{grid-template-columns:1fr 1fr}
+.c3{grid-template-columns:1fr 1fr 1fr}
+.c4{grid-template-columns:1fr 1fr 1fr 1fr}
+.c5{grid-template-columns:repeat(5,1fr)}
+.c58{grid-template-columns:1.25fr 1fr}
+.card{border:1px solid var(--grid);border-radius:6px;padding:15px 17px;background:var(--page)}
+.card h3{font:600 14px/1.3 var(--sans);margin:6px 0}
+.card .tag{font:600 10px/1 var(--mono);letter-spacing:.1em;text-transform:uppercase;color:var(--muted)}
+ul.tight{padding-left:18px;display:flex;flex-direction:column;gap:8px;font-size:14px;color:var(--ink2)}
+ul.tight li{padding-left:2px}
+ul.tight strong{color:var(--ink);font-weight:600}
+table{border-collapse:collapse;width:100%;font-size:12.5px}
+th{font:600 10.5px/1.3 var(--mono);letter-spacing:.08em;text-transform:uppercase;color:var(--muted);
+  text-align:left;padding:6px 10px;border-bottom:1px solid var(--axis)}
+td{padding:6px 10px;border-bottom:1px solid var(--grid);color:var(--ink2);vertical-align:top}
+td.n,th.n{text-align:right;font-variant-numeric:tabular-nums}
+td b{color:var(--ink);font-weight:600}
+tr.hl td{background:color-mix(in srgb,var(--s1) 9%,transparent)}
+tr.dim td{color:var(--muted)}
+tr.sep td{border-top:2px solid var(--axis)}
+td.bad{color:var(--crit);font-weight:600}
+td.ok{color:var(--good);font-weight:600}
+/* stat tiles */
+.tiles{display:grid;gap:13px}
+.tile{border:1px solid var(--grid);border-radius:6px;padding:13px 15px;background:var(--page)}
+.tile .v{font:600 26px/1.1 var(--sans);letter-spacing:-.01em;font-variant-numeric:tabular-nums}
+.tile .k{font:600 10px/1.4 var(--mono);letter-spacing:.1em;text-transform:uppercase;color:var(--muted);margin-bottom:6px}
+.tile .d{font-size:12.5px;color:var(--ink2);margin-top:6px}
+.rulebar{border:1px dashed var(--axis);border-radius:6px;padding:11px 15px;font-size:13.5px;color:var(--ink2);margin-top:12px}
+.rulebar b{color:var(--ink)}
+/* charts */
+.chartwrap{position:relative}
+.panelttl{font:600 10px/1 var(--mono);letter-spacing:.1em;text-transform:uppercase;color:var(--muted);margin-bottom:4px}
+.legend{display:flex;flex-wrap:wrap;gap:6px 20px;font:12.5px/1 var(--sans);color:var(--ink2);margin-bottom:8px}
+.legend span{display:inline-flex;gap:7px;align-items:center}
+svg{display:block}
+svg text{font:10.5px var(--sans);fill:var(--muted)}
+svg .barlbl{font:600 12px var(--sans);fill:var(--ink)}
+svg .barval{font:10px var(--mono);fill:var(--ink2)}
+svg .axl{font:10px var(--mono);fill:var(--muted)}
+.slide kbd{font:11px var(--mono);border:1px solid var(--axis);border-radius:3px;padding:1px 5px;color:var(--ink2)}
+@media (prefers-reduced-motion: no-preference){
+  .slide.on{animation:fadein .18s ease}
+  @keyframes fadein{from{opacity:.4}to{opacity:1}}
+}
+@media print{
+  body{overflow:visible;background:#fff}
+  .stage{position:static;transform:none!important;width:auto;height:auto}
+  .slide{display:flex;position:static;width:1280px;height:720px;page-break-after:always;margin:0 auto}
+  .nav,.arr{display:none}
+}
+/* 3x4 sweep grid */
+.g34{display:grid;grid-template-columns:92px repeat(4,1fr);gap:4px 14px;align-content:start}
+.rowlbl{font:12.5px/1.4 var(--sans);color:var(--muted);align-self:center}
+.rowlbl b{color:var(--ink);font-size:14px}
+#sets{font-size:12.5px}#sets td,#sets th{padding:5px 10px}
+</style>
+</head>
+<body>
+<div class="stage" id="stage">
+
+<!-- ============ SLIDE 1 — answer ============ -->
+<section class="slide on">
+  <div class="eyebrow">Evaluation sets <span class="dim">— all-data ctx2fwd8 forecasting benchmark · as used since 2026-09-30</span></div>
+  <h1>Three driving test sets, 6,413 windows: 2 frames in, the next 8 out, 0.5 s apart</h1>
+  <p class="sub">Every window is 10 consecutive front-camera frames spanning 4.5 s. The model sees frames 0–1 and forecasts frames 2–9, up to 4 s ahead.
+    Scoring uses each frame's LiDAR depth and its pose, both in metric units, with no fit or alignment.</p>
+  <div class="body">
+    <div class="cols c3" style="gap:15px">
+      <div class="tile"><div class="k">KITTI odometry · seq 08</div><div class="v">2,013 windows</div><div class="d">1 drive, every 2nd start frame. Zero-shot for our model: no real KITTI in training (Virtual KITTI is synthetic).</div></div>
+      <div class="tile"><div class="k">nuScenes · val split</div><div class="v">2,382 windows</div><div class="d">150 scenes at the 2 Hz keyframes, every 2nd start frame. Zero-shot for our model: no nuScenes in training.</div></div>
+      <div class="tile"><div class="k">Waymo Open · val split, our test</div><div class="v">2,018 windows</div><div class="d">202 segments, a start every 16 frames (1.6 s). Same sensor as training, disjoint segments.</div></div>
+    </div>
+    <div class="rulebar" style="margin-top:18px"><b>Sized so the set, not the sample, limits the error.</b> At ~2,000 windows the standard error of the mean
+      is 1.5–3.0% of the mean and within 0.2 pp of the full split; KITTI cannot go below ~2.2% because it is one drive.</div>
+    <p class="sub" style="margin-top:14px;font-size:13.5px"><kbd>←</kbd> <kbd>→</kbd> to navigate ·
+      configs <span class="mono">configs/deltatok_flow/eval_deltatok_flow_alldata_ctx2fwd8_{kitti,nuscenes,waymotest}_bsc.yaml</span> ·
+      calibration <a href="2026-09-30_flow_eval_window_stride_calib_slides.html">deck</a>.</p>
+  </div>
+  <div class="foot"><span>Evaluation sets · all-data ctx2fwd8 · 07-10-2026</span><span>6,413 windows · 51,304 forecast frames</span><span class="pageno">1</span></div>
+</section>
+
+<!-- ============ SLIDE 2 — window anatomy ============ -->
+<section class="slide">
+  <div class="eyebrow">One window <span class="dim">— identical across sets and models</span></div>
+  <h2>10 frames at 0.5 s: 2 context frames, 8 forecast frames from 0.5 to 4.0 s ahead</h2>
+  <div class="body" style="margin-top:12px">
+    <div id="timeline"></div>
+    <div class="cols c3" style="gap:15px;margin-top:14px">
+      <div class="card"><div class="tag">Input</div><h3>RGB of frames 0–1</h3><p style="font-size:13px;color:var(--ink2)">Front camera only (<span class="mono">fixed_cams=[0]</span>), resized to cover 518 px wide and centre-cropped: 518×168 on KITTI, 518×266 on nuScenes and Waymo.</p></div>
+      <div class="card"><div class="tag">Ground truth, every frame</div><h3>LiDAR depth and camera pose</h3><p style="font-size:13px;color:var(--ink2)">Sparse depth from LiDAR points projected into the frame, valid where 0 &lt; z &lt; 50 m. Camera-to-world pose, expressed relative to frame 0.</p></div>
+      <div class="card"><div class="tag">Scored</div><h3>Frames 2–9 only</h3><p style="font-size:13px;color:var(--ink2)">Depth, points, Chamfer and camera path are averaged over the 8 forecast frames of every window, then over windows.</p></div>
+    </div>
+  </div>
+  <div class="foot"><span>occany/datasets/base_seq_dataset.py:178-199 (window) · :276-288 (poses relative to frame 0)</span><span class="pageno">2</span></div>
+</section>
+
+<!-- ============ SLIDE 3 — per-set table ============ -->
+<section class="slide">
+  <div class="eyebrow">The three sets <span class="dim">— source, sampling and ground truth</span></div>
+  <h2>Same window on three sensor rigs; only the raw frame rate and the LiDAR differ</h2>
+  <div class="body" style="margin-top:12px">
+    <table id="sets">
+      <thead><tr><th></th><th>KITTI</th><th>nuScenes</th><th>Waymo test</th></tr></thead>
+      <tbody>
+        <tr class="hl"><td><b>Split</b></td><td>odometry seq 08 (1 drive)</td><td>official val, 150 scenes</td><td>official val (v1.4.2), 202 segments</td></tr>
+        <tr><td><b>Raw rate → 0.5 s</b></td><td>10 Hz, every 5th frame</td><td>2 Hz keyframes, consecutive</td><td>10 Hz, every 5th frame</td></tr>
+        <tr><td><b>Camera</b></td><td>left colour (image_2)</td><td>CAM_FRONT</td><td>FRONT</td></tr>
+        <tr><td><b>Native → eval size</b></td><td>~1226×370 † → 518×168</td><td>1600×900 † → 518×266</td><td>1920×1280 † → 518×266</td></tr>
+        <tr><td><b>Depth GT</b></td><td>Velodyne HDL-64E † · one scan per frame ‡</td><td>LIDAR_TOP keyframe sweep, nearest point per pixel</td><td>all 5 LiDARs, first return, Waymo's own camera projections</td></tr>
+        <tr><td><b>Pose GT</b></td><td>odometry poses ‡</td><td>ego pose × camera extrinsic (Occ3D)</td><td>vehicle pose × camera extrinsic</td></tr>
+        <tr class="sep"><td><b>All windows</b> (start every frame)</td><td class="n">4,026</td><td class="n">4,669</td><td class="n">30,897</td></tr>
+        <tr><td><b>window_stride</b></td><td class="n">2 frames · 1.0 s</td><td class="n">2 frames · 1.0 s</td><td class="n">16 frames · 1.6 s</td></tr>
+        <tr class="hl"><td><b>Windows scored</b></td><td class="n"><b>2,013</b></td><td class="n"><b>2,382</b></td><td class="n"><b>2,018</b></td></tr>
+      </tbody>
+    </table>
+    <div class="rulebar">All three: depth masked outside 0 &lt; z &lt; 50 m, never densified or clipped; metric scale (<span class="mono">is_metric_scale</span>).
+      † dataset specification, not re-measured in our pipeline. ‡ from OccAny's KITTI loader; the script that wrote <span class="mono">kitti_processed</span> is not in the repo. Window stride is in raw frame ids: 10 Hz ids for KITTI and Waymo, keyframe ids for nuScenes.</div>
+  </div>
+  <div class="foot"><span>kitti_pairs.py:19-25 · nuscenes_pairs.py:33-76 · waymo.py:25-26 · preprocess_nuscenes.py · preprocess_waymo.py</span><span class="pageno">3</span></div>
+</section>
+
+<!-- ============ SLIDE 4 — how windows are drawn ============ -->
+<section class="slide">
+  <div class="eyebrow">Window selection <span class="dim">— deterministic · no random subset</span></div>
+  <h2>Every window that fits is built, then thinned within each scene; the whole thinned split is scored</h2>
+  <div class="body cols c58" style="margin-top:14px;gap:28px">
+    <div>
+      <div class="panelttl">Windows per set · all start frames vs scored</div>
+      <div id="pool"></div>
+      <div class="panelttl" style="margin-top:14px">window_stride 2 within one scene · each bar is one 10-frame window</div>
+      <div id="stride"></div>
+    </div>
+    <div>
+      <ul class="tight" style="font-size:13.5px">
+        <li><strong>1 · Build.</strong> A window starts at every frame whose 10 slots all exist (<span class="mono">exact_len</span> / <span class="mono">fs1</span> pkls), so windows overlap by up to 9 frames.</li>
+        <li><strong>2 · Thin.</strong> Inside each scene, keep a window only if it starts at least <span class="mono">window_stride</span> frame ids after the last kept one (<span class="mono">base_seq_dataset.py:127-137</span>).</li>
+        <li><strong>3 · Score all.</strong> Evals pass <span class="mono">--num_items 1000000</span>, above any split, so nothing is subsampled. The loader's fixed permutation (seed 777) only sets the order.</li>
+        <li><strong>4 · Same for every model.</strong> DeltaTok, VGGT-World and Gen3R dump window <span class="mono">n</span> in loader order; the scorer checks names and masks match before scoring.</li>
+      </ul>
+      <div class="rulebar" style="margin-top:14px"><b>Overlap is kept on purpose.</b> At stride 2 neighbouring windows share frames, but the
+        standard error is computed with block bootstrap over shared frames, so it is not overstated (slide 5).</div>
+    </div>
+  </div>
+  <div class="foot"><span>easy_dataset.py:96-114 (order) · eval_deltatok_flow_sampler.py:180-187 (num_items) · occrae/forecast_dump.py (window index)</span><span class="pageno">4</span></div>
+</section>
+
+<!-- ============ SLIDE 5 — why ~2,000 ============ -->
+<section class="slide">
+  <div class="eyebrow">How many windows <span class="dim">— standard error of the mean as % of the mean · block bootstrap within scenes · ringed = chosen</span></div>
+  <h2>The error stops falling at ~400 KITTI and ~1,000–1,400 nuScenes / Waymo windows; ~2,000 is past the knee everywhere</h2>
+  <div class="legend" style="margin-top:10px"><span><i class="sw" style="background:var(--s3)"></i>Depth</span><span><i class="sw" style="background:var(--s2)"></i>Pointmap</span><span><i class="sw" style="background:var(--s8)"></i>Raymap</span></div>
+  <div class="body cols c3" style="gap:22px">
+    <div><div class="panelttl">KITTI · 1 drive</div><div id="se_k"></div></div>
+    <div><div class="panelttl">nuScenes · 150 scenes</div><div id="se_n"></div></div>
+    <div><div class="panelttl">Waymo test · 202 segments</div><div id="se_w"></div></div>
+  </div>
+  <div class="rulebar"><b>KITTI's floor is ~2.2%</b> whatever the count: windows from one drive are correlated. Adding more KITTI odometry
+    sequences (all unseen in training) is the way to lower it. Waymo's chosen point is read at 2,215 windows, the nearest measured count.</div>
+  <div class="foot"><span>BSC 46827530 / 31 / 32 · DeltaTok-flow ep 24, 20 steps · blocks of ⌈(span + 1) / stride⌉ windows, 1,000 resamples</span><span class="pageno">5</span></div>
+</section>
+
+<!-- ============ SLIDE 6 — what is held out ============ -->
+<section class="slide">
+  <div class="eyebrow">Held out <span class="dim">— DeltaTok-flow training data vs the test sets</span></div>
+  <h2>KITTI and nuScenes are zero-shot; Waymo test shares the sensor but no segment with training</h2>
+  <div class="body cols c58" style="margin-top:14px;gap:28px">
+    <div>
+      <table>
+        <thead><tr><th>training set</th><th class="n">windows / epoch</th><th>split</th></tr></thead>
+        <tbody>
+          <tr><td><b>Waymo Open</b></td><td class="n">32,000</td><td>train segments (<span class="mono">waymo_processed</span>)</td></tr>
+          <tr><td><b>ONCE</b></td><td class="n">32,000</td><td>train</td></tr>
+          <tr><td><b>DDAD</b></td><td class="n">30,000</td><td>train</td></tr>
+          <tr><td><b>Virtual KITTI</b></td><td class="n">20,000</td><td>train · synthetic</td></tr>
+          <tr><td><b>PandaSet</b></td><td class="n">14,000</td><td>train</td></tr>
+        </tbody>
+      </table>
+      <p class="sub" style="font-size:12.5px">Same 10-frame, 0.5 s windows, front camera. <span class="mono">configs/deltatok_flow/train_deltatok_flow_alldata_ctx2fwd8_bsc.yaml</span>.</p>
+    </div>
+    <div>
+      <table>
+        <thead><tr><th>test set</th><th>in DeltaTok training?</th></tr></thead>
+        <tbody>
+          <tr><td><b>KITTI seq 08</b></td><td class="ok">no · no real KITTI at all</td></tr>
+          <tr><td><b>nuScenes val</b></td><td class="ok">no · no nuScenes at all</td></tr>
+          <tr><td><b>Waymo test</b></td><td>same dataset, disjoint split</td></tr>
+        </tbody>
+      </table>
+      <div class="card" style="border-left:3px solid var(--serious);margin-top:16px">
+        <div class="tag">To confirm before the paper says "zero-shot" for everyone</div>
+        <ul class="tight" style="margin-top:8px;font-size:12.5px">
+          <li><strong>The frozen DA3 backbone</strong> and the tokenizer: their training data vs KITTI and nuScenes.</li>
+          <li><strong>VGGT-World <span class="mono">kitti.pt</span></strong> is trained on KITTI: which sequences, and is 08 among them.</li>
+          <li><strong>Gen3R</strong>: its training sets vs all three.</li>
+        </ul>
+      </div>
+    </div>
+  </div>
+  <div class="foot"><span>Waymo test = all 202 segments of the Waymo v1.4.2 validation split (slurm/preprocess_waymo_test_bsc.slurm)</span><span class="pageno">6</span></div>
+</section>
+
+<!-- ============ SLIDE 7 — hygiene ============ -->
+<section class="slide">
+  <div class="eyebrow">Data hygiene <span class="dim">— what was fixed, and what numbers it invalidates</span></div>
+  <h2>Eval numbers before 2026-09-30 are not comparable on KITTI or nuScenes</h2>
+  <div class="body cols c2" style="gap:26px;margin-top:14px">
+    <div>
+      <div class="card" style="border-left:3px solid var(--crit)">
+        <div class="tag">nuScenes rebuilt</div>
+        <h3>The first 8 val scenes mixed ~12 Hz sweeps into the 2 Hz keyframes</h3>
+        <p style="font-size:13px;color:var(--ink2)">scene-0003 and scene-0012 to 0018 in the old <span class="mono">occ3d_nuscenes_processed</span> folder. The val split was rebuilt from keyframes only as
+          <span class="mono">occ3d_nuscenes_val_preprocessed</span> (BSC). Windows in those scenes had the wrong time step.</p>
+      </div>
+      <div class="card" style="border-left:3px solid var(--serious);margin-top:14px">
+        <div class="tag">Window draw changed</div>
+        <h3>Thinning by window_stride replaced a capped random draw</h3>
+        <p style="font-size:13px;color:var(--ink2)">KITTI and nuScenes windows were re-drawn on 2026-09-30, so earlier scores came from different windows.</p>
+      </div>
+    </div>
+    <div>
+      <div class="card" style="border-left:3px solid var(--good)">
+        <div class="tag">Checks in place</div>
+        <ul class="tight" style="margin-top:8px;font-size:12.5px">
+          <li><strong>Same pkls on both clusters.</strong> KITTI and nuScenes val pkls md5-match between Jean Zay and BSC.</li>
+          <li><strong>Same windows for every model.</strong> The scorer asserts scene and frame names and the GT mask of each dumped window.</li>
+          <li><strong>One GPU per eval.</strong> The eval RNG is seeded per rank, so only same-GPU-count runs are compared.</li>
+          <li><strong>No alignment.</strong> Depth, points and poses are scored at metric scale; nothing is fitted to GT.</li>
+        </ul>
+      </div>
+    </div>
+  </div>
+  <div class="foot"><span>dataset_setup/nuscenes/preprocess_nuscenes.py · CLAUDE.md "Eval sets (changed 2026-09-30)"</span><span class="pageno">7</span></div>
+</section>
+
+<!-- ============ SLIDE 8 — paper text ============ -->
+<section class="slide">
+  <div class="eyebrow">For the paper <span class="dim">— draft wording, every number from slides 1–7</span></div>
+  <h2>Draft: evaluation protocol paragraph</h2>
+  <div class="body cols c58" style="margin-top:14px;gap:28px">
+    <div class="card" style="font:15px/1.6 var(--serif);color:var(--ink)">
+      We evaluate on three driving datasets: KITTI odometry sequence 08, the nuScenes validation split (150 scenes) and
+      the Waymo Open validation split (202 segments), which we hold out as a test set. Each sample is a window of
+      10 front-camera frames spaced 0.5 s apart (4.5 s); models observe the first two frames and forecast the remaining
+      eight, 0.5 to 4 s ahead. We build a window at every valid start frame and keep, within each scene, windows that start
+      at least 2 frames (KITTI, nuScenes) or 16 frames (Waymo) apart, yielding 2,013, 2,382 and 2,018 windows. At these sizes
+      the standard error of the mean, from a block bootstrap over windows that share frames, is 1.5–3.0% of the mean.
+      Depth is scored against projected LiDAR within 50 m and camera poses against the dataset poses, at metric scale and
+      without alignment. No real KITTI or nuScenes data is used to train our model.
+    </div>
+    <div>
+      <div class="card" style="border-left:3px solid var(--serious)">
+        <div class="tag">Before it goes in</div>
+        <ul class="tight" style="margin-top:8px;font-size:12.5px">
+          <li><strong>"No real KITTI or nuScenes"</strong> holds for our flow model; check DA3, the tokenizer and the baselines (slide 6).</li>
+          <li><strong>Native image sizes</strong> are dataset specs; the KITTI preprocessing script is not in the repo.</li>
+          <li><strong>KITTI is one drive.</strong> Say so, or add more odometry sequences.</li>
+          <li><strong>SE is a lower bound.</strong> Only frame sharing is modelled, not slower structure along a drive.</li>
+        </ul>
+      </div>
+    </div>
+  </div>
+  <div class="foot"><span>numbers: slides 1, 3, 5 · calibration deck 2026-09-30</span><span class="pageno">8</span></div>
+</section>
+
+</div><!-- /stage -->
+
+<button class="arr" id="prev" aria-label="Previous">‹</button>
+<button class="arr" id="next" aria-label="Next">›</button>
+<div class="nav" id="nav" role="tablist"></div>
+
+<script>
+/* ---------- deck nav ---------- */
+const stage=document.getElementById("stage");
+const slides=[...document.querySelectorAll(".slide")];
+const nav=document.getElementById("nav");
+let cur=0;
+slides.forEach((_,i)=>{
+  const b=document.createElement("button");
+  b.setAttribute("role","tab");b.setAttribute("aria-label","Slide "+(i+1));
+  b.addEventListener("click",()=>go(i));
+  nav.appendChild(b);
+});
+function go(i){
+  cur=Math.max(0,Math.min(slides.length-1,i));
+  slides.forEach((s,j)=>s.classList.toggle("on",j===cur));
+  [...nav.children].forEach((b,j)=>b.classList.toggle("cur",j===cur));
+}
+document.getElementById("prev").addEventListener("click",()=>go(cur-1));
+document.getElementById("next").addEventListener("click",()=>go(cur+1));
+addEventListener("keydown",e=>{
+  if(["ArrowRight","PageDown"," "].includes(e.key)){go(cur+1);e.preventDefault();}
+  else if(["ArrowLeft","PageUp"].includes(e.key)){go(cur-1);e.preventDefault();}
+  else if(e.key==="Home")go(0);
+  else if(e.key==="End")go(slides.length-1);
+});
+go(0);
+/* ---------- auto-scale ---------- */
+function fit(){
+  const s=Math.min(innerWidth/1300,(innerHeight-40)/730);
+  stage.style.transform=`translate(-50%,-50%) scale(${Math.min(s,1.4)})`;
+}
+addEventListener("resize",fit);fit();
+const CV=n=>getComputedStyle(document.documentElement).getPropertyValue(n).trim();
+
+/* ---------- slide 2: window timeline ---------- */
+(()=>{
+  const W=1150,H=150,L=20,cw=104,gap=8,T=34;
+  let s=`<svg viewBox="0 0 ${W} ${H}" width="100%">`;
+  for(let i=0;i<10;i++){
+    const x=L+i*(cw+gap), ctx=i<2;
+    const fill=ctx? CV('--s1') : CV('--page');
+    s+=`<rect x="${x}" y="${T}" width="${cw}" height="58" rx="5" fill="${fill}" stroke="${ctx?CV('--s1'):CV('--axis')}" stroke-width="1.4" ${ctx?'':'stroke-dasharray="5 3"'}/>`;
+    s+=`<text x="${x+cw/2}" y="${T+26}" text-anchor="middle" style="font:600 14px var(--sans);fill:${ctx?'#fff':CV('--ink')}">frame ${i}</text>`;
+    s+=`<text x="${x+cw/2}" y="${T+45}" text-anchor="middle" style="font:11px var(--mono);fill:${ctx?'#fff':CV('--muted')}">t = ${(i*0.5).toFixed(1)} s</text>`;
+    if(i>=2)s+=`<text x="${x+cw/2}" y="${T+80}" text-anchor="middle" class="barval">+${((i-1)*0.5).toFixed(1)} s</text>`;
+  }
+  const xb=L+2*(cw+gap);
+  s+=`<text x="${L}" y="${T-12}" style="font:600 11px var(--mono);letter-spacing:.08em;fill:${CV('--s1')}">GIVEN · CONTEXT</text>`;
+  s+=`<text x="${xb}" y="${T-12}" style="font:600 11px var(--mono);letter-spacing:.08em;fill:${CV('--ink2')}">FORECAST · SCORED (8 frames)</text>`;
+  s+=`<text x="${xb}" y="${T+102}" style="font:11px var(--mono);fill:${CV('--muted')}">horizon after the last given frame</text>`;
+  s+=`</svg>`;
+  document.getElementById('timeline').innerHTML=s;
+})();
+
+/* ---------- slide 4: pool vs scored bars ---------- */
+(()=>{
+  const rows=[['KITTI',4026,2013],['nuScenes',4669,2382],['Waymo test',30897,2018]];
+  const W=640,L=96,R=70,rh=40,H=rows.length*rh+8, mx=31000, X=v=>L+(W-L-R)*v/mx;
+  let s=`<svg viewBox="0 0 ${W} ${H}" width="100%">`;
+  rows.forEach(([n,a,b],i)=>{const y=4+i*rh;
+    s+=`<text x="${L-8}" y="${y+21}" text-anchor="end" class="barlbl">${n}</text>`;
+    s+=`<rect x="${L}" y="${y+4}" width="${X(a)-L}" height="13" fill="${CV('--grid')}"/>`;
+    s+=`<text x="${X(a)+6}" y="${y+14}" class="barval">${a.toLocaleString('en')} all</text>`;
+    s+=`<rect x="${L}" y="${y+19}" width="${X(b)-L}" height="13" fill="${CV('--s1')}"/>`;
+    s+=`<text x="${X(b)+6}" y="${y+29}" class="barval" style="fill:${CV('--s1')};font-weight:700">${b.toLocaleString('en')} scored</text>`;});
+  s+=`</svg>`;document.getElementById('pool').innerHTML=s;
+})();
+(()=>{
+  const W=640,H=132,L=10,fw=26,n=6;
+  let s=`<svg viewBox="0 0 ${W} ${H}" width="100%">`;
+  for(let f=0;f<16;f++)s+=`<text x="${L+f*fw+fw/2+40}" y="12" text-anchor="middle" class="axl">${f}</text>`;
+  for(let k=0;k<n;k++){const y=20+k*16, kept=(k%2===0), x=L+40+k*fw;
+    s+=`<rect x="${x+1}" y="${y}" width="${10*fw-2}" height="11" rx="2" fill="${kept?CV('--s1'):'none'}" stroke="${kept?CV('--s1'):CV('--axis')}" stroke-dasharray="${kept?'':'3 3'}"/>`;
+    s+=`<text x="${L+34}" y="${y+9}" text-anchor="end" class="axl">${kept?'kept':'dropped'}</text>`;}
+  s+=`<text x="${L+40}" y="${H-2}" class="axl">frame id within the scene · windows start at 0, 2, 4 … are kept</text>`;
+  s+=`</svg>`;document.getElementById('stride').innerHTML=s;
+})();
+
+/* ---------- slide 5: SE vs windows, log x ---------- */
+const SE={
+  k:{n:[88,403,2013,4026],dp:[2.86,2.20,2.29,2.19],pm:[3.90,2.54,2.31,2.26],rm:[4.10,2.58,2.27,2.22],pick:2},
+  n:{n:[582,1032,2382,4669],dp:[1.61,1.61,1.54,1.59],pm:[2.96,2.61,2.44,2.28],rm:[3.51,3.04,2.92,2.78],pick:2},
+  w:{n:[801,1407,2215,6251],dp:[1.71,1.61,1.67,1.61],pm:[2.59,2.34,2.41,2.29],rm:[2.92,2.84,2.97,2.80],pick:2},
+};
+function seChart(el,d){
+  const W=360,H=270,L=40,R=16,T=14,B=36,iw=W-L-R,ih=H-T-B, x0=Math.log10(60),x1=Math.log10(8000), y0=1,y1=4.5;
+  const X=v=>L+iw*(Math.log10(v)-x0)/(x1-x0), Y=v=>T+ih*(1-(v-y0)/(y1-y0));
+  let s=`<svg viewBox="0 0 ${W} ${H}" width="100%">`;
+  [1,2,3,4].forEach(t=>{s+=`<line x1="${L}" y1="${Y(t)}" x2="${L+iw}" y2="${Y(t)}" stroke="${CV('--grid')}"/>`;
+    s+=`<text x="${L-6}" y="${Y(t)+3}" text-anchor="end" class="axl">${t}%</text>`;});
+  [100,300,1000,3000].forEach(t=>{s+=`<text x="${X(t)}" y="${H-20}" text-anchor="middle" class="axl">${t.toLocaleString('en')}</text>`;});
+  s+=`<line x1="${X(d.n[d.pick])}" y1="${T}" x2="${X(d.n[d.pick])}" y2="${T+ih}" stroke="${CV('--axis')}" stroke-dasharray="4 4"/>`;
+  const lab=[];
+  [['dp','--s3'],['pm','--s2'],['rm','--s8']].forEach(([k,c])=>{const col=CV(c);
+    s+=`<path d="${d[k].map((v,i)=>`${i?'L':'M'}${X(d.n[i]).toFixed(1)} ${Y(v).toFixed(1)}`).join(' ')}" fill="none" stroke="${col}" stroke-width="2.2"/>`;
+    d[k].forEach((v,i)=>{const hi=i===d.pick;
+      s+=`<circle cx="${X(d.n[i]).toFixed(1)}" cy="${Y(v).toFixed(1)}" r="${hi?4.4:3}" fill="${hi?CV('--surface'):col}" stroke="${col}" stroke-width="${hi?2.2:0}"/>`;});
+    lab.push({y:Y(d[k][d.pick])-6,v:d[k][d.pick],col});});
+  lab.sort((a,b)=>a.y-b.y);
+  for(let i=1;i<lab.length;i++)lab[i].y=Math.max(lab[i].y,lab[i-1].y+11);   // keep tags 11 px apart
+  lab.forEach(t=>{s+=`<text x="${(X(d.n[d.pick])+7).toFixed(1)}" y="${t.y.toFixed(1)}" class="barval" style="fill:${t.col};font-weight:700">${t.v.toFixed(1)}%</text>`;});
+  s+=`<text x="${L+iw/2}" y="${H-4}" text-anchor="middle" class="axl">windows scored (log)</text>`;
+  s+=`</svg>`;el.innerHTML=s;
+}
+for(const k of ['k','n','w'])seChart(document.getElementById('se_'+k),SE[k]);
+</script>
+</body>
+</html>

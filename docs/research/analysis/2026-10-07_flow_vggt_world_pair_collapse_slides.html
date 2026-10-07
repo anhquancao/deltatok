@@ -1,0 +1,398 @@
+<!doctype html>
+<!-- thread flow · 2026-10-07 · prior cycle: analysis/2026-10-03_flow_vggt_world_technical_details.md -->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>VGGT-World moves its camera stop-go: each flow call puts its two frames at almost the same pose; rollout stride and resolution are not the cause</title>
+<style>
+/* ---------- tokens · light only, white slides (no dark variant by request) ---------- */
+:root{
+  color-scheme: light only;
+  --backdrop:#e9e9e6; --page:#f7f7f6; --surface:#ffffff;
+  --ink:#0b0b0b; --ink2:#52514e; --muted:#83817c;
+  --grid:#e4e4de; --axis:#c3c2b7; --border:rgba(11,11,11,.12);
+  --s1:#2a78d6; --s2:#eb6834; --s3:#1baf7a; --s4:#eda100;
+  --s5:#e87ba4; --s6:#008300; --s7:#4a3aa7; --s8:#e34948;
+  --good:#0ca30c; --crit:#d03b3b; --serious:#ec835a;
+  --accent:var(--s1);
+  --serif:"Iowan Old Style","Palatino Linotype",Palatino,Georgia,serif;
+  --sans:system-ui,-apple-system,"Segoe UI",sans-serif;
+  --mono:ui-monospace,"Cascadia Code",Menlo,Consolas,monospace;
+}
+/* ---------- deck chrome ---------- */
+*{box-sizing:border-box;margin:0}
+html,body{height:100%}
+body{background:var(--backdrop);color:var(--ink);font:15px/1.45 var(--sans);overflow:hidden}
+.stage{position:absolute;left:50%;top:50%;width:1280px;height:720px;transform-origin:center center}
+.slide{position:absolute;inset:0;background:var(--surface);border:1px solid var(--border);
+  padding:52px 64px 44px;display:none;flex-direction:column}
+.slide.on{display:flex}
+.eyebrow{font:600 12px/1 var(--mono);letter-spacing:.14em;text-transform:uppercase;color:var(--accent);margin-bottom:14px}
+.eyebrow .dim{color:var(--muted)}
+h1{font:400 46px/1.15 var(--serif);letter-spacing:-.01em;text-wrap:balance}
+h2{font:400 32px/1.2 var(--serif);letter-spacing:-.005em;text-wrap:balance;margin-bottom:6px}
+.sub{color:var(--ink2);font-size:15.5px;max-width:74ch;margin-top:10px}
+.body{flex:1;min-height:0;margin-top:22px}
+.foot{display:flex;justify-content:space-between;align-items:baseline;color:var(--muted);
+  font:11px/1 var(--mono);letter-spacing:.06em;margin-top:16px;border-top:1px solid var(--grid);padding-top:12px}
+.pageno{font-variant-numeric:tabular-nums}
+/* nav */
+.nav{position:fixed;left:50%;bottom:14px;transform:translateX(-50%);display:flex;gap:8px;align-items:center;z-index:5}
+.nav button{width:9px;height:9px;border-radius:50%;border:1px solid var(--muted);background:transparent;cursor:pointer;padding:0}
+.nav button.cur{background:var(--accent);border-color:var(--accent)}
+.nav button:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+.arr{position:fixed;top:50%;transform:translateY(-50%);z-index:5;border:1px solid var(--border);
+  background:var(--surface);color:var(--ink2);width:34px;height:56px;cursor:pointer;font-size:18px;border-radius:4px}
+.arr:hover{color:var(--ink)}
+#prev{left:10px}#next{right:10px}
+/* ---------- shared bits ---------- */
+.mono{font-family:var(--mono)}
+.num{font-variant-numeric:tabular-nums}
+.chip{display:inline-block;font:600 10.5px/1 var(--mono);letter-spacing:.05em;padding:4px 7px;border-radius:3px;
+  border:1px solid var(--border);white-space:nowrap}
+.chip.good{color:var(--good);border-color:currentColor}
+.chip.wall{color:var(--serious);border-color:currentColor}
+.chip.dead{color:var(--crit);border-color:currentColor}
+.chip.hero{color:var(--accent);border-color:currentColor}
+.sw{display:inline-block;width:10px;height:10px;border-radius:2px;vertical-align:-1px}
+.cols{display:grid;gap:30px;min-height:0}
+.c2{grid-template-columns:1fr 1fr}
+.c3{grid-template-columns:1fr 1fr 1fr}
+.c4{grid-template-columns:1fr 1fr 1fr 1fr}
+.c5{grid-template-columns:repeat(5,1fr)}
+.c58{grid-template-columns:1.25fr 1fr}
+.card{border:1px solid var(--grid);border-radius:6px;padding:15px 17px;background:var(--page)}
+.card h3{font:600 14px/1.3 var(--sans);margin:6px 0}
+.card .tag{font:600 10px/1 var(--mono);letter-spacing:.1em;text-transform:uppercase;color:var(--muted)}
+ul.tight{padding-left:18px;display:flex;flex-direction:column;gap:8px;font-size:14px;color:var(--ink2)}
+ul.tight li{padding-left:2px}
+ul.tight strong{color:var(--ink);font-weight:600}
+table{border-collapse:collapse;width:100%;font-size:12.5px}
+th{font:600 10.5px/1.3 var(--mono);letter-spacing:.08em;text-transform:uppercase;color:var(--muted);
+  text-align:left;padding:6px 10px;border-bottom:1px solid var(--axis)}
+td{padding:6px 10px;border-bottom:1px solid var(--grid);color:var(--ink2);vertical-align:top}
+td.n,th.n{text-align:right;font-variant-numeric:tabular-nums}
+td b{color:var(--ink);font-weight:600}
+tr.hl td{background:color-mix(in srgb,var(--s1) 9%,transparent)}
+tr.dim td{color:var(--muted)}
+tr.sep td{border-top:2px solid var(--axis)}
+td.bad{color:var(--crit);font-weight:600}
+td.ok{color:var(--good);font-weight:600}
+/* stat tiles */
+.tiles{display:grid;gap:13px}
+.tile{border:1px solid var(--grid);border-radius:6px;padding:13px 15px;background:var(--page)}
+.tile .v{font:600 26px/1.1 var(--sans);letter-spacing:-.01em;font-variant-numeric:tabular-nums}
+.tile .k{font:600 10px/1.4 var(--mono);letter-spacing:.1em;text-transform:uppercase;color:var(--muted);margin-bottom:6px}
+.tile .d{font-size:12.5px;color:var(--ink2);margin-top:6px}
+.rulebar{border:1px dashed var(--axis);border-radius:6px;padding:11px 15px;font-size:13.5px;color:var(--ink2);margin-top:12px}
+.rulebar b{color:var(--ink)}
+/* charts */
+.chartwrap{position:relative}
+.panelttl{font:600 10px/1 var(--mono);letter-spacing:.1em;text-transform:uppercase;color:var(--muted);margin-bottom:4px}
+.legend{display:flex;flex-wrap:wrap;gap:6px 20px;font:12.5px/1 var(--sans);color:var(--ink2);margin-bottom:8px}
+.legend span{display:inline-flex;gap:7px;align-items:center}
+svg{display:block}
+svg text{font:10.5px var(--sans);fill:var(--muted)}
+svg .barlbl{font:600 12px var(--sans);fill:var(--ink)}
+svg .barval{font:10px var(--mono);fill:var(--ink2)}
+svg .axl{font:10px var(--mono);fill:var(--muted)}
+.slide kbd{font:11px var(--mono);border:1px solid var(--axis);border-radius:3px;padding:1px 5px;color:var(--ink2)}
+@media (prefers-reduced-motion: no-preference){
+  .slide.on{animation:fadein .18s ease}
+  @keyframes fadein{from{opacity:.4}to{opacity:1}}
+}
+@media print{
+  body{overflow:visible;background:#fff}
+  .stage{position:static;transform:none!important;width:auto;height:auto}
+  .slide{display:flex;position:static;width:1280px;height:720px;page-break-after:always;margin:0 auto}
+  .nav,.arr{display:none}
+}
+/* 3x3 grid: row label + three panels */
+.g33{display:grid;grid-template-columns:92px repeat(3,1fr);gap:2px 18px;align-content:start}
+.rowlbl{font:12.5px/1.4 var(--sans);color:var(--muted);align-self:center}
+.rowlbl b{color:var(--ink);font-size:14px}
+.reftag{font:600 10px/1.2 var(--mono);text-align:right;height:13px;white-space:nowrap;overflow:hidden}
+td span.ok{color:var(--good);font-weight:600}
+svg .barval{paint-order:stroke;stroke:var(--surface);stroke-width:3px;stroke-linejoin:round}
+#score{font-size:11.5px}#score td,#score th{padding:3px 10px;line-height:1.25}
+</style>
+</head>
+<body>
+<div class="stage" id="stage">
+
+<!-- ============ SLIDE 1 — answer ============ -->
+<section class="slide on">
+  <div class="eyebrow">VGGT-World forecast camera <span class="dim">— kitti.pt + cityscapes.pt · stride-1 rollout · all-data ctx2fwd8 · frames 0.5 s apart</span></div>
+  <h1>VGGT-World moves its camera stop-go: each flow call puts its two frames at almost the same pose</h1>
+  <p class="sub">Each flow call outputs 2 frames. Their camera poses come out nearly identical, so every second forecast frame barely
+    moves. Rollout stride and input resolution do not cause it. Nothing in our rollout needs fixing.</p>
+  <div class="body">
+    <div class="cols c3" style="gap:15px">
+      <div class="tile"><div class="k">Step into frame 3 · all sets · both checkpoints</div><div class="v">0.01–0.06 m</div><div class="d">GT moves <b>2.7–4.2 m</b> per step. Frames 2 and 3 come from the same flow call and land on one spot.</div></div>
+      <div class="tile"><div class="k">Stride 2 · nuScenes · kitti.pt</div><div class="v">0.05–0.17 m</div><div class="d">Steps into frames 3, 5, 7 and 9. Every call writes a pair, and every pair lands on one spot, out to frame 9.</div></div>
+      <div class="tile"><div class="k">224×448 · the authors' resolution</div><div class="v">0.07 m</div><div class="d">Step into frame 3, the same as at native resolution (0.06 m). Resolution is not the cause.</div></div>
+    </div>
+    <div class="rulebar" style="margin-top:18px"><b>Only VGGT-World does this.</b> DeltaTok and Gen3R also fall short of GT motion, but
+      their steps change smoothly. VGGT-World's ATE, RTE and RRE, and the pose-dependent pointmap and Chamfer, include the stop-go.
+      That is how the model behaves on our 0.5 s windows.</div>
+    <p class="sub" style="margin-top:14px;font-size:13.5px"><kbd>←</kbd> <kbd>→</kbd> to navigate ·
+      step = distance the camera moved since the previous frame · medians over windows ·
+      stride test on Jean Zay <span class="mono">728257</span>–<span class="mono">59</span></p>
+  </div>
+  <div class="foot"><span>VGGT-World pair collapse · all-data ctx2fwd8 · 07-10-2026</span><span>kitti.pt = stage 1 ep 15 · cityscapes.pt = stage 2 (inferred) ep 6</span><span class="pageno">1</span></div>
+</section>
+
+<!-- ============ SLIDE 2 — all models, all sets ============ -->
+<section class="slide">
+  <div class="eyebrow">Camera step per frame <span class="dim">— full dumps · first 48 windows per set · median · shaded = steps into frames 3, 5, 7, 9</span></div>
+  <h2>Only VGGT-World alternates; DeltaTok and Gen3R fall short smoothly</h2>
+  <div class="legend" style="margin-top:8px" id="lg2"></div>
+  <div class="body g33" style="margin-top:4px">
+    <div></div><div class="panelttl">KITTI val · 2,013</div><div class="panelttl">nuScenes val · 2,382</div><div class="panelttl">Waymo test · 2,018</div>
+    <div class="rowlbl"><b>Translation</b><br>m per step</div><div id="f_t_kitti"></div><div id="f_t_nuscenes"></div><div id="f_t_waymotest"></div>
+    <div class="rowlbl"><b>Rotation</b><br>° per step</div><div id="f_r_kitti"></div><div id="f_r_nuscenes"></div><div id="f_r_waymotest"></div>
+  </div>
+  <div class="foot"><span>kitti.pt BSC 47015127/29/31 · cityscapes.pt 47015133/35/37 · Gen3R 47015752/54/56 · Gen3R rotation (0.3–3.7°) not plotted</span><span class="pageno">2</span></div>
+</section>
+
+<!-- ============ SLIDE 3 — stride and resolution test ============ -->
+<section class="slide">
+  <div class="eyebrow">Stride and resolution test <span class="dim">— nuScenes val · 32 windows · kitti.pt · same windows in every row · median</span></div>
+  <h2>Stride 2 pairs every frame out to 9; stride 1 pairs most at frames 2–3; 224×448 changes nothing</h2>
+  <div class="legend" style="margin-top:8px" id="lg3"></div>
+  <div class="body cols c2" style="gap:26px;margin-top:4px">
+    <div><div class="panelttl">Translation · m per step</div><div id="d_t"></div></div>
+    <div><div class="panelttl">Rotation · ° per step</div><div id="d_r"></div></div>
+  </div>
+  <table style="margin-top:6px">
+    <thead><tr><th>step into frame</th><th class="n">2</th><th class="n">3</th><th class="n">4</th><th class="n">5</th><th class="n">6</th><th class="n">7</th><th class="n">8</th><th class="n">9</th></tr></thead>
+    <tbody id="tblDiag"></tbody>
+  </table>
+  <div class="foot"><span>Jean Zay dev · 728257 stride 1 · 728258 stride 2 · 728259 stride 1 at 224×448 · 50 Euler steps · 1 GPU</span><span class="pageno">3</span></div>
+</section>
+
+<!-- ============ SLIDE 4 — forward position by frame ============ -->
+<section class="slide">
+  <div class="eyebrow">Example windows <span class="dim">— nuScenes val · stride test · kitti.pt · the 3 windows with the most GT travel (51–59 m)</span></div>
+  <h2>Along the road, frames 2 and 3 sit on one spot, and after that the camera barely advances</h2>
+  <div class="legend" style="margin-top:8px"><span id="lg4" style="display:contents"></span><span style="color:var(--muted)">· panel titles: frame-9 position, GT / stride 1 / stride 2</span></div>
+  <div class="body cols c3" style="gap:22px;margin-top:4px">
+    <div><div class="panelttl" id="t_15">test window 15</div><div id="p_15"></div></div>
+    <div><div class="panelttl" id="t_7">test window 7</div><div id="p_7"></div></div>
+    <div><div class="panelttl" id="t_1">test window 1</div><div id="p_1"></div></div>
+  </div>
+  <div class="rulebar" style="margin-top:0"><b>Odd frames do not move forward.</b> Over all 32 windows, the median forward step into frames 3, 5, 7
+    and 9 is at most 0.05 m, and 31–66% of them move backward. <b>Even steps are not all forward progress either:</b> into frame 8, stride 1
+    moves 1.23 m but advances only 0.17 m.</div>
+  <div class="foot"><span>forward = camera z in frame-0 coordinates · side drift under 1.1 m in GT · Jean Zay 728257 / 728258</span><span class="pageno">4</span></div>
+</section>
+
+<!-- ============ SLIDE 5 — which call writes which frame ============ -->
+<section class="slide">
+  <div class="eyebrow">Rollout <span class="dim">— each flow call takes 2 frames and outputs the next 2 · eval_vggt_world.py:150</span></div>
+  <h2>Stride 2 writes every pair in one call, so every pair collapses; stride 1 does that only once</h2>
+  <div class="body cols c58" style="gap:26px;margin-top:14px">
+    <div>
+      <table>
+        <thead><tr><th>frame</th><th>stride 1 · call (inputs)</th><th class="n">m</th><th>stride 2 · call (inputs)</th><th class="n">m</th></tr></thead>
+        <tbody id="tblRoll"></tbody>
+      </table>
+      <p class="sub" style="font-size:12.5px">Steps are the stride-test medians (slide 3). Shaded rows: the second frame of a stride-2 pair.
+        Stride 1 keeps only the second output of calls 2–7.</p>
+    </div>
+    <div class="card" style="border-left:3px solid var(--s7)">
+      <div class="tag">Reading</div>
+      <h3>The two outputs of one call get the same pose</h3>
+      <ul class="tight" style="margin-top:10px;font-size:13px">
+        <li><strong>Stride 2:</strong> frames (2,3), (4,5), (6,7) and (8,9) each come from one call. The second frame of every pair moves only 0.05–0.17 m and turns only 0.05–0.09°.</li>
+        <li><strong>Stride 1:</strong> only frames 2 and 3 share a call, and only there is the pair as tight (0.06 m). Frames 4–9 each come from their own call. The odd steps stay small but grow, from 0.19 to 0.62 m.</li>
+        <li><strong>Not explained:</strong> why stride 1 still alternates after frame 3. We did not pin down how the pairing carries over.</li>
+        <li><strong>Call 1 is the same in both strides.</strong> It gets two real frames, the kind of input stage 1 trains on, and it already collapses.</li>
+      </ul>
+    </div>
+  </div>
+  <div class="foot"><span>stride 1 = authors' default (paper appendix B.3) and what our dumps use</span><span class="pageno">5</span></div>
+</section>
+
+<!-- ============ SLIDE 6 — what it means, what is not tested ============ -->
+<section class="slide">
+  <div class="eyebrow">Consequences and caveats <span class="dim">— what this does and does not establish</span></div>
+  <h2>A property of VGGT-World on our benchmark; one decode difference is still untested</h2>
+  <div class="body cols c2" style="gap:26px;margin-top:14px">
+    <div class="card" style="border-left:3px solid var(--good)">
+      <div class="tag">What it means</div>
+      <h3>Keep the dumps as they are</h3>
+      <ul class="tight" style="margin-top:10px;font-size:13px">
+        <li><strong>Nothing to fix in our rollout.</strong> Stride 1 is the authors' default and the milder of the two strides.</li>
+        <li><strong>The camera metrics carry it.</strong> ATE, RTE, RRE, pointmap and Chamfer all read the predicted poses. The scores are fair for this model on 0.5 s windows.</li>
+        <li><strong>Both checkpoints do it.</strong> kitti.pt (stage 1) and cityscapes.pt (stage 2, inferred) have unrelated flow models, so stage-2 training does not remove it.</li>
+        <li><strong>The authors would not have seen it.</strong> Their eval scores depth on the last frame only, never pose.</li>
+      </ul>
+    </div>
+    <div class="card" style="border-left:3px solid var(--serious)">
+      <div class="tag">Not tested</div>
+      <h3>What could still move this</h3>
+      <ul class="tight" style="margin-top:10px;font-size:13px">
+        <li><strong>Our 10-frame decode.</strong> We run part2 and the camera head on all 10 frames at once; the authors decode 4. Comparing a call's two output tokens directly would separate the flow model from the decode.</li>
+        <li><strong>Frame spacing.</strong> Our frames are 0.5 s apart. VGGT-World trained at 0.2 s (KITTI) and 0.19 s (Cityscapes). That is our benchmark's design, not a wrapper choice.</li>
+        <li><strong>Sample size.</strong> Medians over 48 windows per set and 32 nuScenes windows, one noise draw each.</li>
+        <li><strong>Two draws.</strong> The 32-window stride test is a different window draw from the 48 on slide 2.</li>
+      </ul>
+    </div>
+  </div>
+  <div class="foot"><span>model notes: analysis/2026-10-03_flow_vggt_world_technical_details.md</span><span class="pageno">6</span></div>
+</section>
+
+</div><!-- /stage -->
+
+<button class="arr" id="prev" aria-label="Previous">‹</button>
+<button class="arr" id="next" aria-label="Next">›</button>
+<div class="nav" id="nav" role="tablist"></div>
+
+<script>
+/* ---------- deck nav ---------- */
+const stage=document.getElementById("stage");
+const slides=[...document.querySelectorAll(".slide")];
+const nav=document.getElementById("nav");
+let cur=0;
+slides.forEach((_,i)=>{
+  const b=document.createElement("button");
+  b.setAttribute("role","tab");b.setAttribute("aria-label","Slide "+(i+1));
+  b.addEventListener("click",()=>go(i));
+  nav.appendChild(b);
+});
+function go(i){
+  cur=Math.max(0,Math.min(slides.length-1,i));
+  slides.forEach((s,j)=>s.classList.toggle("on",j===cur));
+  [...nav.children].forEach((b,j)=>b.classList.toggle("cur",j===cur));
+}
+document.getElementById("prev").addEventListener("click",()=>go(cur-1));
+document.getElementById("next").addEventListener("click",()=>go(cur+1));
+addEventListener("keydown",e=>{
+  if(["ArrowRight","PageDown"," "].includes(e.key)){go(cur+1);e.preventDefault();}
+  else if(["ArrowLeft","PageUp"].includes(e.key)){go(cur-1);e.preventDefault();}
+  else if(e.key==="Home")go(0);
+  else if(e.key==="End")go(slides.length-1);
+});
+go(0);
+/* ---------- auto-scale ---------- */
+function fit(){
+  const s=Math.min(innerWidth/1300,(innerHeight-40)/730);
+  stage.style.transform=`translate(-50%,-50%) scale(${Math.min(s,1.4)})`;
+}
+addEventListener("resize",fit);fit();
+
+/* ---------- CSS var resolver ---------- */
+const CV=n=>getComputedStyle(document.documentElement).getPropertyValue(n).trim();
+
+/* ---------- line chart over the 9 frame steps ----------
+   x = step into frame 1..9 (category); step 1 is context (grey band); odd forecast frames 3,5,7,9 get a faint band. */
+function niceCeil(x){const p=10**Math.floor(Math.log10(x)),m=x/p;return (m<=1?1:m<=2?2:m<=5?5:10)*p;}
+function decOf(st){return Math.max(0,-Math.floor(Math.log10(st)+1e-9));}
+function lineChart(el,cfg){
+  const W=cfg.W||340,H=cfg.H||170,L=34,R=10,T=10,B=30, iw=W-L-R, ih=H-T-B;
+  const n=9, top=Math.max(...cfg.series.flatMap(s=>s.data))*1.05;
+  const st=niceCeil(top/4), ymax=Math.ceil(top/st)*st;
+  const X=i=>L+iw*(i+0.5)/n, Y=v=>T+ih*(1-v/ymax), bw=iw/n;
+  const dec=decOf(st);
+  let s=`<svg viewBox="0 0 ${W} ${H}" width="100%" preserveAspectRatio="xMinYMin meet">`;
+  s+=`<rect x="${L}" y="${T}" width="${bw}" height="${ih}" fill="${CV('--grid')}" opacity=".7"/>`;
+  [2,4,6,8].forEach(i=>{s+=`<rect x="${(L+bw*i).toFixed(1)}" y="${T}" width="${bw.toFixed(1)}" height="${ih}" fill="${CV('--s2')}" opacity=".07"/>`;});
+  for(let t=0;t<=ymax+1e-9;t+=st){const y=Y(t);
+    s+=`<line x1="${L}" y1="${y.toFixed(1)}" x2="${L+iw}" y2="${y.toFixed(1)}" stroke="${CV('--grid')}"/>`;
+    s+=`<text x="${L-5}" y="${(y+3).toFixed(1)}" text-anchor="end" class="axl">${t.toFixed(dec)}</text>`;}
+  for(let i=0;i<n;i++){
+    const odd=(i%2===0&&i>0);
+    s+=`<text x="${X(i).toFixed(1)}" y="${H-17}" text-anchor="middle" class="axl" ${odd?`style="fill:${CV('--s2')};font-weight:700"`:''}>${i+1}</text>`;}
+  s+=`<text x="${(L+bw/2).toFixed(1)}" y="${T+11}" text-anchor="middle" class="axl">ctx</text>`;
+  s+=`<text x="${(L+iw/2).toFixed(1)}" y="${H-4}" text-anchor="middle" class="axl">step into frame</text>`;
+  cfg.series.forEach(se=>{
+    const c=CV(se.color);
+    const d=se.data.map((v,i)=>`${i?'L':'M'}${X(i).toFixed(1)} ${Y(v).toFixed(1)}`).join(' ');
+    s+=`<path d="${d}" fill="none" stroke="${c}" stroke-width="${se.w||2}" ${se.dash?`stroke-dasharray="${se.dash}"`:''}/>`;
+    se.data.forEach((v,i)=>{s+=`<circle cx="${X(i).toFixed(1)}" cy="${Y(v).toFixed(1)}" r="${se.r||2.4}" fill="${c}"/>`;});
+  });
+  s+=`</svg>`;
+  el.innerHTML=s;
+}
+function legend(id,series){
+  document.getElementById(id).innerHTML=series.map(se=>
+    `<span><i class="sw" style="background:${CV(se.color)}"></i>${se.label}</span>`).join('');
+}
+
+/* ================= DATA =================
+   Median camera step per frame, |p_t − p_{t−1}| in m (s) and relative rotation in deg (r), t = 1..9.
+   FULL: BSC full dumps, first 48 windows of each set (loader order). DIAG: Jean Zay 728257–59, 32 @ nuScenes val stride2, kitti.pt.
+   LANES: forward position (camera z, m, frame-0 coords) of frames 0..9 for three DIAG windows. */
+const FULL={"kitti":{"GT":{"s":[4.2568,4.2519,4.2156,4.1544,4.1337,4.2088,4.0684,3.8207,3.7541],"r":[1.0472,1.0142,0.926,1.1096,0.9584,1.315,1.0618,1.2832,1.2729]},"DeltaTok":{"s":[4.378,0.0695,0.043,0.0479,0.0446,0.0379,0.0447,0.0452,0.0395],"r":[0.3528,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0]},"vw_kitti":{"s":[5.1552,2.1013,0.0233,2.0857,0.094,1.7183,0.1676,1.2982,0.3303],"r":[0.9179,0.5574,0.043,0.3245,0.0799,0.3286,0.1455,0.3821,0.241]},"vw_city":{"s":[4.8415,0.8979,0.0117,0.7238,0.035,0.4989,0.0495,0.8799,0.0782],"r":[1.1134,0.4348,0.0239,0.3628,0.0344,0.3933,0.0569,0.5006,0.1003]},"Gen3R":{"s":[1.5421,1.9169,1.9345,1.8617,1.882,1.6192,1.3978,1.3529,1.6114],"r":[3.7124,3.7289,2.0106,1.6819,2.5615,2.5059,1.9941,1.5308,1.6171]}},"nuscenes":{"GT":{"s":[3.6812,3.5024,3.6231,3.8291,3.7407,3.7962,3.6976,3.6881,3.779],"r":[0.4499,0.523,0.4986,0.4945,0.4164,0.4358,0.4773,0.3944,0.3622]},"DeltaTok":{"s":[3.539,2.2924,0.947,0.5522,0.3522,0.369,0.3981,0.4508,0.3484],"r":[0.0844,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0]},"vw_kitti":{"s":[3.974,2.4458,0.0602,1.704,0.188,1.0823,0.465,1.0334,0.6296],"r":[0.4859,0.8389,0.0633,0.4761,0.1737,0.429,0.2978,0.3892,0.3761]},"vw_city":{"s":[3.9017,2.0745,0.0346,1.1969,0.0657,1.8552,0.1665,1.8003,0.2758],"r":[0.4803,0.7246,0.0372,0.4899,0.065,0.4698,0.1035,0.6781,0.1652]},"Gen3R":{"s":[0.5799,0.66,0.8311,0.9189,1.1052,0.9394,0.8173,0.8814,0.6698],"r":[0.8945,0.8033,0.7093,0.6346,0.94,0.9324,0.8755,0.7029,0.5128]}},"waymotest":{"GT":{"s":[3.0608,2.8469,2.7363,2.6769,2.817,2.7241,2.5165,2.4454,2.3937],"r":[0.189,0.2591,0.2156,0.1962,0.2428,0.1941,0.2347,0.2398,0.2566]},"DeltaTok":{"s":[2.349,1.4152,0.4373,0.2067,0.2508,0.1457,0.2391,0.2,0.1815],"r":[0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0]},"vw_kitti":{"s":[2.2923,2.0936,0.041,1.8867,0.2123,1.5737,0.3982,1.2524,0.6641],"r":[0.2102,0.6165,0.0507,0.3549,0.1486,0.2555,0.1811,0.3094,0.2424]},"vw_city":{"s":[2.317,1.428,0.0341,1.4948,0.1055,3.1376,0.2775,3.6379,0.4319],"r":[0.2279,0.4782,0.0281,0.4053,0.0662,0.4479,0.1088,0.6765,0.112]},"Gen3R":{"s":[0.4882,0.6333,0.5538,0.7731,0.69,0.6342,0.561,0.5712,0.476],"r":[0.6046,0.5994,0.4953,0.3839,0.6152,0.5684,0.6313,0.4553,0.3351]}}};
+const DIAG={"GT":{"s":[3.523,3.2954,3.3997,3.707,3.6747,3.7962,3.5869,3.5831,3.6639],"r":[0.4726,0.5154,0.4951,0.4945,0.3573,0.378,0.4206,0.3024,0.3622]},"s1_native":{"s":[3.6755,2.4852,0.0562,1.6683,0.1887,0.9693,0.512,1.2298,0.6157],"r":[0.502,0.798,0.063,0.4912,0.1677,0.462,0.223,0.4303,0.4136]},"s2_native":{"s":[3.7157,2.4519,0.0478,1.4974,0.0961,1.2486,0.1691,1.3123,0.1454],"r":[0.5054,0.82,0.0884,0.7028,0.0569,0.7074,0.0545,0.8821,0.0725]},"s1_448":{"s":[4.1616,3.2887,0.069,2.4673,0.2636,1.7706,0.3785,1.1654,0.4397],"r":[0.4716,0.8429,0.0532,0.5564,0.1956,0.6191,0.3581,0.5105,0.3428]}};
+const LANES={"15":{"GT":[0.0,6.423,12.952,19.479,25.997,33.136,39.69,46.111,52.504,58.823],"s1":[-0.001,6.972,9.928,10.027,11.804,11.589,11.87,11.332,12.411,12.996],"s2":[-0.001,6.984,9.976,10.041,11.414,11.32,10.262,10.401,14.421,14.267]},"7":{"GT":[0.0,6.159,11.728,17.774,23.675,29.974,35.628,41.347,46.979,52.596],"s1":[0.0,6.438,8.005,8.024,9.459,9.353,8.972,7.889,5.083,2.628],"s2":[0.0,6.457,8.074,8.091,9.393,9.505,7.745,7.527,2.544,2.196]},"1":{"GT":[0.0,5.722,11.4,17.085,22.863,28.601,34.202,39.893,45.587,51.323],"s1":[0.001,6.89,11.355,11.406,13.165,13.157,14.523,14.428,15.025,13.855],"s2":[0.002,6.959,11.514,11.602,13.131,13.224,13.987,14.496,13.282,13.262]}};
+
+/* ---------- slide 2 ---------- */
+const S2=[{k:'GT',label:'GT',color:'--ink',w:2.4,dash:'5 3'},
+          {k:'vw_kitti',label:'VGGT-World kitti.pt',color:'--s7'},
+          {k:'vw_city',label:'VGGT-World cityscapes.pt',color:'--s2'},
+          {k:'DeltaTok',label:'DeltaTok-flow · 5 steps',color:'--s1',w:1.6},
+          {k:'Gen3R',label:'Gen3R',color:'--s3',w:1.6}];
+legend('lg2',S2);
+for(const s of ['kitti','nuscenes','waymotest']){
+  lineChart(document.getElementById('f_t_'+s),{H:195,series:S2.map(o=>Object.assign({data:FULL[s][o.k].s},o))});
+  lineChart(document.getElementById('f_r_'+s),{H:195,series:S2.filter(o=>o.k!=='Gen3R').map(o=>Object.assign({data:FULL[s][o.k].r},o))});
+}
+
+/* ---------- slide 3 ---------- */
+const S3=[{k:'GT',label:'GT',color:'--ink',w:2.4,dash:'5 3'},
+          {k:'s1_native',label:'stride 1 · native (our dumps)',color:'--s7'},
+          {k:'s2_native',label:'stride 2 · native',color:'--s2'},
+          {k:'s1_448',label:'stride 1 · 224×448',color:'--s4'}];
+legend('lg3',S3);
+lineChart(document.getElementById('d_t'),{W:540,H:215,series:S3.map(o=>Object.assign({data:DIAG[o.k].s},o))});
+lineChart(document.getElementById('d_r'),{W:540,H:215,series:S3.map(o=>Object.assign({data:DIAG[o.k].r},o))});
+document.getElementById('tblDiag').innerHTML=S3.map(o=>`<tr><td><i class="sw" style="background:${CV(o.color)}"></i> ${o.label}</td>`+
+  DIAG[o.k].s.slice(1).map((v,i)=>`<td class="n${(i%2===1&&o.k!=='GT')?' bad':''}">${v.toFixed(2)}</td>`).join('')+`</tr>`).join('');
+
+/* ---------- slide 4: forward position by frame ---------- */
+function posChart(el,cfg){
+  const W=370,H=290,L=36,R=10,T=10,B=30, iw=W-L-R, ih=H-T-B, n=10;
+  const all=cfg.series.flatMap(s=>s.data), ymin=Math.min(0,...all), top=Math.max(...all)*1.04;
+  const st=10, ymax=Math.ceil(top/st)*st;
+  const X=i=>L+iw*i/(n-1), Y=v=>T+ih*(1-(v-ymin)/(ymax-ymin));
+  let s=`<svg viewBox="0 0 ${W} ${H}" width="100%" preserveAspectRatio="xMinYMin meet">`;
+  s+=`<rect x="${L}" y="${T}" width="${(X(1)-L).toFixed(1)}" height="${ih}" fill="${CV('--grid')}" opacity=".7"/>`;
+  for(let t=Math.ceil(ymin/st)*st;t<=ymax+1e-9;t+=st){const y=Y(t);
+    s+=`<line x1="${L}" y1="${y.toFixed(1)}" x2="${L+iw}" y2="${y.toFixed(1)}" stroke="${CV('--grid')}"/>`;
+    s+=`<text x="${L-5}" y="${(y+3).toFixed(1)}" text-anchor="end" class="axl">${t.toFixed(0)}</text>`;}
+  for(let i=0;i<n;i++){const odd=(i%2===1&&i>1);
+    s+=`<text x="${X(i).toFixed(1)}" y="${H-17}" text-anchor="middle" class="axl" ${odd?`style="fill:${CV('--s2')};font-weight:700"`:''}>${i}</text>`;}
+  s+=`<text x="${(L+4).toFixed(1)}" y="${T+11}" class="axl">ctx</text>`;
+  s+=`<text x="${(L+iw/2).toFixed(1)}" y="${H-4}" text-anchor="middle" class="axl">frame · forward position in m</text>`;
+  cfg.series.forEach(se=>{const c=CV(se.color);
+    const d=se.data.map((v,i)=>`${i?'L':'M'}${X(i).toFixed(1)} ${Y(v).toFixed(1)}`).join(' ');
+    s+=`<path d="${d}" fill="none" stroke="${c}" stroke-width="${se.w||2}" ${se.dash?`stroke-dasharray="${se.dash}"`:''}/>`;
+    se.data.forEach((v,i)=>{s+=`<circle cx="${X(i).toFixed(1)}" cy="${Y(v).toFixed(1)}" r="2.6" fill="${c}"/>`;});
+  });
+  s+=`</svg>`;
+  el.innerHTML=s;
+}
+const S4=[{k:'GT',label:'GT',color:'--ink',w:2.4,dash:'5 3'},
+          {k:'s1',label:'stride 1 · native (our dumps)',color:'--s7'},
+          {k:'s2',label:'stride 2 · native',color:'--s2'}];
+legend('lg4',S4);
+for(const w of Object.keys(LANES)){const z=LANES[w];
+  document.getElementById('t_'+w).textContent=`window ${w} · frame 9 at ${z.GT[9].toFixed(1)} / ${z.s1[9].toFixed(1)} / ${z.s2[9].toFixed(1)} m`;
+  posChart(document.getElementById('p_'+w),{series:S4.map(o=>Object.assign({data:LANES[w][o.k]},o))});}
+
+/* ---------- slide 5 rollout table ---------- */
+(function(){
+  const s1=['1 (0, 1)','1 (0, 1)','2 (1, 2)','3 (2, 3)','4 (3, 4)','5 (4, 5)','6 (5, 6)','7 (6, 7)'];
+  const s2=['1 (0, 1)','1 (0, 1)','2 (2, 3)','2 (2, 3)','3 (4, 5)','3 (4, 5)','4 (6, 7)','4 (6, 7)'];
+  let r='';
+  for(let f=2;f<=9;f++){const i=f-2, odd=(f%2===1);
+    r+=`<tr${odd?' class="hl"':''}><td><b>${f}</b></td><td>call ${s1[i]}</td><td class="n">${DIAG.s1_native.s[f-1].toFixed(2)}</td>`+
+       `<td>call ${s2[i]}</td><td class="n${odd?' bad':''}">${DIAG.s2_native.s[f-1].toFixed(2)}</td></tr>`;}
+  document.getElementById('tblRoll').innerHTML=r;
+})();
+</script>
+</body>
+</html>
