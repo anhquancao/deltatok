@@ -19,7 +19,7 @@ mkdir -p slurm/output
 cd /gpfs/projects/ehpc1001/code/deltatok
 
 source env_bsc.sh
-[ -d /gpfs/projects/ehpc1001/venvs/gen3r ] && source /gpfs/projects/ehpc1001/venvs/gen3r/bin/activate  # Gen3R extras over the BSC venv
+export PYTHONPATH=/gpfs/projects/ehpc1001/venvs/gen3r_extras:${PYTHONPATH:-}  # Gen3R pins transformers 4.46.3, diffusers 0.33.1
 
 export TF_CPP_MIN_LOG_LEVEL=3
 export TF_ENABLE_ONEDNN_OPTS=0
@@ -50,5 +50,7 @@ srun python eval_gen3r.py \
     --ckpt "$CKPT" \
     --ctx_mode "$CTX_MODE" \
     --slot_step "$SLOT_STEP" \
+    --shard "${SLURM_ARRAY_TASK_ID:-0}" \
+    --num_shards "${NUM_SHARDS:-1}" \
     --output_dir "$OUTPUT_DIR" \
     ${EXTRA_ARGS:-}
