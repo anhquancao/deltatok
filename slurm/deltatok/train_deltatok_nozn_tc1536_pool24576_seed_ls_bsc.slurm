@@ -40,6 +40,7 @@ ulimit -n "$(ulimit -Hn)"
 export CONFIG_NAME=train_deltatok_nt10_bsc   # num_timesteps=10 -> triplet spans up to max_gap=9
 export LOG_AND_CKPT_DIR="$SCRATCH/deltatok_log"
 export RESULTS_DIR="$LOG_AND_CKPT_DIR"
+export PYTORCH_CUDA_ALLOC_CONF=max_split_size_mb:256  # 64 GB H100: fragmentation OOM (47015747)
 
 export SIGREG_NUM_SLICES=${SIGREG_NUM_SLICES:-3072}      # 2*Cz at tc1536
 export SIGREG_POOL_SAMPLES=${SIGREG_POOL_SAMPLES:-24576}  # as BSC:45727710
