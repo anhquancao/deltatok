@@ -51,6 +51,8 @@ model:
   cond_mode: cross       # cross | delta_ctx | delta_ctx_cross | delta_ctx_incontext (delta_ctx = first delta token as clean in-seq context, no cross-attn; delta_ctx_cross = delta_ctx + frame-0 cross-attn; delta_ctx_incontext = delta_ctx + frame-0 patch grid CONCATENATED in-sequence, one global attention with per-token AdaLN, no cross-attn — requires attn_mode=global + vit_dit_adaln)
   attn_mode: factorized  # factorized | global (global = one attention over all delta tokens)
   num_ctx_deltas: 1      # clean leading delta tokens in the delta_ctx modes; n = n+1 given frames (ignored by cond_mode=cross)
+  pose_cond: false       # oracle: GT cam-0 c2w of each slot's target frame (frame-0 coords, metres) into the AdaLN c
+  pose_cond_drop: 0.5    # train-only: zero the pose for this fraction of samples (Gen3R), so the model also runs pose-free
 
   # Temporal slot capacity: must be >= T-1 transitions per item (num_timesteps-1).
   # Only the first T-1 rows of the temporal embedding are looked up per forward,

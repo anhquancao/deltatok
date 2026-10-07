@@ -20,6 +20,7 @@ def flow_euler_sample(
     scheduler_mode="cosine",
     step_mode="ode",
     cross_cond=None,
+    pose_cond=None,
     cfg_w=0,
     cross_cond_zeros=None,
     autocast_ctx=None,
@@ -42,6 +43,7 @@ def flow_euler_sample(
             (fm.py:479) — never divides by the noise level, first step jumps to
             x_hat. ``"damped"`` requires ``pred_mode="x"``.
         cross_cond: Optional conditioning for cross-attention.
+        pose_cond: Optional per-slot pose (B, T, 7) for a pose_cond model.
         cfg_w: Classifier-free guidance weight (0 disables CFG).
         cross_cond_zeros: Zero embedding for CFG (required when ``cfg_w > 1``).
         autocast_ctx: Context manager for mixed-precision. Defaults to no-op.
@@ -85,11 +87,11 @@ def flow_euler_sample(
 
         with autocast_ctx:
             pred = model(
-                x=z, ada_cond=t_curr, cross_cond=cross_cond,
+                x=z, ada_cond=t_curr, cross_cond=cross_cond, pose_cond=pose_cond,
             )
             if cfg_w > 1:
                 pred_uncond = model(
-                    x=z, ada_cond=t_curr, cross_cond=cross_cond_zeros,
+                    x=z, ada_cond=t_curr, cross_cond=cross_cond_zeros, pose_cond=pose_cond,
                 )
                 pred = pred_uncond + cfg_w * (pred - pred_uncond)
 

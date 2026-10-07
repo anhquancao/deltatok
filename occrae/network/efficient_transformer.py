@@ -14,11 +14,11 @@ from transformers.models.dinov3_vit.configuration_dinov3_vit import DINOv3ViTCon
 from transformers.models.dinov3_vit.modeling_dinov3_vit import DINOv3ViTRopePositionEmbedding
 from occrae.network.rope_utils import compute_camera_rope  # shared 1xN camera-grid rope build
 
-def gem_timestep_embedding(timesteps, dim, max_period=10000, repeat_only=False):
+def fourier_embedding(x, dim, max_period=10000, repeat_only=False):
     """
-    Create sinusoidal timestep embeddings.
+    Sinusoidal embedding of scalar values.
 
-    :param timesteps: a 1-D Tensor of N indices, one per batch element. These may be fractional.
+    :param x: a 1-D Tensor of N scalars; may be fractional.
     :param dim: the dimension of the output.
     :param max_period: controls the minimum frequency of the embeddings.
 
@@ -26,21 +26,36 @@ def gem_timestep_embedding(timesteps, dim, max_period=10000, repeat_only=False):
     """
 
     if repeat_only:
-        embedding = repeat(timesteps, "b -> b d", d=dim)
+        embedding = repeat(x, "b -> b d", d=dim)
     else:
         half = dim // 2
         freqs = torch.exp(
             -math.log(max_period)
             * torch.arange(start=0, end=half, dtype=torch.float32)
             / half
-        ).to(device=timesteps.device)
-        args = timesteps[:, None].float() * freqs[None]
+        ).to(device=x.device)
+        args = x[:, None].float() * freqs[None]
         embedding = torch.cat((torch.cos(args), torch.sin(args)), dim=-1)
         if dim % 2:
             embedding = torch.cat(
                 (embedding, torch.zeros_like(embedding[:, :1])), dim=-1
             )
     return embedding
+
+
+class PoseEmbedder(nn.Module):
+    """Per-slot pose -> D: raw 7-d [t (m), quat xyzw] through an MLP.
+    Last layer zero-init (set in Transformer)."""
+    def __init__(self, hidden_dim, pose_dim=7):
+        super().__init__()
+        self.mlp = nn.Sequential(
+            nn.Linear(pose_dim, hidden_dim * 4),
+            nn.SiLU(),
+            nn.Linear(hidden_dim * 4, hidden_dim),
+        )
+
+    def forward(self, pose):
+        return self.mlp(pose.to(self.mlp[0].weight.dtype))                           # (B, t, 7) -> (B, t, D)
 
 
 
@@ -223,7 +238,7 @@ class Transformer(nn.Module):
                  use_trajectory_cond=False, trajectory_length=25,
                  ref_spatial_size=(16, 16), use_camera_rope=False, max_cameras=32,
                  use_camera_embed=False, attn_mode="factorized", use_dit_adaln=False,
-                 in_context=False):
+                 in_context=False, use_pose_cond=False):
         super().__init__()
 
         self.c = out_dim                                                # Number of channels as input
@@ -241,6 +256,7 @@ class Transformer(nn.Module):
         self.attn_mode = attn_mode                                      # "factorized" (spatial+temporal) | "global" (single attn over t*s)
         self.use_dit_adaln = use_dit_adaln                              # per-block AdaLN-Zero + Fourier t-embed (RAE/DiT recipe)
         self.in_context = in_context                                    # frame-0 grids concatenated in-sequence (per-token AdaLN) vs cross-attn kv
+        self.use_pose_cond = use_pose_cond                              # per-slot GT pose summed into the AdaLN c (oracle)
 
         # In global mode the spatial-attention path (where camera rope lives) and the
         # temporal causal mask are gone; fail loud rather than silently ignore them.
@@ -257,6 +273,8 @@ class Transformer(nn.Module):
                 raise NotImplementedError("in_context requires attn_mode='global' and use_dit_adaln=True")
             if cross_dim is None:
                 raise ValueError("in_context needs cross_dim set (frame-0 feature dim) to build the context projection")
+        if use_pose_cond and not (use_dit_adaln and not in_context):
+            raise NotImplementedError("pose_cond rides the dit AdaLN c: needs use_dit_adaln=True, in_context=False")
 
         if self.use_camera_rope:
             head_dim = hidden_dim // heads
@@ -283,6 +301,10 @@ class Transformer(nn.Module):
         # vector per slot, added ungated so each generated delta binds to its camera.
         if self.use_camera_embed:
             self.camera_embed = nn.Embedding(max_cameras, hidden_dim)
+
+        # Pose per delta slot, [t (3, metres), quat xyzw (4)] -> D, summed into the AdaLN c.
+        if self.use_pose_cond:
+            self.pose_embed = PoseEmbedder(hidden_dim)
 
         # number of spatial tokens (including CLS if present in spatial_pos, but here we use it for reference)
         self.num_spatial = ref_n * ref_k + 1
@@ -352,6 +374,9 @@ class Transformer(nn.Module):
         nn.init.trunc_normal_(self.spatial_pos, std=0.02)
         if self.use_camera_embed:
             nn.init.normal_(self.camera_embed.weight, std=0.02)
+        if self.use_pose_cond:
+            nn.init.zeros_(self.pose_embed.mlp[-1].weight)                  # c starts as the t-embedding alone
+            nn.init.zeros_(self.pose_embed.mlp[-1].bias)
         if hasattr(self, "cross_spatial_pos"):
             nn.init.trunc_normal_(self.cross_spatial_pos, std=0.02)
 
@@ -450,8 +475,10 @@ class Transformer(nn.Module):
         pos = F.interpolate(pos, size=(h, w), mode='bicubic', align_corners=False)      # (1, D, h, w) bicubic resize to target grid
         return pos.permute(0, 2, 3, 1).flatten(1, 2)                                    # (1, h*w, D) back to token sequence
 
-    def forward(self, x, ada_cond, cross_cond=None, return_feat=False, trajectory_cond=None, trajectory_keep_mask=None):
+    def forward(self, x, ada_cond, cross_cond=None, return_feat=False, trajectory_cond=None, trajectory_keep_mask=None, pose_cond=None):
         b, c, t, n, k = x.size()                # n = cameras, k = delta tokens per camera
+        if pose_cond is not None and not self.use_pose_cond:
+            raise ValueError("pose_cond was provided but pose conditioning is disabled for this model")
 
         if self.is_causal:
             temporal_mask = torch.full((t, t), float("-inf"), device=x.device)
@@ -503,6 +530,10 @@ class Transformer(nn.Module):
 
         if self.use_dit_adaln:
             cond = self.time_embed(ada_cond)                 # (B, T[+1], D) frame-level c; each block derives its own AdaLN from it
+            if self.use_pose_cond:
+                assert pose_cond is not None and tuple(pose_cond.shape) == (b, t, 7), \
+                    f"pose_cond {None if pose_cond is None else tuple(pose_cond.shape)} != {(b, t, 7)}"
+                cond = cond + self.pose_embed(pose_cond).to(cond.dtype)   # (B, t, D) c = t-embed + pose-embed
         else:
             t_emb = self.time_embed(ada_cond).chunk(8, dim=-1)
         if self.use_trajectory_cond:

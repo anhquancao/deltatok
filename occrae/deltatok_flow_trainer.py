@@ -30,6 +30,7 @@ from occrae.generation_helper import flow_euler_sample
 from occrae.deltatok_trainer import _log_cosh  # the tokenizer's recon loss: LossFeat reads on the LossRecon scale
 from occrae.chamfer_metrics import compute_chamfer_metrics
 from occrae.forecast_dump import save_windows
+from depth_anything_3.utils.geometry import mat_to_quat  # xyzw, real part >= 0
 
 
 # Fixed eval-loss key order so every rank reduces the same-sized vector even
@@ -119,6 +120,10 @@ class DeltaTokFlowMatchingTrainer(DeltaTokSharedMixin, Trainer):
         self.train_decoder = bool(self.cfg.model.get("feat_loss_train_decoder", False))
         assert not self.train_decoder or self.feat_loss_weight > 0, "feat_loss_train_decoder needs feat_loss_weight > 0"
         print(f"feat_loss_train_decoder={self.train_decoder} decoder_lr={self.cfg.training.get('decoder_lr', 0.0)}")
+        # Oracle: GT pose of each delta slot's target frame in the AdaLN c; train-only per-sample dropout.
+        self.pose_cond = bool(self.cfg.model.get("pose_cond", False))
+        self.pose_cond_drop = float(self.cfg.model.get("pose_cond_drop", 0.0))
+        print(f"pose_cond={self.pose_cond} pose_cond_drop={self.pose_cond_drop}")
 
         # Conditioning / attention modes (default to legacy cross + factorized).
         # delta_ctx: first delta token (frame 0->1) is the clean in-seq context
@@ -297,6 +302,7 @@ class DeltaTokFlowMatchingTrainer(DeltaTokSharedMixin, Trainer):
                 attn_mode=self.attn_mode,
                 use_dit_adaln=bool(self.cfg.model.get("vit_dit_adaln", False)),
                 in_context=self.in_context,
+                use_pose_cond=self.pose_cond,
             )
 
             # Load model checkpoint for resume or pretrained initialization.
@@ -446,6 +452,15 @@ class DeltaTokFlowMatchingTrainer(DeltaTokSharedMixin, Trainer):
         feat0 = torch.stack([e[1] for e in entries], dim=0)             # (B, N, P, C)
         z = torch.stack([e[2] for e in entries], dim=0)                # (B, T-1, N, K, C)
         return tokens, feat0, z, entries[0][3], entries[0][4]
+
+    def _build_pose_cond(self, batch, num_cameras):
+        """Oracle: GT cam-0 c2w of each slot's target frame, frame-0 coords (dataset convention).
+        -> (B, T-1, 7) [t (metres), quat xyzw], or None when model.pose_cond is off."""
+        if not self.pose_cond:
+            return None
+        c2w = batch["gt_c2w"].to(self.device).float()                    # (B, V, 4, 4) frame-0 coords, metres
+        c2w = c2w.view(c2w.shape[0], -1, num_cameras, 4, 4)[:, 1:, 0]    # (B, T-1, 4, 4) cam 0, frame t+1 of slot t
+        return torch.cat([c2w[..., :3, 3], mat_to_quat(c2w[..., :3, :3])], dim=-1)  # (B, T-1, 7)
 
     def _build_cross_cond(self, x0, H, W):
         """Build the frame-0 conditioning grids fed to the flow transformer.
@@ -685,6 +700,10 @@ class DeltaTokFlowMatchingTrainer(DeltaTokSharedMixin, Trainer):
             # concatenated in-sequence (in_context). n_ctx>0: first n_ctx delta tokens kept
             # clean in-sequence — see flow_noising context.
             cross_cond = self._build_cross_cond(feat0, H, W) if self.build_frame0_ctx else None  # (B, N, Hp, Wp, C) or None
+            pose_cond = self._build_pose_cond(batch, num_cameras)        # (B, T-1, 7) or None
+            if pose_cond is not None and self.pose_cond_drop > 0:
+                keep = torch.rand(pose_cond.shape[0], 1, 1, device=pose_cond.device) >= self.pose_cond_drop  # (B, 1, 1) per sample
+                pose_cond = pose_cond * keep                             # dropped -> all-zero pose (zero quat != identity)
 
             z_t, e, timestep = self.flow_noising(
                 x_spatial, context=self.n_ctx, mu=self.cfg.model.mu, sigma=self.cfg.model.sigma,
@@ -696,6 +715,7 @@ class DeltaTokFlowMatchingTrainer(DeltaTokSharedMixin, Trainer):
                     x=z_t,
                     ada_cond=timestep,
                     cross_cond=cross_cond,
+                    pose_cond=pose_cond,
                     return_feat=False,
                 )
                 loss_flow_total, x_pred = self.flow_loss(pred=pred, x=x_spatial, z_t=z_t, e=e, t=timestep, context=self.n_ctx, return_x_pred=True)
@@ -919,6 +939,7 @@ class DeltaTokFlowMatchingTrainer(DeltaTokSharedMixin, Trainer):
                     tokens, feat0, z, H, W = self._encode_inputs(batch, imgs, num_cameras, want_tokens=True)  # tokens (B, V, N_tok, C); feat0 (B, N, P, C); z (B, T-1, N, K, C)
                     x_spatial = self._z_to_flow_latent(z)  # (B, C, T-1, N, K) flow latent layout
                     cross_cond = self._build_cross_cond(feat0, H, W) if self.build_frame0_ctx else None  # (B, N, Hp, Wp, C) or None
+                    pose_cond = self._build_pose_cond(batch, num_cameras)    # (B, T-1, 7) or None; eval never drops it
 
                     batch_losses = {}
 
@@ -938,6 +959,7 @@ class DeltaTokFlowMatchingTrainer(DeltaTokSharedMixin, Trainer):
                         scheduler_mode=str(self.cfg.model.get("sampler_scheduler_mode", "cosine")),
                         alpha=float(self.cfg.model.get("sampler_alpha", 0.5)),
                         cross_cond=cross_cond,
+                        pose_cond=pose_cond,
                         autocast_ctx=self.autocast,
                     )
                     z_hat = self._flow_latent_to_z(gen)      # (B, T-1, N, K, C) sampled deltas
@@ -1035,7 +1057,7 @@ class DeltaTokFlowMatchingTrainer(DeltaTokSharedMixin, Trainer):
                         )
                         with self.autocast:
                             pred_flow = self._ema_model()(
-                                x=z_noised, ada_cond=t_flow, cross_cond=cross_cond, return_feat=False,
+                                x=z_noised, ada_cond=t_flow, cross_cond=cross_cond, pose_cond=pose_cond, return_feat=False,
                             )
                             loss_flow, x_pred = self.flow_loss(
                                 # match train: exclude the n_ctx clean context slots (delta_ctx pins
