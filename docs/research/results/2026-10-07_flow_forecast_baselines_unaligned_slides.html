@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>DeltaTok's forecast camera nearly stops after the context frames: ATE 11–20 m unaligned; VGGT-World and Gen3R pending · all-data ctx2fwd8</title>
+<title>DeltaTok has the best depth on every set and wins 14 of 30 cells against VGGT-World cityscapes.pt and Gen3R; ATE is 11–20 m for every model · all-data ctx2fwd8</title>
 <style>
 /* ---------- tokens · light only, white slides (no dark variant by request) ---------- */
 :root{
@@ -116,7 +116,7 @@ td span.ok{color:var(--good);font-weight:600}
 svg .barval{paint-order:stroke;stroke:var(--surface);stroke-width:3px;stroke-linejoin:round}
 #score{font-size:11.5px}#score td,#score th{padding:4px 7px;line-height:1.25}
 #score td.sepl{border-left:1px solid var(--axis)}
-.g44{display:grid;grid-template-columns:92px repeat(4,1fr);gap:2px 14px;align-content:start}
+.g44{display:grid;grid-template-columns:92px repeat(4,minmax(0,1fr));gap:2px 14px;align-content:start}
 </style>
 </head>
 <body>
@@ -124,16 +124,16 @@ svg .barval{paint-order:stroke;stroke:var(--surface);stroke-width:3px;stroke-lin
 
 <!-- ============ SLIDE 1 — answer ============ -->
 <section class="slide on">
-  <div class="eyebrow">Forecast baselines, unaligned <span class="dim">— all-data ctx2fwd8 · ~2,000 windows per set · one scorer for every model · interim, 07-10-2026 10:10</span></div>
-  <h1>DeltaTok's forecast camera nearly stops after the context frames: ATE 11–20 m with no alignment</h1>
+  <div class="eyebrow">Forecast baselines, unaligned <span class="dim">— all-data ctx2fwd8 · ~2,000 windows per set · one scorer for every model · 07-10-2026 16:45</span></div>
+  <h1>DeltaTok has the best depth on every set and wins 14 of 30 cells</h1>
   <p class="sub">Every model sees frames 0–1 and forecasts frames 2–9, 0.5 s apart. Each dumps depth, points and camera poses;
     <span class="mono">eval_forecast_metrics.py</span> scores them at metric scale with no fit or alignment.
-    DeltaTok is complete. VGGT-World and Gen3R are still running, so their cells are placeholders.</p>
+    All scores are in. The main comparison uses VGGT-World <span class="mono">cityscapes.pt</span>; <span class="mono">kitti.pt</span> is in the appendix (slide 15).</p>
   <div class="body">
     <div class="cols c3" style="gap:15px">
-      <div class="tile"><div class="k">Camera · DeltaTok · all 3 sets</div><div class="v" style="color:var(--crit)">RTE 4.0 m / step</div><div class="d">KITTI, 1–5 steps. That is a whole KITTI step (3.4–5.1 m on the 4 windows inspected), so the predicted camera barely moves. ATE 17.5–19.7 m KITTI, 11.1–12.4 nuScenes, 13.3–14.9 Waymo.</div></div>
-      <div class="tile"><div class="k">FD · DeltaTok · by denoising steps</div><div class="v">5 steps within 2%</div><div class="d">of the best FD on nuScenes (16.53 vs 16.21) and Waymo (13.09 vs 12.93). KITTI goes the other way: 9.65 at 1 step, 32.67 at 20 (3.4×).</div></div>
-      <div class="tile" style="border-style:dashed"><div class="k">Baselines · pending</div><div class="v" style="color:var(--muted)">0 / 9 scored</div><div class="d">VGGT-World <span class="mono">kitti.pt</span> and <span class="mono">cityscapes.pt</span>: 6 scores, ~10:35–13:15. Gen3R: 3 scores, ~15:00–16:30. Slides 3–5 and 10 fill in when they land; slides 6–8 show one window per set.</div></div>
+      <div class="tile"><div class="k">Depth · DeltaTok 5 steps vs best baseline</div><div class="v" style="color:var(--good)">9 / 9 cells</div><div class="d">LossDepth <b>3.97 / 4.54 / 5.43</b> against 4.38 / 4.81 / 7.27 (KITTI / nuScenes / Waymo). AbsRel and δ1 go the same way on every set.</div></div>
+      <div class="tile"><div class="k">Point clouds · cityscapes.pt Chamfer, m</div><div class="v">3.12 · 1.92</div><div class="d">KITTI · nuScenes, against DeltaTok 5 steps 3.33 · 2.85; It also has the best Comp on both. On Waymo, Gen3R has the best Chamfer (4.07), DeltaTok the best Acc (2.29) and Pointmap (15.42).</div></div>
+      <div class="tile"><div class="k">Camera · ATE, m</div><div class="v">11–20 m</div><div class="d">for every model. Best: cityscapes.pt on KITTI (17.2), DeltaTok 5 steps on nuScenes (11.1) and Waymo (13.6). Gen3R has the best RTE on all three sets; cityscapes.pt the best RRE.</div></div>
     </div>
     <div class="rulebar" style="margin-top:18px"><b>No alignment anywhere.</b> Not comparable with the
       <a href="2026-10-04_flow_vggt_world_baseline_slides.html">2026-10-04 deck</a>, whose Chamfer was Sim(3)-aligned.
@@ -142,7 +142,7 @@ svg .barval{paint-order:stroke;stroke:var(--surface);stroke-width:3px;stroke-lin
       DeltaTok dumps BSC <span class="mono">47015409</span>–<span class="mono">31</span> (odd), nuScenes 5 steps <span class="mono">47015859</span> ·
       scorers the next ID up · baseline jobs on slide 2.</p>
   </div>
-  <div class="foot"><span>Forecast baselines · all-data ctx2fwd8 · 07-10-2026</span><span>interim: DeltaTok only</span><span class="pageno">1</span></div>
+  <div class="foot"><span>Forecast baselines · all-data ctx2fwd8 · 07-10-2026</span><span>all 21 scores</span><span class="pageno">1</span></div>
 </section>
 
 <!-- ============ SLIDE 2 — what ran ============ -->
@@ -155,12 +155,12 @@ svg .barval{paint-order:stroke;stroke:var(--surface);stroke-width:3px;stroke-lin
         <thead><tr><th>model</th><th>checkpoint · sampling</th><th>metric scale</th></tr></thead>
         <tbody>
           <tr class="hl"><td><b>DeltaTok-flow</b></td><td class="mono">flow iter_050000 (ep 24) · tokenizer epoch_70 · ODE 1 / 5 / 10 / 20 steps</td><td class="mono">DA3 decode as is</td></tr>
-          <tr><td><b>VGGT-World</b></td><td class="mono">kitti.pt (stage 1, ep 15) · cityscapes.pt (stage 2, ep 6) · stride-1 rollout · native res</td><td class="mono">1 scale / window vs DA3METRIC on frames 0–1</td></tr>
+          <tr><td><b>VGGT-World</b></td><td class="mono">cityscapes.pt (stage 2, ep 6) · kitti.pt (stage 1, ep 15) in the appendix · stride-1 rollout · native res</td><td class="mono">1 scale / window vs DA3METRIC on frames 0–1</td></tr>
           <tr><td><b>Gen3R</b></td><td class="mono">JaceyH919/Gen3R · ctx both · 13-slot clip · 336×1008 on KITTI</td><td class="mono">same as VGGT-World</td></tr>
         </tbody>
       </table>
       <table style="margin-top:16px">
-        <thead><tr><th>pending</th><th class="n">KITTI</th><th class="n">nuScenes</th><th class="n">Waymo</th></tr></thead>
+        <thead><tr><th>baseline scores</th><th class="n">KITTI</th><th class="n">nuScenes</th><th class="n">Waymo</th></tr></thead>
         <tbody id="tblJobs"></tbody>
       </table>
       <div class="rulebar">Scorers take ~3.3 h each. Gen3R dumps run as slurm arrays (2 / 3 / 3 shards, 26–32 s per window), and each scorer waits for the whole array.</div>
@@ -188,8 +188,8 @@ svg .barval{paint-order:stroke;stroke:var(--surface);stroke-width:3px;stroke-lin
 <!-- ============ SLIDE 3 — depth grid ============ -->
 <section class="slide">
   <div class="eyebrow">Depth <span class="dim">— ringed = DeltaTok's best step count · δ1 higher is better, the rest lower</span></div>
-  <h2>Past 5 steps DeltaTok's δ1 drops on every set; KITTI LossDepth still improves, nuScenes and Waymo worsen</h2>
-  <div class="legend" style="margin-top:10px"><span><i class="sw" style="background:var(--s1)"></i>DeltaTok-flow, by denoising steps</span><span><i class="sw" style="background:var(--s7)"></i>VGGT-World kitti.pt</span><span><i class="sw" style="background:var(--s2)"></i>VGGT-World cityscapes.pt</span><span><i class="sw" style="background:var(--s3)"></i>Gen3R</span><span style="color:var(--muted)">dashed, one value each · <i>…</i> = not scored yet</span></div>
+  <h2>At 5 steps DeltaTok has the best LossDepth, AbsRel and δ1 on all three sets; Gen3R has the highest LossDepth and AbsRel on all three</h2>
+  <div class="legend" style="margin-top:10px"><span><i class="sw" style="background:var(--s1)"></i>DeltaTok-flow, by denoising steps</span><span><i class="sw" style="background:var(--s2)"></i>VGGT-World cityscapes.pt</span><span><i class="sw" style="background:var(--s3)"></i>Gen3R</span><span style="color:var(--muted)">dashed, one value each · <i>…</i> = not scored yet</span></div>
   <div class="body g33">
     <div></div><div class="panelttl">LossDepth</div><div class="panelttl">AbsRel</div><div class="panelttl">δ1 · higher is better</div>
     <div class="rowlbl"><b>KITTI</b><br>val · 2,013</div><div id="d_k0"></div><div id="d_k1"></div><div id="d_k2"></div>
@@ -202,8 +202,8 @@ svg .barval{paint-order:stroke;stroke:var(--surface);stroke-width:3px;stroke-lin
 <!-- ============ SLIDE 4 — points grid ============ -->
 <section class="slide">
   <div class="eyebrow">Point clouds <span class="dim">— metres, no alignment · lower is better · ringed = DeltaTok's best</span></div>
-  <h2>More steps trade accuracy for completeness; Chamfer is flat on KITTI and best at 10 steps on nuScenes and Waymo</h2>
-  <div class="legend" style="margin-top:10px"><span><i class="sw" style="background:var(--s1)"></i>DeltaTok-flow, by denoising steps</span><span><i class="sw" style="background:var(--s7)"></i>VGGT-World kitti.pt</span><span><i class="sw" style="background:var(--s2)"></i>VGGT-World cityscapes.pt</span><span><i class="sw" style="background:var(--s3)"></i>Gen3R</span></div>
+  <h2>cityscapes.pt has the best Chamfer and Comp on KITTI and nuScenes; on Waymo, DeltaTok wins Pointmap and Acc, Gen3R Comp and Chamfer</h2>
+  <div class="legend" style="margin-top:10px"><span><i class="sw" style="background:var(--s1)"></i>DeltaTok-flow, by denoising steps</span><span><i class="sw" style="background:var(--s2)"></i>VGGT-World cityscapes.pt</span><span><i class="sw" style="background:var(--s3)"></i>Gen3R</span></div>
   <div class="body g44">
     <div></div><div class="panelttl">LossPointmap</div><div class="panelttl">Accuracy · pred → GT</div><div class="panelttl">Completeness · GT → pred</div><div class="panelttl">Chamfer · mean of both</div>
     <div class="rowlbl"><b>KITTI</b><br>val · 2,013</div><div id="d_k3"></div><div id="d_k4"></div><div id="d_k5"></div><div id="d_k6"></div>
@@ -216,15 +216,15 @@ svg .barval{paint-order:stroke;stroke:var(--surface);stroke-width:3px;stroke-lin
 <!-- ============ SLIDE 5 — camera grid ============ -->
 <section class="slide">
   <div class="eyebrow">Camera path <span class="dim">— frame-0 coordinates, no alignment · lower is better · ringed = DeltaTok's best</span></div>
-  <h2>DeltaTok's RTE and RRE grow with denoising steps on every set; ATE stays at 11–20 m</h2>
-  <div class="legend" style="margin-top:10px"><span><i class="sw" style="background:var(--s1)"></i>DeltaTok-flow, by denoising steps</span><span><i class="sw" style="background:var(--s7)"></i>VGGT-World kitti.pt</span><span><i class="sw" style="background:var(--s2)"></i>VGGT-World cityscapes.pt</span><span><i class="sw" style="background:var(--s3)"></i>Gen3R</span></div>
+  <h2>ATE is 11–20 m for every model; per-step rotation error is 1.5–2.1° for the baselines on nuScenes and Waymo, 4.4–9.0° for DeltaTok</h2>
+  <div class="legend" style="margin-top:10px"><span><i class="sw" style="background:var(--s1)"></i>DeltaTok-flow, by denoising steps</span><span><i class="sw" style="background:var(--s2)"></i>VGGT-World cityscapes.pt</span><span><i class="sw" style="background:var(--s3)"></i>Gen3R</span></div>
   <div class="body g33">
     <div></div><div class="panelttl">ATE · m</div><div class="panelttl">RTE · m per step</div><div class="panelttl">RRE · deg per step</div>
     <div class="rowlbl"><b>KITTI</b><br>val · 2,013</div><div id="d_k7"></div><div id="d_k8"></div><div id="d_k9"></div>
     <div class="rowlbl"><b>nuScenes</b><br>val · 2,382</div><div id="d_n7"></div><div id="d_n8"></div><div id="d_n9"></div>
     <div class="rowlbl"><b>Waymo</b><br>test · 2,018</div><div id="d_w7"></div><div id="d_w8"></div><div id="d_w9"></div>
   </div>
-  <div class="foot"><span>DeltaTok c2w = pinhole fit to the decoded rays (deltatok_flow_trainer.py:977) · placeholder: RTE of a camera that stands still, not measured</span><span class="pageno">5</span></div>
+  <div class="foot"><span>DeltaTok c2w = pinhole fit to the decoded rays (deltatok_flow_trainer.py:977)</span><span class="pageno">5</span></div>
 </section>
 
 <!-- ============ SLIDE — example kitti window 14 ============ -->
@@ -311,19 +311,18 @@ svg .barval{paint-order:stroke;stroke:var(--surface);stroke-width:3px;stroke-lin
 
 <!-- ============ SLIDE 7 — scoreboard ============ -->
 <section class="slide">
-  <div class="eyebrow">Scoreboard <span class="dim">— DeltaTok at 5 steps against each baseline · bold = best available in the row</span></div>
-  <h2>Placeholder until the baseline scores land</h2>
+  <div class="eyebrow">Scoreboard <span class="dim">— DeltaTok at 1 / 5 / 20 steps against each baseline · bold = best of the five per set</span></div>
+  <h2>Of 30 cells, DeltaTok wins 16 across 1 / 5 / 20 steps (14 held to 5 steps), cityscapes.pt 9 and Gen3R 5</h2>
   <div class="body" style="margin-top:12px">
     <table id="score">
       <thead>
-        <tr><th></th><th colspan="4" style="text-align:center">KITTI val</th><th colspan="4" style="text-align:center">nuScenes val</th><th colspan="4" style="text-align:center">Waymo test</th></tr>
-        <tr><th>metric</th><th class="n">DeltaTok 5</th><th class="n">VGGT kitti</th><th class="n">VGGT city</th><th class="n">Gen3R</th><th class="n">DeltaTok 5</th><th class="n">VGGT kitti</th><th class="n">VGGT city</th><th class="n">Gen3R</th><th class="n">DeltaTok 5</th><th class="n">VGGT kitti</th><th class="n">VGGT city</th><th class="n">Gen3R</th></tr>
+        <tr><th></th><th colspan="5" style="text-align:center">KITTI val</th><th colspan="5" style="text-align:center">nuScenes val</th><th colspan="5" style="text-align:center">Waymo test</th></tr>
+        <tr><th>metric</th><th class="n">DT 1</th><th class="n">DT 5</th><th class="n">DT 20</th><th class="n">city</th><th class="n">Gen3R</th><th class="n">DT 1</th><th class="n">DT 5</th><th class="n">DT 20</th><th class="n">city</th><th class="n">Gen3R</th><th class="n">DT 1</th><th class="n">DT 5</th><th class="n">DT 20</th><th class="n">city</th><th class="n">Gen3R</th></tr>
       </thead>
       <tbody id="tblScore"></tbody>
     </table>
     <div class="rulebar">DeltaTok 5 steps is the reporting default from the <a href="2026-09-30_flow_eval_numsteps_alldata_ctx2fwd8_slides.html">step sweep</a>.
-      VGGT kitti / city = VGGT-World <span class="mono">kitti.pt</span> / <span class="mono">cityscapes.pt</span>.
-      <i>pending</i> cells fill from <span class="mono">&lt;pred_dir&gt;/&lt;set&gt;.json</span>.</div>
+      DT N = DeltaTok-flow at N steps; city = VGGT-World <span class="mono">cityscapes.pt</span>; <span class="mono">kitti.pt</span> is on slide 15. Scores from <span class="mono">&lt;pred_dir&gt;/&lt;set&gt;.json</span>.</div>
   </div>
   <div class="foot"><span>depth, Pointmap, Acc, Comp, ATE, RTE in m · RRE in deg · δ1 higher is better</span><span class="pageno">13</span></div>
 </section>
@@ -331,7 +330,7 @@ svg .barval{paint-order:stroke;stroke:var(--surface);stroke-width:3px;stroke-lin
 <!-- ============ SLIDE 8 — checks & caveats ============ -->
 <section class="slide">
   <div class="eyebrow">Checks <span class="dim">— what the numbers were tested against</span></div>
-  <h2>The scorer reproduces each DeltaTok dump's own losses, and the dumps reproduce the 2026-10-01 evals</h2>
+  <h2>The scorer reproduces each dump's own losses, and the dumps reproduce the earlier in-process evals</h2>
   <div class="body cols c2" style="gap:26px;margin-top:14px">
     <div>
       <div class="card" style="border-left:3px solid var(--good)">
@@ -339,6 +338,7 @@ svg .barval{paint-order:stroke;stroke:var(--surface);stroke-width:3px;stroke-lin
         <ul class="tight" style="margin-top:10px;font-size:12.5px">
           <li><strong>Scorer = dump job, 12 / 12.</strong> LossDepth and LossPointmap from <span class="mono">eval_forecast_metrics.py</span> equal the dump job's own Eval line to 4 significant figures.</li>
           <li><strong>Same as the earlier Chamfer evals.</strong> LossDepth and LossPointmap equal BSC <span class="mono">46861907</span>–<span class="mono">18</span> (2026-10-01) exactly: same windows and seed.</li>
+          <li><strong>VGGT-World = 2026-10-04 evals.</strong> Dump + scorer LossDepth matches the in-process runs within 0.06% on all 6 cells.</li>
           <li><strong>FD within 0.4%</strong> of the step sweep BSC <span class="mono">46837868</span>–<span class="mono">71</span>, which ran at val_bsize 8 (4 here).</li>
           <li><strong>Pose metrics vs evo.</strong> ATE / RTE / RRE match <span class="mono">evo_ape</span> / <span class="mono">evo_rpe</span> to 1e-6 (<span class="mono">test_pose_errors_evo.py</span>).</li>
         </ul>
@@ -357,7 +357,6 @@ svg .barval{paint-order:stroke;stroke:var(--surface);stroke-width:3px;stroke-lin
         <h3>What this does <em>not</em> establish</h3>
         <ul class="tight" style="margin-top:10px;font-size:12.5px">
           <li><strong>Why the camera stalls.</strong> DeltaTok's c2w is a pinhole fit to the decoded rays. A static forecast could come from the flow or from the fit; not separated.</li>
-          <li><strong>Static-camera RTE not measured.</strong> The 3.4–5.1 m step size comes from 4 KITTI windows only.</li>
           <li><strong>Different scale sources.</strong> Baselines are scaled by DA3METRIC on frames 0–1; DeltaTok is not. Scale errors land in every metric.</li>
           <li><strong>One noise draw per job.</strong> KITTI is one drive (seq 08), so its floor is ~2.2% whatever the window count.</li>
           <li><strong>Visuals are two windows per set</strong> (slides 6–11, daytime only), depth and camera path only; no predicted RGB.</li>
@@ -366,6 +365,22 @@ svg .barval{paint-order:stroke;stroke:var(--surface);stroke-width:3px;stroke-lin
     </div>
   </div>
   <div class="foot"><span>scorer: eval_forecast_metrics.py · dump format: occrae/forecast_dump.py</span><span class="pageno">14</span></div>
+</section>
+
+<!-- ============ SLIDE — appendix: kitti.pt ============ -->
+<section class="slide">
+  <div class="eyebrow">Appendix · VGGT-World kitti.pt <span class="dim">— stage 1, ep 15 · stride-1 rollout · against DeltaTok at 5 steps · bold = better of the two</span></div>
+  <h2>kitti.pt wins 16 of 30 cells against DeltaTok 5 steps, including every non-depth KITTI metric; DeltaTok keeps all 9 depth cells</h2>
+  <div class="body" style="margin-top:12px">
+    <table>
+      <thead>
+        <tr><th></th><th colspan="2" style="text-align:center">KITTI val</th><th colspan="2" style="text-align:center">nuScenes val</th><th colspan="2" style="text-align:center">Waymo test</th></tr>
+        <tr><th>metric</th><th class="n">DeltaTok 5</th><th class="n">kitti.pt</th><th class="n">DeltaTok 5</th><th class="n">kitti.pt</th><th class="n">DeltaTok 5</th><th class="n">kitti.pt</th></tr>
+      </thead>
+      <tbody id="tblKitti"></tbody>
+    </table>
+  </div>
+  <div class="foot"><span>kitti.pt dumps BSC 47015127/29/31 · depth, Pointmap, Acc, Comp, ATE, RTE in m · RRE in deg</span><span class="pageno">15</span></div>
 </section>
 
 </div><!-- /stage -->
@@ -467,7 +482,7 @@ function autoCfg(vals){
    eval_forecast_metrics.py JSONs, /gpfs/scratch/ehpc1001/quan/forecast_preds/<run>/<set>.json; null = not scored yet.
    dt<N> = DeltaTok-flow at N ODE steps (dumps BSC 47015409–31 odd, nuScenes 5 steps 47015859);
    vk / vc = VGGT-World kitti.pt / cityscapes.pt stride 1; g3 = Gen3R. Refresh with /tmp/deck_fetch.py on BSC. */
-const D=/*DATA*/{"dt1":{"k":{"n":2013,"LossDepth":4.2105,"AbsRel":0.3208,"Delta1":0.5897,"LossPointmap":19.593,"ChamferAcc":0.981,"ChamferComp":5.4081,"Chamfer":3.1946,"ATE":19.7194,"RTE":4.0096,"RRE":3.4434,"ScaleRatio_p50":0.9907},"n":{"n":2382,"LossDepth":4.5598,"AbsRel":0.2454,"Delta1":0.6394,"LossPointmap":15.0623,"ChamferAcc":1.8944,"ChamferComp":4.4402,"Chamfer":3.1673,"ATE":12.4266,"RTE":2.835,"RRE":5.7836,"ScaleRatio_p50":0.9831},"w":{"n":2018,"LossDepth":5.379,"AbsRel":0.2675,"Delta1":0.6122,"LossPointmap":14.6939,"ChamferAcc":1.7,"ChamferComp":7.8016,"Chamfer":4.7508,"ATE":14.9372,"RTE":3.8083,"RRE":4.3993,"ScaleRatio_p50":1.1763}},"dt5":{"k":{"n":2013,"LossDepth":3.9688,"AbsRel":0.2883,"Delta1":0.6016,"LossPointmap":19.9904,"ChamferAcc":1.0012,"ChamferComp":5.6515,"Chamfer":3.3263,"ATE":19.6661,"RTE":4.1083,"RRE":3.6393,"ScaleRatio_p50":0.9452},"n":{"n":2382,"LossDepth":4.5416,"AbsRel":0.2444,"Delta1":0.6112,"LossPointmap":13.8689,"ChamferAcc":1.8873,"ChamferComp":3.8044,"Chamfer":2.8459,"ATE":11.1229,"RTE":3.8937,"RRE":6.8743,"ScaleRatio_p50":0.9219},"w":{"n":2018,"LossDepth":5.4288,"AbsRel":0.2555,"Delta1":0.6105,"LossPointmap":15.4212,"ChamferAcc":2.2894,"ChamferComp":6.6011,"Chamfer":4.4453,"ATE":13.5514,"RTE":4.9398,"RRE":4.9412,"ScaleRatio_p50":1.0753}},"dt10":{"k":{"n":2013,"LossDepth":3.9017,"AbsRel":0.2824,"Delta1":0.596,"LossPointmap":19.3566,"ChamferAcc":1.0476,"ChamferComp":5.5973,"Chamfer":3.3224,"ATE":18.9702,"RTE":4.3033,"RRE":4.1493,"ScaleRatio_p50":0.9461},"n":{"n":2382,"LossDepth":4.7034,"AbsRel":0.2494,"Delta1":0.5739,"LossPointmap":13.5706,"ChamferAcc":1.9837,"ChamferComp":3.5347,"Chamfer":2.7592,"ATE":11.2391,"RTE":4.6498,"RRE":7.8461,"ScaleRatio_p50":0.8948},"w":{"n":2018,"LossDepth":6.2942,"AbsRel":0.2882,"Delta1":0.503,"LossPointmap":15.9555,"ChamferAcc":2.5852,"ChamferComp":5.95,"Chamfer":4.2676,"ATE":13.2963,"RTE":5.559,"RRE":5.9988,"ScaleRatio_p50":0.9748}},"dt20":{"k":{"n":2013,"LossDepth":3.9339,"AbsRel":0.2788,"Delta1":0.5737,"LossPointmap":18.2594,"ChamferAcc":1.1325,"ChamferComp":5.3334,"Chamfer":3.2329,"ATE":17.5092,"RTE":4.658,"RRE":5.2172,"ScaleRatio_p50":0.9255},"n":{"n":2382,"LossDepth":4.8918,"AbsRel":0.2571,"Delta1":0.5391,"LossPointmap":14.0265,"ChamferAcc":2.1584,"ChamferComp":3.4827,"Chamfer":2.8206,"ATE":12.0216,"RTE":5.0617,"RRE":9.0223,"ScaleRatio_p50":0.8733},"w":{"n":2018,"LossDepth":6.854,"AbsRel":0.3087,"Delta1":0.4446,"LossPointmap":16.3657,"ChamferAcc":2.8376,"ChamferComp":5.7621,"Chamfer":4.2999,"ATE":13.382,"RTE":5.8459,"RRE":7.5079,"ScaleRatio_p50":0.8455}},"vk":{"k":null,"n":null,"w":null},"vc":{"k":null,"n":null,"w":null},"g3":{"k":null,"n":null,"w":null}}/*END*/;
+const D=/*DATA*/{"dt1":{"k":{"n":2013,"LossDepth":4.2105,"AbsRel":0.3208,"Delta1":0.5897,"LossPointmap":19.593,"ChamferAcc":0.981,"ChamferComp":5.4081,"Chamfer":3.1946,"ATE":19.7194,"RTE":4.0096,"RRE":3.4434,"ScaleRatio_p50":0.9907},"n":{"n":2382,"LossDepth":4.5598,"AbsRel":0.2454,"Delta1":0.6394,"LossPointmap":15.0623,"ChamferAcc":1.8944,"ChamferComp":4.4402,"Chamfer":3.1673,"ATE":12.4266,"RTE":2.835,"RRE":5.7836,"ScaleRatio_p50":0.9831},"w":{"n":2018,"LossDepth":5.379,"AbsRel":0.2675,"Delta1":0.6122,"LossPointmap":14.6939,"ChamferAcc":1.7,"ChamferComp":7.8016,"Chamfer":4.7508,"ATE":14.9372,"RTE":3.8083,"RRE":4.3993,"ScaleRatio_p50":1.1763}},"dt5":{"k":{"n":2013,"LossDepth":3.9688,"AbsRel":0.2883,"Delta1":0.6016,"LossPointmap":19.9904,"ChamferAcc":1.0012,"ChamferComp":5.6515,"Chamfer":3.3263,"ATE":19.6661,"RTE":4.1083,"RRE":3.6393,"ScaleRatio_p50":0.9452},"n":{"n":2382,"LossDepth":4.5416,"AbsRel":0.2444,"Delta1":0.6112,"LossPointmap":13.8689,"ChamferAcc":1.8873,"ChamferComp":3.8044,"Chamfer":2.8459,"ATE":11.1229,"RTE":3.8937,"RRE":6.8743,"ScaleRatio_p50":0.9219},"w":{"n":2018,"LossDepth":5.4288,"AbsRel":0.2555,"Delta1":0.6105,"LossPointmap":15.4212,"ChamferAcc":2.2894,"ChamferComp":6.6011,"Chamfer":4.4453,"ATE":13.5514,"RTE":4.9398,"RRE":4.9412,"ScaleRatio_p50":1.0753}},"dt10":{"k":{"n":2013,"LossDepth":3.9017,"AbsRel":0.2824,"Delta1":0.596,"LossPointmap":19.3566,"ChamferAcc":1.0476,"ChamferComp":5.5973,"Chamfer":3.3224,"ATE":18.9702,"RTE":4.3033,"RRE":4.1493,"ScaleRatio_p50":0.9461},"n":{"n":2382,"LossDepth":4.7034,"AbsRel":0.2494,"Delta1":0.5739,"LossPointmap":13.5706,"ChamferAcc":1.9837,"ChamferComp":3.5347,"Chamfer":2.7592,"ATE":11.2391,"RTE":4.6498,"RRE":7.8461,"ScaleRatio_p50":0.8948},"w":{"n":2018,"LossDepth":6.2942,"AbsRel":0.2882,"Delta1":0.503,"LossPointmap":15.9555,"ChamferAcc":2.5852,"ChamferComp":5.95,"Chamfer":4.2676,"ATE":13.2963,"RTE":5.559,"RRE":5.9988,"ScaleRatio_p50":0.9748}},"dt20":{"k":{"n":2013,"LossDepth":3.9339,"AbsRel":0.2788,"Delta1":0.5737,"LossPointmap":18.2594,"ChamferAcc":1.1325,"ChamferComp":5.3334,"Chamfer":3.2329,"ATE":17.5092,"RTE":4.658,"RRE":5.2172,"ScaleRatio_p50":0.9255},"n":{"n":2382,"LossDepth":4.8918,"AbsRel":0.2571,"Delta1":0.5391,"LossPointmap":14.0265,"ChamferAcc":2.1584,"ChamferComp":3.4827,"Chamfer":2.8206,"ATE":12.0216,"RTE":5.0617,"RRE":9.0223,"ScaleRatio_p50":0.8733},"w":{"n":2018,"LossDepth":6.854,"AbsRel":0.3087,"Delta1":0.4446,"LossPointmap":16.3657,"ChamferAcc":2.8376,"ChamferComp":5.7621,"Chamfer":4.2999,"ATE":13.382,"RTE":5.8459,"RRE":7.5079,"ScaleRatio_p50":0.8455}},"vk":{"k":{"n":2013,"LossDepth":4.0901,"AbsRel":0.3023,"Delta1":0.566,"LossPointmap":15.0235,"ChamferAcc":0.6798,"ChamferComp":4.515,"Chamfer":2.5974,"ATE":14.0011,"RTE":3.1835,"RRE":3.2605,"ScaleRatio_p50":0.9406},"n":{"n":2382,"LossDepth":5.189,"AbsRel":0.3371,"Delta1":0.572,"LossPointmap":13.2594,"ChamferAcc":1.751,"ChamferComp":1.7163,"Chamfer":1.7337,"ATE":11.6162,"RTE":3.1609,"RRE":1.6297,"ScaleRatio_p50":0.9391},"w":{"n":2018,"LossDepth":7.387,"AbsRel":0.3397,"Delta1":0.2419,"LossPointmap":20.0927,"ChamferAcc":4.5415,"ChamferComp":4.1293,"Chamfer":4.3354,"ATE":17.8063,"RTE":4.9974,"RRE":1.234,"ScaleRatio_p50":0.6996}},"vc":{"k":{"n":2013,"LossDepth":4.384,"AbsRel":0.3186,"Delta1":0.4992,"LossPointmap":18.4083,"ChamferAcc":0.9476,"ChamferComp":5.3009,"Chamfer":3.1242,"ATE":17.1812,"RTE":3.781,"RRE":3.528,"ScaleRatio_p50":0.8767},"n":{"n":2382,"LossDepth":4.8047,"AbsRel":0.3058,"Delta1":0.5708,"LossPointmap":13.5424,"ChamferAcc":1.9025,"ChamferComp":1.9376,"Chamfer":1.9201,"ATE":12.4034,"RTE":4.011,"RRE":1.7724,"ScaleRatio_p50":0.9523},"w":{"n":2018,"LossDepth":7.2679,"AbsRel":0.3411,"Delta1":0.2116,"LossPointmap":21.0547,"ChamferAcc":5.6872,"ChamferComp":4.313,"Chamfer":5.0001,"ATE":19.8796,"RTE":7.7589,"RRE":1.4617,"ScaleRatio_p50":0.7317}},"g3":{"k":{"n":2013,"LossDepth":8.197,"AbsRel":0.7406,"Delta1":0.2621,"LossPointmap":18.7317,"ChamferAcc":3.7952,"ChamferComp":8.1944,"Chamfer":5.9948,"ATE":17.9186,"RTE":3.2793,"RRE":5.326,"ScaleRatio_p50":1.3027},"n":{"n":2382,"LossDepth":9.5234,"AbsRel":0.718,"Delta1":0.2715,"LossPointmap":14.7579,"ChamferAcc":3.0417,"ChamferComp":2.3799,"Chamfer":2.7108,"ATE":13.0214,"RTE":2.3032,"RRE":2.0665,"ScaleRatio_p50":1.4174},"w":{"n":2018,"LossDepth":7.7992,"AbsRel":0.3793,"Delta1":0.5018,"LossPointmap":18.1207,"ChamferAcc":4.2715,"ChamferComp":3.8664,"Chamfer":4.069,"ATE":16.9505,"RTE":2.917,"RRE":1.5438,"ScaleRatio_p50":1.0574}}}/*END*/;
 /* FD from the dump jobs' [FVD/...] lines; floor = FVD_tok. */
 const FD={k:[9.6460,22.0509,28.0257,32.6718],n:[27.1386,16.5344,16.2079,17.4463],w:[22.6417,13.0949,12.9338,13.9625]};
 const FDTOK={k:1.5112,n:0.8489,w:0.5455};
@@ -480,7 +495,7 @@ const SETS=[['k','KITTI'],['n','nuScenes'],['w','Waymo']];
 const MET=[['LossDepth','Depth',2],['AbsRel','AbsRel',3],['Delta1','δ1',3],['LossPointmap','Pointmap',2],
            ['ChamferAcc','Chamfer Acc',2],['ChamferComp','Chamfer Comp',2],['Chamfer','Chamfer',2],['ATE','ATE',2],['RTE','RTE',2],['RRE','RRE',2]];
 const HIB={Delta1:true};
-const BASE=[['vk','--s7','kitti.pt'],['vc','--s2','cityscapes.pt'],['g3','--s3','Gen3R']];
+const BASE=[['vc','--s2','cityscapes.pt'],['g3','--s3','Gen3R']];
 const val=(r,s,k)=>(D[r]&&D[r][s])?D[r][s][k]:null;
 
 /* ---------- slides 3–5: 3x3 grids ---------- */
@@ -513,7 +528,7 @@ document.getElementById('tblJobs').innerHTML=BASE.map(([r,color,label])=>
     val(r,s,'LossDepth')!=null?`<td class="n ok">scored</td>`:`<td class="n mono" style="font-size:11px">${JOBS[r][s]}</td>`).join('')+`</tr>`).join('');
 
 /* ---------- slide 7: scoreboard ---------- */
-const COLS=['dt5','vk','vc','g3'];
+const COLS=['dt1','dt5','dt20','vc','g3'];
 let rows='';
 MET.forEach(([k,lbl,f])=>{
   rows+=`<tr><td><b>${lbl}</b></td>`;
@@ -529,6 +544,19 @@ MET.forEach(([k,lbl,f])=>{
   rows+=`</tr>`;
 });
 document.getElementById('tblScore').innerHTML=rows;
+
+/* ---------- appendix: kitti.pt vs DeltaTok 5 ---------- */
+let ak='';
+MET.forEach(([k,lbl,f])=>{
+  ak+=`<tr><td><b>${lbl}</b></td>`;
+  for(const [s] of SETS){
+    const a=val('dt5',s,k), v=val('vk',s,k);
+    const aw=HIB[k]? a>v : a<v;
+    ak+=`<td class="n sepl">${aw?`<b>${a.toFixed(f)}</b>`:a.toFixed(f)}</td><td class="n">${aw?v.toFixed(f):`<b>${v.toFixed(f)}</b>`}</td>`;
+  }
+  ak+=`</tr>`;
+});
+document.getElementById('tblKitti').innerHTML=ak;
 </script>
 </body>
 </html>

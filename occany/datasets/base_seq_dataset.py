@@ -168,6 +168,33 @@ class BaseSeqDatasetMultiView(BaseStereoViewDataset, EasyDataset_MUSt3R):
         chosen = rng.choice(self.num_views_per_timestep, size=actual_vpt, replace=False)
         return sorted(int(c) for c in chosen)
 
+    def _load_raw_frame(self, scene_name, frame_id, preprocessed_scene_dir, store):
+        # tar members are "<scene>/<file>"; loose files are "<scene dir>/<file>"
+        if store is None:
+            npz_path = osp.join(preprocessed_scene_dir, f"{frame_id}.npz")
+            try:
+                data = np.load(npz_path)
+            except Exception:
+                raise RuntimeError(f"Failed to load dataset sample: {npz_path}")
+        else:
+            npz_path = f"{store.tar_path}::{scene_name}/{frame_id}.npz"
+            try:
+                data = np.load(io.BytesIO(store.read(f"{scene_name}/{frame_id}.npz")))
+            except Exception:
+                raise RuntimeError(f"Failed to load dataset sample: {npz_path}")
+
+
+        image = data['image']          # The image array
+        depthmap = data['depthmap']    # The depth map
+        intrinsics = np.float32(data['intrinsics']) # Camera intrinsics matrix
+        camera_pose = np.float32(data['cam2world'])  # Camera-to-world transformation matrix
+
+
+        # Set skew term to 0
+        intrinsics[0, 1] = 0.0
+        intrinsics[1, 0] = 0.0
+        return image, depthmap, intrinsics, camera_pose
+
     def _get_views(self, seq_idx, resolution, rng, views_per_timestep=None):
         scene_idx, seq, _ = self.seqs[seq_idx]  # pkl stride offsets unused: labels are dense
         scene_name = self.scenes[scene_idx]
@@ -201,31 +228,8 @@ class BaseSeqDatasetMultiView(BaseStereoViewDataset, EasyDataset_MUSt3R):
         views = []
         for frame_index, t in zip(frames, times):
             frame_id = self.frames[frame_index]
-
-            # tar members are "<scene>/<file>"; loose files are "<scene dir>/<file>"
-            if store is None:
-                npz_path = osp.join(preprocessed_scene_dir, f"{frame_id}.npz")
-                try:
-                    data = np.load(npz_path)
-                except Exception:
-                    raise RuntimeError(f"Failed to load dataset sample: {npz_path}")
-            else:
-                npz_path = f"{store.tar_path}::{scene_name}/{frame_id}.npz"
-                try:
-                    data = np.load(io.BytesIO(store.read(f"{scene_name}/{frame_id}.npz")))
-                except Exception:
-                    raise RuntimeError(f"Failed to load dataset sample: {npz_path}")
-
-
-            image = data['image']          # The image array
-            depthmap = data['depthmap']    # The depth map
-            intrinsics = np.float32(data['intrinsics']) # Camera intrinsics matrix
-            camera_pose = np.float32(data['cam2world'])  # Camera-to-world transformation matrix
-
-
-            # Set skew term to 0
-            intrinsics[0, 1] = 0.0
-            intrinsics[1, 0] = 0.0
+            image, depthmap, intrinsics, camera_pose = self._load_raw_frame(
+                scene_name, frame_id, preprocessed_scene_dir, store)
 
             image, depthmap, intrinsics, _ = self._resize_image_and_sparse_depthmap(
                 image, depthmap, intrinsics, resolution, rng,

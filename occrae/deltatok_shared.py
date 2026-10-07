@@ -208,9 +208,9 @@ class DeltaTokSharedMixin:
 
         B, _, P, C = feats.shape
         feats = feats.view(B, T, num_cameras, P, C)
-        assert T >= 2, "DeltaTok pair training requires at least 2 timesteps per item"
         if not return_pairs:
             return tokens, feats, None, None, H_out, W_out
+        assert T >= 2, "DeltaTok pair training requires at least 2 timesteps per item"
         x_prev = feats[:, :-1].reshape(B * (T - 1), num_cameras, P, C)
         x = feats[:, 1:].reshape(B * (T - 1), num_cameras, P, C)
         return tokens, feats, x_prev, x, H_out, W_out
