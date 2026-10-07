@@ -5,6 +5,7 @@ import torch.nn as nn
 
 
 def _patch_dinov3_gated_attention(attn: torch.nn.Module) -> None:
+    from torch.nn.attention import SDPBackend, sdpa_kernel
     from torch.nn.functional import scaled_dot_product_attention
     from transformers.models.dinov3_vit.modeling_dinov3_vit import apply_rotary_pos_emb
 
@@ -40,9 +41,10 @@ def _patch_dinov3_gated_attention(attn: torch.nn.Module) -> None:
             q = self.q_norm(q)
             k = self.k_norm(k)
 
-        attn_output = scaled_dot_product_attention(
-            q, k, v, attn_mask=attention_mask, scale=self.scaling
-        )
+        with sdpa_kernel(SDPBackend.FLASH_ATTENTION):  # flash only: raises, never falls back (JZ cuDNN NaN'd)
+            attn_output = scaled_dot_product_attention(
+                q, k, v, attn_mask=attention_mask, scale=self.scaling
+            )
 
         gate = self.attn_gate(hidden_states)
         gate = gate.transpose(1, 2).unsqueeze(-1).sigmoid()
