@@ -1708,7 +1708,9 @@ class DeltaTokTrainer(DeltaTokSharedMixin, Trainer):
                 view_order=view_order,
                 max_depth=50.0,
                 pred_blank_views=pred_blank_views,
+                context_mask=pred_blank_views,   # context views frame cyan, forecast orange
                 col_titles=col_titles,
+                animate=True,
             )
             if saved_path is not None:
                 print(f"Saved viz: {saved_path}")

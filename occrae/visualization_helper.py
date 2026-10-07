@@ -17,6 +17,8 @@ from occany.utils.helpers import depth2rgb
 _COLOR_CONTEXT = np.array([0, 200, 255], dtype=np.uint8)   # cyan
 _COLOR_FORECAST = np.array([255, 100, 0], dtype=np.uint8)  # orange
 _BORDER_WIDTH = 6
+_VIDEO_FPS = 2            # eval viz GIF: timesteps per second
+_VIDEO_BORDER_WIDTH = 10  # full frame border: cyan context, orange forecast
 
 
 # ---------------------------------------------------------------------------
@@ -266,6 +268,56 @@ def _add_column_titles(img_np, col_widths, titles):
     return titled
 
 
+def _log_viz_video(combined_np, col_widths, num_views, timesteps, view_order, context_mask,
+                   col_titles, frame_id, epoch, epoch_step, output_dir, log_writer, tb_prefix):
+    """``_log_viz_sample``'s panel as a GIF: one frame per timestep (its camera rows stacked),
+    framed cyan for context and orange for forecast. TB video + ``<frame_id>_epoch<N>.gif``."""
+    ts = list(range(num_views))                                     # no timesteps: one view per frame
+    if timesteps is not None and len(timesteps) == num_views:
+        ts = list(timesteps)
+        if view_order is not None:
+            ts = [timesteps[i] for i in view_order]                 # time-sorted, like the rows
+    row_h = combined_np.shape[0] // num_views                       # one view per row
+    starts = [i for i in range(num_views) if i == 0 or ts[i] != ts[i - 1]]  # first row of each timestep
+    ends = starts[1:] + [num_views]
+    assert len({e - s for s, e in zip(starts, ends)}) == 1, f"uneven cameras per timestep: {ts}"
+    b = _VIDEO_BORDER_WIDTH
+    frames = []
+    for s, e in zip(starts, ends):
+        frame = combined_np[s * row_h:e * row_h].astype(np.uint8)      # (cams*row_h, W, 3) one timestep
+        if col_titles is not None:
+            frame = _add_column_titles(frame, col_widths, col_titles)  # (36 + cams*row_h, W, 3)
+        if context_mask is not None:
+            color = _COLOR_FORECAST
+            if context_mask[s]:
+                color = _COLOR_CONTEXT
+            frame[:b] = color                                           # top
+            frame[-b:] = color                                          # bottom
+            frame[:, :b] = color                                        # left
+            frame[:, -b:] = color                                       # right
+        frames.append(frame)
+    video = np.stack(frames)                                        # (F, h, W, 3) uint8
+
+    if log_writer is not None:
+        log_writer.add_video(
+            f"{tb_prefix}/{frame_id}",
+            torch.from_numpy(video).permute(0, 3, 1, 2).unsqueeze(0),  # (1, F, 3, h, W)
+            epoch_step,
+            fps=_VIDEO_FPS,
+        )
+
+    save_root = str(output_dir or "").strip()
+    if not save_root:
+        return None
+    save_dir = os.path.join(save_root, *tb_prefix.split("/"))
+    os.makedirs(save_dir, exist_ok=True)
+    save_path = os.path.join(save_dir, f"{frame_id}_epoch{epoch}.gif")
+    pil_frames = [Image.fromarray(f) for f in video]
+    pil_frames[0].save(save_path, save_all=True, append_images=pil_frames[1:],
+                       duration=1000 // _VIDEO_FPS, loop=0)
+    return save_path
+
+
 def _log_viz_sample(
     batch,
     decoded,
@@ -282,12 +334,14 @@ def _log_viz_sample(
     col_titles=None,
     pred_blank_views=None,
     include_input_rgb=True,
+    animate=False,
 ):
     """Log a side-by-side validation sample for OccRAE reconstructions.
 
     include_input_rgb: when True (default) the first column is the GT input RGB
     image; set False to drop that column (the caller must then also omit the
     matching "RGB" entry from ``col_titles``).
+    animate: log a per-timestep GIF (``_log_viz_video``) instead of the tall panel.
     """
     pred_depth = decoded["depth"][batch_idx].detach().float().cpu()
     gt_img = (
@@ -340,6 +394,11 @@ def _log_viz_sample(
     all_panels = ([gt_img] if gt_img is not None else []) + [pred_depth_color] + (extra_panels or [])
     cols = [torch.cat([panel[t] for t in range(num_views)], dim=0) for panel in all_panels]
     combined_np = torch.cat(cols, dim=1).numpy()
+
+    if animate:
+        return _log_viz_video(combined_np, [c.shape[1] for c in cols], num_views, timesteps,
+                              view_order, context_mask, col_titles, frame_id, epoch, epoch_step,
+                              output_dir, log_writer, tb_prefix)
 
     if context_mask is not None:
         frame_height = combined_np.shape[0] // num_views

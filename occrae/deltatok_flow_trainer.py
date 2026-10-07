@@ -1174,6 +1174,7 @@ class DeltaTokFlowMatchingTrainer(DeltaTokSharedMixin, Trainer):
                                         "Pred Depth (GT-z)",
                                     ] + rgb_titles + bev_titles,
                                     include_input_rgb=False,
+                                    animate=True,
                                 )
                                 if saved_path is not None:
                                     print(f"Saved viz: {saved_path}")
