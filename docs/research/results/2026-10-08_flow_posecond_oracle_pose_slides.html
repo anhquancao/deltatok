@@ -1,0 +1,309 @@
+<!doctype html>
+<!-- thread flow · 2026-10-08 · prior cycle: results/2026-10-07_flow_forecast_baselines_unaligned_slides.html -->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Oracle pose is not worth pursuing: feeding the flow the true camera pose cuts LossFlow 5–14% but leaves KITTI geometry with the control through ep 5 (Raymap 18.82 vs 19.28)</title>
+<style>
+/* ---------- tokens · light only, white slides (no dark variant by request) ---------- */
+:root{
+  color-scheme: light only;
+  --backdrop:#e9e9e6; --page:#f7f7f6; --surface:#ffffff;
+  --ink:#0b0b0b; --ink2:#52514e; --muted:#83817c;
+  --grid:#e4e4de; --axis:#c3c2b7; --border:rgba(11,11,11,.12);
+  --s1:#2a78d6; --s2:#eb6834; --s3:#1baf7a; --s4:#eda100; --s5:#8a63c8; --s6:#c2407a; --s7:#0f8b8d; --s8:#8c6d46;
+  --good:#0ca30c; --crit:#d03b3b; --serious:#ec835a;
+  --accent:var(--s1);
+  --serif:"Iowan Old Style","Palatino Linotype",Palatino,Georgia,serif;
+  --sans:system-ui,-apple-system,"Segoe UI",sans-serif;
+  --mono:ui-monospace,"Cascadia Code",Menlo,Consolas,monospace;
+}
+/* ---------- deck chrome ---------- */
+*{box-sizing:border-box;margin:0}
+html,body{height:100%}
+body{background:var(--backdrop);color:var(--ink);font:15px/1.45 var(--sans);overflow:hidden}
+.stage{position:absolute;left:50%;top:50%;width:1280px;height:720px;transform-origin:center center}
+.slide{position:absolute;inset:0;background:var(--surface);border:1px solid var(--border);
+  padding:46px 60px 40px;display:none;flex-direction:column}
+.slide.on{display:flex}
+.eyebrow{font:600 12px/1 var(--mono);letter-spacing:.14em;text-transform:uppercase;color:var(--accent);margin-bottom:12px}
+.eyebrow .dim{color:var(--muted)}
+h1{font:400 42px/1.14 var(--serif);letter-spacing:-.01em;text-wrap:balance}
+h2{font:400 29px/1.2 var(--serif);letter-spacing:-.005em;text-wrap:balance;margin-bottom:4px}
+.sub{color:var(--ink2);font-size:14.5px;max-width:80ch;margin-top:9px}
+.body{flex:1;min-height:0;margin-top:16px}
+.foot{display:flex;justify-content:space-between;align-items:baseline;color:var(--muted);
+  font:11px/1 var(--mono);letter-spacing:.06em;margin-top:12px;border-top:1px solid var(--grid);padding-top:10px}
+.pageno{font-variant-numeric:tabular-nums}
+/* nav */
+.nav{position:fixed;left:50%;bottom:14px;transform:translateX(-50%);display:flex;gap:8px;align-items:center;z-index:5}
+.nav button{width:9px;height:9px;border-radius:50%;border:1px solid var(--muted);background:transparent;cursor:pointer;padding:0}
+.nav button.cur{background:var(--accent);border-color:var(--accent)}
+.nav button:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+.arr{position:fixed;top:50%;transform:translateY(-50%);z-index:5;border:1px solid var(--border);
+  background:var(--surface);color:var(--ink2);width:34px;height:56px;cursor:pointer;font-size:18px;border-radius:4px}
+.arr:hover{color:var(--ink)}
+#prev{left:10px}#next{right:10px}
+/* ---------- shared bits ---------- */
+.mono{font-family:var(--mono)}
+.num{font-variant-numeric:tabular-nums}
+.chip{display:inline-block;font:600 10.5px/1 var(--mono);letter-spacing:.05em;padding:4px 7px;border-radius:3px;
+  border:1px solid var(--border);white-space:nowrap}
+.chip.good{color:var(--good);border-color:currentColor}
+.chip.bad{color:var(--crit);border-color:currentColor}
+.chip.hero{color:var(--accent);border-color:currentColor}
+.sw{display:inline-block;width:14px;height:0;border-top-width:3px;border-top-style:solid;vertical-align:4px}
+.cols{display:grid;gap:24px;min-height:0}
+.c2{grid-template-columns:1fr 1fr}
+.c58{grid-template-columns:1.32fr 1fr}
+.c85{grid-template-columns:1fr 1.28fr}
+.card{border:1px solid var(--grid);border-radius:6px;padding:14px 16px;background:var(--page)}
+.card h3{font:600 14px/1.3 var(--sans);margin:6px 0}
+.card .tag{font:600 10px/1 var(--mono);letter-spacing:.1em;text-transform:uppercase;color:var(--muted)}
+ul.tight{padding-left:18px;display:flex;flex-direction:column;gap:8px;font-size:13.5px;color:var(--ink2)}
+ul.tight li{padding-left:2px}
+ul.tight strong{color:var(--ink);font-weight:600}
+/* stat tiles */
+.tiles{display:grid;gap:12px}
+.tile{border:1px solid var(--grid);border-radius:6px;padding:12px 14px;background:var(--page)}
+.tile .v{font:600 25px/1.1 var(--sans);letter-spacing:-.01em;font-variant-numeric:tabular-nums}
+.tile .k{font:600 10px/1.4 var(--mono);letter-spacing:.1em;text-transform:uppercase;color:var(--muted);margin-bottom:5px}
+.tile .d{font-size:12.5px;color:var(--ink2);margin-top:5px}
+.rulebar{border:1px dashed var(--axis);border-radius:6px;padding:11px 15px;font-size:13.5px;color:var(--ink2)}
+.rulebar b{color:var(--ink)}
+/* tables */
+table{border-collapse:collapse;width:100%;font-size:13px;font-variant-numeric:tabular-nums}
+th,td{text-align:right;padding:5px 8px;border-bottom:1px solid var(--grid)}
+th:first-child,td:first-child{text-align:left}
+thead th{font:600 10px/1.3 var(--mono);letter-spacing:.08em;text-transform:uppercase;color:var(--muted);border-bottom:1px solid var(--axis)}
+tbody tr.hi td{background:#fff6f2}
+td.w{color:var(--crit);font-weight:600}
+td.g{color:var(--good);font-weight:600}
+/* charts */
+.legend{display:flex;flex-wrap:wrap;gap:7px 28px;font:12px/1 var(--sans);color:var(--ink2);margin-bottom:4px}
+.legend span{display:inline-flex;gap:7px;align-items:center}
+svg text{font:10.5px var(--sans);fill:var(--muted)}
+svg .axl{font:9.5px var(--mono);fill:var(--muted)}
+svg .hll{font:600 9.5px var(--mono)}
+svg .barlbl{font:600 12px var(--sans);fill:var(--ink)}
+svg .barval{font:11px var(--mono);fill:var(--ink2)}
+.chartwrap{display:flex;flex-direction:column;height:100%;min-height:0}
+.chartwrap svg{flex:1;min-height:0}
+.ptitle{font:600 12px/1.2 var(--mono);color:var(--ink2);letter-spacing:.02em;margin-bottom:2px}
+.ptitle span{color:var(--muted);font-weight:400}
+.takeaway{border:1px solid var(--grid);border-radius:6px;padding:12px 15px;background:var(--page);display:flex;gap:12px;align-items:flex-start}
+.takeaway .n{font:600 22px/1 var(--serif);color:var(--accent);flex:0 0 auto;width:24px}
+.takeaway .tx{font-size:13.5px;color:var(--ink2)}
+.takeaway .tx b{color:var(--ink)}
+@media (prefers-reduced-motion: no-preference){
+  .slide.on{animation:fadein .18s ease}
+  @keyframes fadein{from{opacity:.4}to{opacity:1}}
+}
+@media print{
+  body{overflow:visible;background:#fff}
+  .stage{position:static;transform:none!important;width:auto;height:auto}
+  .slide{display:flex;position:static;width:1280px;height:720px;page-break-after:always;margin:0 auto}
+  .nav,.arr{display:none}
+}
+/* ---------- small-multiple panel grids (this deck) ---------- */
+.g2{display:grid;grid-template-columns:1fr 1fr;gap:6px 22px;height:100%}
+.g2,.g4,.g6{padding-bottom:7px}
+.g4{display:grid;grid-template-columns:1fr 1fr;grid-template-rows:1fr 1fr;gap:8px 22px;height:100%}
+.g6{display:grid;grid-template-columns:repeat(3,1fr);grid-template-rows:1fr 1fr;gap:8px 16px;height:100%}
+.g8{display:grid;grid-template-columns:repeat(4,1fr);grid-template-rows:1fr 1fr;gap:8px 14px;height:100%}
+.pan{display:flex;flex-direction:column;min-height:0;min-width:0}
+.pan .plot{flex:1;min-height:0}
+.chartwrap svg,.pan .plot svg{display:block}
+.dsl{font:600 10px/1 var(--mono);letter-spacing:.09em;text-transform:uppercase;color:var(--accent)}
+.legend.top{margin:2px 0 12px}
+svg .pt{font:600 9px var(--mono)}
+.body:has(>.legend.top){display:flex;flex-direction:column}
+.body:has(>.legend.top)>.g4,.body:has(>.legend.top)>.g2,.body:has(>.legend.top)>.g6,.body:has(>.legend.top)>.cols{height:auto;flex:1;min-height:0}
+table.mt td,table.mt th{padding:4px 8px}
+.takeaway .n{line-height:1.15}
+.side{display:flex;flex-direction:column;gap:9px;min-height:0}
+.side table{font-size:12px}
+.side table td,.side table th{padding:4px 8px}
+.side .rulebar{font-size:12.5px;padding:9px 13px}
+table.mt tr.grp td{border-top:1px solid var(--axis)}
+</style>
+</head>
+
+<body>
+<div class="stage" id="stage">
+<section class="slide on">
+  <div class="eyebrow">flow · oracle pose conditioning <span class="dim">— question/25, the forecast camera stall · KITTI 256 old draw</span></div>
+  <h1 style="font-size:34px">Giving the flow the <b>true</b> camera pose does not improve KITTI geometry. <b>Not worth pursuing.</b></h1>
+  <div class="body">
+    <div class="cols" style="height:100%;grid-template-columns:1fr 1.25fr">
+      <div style="display:flex;flex-direction:column;gap:12px;min-height:0">
+        <div class="takeaway"><div class="n">1</div><div class="tx"><b>The flow uses the pose, a little.</b> LossFlow is 5–14% below the control at every epoch: 4.76 vs 5.02 at ep 5. <span class="mono">slide 2</span></div></div>
+        <div class="takeaway"><div class="n">2</div><div class="tx"><b>The geometry does not move.</b> From ep 2 on, Pointmap, Depth and Raymap stay within ±5% of the control, inside the 2.6–8% noise floor. <span class="mono">slides 2–3</span></div></div>
+        <div class="takeaway"><div class="n">3</div><div class="tx"><b>This is the upper bound.</b> Eval feeds the ground-truth pose every time. A predicted pose can only do worse, so a pose predictor is not worth building.</div></div>
+        <div class="takeaway"><div class="n">+</div><div class="tx"><b>A cheaper change does more.</b> Training at KITTI's resolution too (multires, no pose) gives Pointmap −9% and Raymap −10% at ep 6–8.</div></div>
+      </div>
+      <div class="chartwrap">
+        <div class="ptitle">KITTI · LossRaymap <span>· the camera-carrying head · lower is better · ep 0–8</span></div>
+        <div class="legend">
+          <span><i class="sw" style="border-color:var(--ink2)"></i>control · 46503892</span>
+          <span><i class="sw" style="border-color:var(--s2)"></i>oracle pose · 47029284</span>
+          <span><i class="sw" style="border-color:var(--s1);border-top-style:dashed"></i>multires, no pose · 47022776</span>
+        </div>
+        <div id="h1" style="flex:1;min-height:0"></div>
+      </div>
+    </div>
+  </div>
+  <div class="foot"><span>[Eval/256 @ KittiSeqMultiView] from each job's stdout · 20 sampling steps · 4 GPUs each, same eval seed · posecond ran ep 0–5 (12 h job)</span><span class="pageno">01 / 03</span></div>
+</section>
+
+<section class="slide">
+  <div class="eyebrow">1 · per metric <span class="dim">— KITTI 256 windows, old draw, 518×168, lower is better</span></div>
+  <h2>The oracle pose lowers the flow loss at every epoch. The decoded geometry stays with the control.</h2>
+  <div class="body">
+    <div class="legend top">
+      <span><i class="sw" style="border-color:var(--ink2)"></i>control · 46503892</span>
+      <span><i class="sw" style="border-color:var(--s2)"></i>oracle pose · 47029284</span>
+      <span><i class="sw" style="border-color:var(--s1);border-top-style:dashed"></i>multires, no pose · 47022776 (reference)</span>
+    </div>
+    <div class="g6">
+      <div class="pan"><div class="ptitle">LossFlow <span>· multires off-scale (~9× lower)</span></div><div class="plot" id="pa"></div></div>
+      <div class="pan"><div class="ptitle">MSEToken <span>· 20-step sample vs GT z</span></div><div class="plot" id="pb"></div></div>
+      <div class="pan"><div class="ptitle">LossRaymap</div><div class="plot" id="pc"></div></div>
+      <div class="pan"><div class="ptitle">LossPointmap</div><div class="plot" id="pd"></div></div>
+      <div class="pan"><div class="ptitle">LossDepth</div><div class="plot" id="pe"></div></div>
+      <div class="pan" style="justify-content:center">
+        <div class="rulebar"><b>Ep 5, oracle vs control:</b> LossFlow −5%, MSEToken +3%, Pointmap −3%, Depth −2%, Raymap −2%.</div>
+        <div class="rulebar" style="margin-top:9px"><b>Ep 1 is the outlier:</b> geometry +10 to +22% worse. Both arms are noisy that early.</div>
+      </div>
+    </div>
+  </div>
+  <div class="foot"><span>nuScenes / Waymo not shown: the control ran older window draws (no stride10 / stride46), so the sets differ</span><span class="pageno">02 / 03</span></div>
+</section>
+
+<section class="slide">
+  <div class="eyebrow">2 · per epoch and setup <span class="dim">— oracle pose vs control, % change, coloured beyond ±5%</span></div>
+  <h2>LossFlow −5 to −14% at every epoch. Geometry within ±5% from ep 2 on.</h2>
+  <div class="body">
+    <div class="cols" style="height:100%;grid-template-columns:1.15fr 1fr">
+      <div class="side">
+        <table class="mt" id="tbl"></table>
+        <div class="rulebar"><b>Reading:</b> the pose lowers the training objective a little, but none of it reaches the decoded depth, points or rays. Raymap carries the camera, and it is not clearly better even with the true pose.</div>
+      </div>
+      <div class="side">
+        <div class="rulebar"><b>What the arm does.</b> Each forecast slot gets the ground-truth cam-0 pose of its target frame, <span class="mono">[t (m), quat xyzw]</span> in frame-0 coordinates, summed into the AdaLN condition. Training drops it for 50% of samples. Eval always gives it (<span class="mono">deltatok_flow_trainer.py:948</span>).</div>
+        <div class="rulebar"><b>Otherwise the control.</b> Same config <span class="mono">train_deltatok_flow_alldata_ctx2fwd8_bsc</span>, 4 GPUs × bsize 16, tokenizer <span class="mono">epoch_70</span>. <span class="mono">model.pose_cond=true</span> is the only change.</div>
+        <div class="rulebar"><b>Run.</b> <span class="mono">BSC:47029284</span>, 12 h, COMPLETED 2026-10-08 02:11 at ep 5, iter 12,000 of 200k. <span class="mono">current.pth</span> kept.</div>
+        <div class="rulebar"><b>Not tested.</b> One seed, 6 epochs; the stall was measured at iter 50k. <span class="mono">probe_flow_motion.py</span> (ATE, path length vs GT) was not run on this arm.</div>
+      </div>
+    </div>
+  </div>
+  <div class="foot"><span>% = posecond / control − 1 at the same epoch · KITTI [Eval/256 @ KittiSeqMultiView] · lower is better</span><span class="pageno">03 / 03</span></div>
+</section>
+</div>
+
+<button class="arr" id="prev" aria-label="Previous slide">‹</button>
+<button class="arr" id="next" aria-label="Next slide">›</button>
+<div class="nav" id="nav" role="tablist" aria-label="Slides"></div>
+
+<script>
+/* ---------- deck nav ---------- */
+const stage=document.getElementById("stage");
+const slides=[...document.querySelectorAll(".slide")];
+const nav=document.getElementById("nav");
+let cur=0;
+slides.forEach((_,i)=>{
+  const b=document.createElement("button");
+  b.setAttribute("role","tab");b.setAttribute("aria-label","Slide "+(i+1));
+  b.addEventListener("click",()=>go(i));
+  nav.appendChild(b);
+});
+function go(i){
+  cur=Math.max(0,Math.min(slides.length-1,i));
+  slides.forEach((s,j)=>s.classList.toggle("on",j===cur));
+  [...nav.children].forEach((b,j)=>b.classList.toggle("cur",j===cur));
+}
+document.getElementById("prev").addEventListener("click",()=>go(cur-1));
+document.getElementById("next").addEventListener("click",()=>go(cur+1));
+addEventListener("keydown",e=>{
+  if(["ArrowRight","PageDown"," "].includes(e.key)){go(cur+1);e.preventDefault();}
+  else if(["ArrowLeft","PageUp"].includes(e.key)){go(cur-1);e.preventDefault();}
+  else if(e.key==="Home")go(0);
+  else if(e.key==="End")go(slides.length-1);
+});
+go(0);
+/* ---------- auto-scale ---------- */
+function fit(){
+  const s=Math.min(innerWidth/1300,(innerHeight-40)/730);
+  stage.style.transform=`translate(-50%,-50%) scale(${Math.min(s,1.4)})`;
+}
+addEventListener("resize",fit);fit();
+
+/* ---------- CSS var resolver (for SVG strokes) ---------- */
+const CV=n=>getComputedStyle(document.documentElement).getPropertyValue(n).trim();
+
+/* ---------- multi-series epoch line chart; data[i] is epoch xmin+i (or se.xs[i]); vlines = dotted epoch markers ---------- */
+function lineChart(el,cfg){
+  const W=cfg.W||600,H=cfg.H||300,L=cfg.L||44,R=cfg.R||52,T=cfg.T||10,B=cfg.B||26,
+        iw=W-L-R, ih=H-T-B;
+  const {ymin,ymax,yticks,xmax,xticks,log}=cfg, xmin=cfg.xmin||0, span=xmax-xmin;
+  const f=log?Math.log10:(v=>v), y0=f(ymin), y1=f(ymax);
+  const XE=e=>L+iw*((e-xmin)/span);
+  const Y=v=>T+ih*(1-(f(Math.min(Math.max(v,ymin),ymax))-y0)/(y1-y0));
+  const fmt=cfg.fmt||(t=>t.toFixed(4));
+  let s=`<svg viewBox="0 0 ${W} ${H}" width="100%" height="100%" preserveAspectRatio="xMidYMid meet">`;
+  yticks.forEach(t=>{const y=Y(t);
+    s+=`<line x1="${L}" y1="${y}" x2="${L+iw}" y2="${y}" stroke="${CV('--grid')}"/>`;
+    s+=`<text x="${L-6}" y="${y+3}" text-anchor="end" class="axl">${fmt(t)}</text>`;});
+  xticks.forEach(t=>s+=`<text x="${XE(t)}" y="${H-9}" text-anchor="middle" class="axl">${t}</text>`);
+  (cfg.vlines||[]).forEach(x=>s+=`<line x1="${XE(x)}" y1="${T}" x2="${XE(x)}" y2="${T+ih}" stroke="${CV('--muted')}" stroke-dasharray="2 3"/>`);
+  cfg.series.forEach(se=>{const c=CV(se.color);
+    const X=i=>se.xs?se.xs[i]:xmin+i, d=se.data.map((v,i)=>`${i?'L':'M'}${XE(X(i)).toFixed(1)} ${Y(v).toFixed(1)}`).join(' ');
+    s+=`<path d="${d}" fill="none" stroke="${c}" stroke-width="${se.width||1.8}" opacity="${se.faint?.5:1}" ${se.dash?`stroke-dasharray="${se.dash}"`:''}/>`;
+    if(se.dash) return;
+    const n=se.data.length-1, lx=XE(X(n)), ly=Y(se.data[n]);
+    s+=`<circle cx="${lx.toFixed(1)}" cy="${ly.toFixed(1)}" r="2.4" fill="${c}" opacity="${se.faint?.5:1}"/>`;
+    if(se.tag&&!se.faint) s+=`<text x="${lx+5}" y="${ly+3.5}" class="hll" fill="${c}">${se.tag}</text>`;});
+  s+=`<text x="${L+iw/2}" y="${H-0.5}" text-anchor="middle" class="axl">${cfg.xlab||'epoch'}</text></svg>`;
+  el.innerHTML=s;
+}
+
+
+/* ================= DATA =================
+   KITTI [Eval/256 @ KittiSeqMultiView] per epoch (index = epoch) from each job's stdout.
+   ct = control 46503892, pc = oracle pose 47029284, mr = multires 47022776.
+   ======================================== */
+const D={"pc": {"LossFlow": [5.133, 4.9558, 4.6817, 4.6986, 4.6038, 4.7564], "MSEToken": [1.5484, 1.889, 1.8508, 1.7859, 1.7638, 1.8522], "LossPointmap": [20.3882, 21.3444, 18.7252, 19.2267, 19.5874, 19.2402], "LossDepth": [4.0816, 5.2231, 3.9041, 3.9309, 3.8982, 3.8896], "LossRaymap": [19.3746, 18.7316, 18.2096, 18.6937, 19.2412, 18.8244]}, "ct": {"LossFlow": [5.9951, 5.3088, 5.1285, 4.983, 4.9621, 5.0208, 5.2534, 5.1964, 5.2639], "MSEToken": [1.5394, 1.9794, 1.7888, 1.9778, 1.7209, 1.7993, 1.9738, 1.9057, 1.8794], "LossPointmap": [20.358, 18.1509, 19.5409, 19.0632, 19.7903, 19.7416, 19.4168, 19.4388, 19.6988], "LossDepth": [4.1091, 4.264, 3.9577, 3.9753, 3.9698, 3.9527, 3.9223, 3.8529, 3.9235], "LossRaymap": [19.3261, 17.0579, 19.1, 18.362, 19.3964, 19.2819, 18.8881, 19.0357, 19.2236]}, "mr": {"LossFlow": [0.8318, 0.7145, 0.6385, 0.6216, 0.595, 0.5855, 0.5869, 0.5738, 0.5788], "MSEToken": [1.2504, 1.3858, 1.4071, 1.3217, 1.351, 1.3486, 1.1713, 1.3703, 1.3293], "LossPointmap": [21.4884, 21.8539, 17.1222, 17.7889, 17.5639, 17.8969, 19.0172, 17.0176, 17.1674], "LossDepth": [4.8611, 5.8482, 4.945, 4.0722, 4.2004, 4.0982, 3.8718, 4.2469, 3.9943], "LossRaymap": [19.2731, 18.5286, 15.8221, 16.8733, 16.7246, 17.1198, 18.5172, 16.308, 16.7549]}};
+const NAMES={LossFlow:'LossFlow',MSEToken:'MSEToken',LossPointmap:'Pointmap',LossDepth:'Depth',LossRaymap:'Raymap'};
+
+function arms(k,o){
+  const s=[{color:'--ink2',data:D.ct[k],tag:'ctrl'},{color:'--s2',data:D.pc[k],tag:'pose'}];
+  if(!o.noMr) s.push({color:'--s1',data:D.mr[k],dash:'4 3',width:1.5});
+  return s;
+}
+function panel(id,k,o){
+  lineChart(document.getElementById(id),Object.assign({W:400,H:215,xmin:0,xmax:8,xticks:[0,2,4,6,8],series:arms(k,o)},o));
+}
+/* slide 1 */
+panel('h1','LossRaymap',{W:620,H:400,ymin:15,ymax:20,yticks:[15,16,17,18,19,20],fmt:t=>t.toFixed(0),xticks:[0,1,2,3,4,5,6,7,8]});
+/* slide 2 */
+panel('pa','LossFlow',{noMr:true,ymin:4.4,ymax:6.2,yticks:[4.5,5,5.5,6],fmt:t=>t.toFixed(1)});
+panel('pb','MSEToken',{ymin:1.1,ymax:2.1,yticks:[1.2,1.5,1.8,2.1],fmt:t=>t.toFixed(1)});
+panel('pc','LossRaymap',{ymin:15,ymax:20,yticks:[15,16,17,18,19,20],fmt:t=>t.toFixed(0)});
+panel('pd','LossPointmap',{ymin:16,ymax:23,yticks:[16,18,20,22],fmt:t=>t.toFixed(0)});
+panel('pe','LossDepth',{ymin:3.5,ymax:6,yticks:[3.5,4.5,5.5],fmt:t=>t.toFixed(1)});
+/* slide 3: % table built from D */
+(function(){
+  const ks=Object.keys(NAMES);
+  let h='<thead><tr><th>ep</th>'+ks.map(k=>`<th>${NAMES[k]}</th>`).join('')+'</tr></thead><tbody>';
+  D.pc.LossFlow.forEach((_,e)=>{
+    h+=`<tr><td>${e}</td>`+ks.map(k=>{
+      const p=100*(D.pc[k][e]/D.ct[k][e]-1), c=p<=-5?'g':(p>=5?'w':'');
+      return `<td class="${c}">${p>0?'+':(p<0?'−':'')}${Math.abs(p).toFixed(0)}%</td>`;}).join('')+'</tr>';
+  });
+  h+=`<tr class="grp"><td>ep 5 abs</td>`+ks.map(k=>`<td>${D.pc[k][5].toFixed(2)} / ${D.ct[k][5].toFixed(2)}</td>`).join('')+'</tr></tbody>';
+  document.getElementById('tbl').innerHTML=h;
+})();
+</script>
+</body>
+</html>

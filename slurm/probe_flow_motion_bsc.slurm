@@ -7,7 +7,7 @@
 #SBATCH --account=ehpc1001
 #SBATCH --partition=acc
 #SBATCH --qos=acc_ehpc
-#SBATCH --time=01:00:00
+#SBATCH --time=01:30:00
 #SBATCH --output=slurm/output/probe_flow_motion_bsc_%j.out
 #SBATCH --error=slurm/output/probe_flow_motion_bsc_%j.err
 

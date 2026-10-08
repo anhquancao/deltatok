@@ -2,24 +2,25 @@
 
 **Date:** 2026-10-07 · **Thread:** flow · **Cluster:** BSC
 · **Reference:** control `BSC:46503892` (3.24 s/iter, 4 GPU, bsize 16), posecond `BSC:47029284`
-· jobs: _pending_ · prior cycle: —
+· jobs: `BSC:47037211` + `47053826` (extraction), `BSC:47058660` (multires z-cache arm) · prior cycle: —
 
 ## Overview
 
 - **Offline, once:** `extract_deltatok_flow_zcache.py` writes the GT delta tokens z of every consecutive frame pair,
   one copy per height. Only the frozen DA3 + DeltaTok encode is cached.
-- **Loader:** unchanged, still opens all 10 frames (images, `gt_c2w`, ...). With `zcache_root` set it also attaches
-  the window's 9 z rows from the cache.
+- **Loader:** with `zcache_root` set, only frame 0 is loaded and processed. Frames 1–9 give only their id and pose;
+  the window's 9 z rows and 10 poses ride on view 0.
 - **Trainer:** DA3 runs on frame 0 only, for the cross-attn condition. The DeltaTok encode is skipped.
 
 | File | Change |
 |---|---|
-| `occany/datasets/base_seq_dataset.py` | `_load_raw_frame` helper (done); `zcache_root` kwarg; attach `zc_z` |
-| `occrae/deltatok_shared.py` | `_normalize_batch` passes `zc_z`; `T >= 2` assert moved in `_extract_pair_feats` (done) |
+| `occany/datasets/base_seq_dataset.py` | `_load_raw_frame` + `_load_raw_pose`; `zcache_root` kwarg; frame 0 only; attach `zc_z`, `zc_c2w` |
+| `occany/datasets/__init__.py` | one thread per loader worker (cv2 at import, BLAS/OpenMP in `worker_init_fn`) |
+| `occrae/deltatok_shared.py` | `_normalize_batch` passes `zc_z`, `gt_c2w` from `zc_c2w`; `T >= 2` assert moved |
 | `occrae/deltatok_flow_trainer.py` | cache branch at the top of `_encode_inputs` |
-| `extract_deltatok_flow_zcache.py` | new (done) |
+| `extract_deltatok_flow_zcache.py` | new |
 | `configs/deltatok_flow/` | 2 new `*_zcache_bsc.yaml` |
-| `slurm/` | extraction array (done) + the control's zcache twin |
+| `slurm/` | extraction array; 266-only twin of the control; multires z-cache arm |
 
 ## 0. Cache layout
 
@@ -33,24 +34,37 @@
 
 ## 1. `occany/datasets/base_seq_dataset.py`
 
-- **`_load_raw_frame`:** done. The npz load + skew fix moved out of `_get_views`, outputs unchanged.
-- **`__init__`:** kwarg `zcache_root=None` → `self.zcache_root`; `self._zc = {}` (per-worker open-scene cache).
-- **`__getitem__`, after the `is_good_type` loop, before the deepcopy (L320):**
+- **`_load_raw_frame`:** the npz load + skew fix moved out of `_get_views`, outputs unchanged.
+- **`_load_raw_pose(scene_dir, frame_id)`:** `cam2world` only; the npz decompresses just that member.
+- **`__init__`:** kwarg `zcache_root=None` → `self.zcache_root`; `self._zc = {}` (per-worker open scenes).
+  Asserts one camera, loose npz, no color jitter.
+- **`_get_views`:** with `zcache_root`, frames with `t > 0` append `dict(frame_id, camera_pose)` and skip the load.
+- **`__getitem__`, right after `_get_views`:**
   ```python
-  if self.zcache_root:                                              # train-only: z from the cache
+  if self.zcache_root:                                              # z-cache: only frame 0 is processed
       ids = [v['frame_id'] for v in views]                          # T frame ids of the window
-      views[0]['zc_z'] = self._read_zcache(views[0]['scene_name'], ids, resolution)  # (T-1, K, C) float32
+      zc_z = self._read_zcache(views[0]['scene_name'], ids, resolution)  # (T-1, K, C) float32
+      zc_c2w = np.stack([v['camera_pose'] for v in views])          # (T, 4, 4) cam2world, world coords
+      views = views[:1]                                             # frame 0 only from here on
   ```
-- **New `_read_zcache(scene, frame_ids, resolution)`:** mmap `<W>x<H>/.../z.npy`, pick the T-1 consecutive pairs
+  After the per-view loop: `views[0]['zc_z'] = zc_z`, `views[0]['zc_c2w'] = in_camera0 @ zc_c2w` (frame-0 coords).
+- **`_read_zcache(scene, frame_ids, resolution)`:** mmap `<W>x<H>/.../z.npy`, pick the T-1 consecutive pairs
   via `pairs.json`, keep the last 32 scenes open in `self._zc`.
+
+## 1b. `occany/datasets/__init__.py`
+
+- `cv2.setNumThreads(1)` at import, before any fork (in a forked worker it segfaults, `47057319`).
+- `worker_init_fn=_worker_init` → `threadpool_limits(1)` in every loader worker (180 threads per worker before).
 
 ## 2. `occrae/deltatok_shared.py:_normalize_batch`
 
 Before `return out` (L154):
 ```python
-if "zc_z" in batch[0]:                                    # z-cache loader
+if "zc_z" in batch[0]:                                    # z-cache loader: views hold frame 0 only
     out["zc_z"] = batch[0]["zc_z"]                        # (B, T-1, K, C) float32
+    out["gt_c2w"] = batch[0]["zc_c2w"].float()            # (B, T, 4, 4) every frame, for pose_cond
 ```
+With one view per item, `num_cameras` is 1 and `imgs` is `(B, 1, 3, H, W)`.
 
 ## 3. `occrae/deltatok_flow_trainer.py:_encode_inputs` (L421)
 
@@ -62,9 +76,9 @@ if "zc_z" in batch:                                       # z-cache: DA3 on fram
     z = batch["zc_z"].to(self.device, non_blocking=True).unsqueeze(2)  # (B, T-1, 1, K, C)
     return None, feats[:, 0].contiguous(), z, H, W
 ```
-`_build_pose_cond` is unchanged: `gt_c2w` comes from the loader as today.
+`_build_pose_cond` is unchanged: `gt_c2w` holds all T poses from `zc_c2w`.
 
-## 4. `extract_deltatok_flow_zcache.py` (done)
+## 4. `extract_deltatok_flow_zcache.py`
 
 - Builds the frozen encoder from the flow config, lists every scene's unique consecutive pairs over all train
   windows, shards scenes `[pid::world]`.
@@ -78,22 +92,23 @@ if "zc_z" in batch:                                       # z-cache: DA3 on fram
 - **`train_deltatok_flow_alldata_ctx2fwd8_zcache_bsc.yaml`:** `cp train_deltatok_flow_alldata_ctx2fwd8_bsc.yaml`.
   Add `zcache_root='<root>'` to each of the 5 train strings. Test strings unchanged.
 - **`train_deltatok_flow_alldata_ctx2fwd8_multires_zcache_bsc.yaml`:** `cp` of the multires config. Same
-  `zcache_root`. `resolution=[(518, 280), (518, 266), (518, 210), (518, 168)]`.
+  `zcache_root`. `resolution=[(518, 280), (518, 266), (518, 210), (518, 168)]` (294 not cached).
 
 ## 6. Slurm
 
-- **`slurm/extract_deltatok_flow_zcache_bsc.slurm`:** done. `--array=0-19`, 1 GPU, `--time=04:00:00`,
+- **`slurm/extract_deltatok_flow_zcache_bsc.slurm`:** `--array=0-19`, 1 GPU, `--time=04:00:00`,
   `--world 20 --pid $SLURM_ARRAY_TASK_ID`.
 - **`slurm/deltatok_flow/train_deltatok_flow_alldata_xxl_tc1536mg9_sigreg002seed1_ctx2fwd8_zcache_bsc.slurm`:**
   `cp` of the control slurm.
-  - `CONFIG_NAME=train_deltatok_flow_alldata_ctx2fwd8_zcache_bsc`, `RUN_NAME=..._xxl_dit_zcache`, 12 h.
+  - `CONFIG_NAME=train_deltatok_flow_alldata_ctx2fwd8_zcache_bsc`, `RUN_NAME=..._xxl_dit_zcache`, 48 h.
   - Job name, output and error changed together.
+- **`slurm/deltatok_flow/train_deltatok_flow_alldata_xxl_tc1536mg9_sigreg002seed1_ctx2fwd8_multires_zcache_bsc.slurm`:**
+  `cp` of the multires slurm. `CONFIG_NAME=..._multires_zcache_bsc`, `RUN_NAME=..._xxl_dit_multires_zcache`, 48 h.
 
 ## 7. Pre-flight
 
 1. **Sync:** monitor-sync, then md5 every touched file on BSC.
 2. **Small extraction + verify:** one acc_debug task with `--world 200 --pid 0 --verify 32`. Pass: relative L2 ≤ 1e-2.
 3. **Full extraction:** submit the 20-task array.
-4. **Zcache twin of the control:** launch, watch to the first loss line.
-   - s/iter vs the control's 3.24.
-   - Loss at iters 500 / 1000 vs the control's 2.374 / 0.891 (same sampler draws).
+4. **Smoke on `acc_debug`:** the 266-only twin to iter 120. Pass: s/iter well under the control's 3.24, no GPU idle.
+5. **Multires z-cache arm:** launch, watch to the first loss line; s/iter vs `47022776`'s ~3.0.

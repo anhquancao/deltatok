@@ -50,7 +50,12 @@ from occrae.deltatok_trainer import _log_cosh  # noqa: E402
 from occrae.generation_helper import flow_euler_sample  # noqa: E402
 from occany.datasets import get_data_loader  # noqa: E402
 
-_VARIANTS = ("gt", "zero", "repeat", "donor", "flow1", "flowN", "half", "noise@flow1", "noise@flowN")
+_VARIANTS = ("gt", "zero", "repeat", "donor", "flow1", "flowN", "half", "noise@flow1", "noise@flowN", "flow1_zgain2")
+_POSE_VARIANTS = ("flow1_nopose", "flowN_nopose")  # pose-cond ckpt only: pose zeroed, the train-time drop value
+_FEAT_VARIANTS = ("feat_true", "feat_partway25", "feat_partway50", "feat_partway75", "feat_noise@partway50",
+                  "feat_noise@flow1", "flow1_progress", "flow1_rest", "flowN_progress", "flowN_rest",
+                  "flow1_gain2", "flow1_gain4", "flowN_gain2", "flowN_gain3")  # future feats fed to DA3, no DeltaTok
+_FEAT_GAINS = (("flow1", 2), ("flow1", 4), ("flowN", 2), ("flowN", 3))  # flow's predicted change since the last observed frame x g
 
 
 def get_args_parser() -> argparse.ArgumentParser:
@@ -157,17 +162,31 @@ def _flow_sample(trainer, x_spatial, cross_cond, num_steps, pose_cond):
 def _camera_centres(trainer, tokens, feat0, z_seq, H, W, height, width, num_cameras):
     """Roll out z_seq from GT frame 0, decode all views at once, fit cameras.
     -> centres (B, T, 3) of cam 0, rolled-out layer-12 patch feats (B, T-1, N, P, C)."""
-    B, V = tokens.shape[:2]
+    B = tokens.shape[0]
     with trainer.autocast:
         x_hat = trainer._rollout_from_z(trainer.deltatok, feat0, z_seq, H, W, num_cameras)  # (B*(T-1), N, P, C)
+    centres = _fit_centres(trainer, tokens, x_hat, height, width, num_cameras)             # (B, T, 3)
+    return centres, x_hat.view(B, -1, *x_hat.shape[1:])                                   # (B, T, 3), (B, T-1, N, P, C)
+
+
+def _fit_centres(trainer, tokens, x_hat, height, width, num_cameras):
+    """Layer-12 patch feats of frames 1..T-1 (B*(T-1), N, P, C) after observed frame 0 -> DA3 decode -> cam-0 centres (B, T, 3)."""
+    B, V = tokens.shape[:2]
     full = trainer._reconstruct_full_tokens(tokens, x_hat, B, V, num_cameras=num_cameras)    # (B, V, N_tok, C)
     with trainer.autocast:
         dec = trainer._decode_tokens(full, height, width, num_cameras=num_cameras)
     with torch.autocast("cuda", enabled=False):
         c2w, _ = trainer.occ_rae.model._process_ray_pose_estimation(
             dec["ray"].float(), dec["ray_conf"].float(), height, width)                   # (B, V, 3, 4) frame-0 coords
-    centres = c2w[..., :3, 3].reshape(B, V // num_cameras, num_cameras, 3)[:, :, 0]        # (B, T, 3) camera centres
-    return centres, x_hat.view(B, -1, *x_hat.shape[1:])                                   # (B, T, 3), (B, T-1, N, P, C)
+    return c2w[..., :3, 3].reshape(B, V // num_cameras, num_cameras, 3)[:, :, 0]           # (B, T, 3) camera centres
+
+
+def _append_cam(r, P, G, dG, n_ctx, fc, B):
+    """One batch's camera stats into a version's record: steps (B, T-1), ATE (B,), heading cos (B, F)."""
+    dP = P[:, 1:] - P[:, :-1]                                                 # (B, T-1, 3)
+    r["step"].append(dP.norm(dim=-1).cpu())
+    r["ate"].append((P[:, n_ctx + 1:] - G[:, n_ctx + 1:]).norm(dim=-1).pow(2).mean(1).sqrt().cpu())  # (B,)
+    r["head"].append(_cos(dP[:, fc].flatten(0, 1), dG[:, fc].flatten(0, 1)).view(B, -1).cpu())     # (B, F)
 
 
 def _teacher_forced(trainer, feats, z_seq, H, W, num_cameras):
@@ -192,13 +211,31 @@ def _cos(a, b):
     return (a * b).sum(-1) / (a.norm(dim=-1) * b.norm(dim=-1)).clamp_min(1e-12)
 
 
+def _split_progress(x, f_last_obs, f_future):
+    """Split the predicted change since the last observed frame along the true change.
+    x, f_future: (B, F, N, P, C) predicted / true future feats; f_last_obs: (B, N, P, C).
+    -> progress (B, F) (0 = copy, 1 = truth), progress_only, rest_only (B, F, N, P, C)."""
+    true_change = (f_future - f_last_obs.unsqueeze(1)).float()                    # (B, F, N, P, C)
+    pred_change = (x - f_last_obs.unsqueeze(1)).float()                           # (B, F, N, P, C)
+    progress = (pred_change * true_change).sum(dim=(2, 3, 4)) / true_change.pow(2).sum(dim=(2, 3, 4)).clamp_min(1e-12)  # (B, F)
+    along = progress[..., None, None, None] * true_change                         # (B, F, N, P, C) progress part of the change
+    progress_only = f_last_obs.unsqueeze(1).float() + along                       # (B, F, N, P, C) last observed + progress
+    rest_only = f_future.float() + (pred_change - along)                          # (B, F, N, P, C) truth + the rest
+    return progress, progress_only, rest_only
+
+
 @torch.no_grad()
 def motion_split(trainer, loader, args):
     """Per window and version: camera steps (B, T-1), ATE, heading cos; plus token stats."""
     n_ctx = trainer.n_ctx
-    rec = {v: {"step": [], "ate": [], "head": [], "mse": [], "feat_ar": [], "feat_tf": []} for v in _VARIANTS}
+    z_names: list[str] = list(_VARIANTS)
+    if trainer.pose_cond:
+        z_names.extend(_POSE_VARIANTS)
+    keys = ("step", "ate", "head", "mse", "feat_ar", "feat_tf", "prog", "znorm")
+    rec = {v: {k: [] for k in keys} for v in z_names + list(_FEAT_VARIANTS)}
     rec_gt = {"step": [], "step_donor": [], "cos_next": [], "cos_other": [], "feat_copy": []}
     noise_gen = torch.Generator(device=trainer.device).manual_seed(args.seed + 1)  # off the flow prior's stream
+    feat_noise_gen = torch.Generator(device=trainer.device).manual_seed(args.seed + 2)  # own stream: noise_gen draws stay as in v2
 
     batches_done = 0
     for batch in loader:
@@ -223,10 +260,16 @@ def motion_split(trainer, loader, args):
         versions["repeat"][:, fc] = z[:, n_ctx - 1:n_ctx]                             # context delta z_1 in every slot
         versions["donor"][:, fc] = z.roll(1, dims=0)[:, fc]                           # window b takes window b-1's deltas
         pose_cond = trainer._build_pose_cond(batch, num_cameras)                      # (B, T-1, 7) or None
-        versions["flow1"] = _flow_sample(trainer, x_spatial, cross_cond, 1, pose_cond)
-        versions["flowN"] = _flow_sample(trainer, x_spatial, cross_cond, args.num_steps, pose_cond)
+        for name, steps in (("flow1", 1), ("flowN", args.num_steps)):
+            state = trainer._eval_noise_gen.get_state()                               # rewind: same prior with and without pose
+            versions[name] = _flow_sample(trainer, x_spatial, cross_cond, steps, pose_cond)
+            if pose_cond is not None:
+                trainer._eval_noise_gen.set_state(state)
+                versions[f"{name}_nopose"] = _flow_sample(trainer, x_spatial, cross_cond, steps, torch.zeros_like(pose_cond))
         versions["half"] = z.clone()
         versions["half"][:, fc] = 0.5 * z[:, fc]                                      # shrunk toward z=0, like a mean
+        versions["flow1_zgain2"] = versions["flow1"].clone()
+        versions["flow1_zgain2"][:, fc] = 2 * versions["flow1"][:, fc]               # 1-step sample at ~true token size
         for src in ("flow1", "flowN"):
             mse = (versions[src][:, fc].float() - z[:, fc].float()).pow(2).mean()     # () this batch's token MSE
             eps = torch.randn(z[:, fc].shape, generator=noise_gen, device=z.device, dtype=torch.float32)  # (B, F, N, K, C)
@@ -235,8 +278,9 @@ def motion_split(trainer, loader, args):
 
         prefix = trainer._num_prefix_tokens
         feats = tokens[:, :, prefix:].reshape(B, -1, num_cameras, tokens.shape[2] - prefix, tokens.shape[3])  # (B, T, N, P, C) OccAny layer-12
-        tgt = feats[:, n_ctx + 1:]                                                    # (B, F, N, P, C) forecast frames
-        rec_gt["feat_copy"].append(_feat_err(feats[:, n_ctx:-1], tgt).cpu())          # (B, F) "frame t as frame t+1"
+        f_future = feats[:, n_ctx + 1:]                                               # (B, F, N, P, C) true future feats
+        f_last_obs = feats[:, n_ctx]                                                  # (B, N, P, C) last observed frame
+        rec_gt["feat_copy"].append(_feat_err(feats[:, n_ctx:-1], f_future).cpu())     # (B, F) "frame t as frame t+1"
 
         G = batch["gt_c2w"].to(trainer.device).float()[..., :3, 3]                    # (B, V, 3) GT centres
         G = G.reshape(B, -1, num_cameras, 3)[:, :, 0]                                 # (B, T, 3) cam 0
@@ -248,16 +292,51 @@ def motion_split(trainer, loader, args):
         rec_gt["cos_next"].append(_cos(zf[:, :-1].flatten(0, 1), zf[:, 1:].flatten(0, 1)).cpu())          # t vs t+1, same window
         rec_gt["cos_other"].append(_cos(zf.flatten(0, 1), zf.roll(1, dims=0).flatten(0, 1)).cpu())       # same t, other window
 
-        for v in _VARIANTS:
+        flow_feats = {}                                                               # flow rollout future feats, split below
+        for v in z_names:
             z_seq = versions[v]                                                       # (B, T-1, N, K, C)
             P, x_ar = _camera_centres(trainer, tokens, feat0, z_seq, H, W, height, width, num_cameras)  # (B, T, 3), (B, T-1, N, P, C)
-            dP = P[:, 1:] - P[:, :-1]                                                 # (B, T-1, 3)
-            rec[v]["step"].append(dP.norm(dim=-1).cpu())
-            rec[v]["ate"].append((P[:, n_ctx + 1:] - G[:, n_ctx + 1:]).norm(dim=-1).pow(2).mean(1).sqrt().cpu())  # (B,)
-            rec[v]["head"].append(_cos(dP[:, fc].flatten(0, 1), dG[:, fc].flatten(0, 1)).view(B, -1).cpu())     # (B, F)
+            _append_cam(rec[v], P, G, dG, n_ctx, fc, B)
             rec[v]["mse"].append((z_seq[:, fc].float() - z[:, fc].float()).pow(2).mean(dim=(2, 3, 4)).cpu())    # (B, F) per frame
-            rec[v]["feat_ar"].append(_feat_err(x_ar[:, n_ctx:], tgt).cpu())                                    # (B, F) rollout
-            rec[v]["feat_tf"].append(_feat_err(_teacher_forced(trainer, feats, z_seq, H, W, num_cameras), tgt).cpu())  # (B, F)
+            rec[v]["feat_ar"].append(_feat_err(x_ar[:, n_ctx:], f_future).cpu())                               # (B, F) rollout
+            rec[v]["feat_tf"].append(_feat_err(_teacher_forced(trainer, feats, z_seq, H, W, num_cameras), f_future).cpu())  # (B, F)
+            progress, _, _ = _split_progress(x_ar[:, n_ctx:], f_last_obs, f_future)  # (B, F)
+            rec[v]["prog"].append(progress.cpu())
+            row_ratio = z_seq[:, fc].float().norm(dim=-1) / z[:, fc].float().norm(dim=-1).clamp_min(1e-12)  # (B, F, N, K) token row norms vs true deltas
+            rec[v]["znorm"].append(row_ratio.mean(dim=(2, 3)).cpu())                  # (B, F)
+            if v in ("flow1", "flowN"):
+                flow_feats[v] = x_ar[:, n_ctx:]                                       # (B, F, N, P, C)
+
+        # Feature versions: future frames given as layer-12 feats, DA3 decodes them with no DeltaTok.
+        f_future32 = f_future.float()                                                 # (B, F, N, P, C)
+        f_last32 = f_last_obs.unsqueeze(1).float()                                    # (B, 1, N, P, C)
+        feat_versions = {"feat_true": f_future32}                                     # each (B, F, N, P, C)
+        for pct in (25, 50, 75):
+            feat_versions[f"feat_partway{pct}"] = f_last32 + pct / 100 * (f_future32 - f_last32)  # pct% of the way to the truth
+        for name, src in (("feat_noise@partway50", feat_versions["feat_partway50"]), ("feat_noise@flow1", flow_feats["flow1"].float())):
+            mse = (src - f_future32).pow(2).mean()                                    # () feat MSE to match
+            eps = torch.randn(f_future32.shape, generator=feat_noise_gen, device=f_future32.device, dtype=torch.float32)  # (B, F, N, P, C)
+            feat_versions[name] = f_future32 + mse.sqrt() * eps                       # same feat MSE, random direction
+        for src in ("flow1", "flowN"):
+            _, progress_only, rest_only = _split_progress(flow_feats[src], f_last_obs, f_future)
+            gap = (progress_only + rest_only - f_future32 - flow_feats[src].float()).abs().max()
+            assert gap < 1e-2, f"{src}: progress_only + rest_only - truth != rollout (max gap {gap:.3g})"
+            feat_versions[f"{src}_progress"] = progress_only
+            feat_versions[f"{src}_rest"] = rest_only
+        for src, g in _FEAT_GAINS:
+            feat_versions[f"{src}_gain{g}"] = f_last32 + g * (flow_feats[src].float() - f_last32)  # (B, F, N, P, C)
+
+        obs_feats = feats[:, 1:n_ctx + 1]                                             # (B, n_ctx, N, P, C) observed frames 1..n_ctx
+        no_token = torch.full((B, f_future.shape[1]), float("nan"))                   # (B, F) these versions have no z
+        for v, x_future in feat_versions.items():
+            x_seq = torch.cat([obs_feats, x_future.to(obs_feats.dtype)], dim=1).flatten(0, 1)  # (B*(T-1), N, P, C) frames 1..T-1
+            P = _fit_centres(trainer, tokens, x_seq, height, width, num_cameras)     # (B, T, 3)
+            _append_cam(rec[v], P, G, dG, n_ctx, fc, B)
+            rec[v]["feat_ar"].append(_feat_err(x_future, f_future).cpu())            # (B, F)
+            progress, _, _ = _split_progress(x_future, f_last_obs, f_future)        # (B, F)
+            rec[v]["prog"].append(progress.cpu())
+            for k in ("mse", "feat_tf", "znorm"):
+                rec[v][k].append(no_token)
 
         batches_done += 1
         print(f"[INFO]   batch {batches_done}/{args.num_batches}  B={B} T-1={z.shape[1]} "
@@ -291,6 +370,9 @@ def summarize(rec, rec_gt, n_ctx):
             "feat_err_rollout_per_frame": r["feat_ar"].mean(0).round(4).tolist(),
             "feat_err_tf": float(r["feat_tf"].mean()),
             "feat_err_tf_per_frame": r["feat_tf"].mean(0).round(4).tolist(),
+            "progress_median": float(np.median(r["prog"])),                           # 0 = copy of the last observed frame, 1 = truth
+            "progress_per_frame": np.median(r["prog"], 0).round(3).tolist(),
+            "z_norm_ratio": float(r["znorm"].mean()),                                 # nan for feature versions
         }
     rows["_gt"] = {
         "windows": int(len(gt_path)), "moving": int(moving.sum()),
@@ -376,18 +458,22 @@ def main() -> None:
             print(f"[{label}] GT delta cos: next transition {g['cos_next_delta_mean']:.3f}  "
                   f"other window {g['cos_other_window_mean']:.3f}")
             print(f"[{label}] copy (frame t as t+1) feat err {g['feat_err_copy']:.4f}  per frame {g['feat_err_copy_per_frame']}")
-            print(f"[{label}] {'version':11s} {'path/GT':>8s} {'corrOwn':>8s} {'corrDonor':>9s} "
-                  f"{'headCos':>8s} {'ATE m':>7s} {'tokMSE':>7s} {'featAR':>7s} {'featTF':>7s}  median step/frame m")
-            for v in _VARIANTS:
-                r = rows[v]
-                print(f"[{label}] {v:11s} {r['path_ratio_median']:8.3f} {r['corr_path_own_gt']:8.2f} "
+            print(f"[{label}] {'version':20s} {'path/GT':>8s} {'corrOwn':>8s} {'corrDonor':>9s} "
+                  f"{'headCos':>8s} {'ATE m':>7s} {'tokMSE':>7s} {'zNorm':>6s} {'featAR':>7s} {'featTF':>7s} "
+                  f"{'prog':>6s}  median step/frame m")
+            for v, r in rows.items():
+                if v == "_gt":
+                    continue
+                print(f"[{label}] {v:20s} {r['path_ratio_median']:8.3f} {r['corr_path_own_gt']:8.2f} "
                       f"{r['corr_path_donor_gt']:9.2f} {r['heading_cos_median']:8.2f} {r['ate_mean_m']:7.2f} "
-                      f"{r['token_mse']:7.3f} {r['feat_err_rollout']:7.4f} {r['feat_err_tf']:7.4f}  "
-                      f"{r['median_step_per_frame_m']}", flush=True)
-            for v in _VARIANTS:
-                r = rows[v]
-                print(f"[{label}]   {v:11s} featAR/frame {r['feat_err_rollout_per_frame']}  "
-                      f"featTF/frame {r['feat_err_tf_per_frame']}  tokMSE/frame {r['token_mse_per_frame']}", flush=True)
+                      f"{r['token_mse']:7.3f} {r['z_norm_ratio']:6.3f} {r['feat_err_rollout']:7.4f} {r['feat_err_tf']:7.4f} "
+                      f"{r['progress_median']:6.3f}  {r['median_step_per_frame_m']}", flush=True)
+            for v, r in rows.items():
+                if v == "_gt":
+                    continue
+                print(f"[{label}]   {v:20s} featAR/frame {r['feat_err_rollout_per_frame']}  "
+                      f"featTF/frame {r['feat_err_tf_per_frame']}  tokMSE/frame {r['token_mse_per_frame']}  "
+                      f"prog/frame {r['progress_per_frame']}", flush=True)
 
     out = os.path.join(output_dir, "motion.json")
     with open(out, "w") as fh:
