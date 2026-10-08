@@ -52,6 +52,9 @@ from occrae.deltatok_flow_trainer import DeltaTokFlowMatchingTrainer  # noqa: E4
 import occany.datasets as occany_datasets  # noqa: E402
 from occany.datasets.base_seq_dataset import BaseSeqDatasetMultiView  # noqa: E402
 
+# dust3r's dataset import sets file_system; its /dev/shm unlink aborted 14 tasks of 47037211.
+torch.multiprocessing.set_sharing_strategy("file_descriptor")
+
 
 def get_args_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(description="DeltaTok flow: cache GT delta tokens per frame pair.")
