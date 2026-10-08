@@ -1,6 +1,6 @@
 #!/bin/bash
 #SBATCH --job-name=deltatok_dn1536_p24576_seed_ls
-#SBATCH --nodes=1
+#SBATCH --nodes=2
 #SBATCH --ntasks-per-node=4
 #SBATCH --gres=gpu:4
 #SBATCH --cpus-per-task=20
@@ -34,13 +34,15 @@ source env_bsc.sh
 export OMP_NUM_THREADS="${OMP_NUM_THREADS:-4}"
 export TORCH_NCCL_HEARTBEAT_TIMEOUT_SEC="${TORCH_NCCL_HEARTBEAT_TIMEOUT_SEC:-1000}"
 
+# Unique DDP port per job (default 29500 collides with a co-scheduled arm).
+export MASTER_PORT=$((20000 + ${SLURM_JOB_ID:-0} % 20000))
+
 # file_descriptor shm strategy holds an fd per shared tensor per worker
 ulimit -n "$(ulimit -Hn)"
 
 export CONFIG_NAME=train_deltatok_nt10_bsc   # num_timesteps=10 -> triplet spans up to max_gap=9
 export LOG_AND_CKPT_DIR="$SCRATCH/deltatok_log"
 export RESULTS_DIR="$LOG_AND_CKPT_DIR"
-export PYTORCH_CUDA_ALLOC_CONF=max_split_size_mb:256  # 64 GB H100: fragmentation OOM (47015747)
 
 export SIGREG_NUM_SLICES=${SIGREG_NUM_SLICES:-3072}      # 2*Cz at tc1536
 export SIGREG_POOL_SAMPLES=${SIGREG_POOL_SAMPLES:-24576}  # as BSC:45727710
@@ -73,8 +75,8 @@ EXTRA_CFG_ARGS=(
     training.decode_noise_warmup=${DECNOISE_WARMUP}    # linear ramp of tau over N iters
     "training.eval_noise_sigmas=[0.32,0.55,0.82]"       # eval ladder, matches the 2026-09-04 probe grid
     training.max_gap=9                          # triplet spans cap at 9 (= nt10 window - 1)
-    training.bsize=2                            # 2 enc + 6 dec/step; halve batch
-    training.effective_bsize=16                 # 4 GPU x bsize 2 -> grad_cum 2
+    training.bsize=1                            # 1 enc + 3 dec/step; 8 GPUs
+    training.effective_bsize=16                 # 8 GPU x bsize 1 -> grad_cum 2
     training.exit_before_time_limit=true        # stop after a ckpt near the wall (chain-resume safe)
 )
 export EXTRA_CFG="${EXTRA_CFG_ARGS[*]}"
