@@ -8,6 +8,7 @@ from occany.utils.helpers import project_lidar_world2camera
 from dust3r.utils.geometry import depthmap_to_camera_coordinates
 import pickle
 import io
+import json
 from occany.datasets import tar_store
 from occany.datasets.easy_dataset import EasyDataset_MUSt3R
 from torchvision.transforms.functional import to_tensor
@@ -31,6 +32,7 @@ class BaseSeqDatasetMultiView(BaseStereoViewDataset, EasyDataset_MUSt3R):
                  select_scenes=None, exclude_scenes=None,
                  window_stride=1,
                  use_tar=False,
+                 zcache_root=None,
                  **kwargs):
         # Timesteps in the window every item returns. Keyword-only and
         # undefaulted: item shape is fixed, so each arm must state it.
@@ -61,6 +63,8 @@ class BaseSeqDatasetMultiView(BaseStereoViewDataset, EasyDataset_MUSt3R):
         super().__init__(*args, **kwargs)
         self.ROOT = ROOT
         self.use_tar = use_tar  # frames from one uncompressed tar per scene (see tar_store)
+        self.zcache_root = zcache_root  # flow z-cache (extract_deltatok_flow_zcache.py); None = off
+        self._zc = {}  # per-worker open scenes: cache dir -> (pair -> row, z memmap)
         self.seq_pkl_name = seq_pkl_name
         self.window_stride = int(window_stride)  # min start-frame gap between kept windows; 1 = all
         self._load_data()
@@ -83,6 +87,8 @@ class BaseSeqDatasetMultiView(BaseStereoViewDataset, EasyDataset_MUSt3R):
             transform = eval(transform)
         self.transform = transform  # inherited dust3r __repr__ reads it
         self.is_seq_color_jitter = transform == SeqColorJitter
+        if zcache_root:  # the cache: one camera, loose npz, no color jitter
+            assert len(self.cams) == 1 and self.max_views_per_timestep is None and not use_tar and not self.is_seq_color_jitter
 
     def __len__(self):
         return len(self.seqs)
@@ -195,6 +201,11 @@ class BaseSeqDatasetMultiView(BaseStereoViewDataset, EasyDataset_MUSt3R):
         intrinsics[1, 0] = 0.0
         return image, depthmap, intrinsics, camera_pose
 
+    def _load_raw_pose(self, preprocessed_scene_dir, frame_id):
+        """cam2world of one loose-npz frame; the npz decompresses only this member."""
+        with np.load(osp.join(preprocessed_scene_dir, f"{frame_id}.npz")) as data:
+            return np.float32(data['cam2world'])                          # (4, 4)
+
     def _get_views(self, seq_idx, resolution, rng, views_per_timestep=None):
         scene_idx, seq, _ = self.seqs[seq_idx]  # pkl stride offsets unused: labels are dense
         scene_name = self.scenes[scene_idx]
@@ -228,6 +239,9 @@ class BaseSeqDatasetMultiView(BaseStereoViewDataset, EasyDataset_MUSt3R):
         views = []
         for frame_index, t in zip(frames, times):
             frame_id = self.frames[frame_index]
+            if self.zcache_root and t > 0:                                    # z-cache: frames 1..T-1 give id + pose only
+                views.append(dict(frame_id=frame_id, camera_pose=self._load_raw_pose(preprocessed_scene_dir, frame_id)))
+                continue
             image, depthmap, intrinsics, camera_pose = self._load_raw_frame(
                 scene_name, frame_id, preprocessed_scene_dir, store)
 
@@ -251,6 +265,21 @@ class BaseSeqDatasetMultiView(BaseStereoViewDataset, EasyDataset_MUSt3R):
 
         return views
 
+    def _read_zcache(self, scene_name, frame_ids, resolution):
+        """z rows of the window's T-1 consecutive pairs, from <zcache_root>/<W>x<H>/<class>/<scene>/."""
+        d = osp.join(self.zcache_root, f"{resolution[0]}x{resolution[1]}", self.__class__.__name__, scene_name)
+        if d not in self._zc:
+            if len(self._zc) >= 32:                                       # keep the last 32 scenes open
+                self._zc.pop(next(iter(self._zc)))                        # drop the oldest
+            row = {}                                                      # (frame t, frame t+1) -> z row
+            for i, (a, b) in enumerate(json.load(open(osp.join(d, "pairs.json")))):
+                row[(a, b)] = i
+            self._zc[d] = (row, np.load(osp.join(d, "z.npy"), mmap_mode="r"))  # z: (n_pairs, K, C) float32
+        row, z = self._zc[d]
+        ids = [str(f) for f in frame_ids]
+        rows = [row[pr] for pr in zip(ids[:-1], ids[1:])]                 # T-1 rows
+        return z[rows]                                                    # (T-1, K, C) in-memory copy
+
     def __getitem__(self, idx):
         views_per_timestep = None  # None = named cams; set by the dataset-aware sampler
         if isinstance(idx, tuple):
@@ -272,6 +301,11 @@ class BaseSeqDatasetMultiView(BaseStereoViewDataset, EasyDataset_MUSt3R):
         # over-loaded codez_far
         resolution = self._resolutions[resolution_idx]  # DO NOT CHANGE THIS (compatible with BatchedRandomSampler)
         views = self._get_views(idx, resolution, self._rng, views_per_timestep=views_per_timestep)
+        if self.zcache_root:                                              # z-cache: only frame 0 is processed
+            ids = [v['frame_id'] for v in views]                          # T frame ids of the window
+            zc_z = self._read_zcache(views[0]['scene_name'], ids, resolution)  # (T-1, K, C) float32
+            zc_c2w = np.stack([v['camera_pose'] for v in views])          # (T, 4, 4) cam2world, world coords
+            views = views[:1]                                             # frame 0 only from here on
 
         # Build a PIL→PIL color jitter once so all views in this sample share the same params.
         # DA3 normalization is applied after it.
@@ -320,6 +354,10 @@ class BaseSeqDatasetMultiView(BaseStereoViewDataset, EasyDataset_MUSt3R):
             for key, val in view.items():
                 res, err_msg = is_good_type(key, val)
                 assert res, f"{err_msg} with {key}={val} for view {view_name(view)}"
+
+        if self.zcache_root:
+            views[0]['zc_z'] = zc_z                                       # (T-1, K, C) float32
+            views[0]['zc_c2w'] = in_camera0 @ zc_c2w                      # (T, 4, 4) frame-0 coords, as camera_pose
 
         ret_views = [copy.deepcopy(view) for view in views]
 

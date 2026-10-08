@@ -151,6 +151,9 @@ class DeltaTokSharedMixin:
                 "gt_pointmap": gt_pointmap,
                 "gt_mask": gt_mask,
             })
+        if "zc_z" in batch[0]:                                    # z-cache loader: views hold frame 0 only
+            out["zc_z"] = batch[0]["zc_z"]                        # (B, T-1, K, C) float32
+            out["gt_c2w"] = batch[0]["zc_c2w"].float()            # (B, T, 4, 4) every frame, for pose_cond
         return out
 
     def _extract_pair_feats(self, imgs, num_cameras=1, return_pairs=True, pair_t=None, gap=1):

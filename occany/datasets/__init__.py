@@ -1,4 +1,6 @@
+import cv2
 import torch
+from threadpoolctl import threadpool_limits
 
 from croco.utils.misc import get_rank, get_world_size
 from dust3r.datasets import *  # noqa: F401,F403
@@ -17,6 +19,15 @@ from .once_pairs import OnceSeqMultiView  # noqa: F401
 from .openscene_pairs import OpenSceneSeqMultiView  # noqa: F401
 from .kitti_pairs import KittiSeqMultiView  # noqa: F401
 from .nuscenes_pairs import Occ3dNuscenesSeqMultiView  # noqa: F401
+
+
+# cv2 sizes its pool to the node. Set here, before any fork: in a worker it segfaults (47057319)
+cv2.setNumThreads(1)
+
+
+def _worker_init(_):
+    # BLAS/OpenMP pools size to the node otherwise: 180 threads per worker on BSC (47055133)
+    threadpool_limits(1)
 
 
 def get_data_loader(dataset, batch_size, num_workers=8, shuffle=True, drop_last=True, pin_mem=True):
@@ -57,4 +68,5 @@ def get_data_loader(dataset, batch_size, num_workers=8, shuffle=True, drop_last=
         num_workers=num_workers,
         pin_memory=pin_mem,
         drop_last=drop_last,
+        worker_init_fn=_worker_init,
     )

@@ -431,6 +431,12 @@ class DeltaTokFlowMatchingTrainer(DeltaTokSharedMixin, Trainer):
         run once per unique sample (the point of an overfit). Assumes deterministic
         preprocessing per (scene, frames) — true for overfit (no random aug).
         """
+        if "zc_z" in batch:                                       # z-cache: DA3 on frame 0 only, z read from disk
+            assert not want_tokens, "z-cache has no full tokens; feat loss off"
+            _, feats, _, _, H, W = self._extract_pair_feats(imgs[:, :num_cameras], num_cameras=num_cameras, return_pairs=False)  # (B, 1, N, P, C)
+            z = batch["zc_z"].to(self.device, non_blocking=True).unsqueeze(2)  # (B, T-1, 1, K, C)
+            return None, feats[:, 0].contiguous(), z, H, W
+
         if not self._cache_frozen_encode:
             tokens, feats, _, _, H, W = self._extract_pair_feats(imgs, num_cameras=num_cameras, return_pairs=False)  # feats (B, T, N, P, C)
             z = self._encode_deltas(feats, H, W)                          # (B, T-1, N, K, C)
