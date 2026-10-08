@@ -80,6 +80,7 @@ class DeltaTokModule(nn.Module):
         bottleneck_mlp: bool = False,
         force_bottleneck: bool = False,
         z_row_clip: float = 0.0,
+        z_head_mlp: bool = False,
         prev_mask_token: bool = False,
     ):
         super().__init__()
@@ -181,6 +182,20 @@ class DeltaTokModule(nn.Module):
             self.z_proj_down = None
             self.z_proj_up = None
             self.pre_bottleneck_norm = None
+
+        # LeJEPA-style 3-layer MLP head on z, LN between layers; bounds a blown-up encoder row.
+        self.z_head = None
+        if z_head_mlp:
+            assert self.z_proj_down is None, "z_head_mlp replaces the bottleneck: force_bottleneck=false"
+            H, W = cfg.hidden_size, 2048       # W = LeJEPA's projector width
+            self.z_head = nn.Sequential(nn.Linear(H, W), nn.LayerNorm(W), nn.ReLU(),
+                                        nn.Linear(W, W), nn.LayerNorm(W), nn.ReLU(),
+                                        nn.Linear(W, self.z_dim))
+            with torch.random.fork_rng(devices=[]):  # CPU init; global RNG stream stays = the no-head arm's
+                for m in self.z_head.modules():
+                    if isinstance(m, nn.Linear):
+                        nn.init.trunc_normal_(m.weight, std=cfg.initializer_range)
+                        nn.init.zeros_(m.bias)
 
         # norm_affine=False -> non-learnable norm, pinning z to fixed unit-var/zero-mean.
         # Runs at z_dim (the compressed space when the bottleneck is on) so the
@@ -373,6 +388,8 @@ class DeltaTokModule(nn.Module):
         if self.z_proj_down is not None:
             z = self.pre_bottleneck_norm(z)    # (M, N, K, C) unit-var before down-proj (no post-norm grad blow-up)
             z = self.z_proj_down(z)            # (M, N, K, Cz) channel bottleneck
+        if self.z_head is not None:
+            z = self.z_head(z)                 # (M, N, K, Cz) MLP head, LN inside
         if self.z_row_clip > 0:
             rms = z.float().pow(2).mean(-1, keepdim=True).sqrt()                          # (M, N, K, 1) per-row RMS
             zc = z * (self.z_row_clip / rms.clamp_min(self.z_row_clip)).to(z.dtype)      # (M, N, K, Cz) rows over the cap rescaled onto it
@@ -540,6 +557,8 @@ def _print_param_breakdown(model: nn.Module, archi: str) -> None:
     if model.z_proj_down is not None:
         components += [("pre_bottleneck_norm", model.pre_bottleneck_norm),
                        ("z_proj_down", model.z_proj_down), ("z_proj_up", model.z_proj_up)]
+    if model.z_head is not None:
+        components += [("z_head", model.z_head)]
 
     grand_total, grand_train = _count(model)
     print(f"Parameter breakdown for {archi}:")

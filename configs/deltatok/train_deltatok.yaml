@@ -68,6 +68,7 @@ model:
     bottleneck_mlp: false  # bottleneck only: 2-layer SiLU MLP down/up instead of single Linear (beats linear-768 variance cap)
     force_bottleneck: true  # LN+Linear on z even at target_channels == hidden_size; false = raw z
     z_row_clip: 0.0  # cap on per-row RMS of z at encode, straight-through; 0 = off
+    z_head_mlp: false  # 3-layer MLP head on z (width 2048, LN+ReLU inside); needs force_bottleneck=false
     use_delta: true
     use_swiglu: true
     use_qk_norm: true
