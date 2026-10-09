@@ -1,0 +1,376 @@
+<!doctype html>
+<!-- thread flow · 2026-10-08 · prior cycle: results/2026-10-08_flow_posecond_oracle_pose_slides.html -->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Both multires runs beat the single-resolution control on KITTI camera and points at matched epochs (ep 9–12: Raymap −7% / −12%, Pointmap −9% / −13%, Depth +10% worse), and the z-cache run gets there 4.3× faster</title>
+<style>
+/* ---------- tokens · light only, white slides (no dark variant by request) ---------- */
+:root{
+  color-scheme: light only;
+  --backdrop:#e9e9e6; --page:#f7f7f6; --surface:#ffffff;
+  --ink:#0b0b0b; --ink2:#52514e; --muted:#83817c;
+  --grid:#e4e4de; --axis:#c3c2b7; --border:rgba(11,11,11,.12);
+  --s1:#2a78d6; --s2:#eb6834; --s3:#1baf7a; --s4:#eda100; --s5:#8a63c8; --s6:#c2407a; --s7:#0f8b8d; --s8:#8c6d46;
+  --good:#0ca30c; --crit:#d03b3b; --serious:#ec835a;
+  --accent:var(--s1);
+  --serif:"Iowan Old Style","Palatino Linotype",Palatino,Georgia,serif;
+  --sans:system-ui,-apple-system,"Segoe UI",sans-serif;
+  --mono:ui-monospace,"Cascadia Code",Menlo,Consolas,monospace;
+}
+/* ---------- deck chrome ---------- */
+*{box-sizing:border-box;margin:0}
+html,body{height:100%}
+body{background:var(--backdrop);color:var(--ink);font:15px/1.45 var(--sans);overflow:hidden}
+.stage{position:absolute;left:50%;top:50%;width:1280px;height:720px;transform-origin:center center}
+.slide{position:absolute;inset:0;background:var(--surface);border:1px solid var(--border);
+  padding:46px 60px 40px;display:none;flex-direction:column}
+.slide.on{display:flex}
+.eyebrow{font:600 12px/1 var(--mono);letter-spacing:.14em;text-transform:uppercase;color:var(--accent);margin-bottom:12px}
+.eyebrow .dim{color:var(--muted)}
+h1{font:400 42px/1.14 var(--serif);letter-spacing:-.01em;text-wrap:balance}
+h2{font:400 29px/1.2 var(--serif);letter-spacing:-.005em;text-wrap:balance;margin-bottom:4px}
+.sub{color:var(--ink2);font-size:14.5px;max-width:80ch;margin-top:9px}
+.body{flex:1;min-height:0;margin-top:16px}
+.foot{display:flex;justify-content:space-between;align-items:baseline;color:var(--muted);
+  font:11px/1 var(--mono);letter-spacing:.06em;margin-top:12px;border-top:1px solid var(--grid);padding-top:10px}
+.pageno{font-variant-numeric:tabular-nums}
+/* nav */
+.nav{position:fixed;left:50%;bottom:14px;transform:translateX(-50%);display:flex;gap:8px;align-items:center;z-index:5}
+.nav button{width:9px;height:9px;border-radius:50%;border:1px solid var(--muted);background:transparent;cursor:pointer;padding:0}
+.nav button.cur{background:var(--accent);border-color:var(--accent)}
+.nav button:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+.arr{position:fixed;top:50%;transform:translateY(-50%);z-index:5;border:1px solid var(--border);
+  background:var(--surface);color:var(--ink2);width:34px;height:56px;cursor:pointer;font-size:18px;border-radius:4px}
+.arr:hover{color:var(--ink)}
+#prev{left:10px}#next{right:10px}
+/* ---------- shared bits ---------- */
+.mono{font-family:var(--mono)}
+.num{font-variant-numeric:tabular-nums}
+.chip{display:inline-block;font:600 10.5px/1 var(--mono);letter-spacing:.05em;padding:4px 7px;border-radius:3px;
+  border:1px solid var(--border);white-space:nowrap}
+.chip.good{color:var(--good);border-color:currentColor}
+.chip.bad{color:var(--crit);border-color:currentColor}
+.chip.hero{color:var(--accent);border-color:currentColor}
+.sw{display:inline-block;width:14px;height:0;border-top-width:3px;border-top-style:solid;vertical-align:4px}
+.cols{display:grid;gap:24px;min-height:0}
+.c2{grid-template-columns:1fr 1fr}
+.c58{grid-template-columns:1.32fr 1fr}
+.c85{grid-template-columns:1fr 1.28fr}
+.card{border:1px solid var(--grid);border-radius:6px;padding:14px 16px;background:var(--page)}
+.card h3{font:600 14px/1.3 var(--sans);margin:6px 0}
+.card .tag{font:600 10px/1 var(--mono);letter-spacing:.1em;text-transform:uppercase;color:var(--muted)}
+ul.tight{padding-left:18px;display:flex;flex-direction:column;gap:8px;font-size:13.5px;color:var(--ink2)}
+ul.tight li{padding-left:2px}
+ul.tight strong{color:var(--ink);font-weight:600}
+/* stat tiles */
+.tiles{display:grid;gap:12px}
+.tile{border:1px solid var(--grid);border-radius:6px;padding:12px 14px;background:var(--page)}
+.tile .v{font:600 25px/1.1 var(--sans);letter-spacing:-.01em;font-variant-numeric:tabular-nums}
+.tile .k{font:600 10px/1.4 var(--mono);letter-spacing:.1em;text-transform:uppercase;color:var(--muted);margin-bottom:5px}
+.tile .d{font-size:12.5px;color:var(--ink2);margin-top:5px}
+.rulebar{border:1px dashed var(--axis);border-radius:6px;padding:11px 15px;font-size:13.5px;color:var(--ink2)}
+.rulebar b{color:var(--ink)}
+/* tables */
+table{border-collapse:collapse;width:100%;font-size:13px;font-variant-numeric:tabular-nums}
+th,td{text-align:right;padding:5px 8px;border-bottom:1px solid var(--grid)}
+th:first-child,td:first-child{text-align:left}
+thead th{font:600 10px/1.3 var(--mono);letter-spacing:.08em;text-transform:uppercase;color:var(--muted);border-bottom:1px solid var(--axis)}
+tbody tr.hi td{background:#fff6f2}
+td.w{color:var(--crit);font-weight:600}
+td.g{color:var(--good);font-weight:600}
+/* charts */
+.legend{display:flex;flex-wrap:wrap;gap:7px 28px;font:12px/1 var(--sans);color:var(--ink2);margin-bottom:4px}
+.legend span{display:inline-flex;gap:7px;align-items:center}
+svg text{font:10.5px var(--sans);fill:var(--muted)}
+svg .axl{font:9.5px var(--mono);fill:var(--muted)}
+svg .hll{font:600 9.5px var(--mono)}
+svg .barlbl{font:600 12px var(--sans);fill:var(--ink)}
+svg .barval{font:11px var(--mono);fill:var(--ink2)}
+.chartwrap{display:flex;flex-direction:column;height:100%;min-height:0}
+.chartwrap svg{flex:1;min-height:0}
+.ptitle{font:600 12px/1.2 var(--mono);color:var(--ink2);letter-spacing:.02em;margin-bottom:2px}
+.ptitle span{color:var(--muted);font-weight:400}
+.takeaway{border:1px solid var(--grid);border-radius:6px;padding:12px 15px;background:var(--page);display:flex;gap:12px;align-items:flex-start}
+.takeaway .n{font:600 22px/1 var(--serif);color:var(--accent);flex:0 0 auto;width:24px}
+.takeaway .tx{font-size:13.5px;color:var(--ink2)}
+.takeaway .tx b{color:var(--ink)}
+@media (prefers-reduced-motion: no-preference){
+  .slide.on{animation:fadein .18s ease}
+  @keyframes fadein{from{opacity:.4}to{opacity:1}}
+}
+@media print{
+  body{overflow:visible;background:#fff}
+  .stage{position:static;transform:none!important;width:auto;height:auto}
+  .slide{display:flex;position:static;width:1280px;height:720px;page-break-after:always;margin:0 auto}
+  .nav,.arr{display:none}
+}
+/* ---------- small-multiple panel grids (this deck) ---------- */
+.g2{display:grid;grid-template-columns:1fr 1fr;gap:6px 22px;height:100%}
+.g2,.g4,.g6{padding-bottom:7px}
+.g4{display:grid;grid-template-columns:1fr 1fr;grid-template-rows:1fr 1fr;gap:8px 22px;height:100%}
+.g6{display:grid;grid-template-columns:repeat(3,1fr);grid-template-rows:1fr 1fr;gap:8px 16px;height:100%}
+.g8{display:grid;grid-template-columns:repeat(4,1fr);grid-template-rows:1fr 1fr;gap:8px 14px;height:100%}
+.pan{display:flex;flex-direction:column;min-height:0;min-width:0}
+.pan .plot{flex:1;min-height:0}
+.chartwrap svg,.pan .plot svg{display:block}
+.dsl{font:600 10px/1 var(--mono);letter-spacing:.09em;text-transform:uppercase;color:var(--accent)}
+.legend.top{margin:2px 0 12px}
+svg .pt{font:600 9px var(--mono)}
+.body:has(>.legend.top){display:flex;flex-direction:column}
+.body:has(>.legend.top)>.g4,.body:has(>.legend.top)>.g2,.body:has(>.legend.top)>.g6,.body:has(>.legend.top)>.cols{height:auto;flex:1;min-height:0}
+table.mt td,table.mt th{padding:4px 8px}
+.takeaway .n{line-height:1.15}
+.side{display:flex;flex-direction:column;gap:9px;min-height:0}
+.side table{font-size:12px}
+.side table td,.side table th{padding:4px 8px}
+.side .rulebar{font-size:12.5px;padding:9px 13px}
+table.mt tr.grp td{border-top:1px solid var(--axis)}
+.g9{display:grid;grid-template-columns:repeat(3,1fr);grid-template-rows:repeat(3,1fr);gap:4px 16px;height:100%;padding-bottom:7px}
+.body:has(>.legend.top)>.g9{height:auto;flex:1;min-height:0}
+.colhd{font:600 10px/1 var(--mono);letter-spacing:.09em;text-transform:uppercase;color:var(--accent)}
+</style>
+</head>
+
+<body>
+<div class="stage" id="stage">
+<section class="slide on">
+  <div class="eyebrow">flow · multires training progress <span class="dim">— control vs multires vs multires z-cache · training logs only</span></div>
+  <h1 style="font-size:31px">Both multires runs beat the control on KITTI camera and points at matched epochs. The z-cache run gets there <b>4.3× faster</b>.</h1>
+  <div class="body">
+    <div class="cols" style="height:100%;grid-template-columns:1fr 1.15fr">
+      <div style="display:flex;flex-direction:column;gap:10px;min-height:0">
+        <div class="takeaway"><div class="n">1</div><div class="tx"><b>The z-cache run is 4.3× faster.</b> 0.44 h per epoch vs 1.87 h for both uncached runs. It reached 30k iters in 6.6 h and should reach 200k at ~44 h, inside its 48 h job.</div></div>
+        <div class="takeaway"><div class="n">2</div><div class="tx"><b>The uncached runs stop near 50k of 200k.</b> The control stopped at 50k (ep 24) when its 48 h job ended. Multires is on the same pace.</div></div>
+        <div class="takeaway"><div class="n">3</div><div class="tx"><b>Multires helps KITTI's camera and points, not its depth.</b> Mean of ep 9–12 vs the control: Raymap −7% / −12%, Pointmap −9% / −13%, Depth +10% / +10% (multires / z-cache). <span class="mono">slides 2, 4</span></div></div>
+        <div class="takeaway"><div class="n">4</div><div class="tx"><b>The z-cache run matches multires.</b> Within ±5% on every geometry metric, on all four eval sets, at ep 9–12. <span class="mono">slide 3</span></div></div>
+      </div>
+      <div style="display:flex;flex-direction:column;min-height:0">
+        <div class="legend">
+      <span><i class="sw" style="border-color:var(--ink2)"></i>control · 46503892 · 266 px only</span>
+      <span><i class="sw" style="border-color:var(--s1)"></i>multires · 47022776</span>
+      <span><i class="sw" style="border-color:var(--s2)"></i>multires z-cache · 47058660</span>
+        </div>
+        <div class="pan" style="flex:1"><div class="ptitle">Iterations vs wall-clock <span>· k iters · dashed = projected · dotted = 48 h job</span></div><div class="plot" id="h1"></div></div>
+        <div class="pan" style="flex:1"><div class="ptitle">KITTI LossRaymap vs wall-clock <span>· lower is better · tokenizer ceiling 1.44</span></div><div class="plot" id="h2"></div></div>
+      </div>
+    </div>
+  </div>
+  <div class="foot"><span>From each job's stdout, at every epoch end (2,000 iters, eval included) · 4 GPUs × bsize 16 each · as of 2026-10-08 14:51</span><span class="pageno">01 / 04</span></div>
+</section>
+
+<section class="slide">
+  <div class="eyebrow">1 · per epoch <span class="dim">— KITTI 256 old draw, the one eval set all three runs share · 518×168 · lower is better</span></div>
+  <h2>At matched epochs both multires runs sit below the control on Raymap and Pointmap, and above it on Depth.</h2>
+  <div class="body">
+    <div class="legend top">
+      <span><i class="sw" style="border-color:var(--ink2)"></i>control · 46503892 · 266 px only</span>
+      <span><i class="sw" style="border-color:var(--s1)"></i>multires · 47022776</span>
+      <span><i class="sw" style="border-color:var(--s2)"></i>multires z-cache · 47058660</span>
+    </div>
+    <div class="g6">
+      <div class="pan"><div class="ptitle">Train loss <span>· multires mixes 4–5 heights</span></div><div class="plot" id="pa"></div></div>
+      <div class="pan"><div class="ptitle">KITTI LossFlow <span>· log · control never saw 168 px</span></div><div class="plot" id="pb"></div></div>
+      <div class="pan"><div class="ptitle">KITTI MSEToken <span>· 20-step sample vs GT z</span></div><div class="plot" id="pc"></div></div>
+      <div class="pan"><div class="ptitle">KITTI LossRaymap <span>· ceiling 1.44</span></div><div class="plot" id="pd"></div></div>
+      <div class="pan"><div class="ptitle">KITTI LossPointmap <span>· ceiling 2.36</span></div><div class="plot" id="pe"></div></div>
+      <div class="pan"><div class="ptitle">KITTI LossDepth <span>· ceiling 1.34</span></div><div class="plot" id="pf"></div></div>
+    </div>
+  </div>
+  <div class="foot"><span>[Eval/256 @ KittiSeqMultiView] + per-epoch Train from stdout · 20 steps · 4 GPUs, same eval seed · ceiling = tokenizer decode of GT z</span><span class="pageno">02 / 04</span></div>
+</section>
+
+<section class="slide">
+  <div class="eyebrow">2 · multires vs multires z-cache <span class="dim">— the three newer eval sets · the control ran older draws, so it is not shown</span></div>
+  <h2>The z-cache run tracks uncached multires on every set, within ±5% at ep 9–12.</h2>
+  <div class="body">
+    <div class="legend top">
+      <span><i class="sw" style="border-color:var(--s1)"></i>multires · 47022776</span>
+      <span><i class="sw" style="border-color:var(--s2)"></i>multires z-cache · 47058660</span>
+      <span class="colhd" style="margin-left:auto">columns: KITTI stride15 · nuScenes stride10 · Waymo stride46</span>
+    </div>
+    <div class="g9">
+      <div class="pan"><div class="ptitle">KITTI s15 · Raymap</div><div class="plot" id="q1"></div></div>
+      <div class="pan"><div class="ptitle">nuScenes s10 · Raymap</div><div class="plot" id="q2"></div></div>
+      <div class="pan"><div class="ptitle">Waymo s46 · Raymap</div><div class="plot" id="q3"></div></div>
+      <div class="pan"><div class="ptitle">KITTI s15 · Pointmap</div><div class="plot" id="q4"></div></div>
+      <div class="pan"><div class="ptitle">nuScenes s10 · Pointmap</div><div class="plot" id="q5"></div></div>
+      <div class="pan"><div class="ptitle">Waymo s46 · Pointmap</div><div class="plot" id="q6"></div></div>
+      <div class="pan"><div class="ptitle">KITTI s15 · Depth</div><div class="plot" id="q7"></div></div>
+      <div class="pan"><div class="ptitle">nuScenes s10 · Depth</div><div class="plot" id="q8"></div></div>
+      <div class="pan"><div class="ptitle">Waymo s46 · Depth</div><div class="plot" id="q9"></div></div>
+    </div>
+  </div>
+  <div class="foot"><span>[Eval/256 @ … strideN] from each job's stdout · nuScenes reads occ3d_nuscenes_val_preprocessed · same sets, seed and GPU count for both runs</span><span class="pageno">03 / 04</span></div>
+</section>
+
+<section class="slide">
+  <div class="eyebrow">3 · numbers and setup <span class="dim">— % change of the window mean, coloured beyond ±5%</span></div>
+  <h2>The KITTI gains hold in all three epoch windows. Depth is worse in all three.</h2>
+  <div class="body">
+    <div class="cols" style="height:100%;grid-template-columns:1.2fr 1fr">
+      <div class="side">
+        <div class="ptitle">vs control · KITTI 256 old draw <span>· multires / z-cache</span></div>
+        <table class="mt" id="t1"></table>
+        <div class="ptitle" style="margin-top:6px">z-cache vs multires · ep 9–12 <span>· every eval set</span></div>
+        <table class="mt" id="t2"></table>
+        <div class="rulebar" style="margin-top:4px"><b>The control's own end point</b> (mean of ep 20–24, iter 42–50k): Raymap 17.72, Pointmap 18.24, Depth 3.85. Both multires runs were already below its Raymap and Pointmap at ep 2–5. Neither has reached its Depth.</div>
+      </div>
+      <div class="side">
+        <div class="rulebar"><b>Runs.</b> Control <span class="mono">BSC:46503892</span>, trains at 518×266 only; stopped at ep 24, iter 50k (48 h job, 2026-09-27). Multires <span class="mono">BSC:47022776</span>, heights 294/280/266/210/168, at ep 12. Z-cache <span class="mono">BSC:47058660</span>, heights 280/266/210/168, at ep 14.</div>
+        <div class="rulebar"><b>Shared.</b> 4 GPUs × bsize 16, tokenizer <span class="mono">epoch_70</span>, xxl DiT, ctx2fwd8, constant lr, <span class="mono">max_iter</span> 200k.</div>
+        <div class="rulebar"><b>Z-cache differs.</b> It reads the frozen DA3 + DeltaTok targets from disk and runs DA3 on frame 0 only. No 294 px height; different data order. Not an exact twin.</div>
+        <div class="rulebar"><b>Caveats.</b> One seed each. The Pointmap/Raymap noise floor is 2.6–8%. Train loss is not like-for-like: multires mixes heights. The control's nuScenes / Waymo sets are older draws, so only KITTI old compares across all three.</div>
+      </div>
+    </div>
+  </div>
+  <div class="foot"><span>% = arm / reference − 1 on the mean over the epoch window · lower is better · from each job's stdout</span><span class="pageno">04 / 04</span></div>
+</section>
+</div>
+
+<button class="arr" id="prev" aria-label="Previous slide">‹</button>
+<button class="arr" id="next" aria-label="Next slide">›</button>
+<div class="nav" id="nav" role="tablist" aria-label="Slides"></div>
+
+<script>
+/* ---------- deck nav ---------- */
+const stage=document.getElementById("stage");
+const slides=[...document.querySelectorAll(".slide")];
+const nav=document.getElementById("nav");
+let cur=0;
+slides.forEach((_,i)=>{
+  const b=document.createElement("button");
+  b.setAttribute("role","tab");b.setAttribute("aria-label","Slide "+(i+1));
+  b.addEventListener("click",()=>go(i));
+  nav.appendChild(b);
+});
+function go(i){
+  cur=Math.max(0,Math.min(slides.length-1,i));
+  slides.forEach((s,j)=>s.classList.toggle("on",j===cur));
+  [...nav.children].forEach((b,j)=>b.classList.toggle("cur",j===cur));
+}
+document.getElementById("prev").addEventListener("click",()=>go(cur-1));
+document.getElementById("next").addEventListener("click",()=>go(cur+1));
+addEventListener("keydown",e=>{
+  if(["ArrowRight","PageDown"," "].includes(e.key)){go(cur+1);e.preventDefault();}
+  else if(["ArrowLeft","PageUp"].includes(e.key)){go(cur-1);e.preventDefault();}
+  else if(e.key==="Home")go(0);
+  else if(e.key==="End")go(slides.length-1);
+});
+go(0);
+/* ---------- auto-scale ---------- */
+function fit(){
+  const s=Math.min(innerWidth/1300,(innerHeight-40)/730);
+  stage.style.transform=`translate(-50%,-50%) scale(${Math.min(s,1.4)})`;
+}
+addEventListener("resize",fit);fit();
+
+/* ---------- CSS var resolver (for SVG strokes) ---------- */
+const CV=n=>getComputedStyle(document.documentElement).getPropertyValue(n).trim();
+
+/* ---------- multi-series epoch line chart; data[i] is epoch xmin+i (or se.xs[i]); vlines = dotted epoch markers ---------- */
+function lineChart(el,cfg){
+  const W=cfg.W||600,H=cfg.H||300,L=cfg.L||44,R=cfg.R||52,T=cfg.T||10,B=cfg.B||26,
+        iw=W-L-R, ih=H-T-B;
+  const {ymin,ymax,yticks,xmax,xticks,log}=cfg, xmin=cfg.xmin||0, span=xmax-xmin;
+  const f=log?Math.log10:(v=>v), y0=f(ymin), y1=f(ymax);
+  const XE=e=>L+iw*((e-xmin)/span);
+  const Y=v=>T+ih*(1-(f(Math.min(Math.max(v,ymin),ymax))-y0)/(y1-y0));
+  const fmt=cfg.fmt||(t=>t.toFixed(4));
+  let s=`<svg viewBox="0 0 ${W} ${H}" width="100%" height="100%" preserveAspectRatio="xMidYMid meet">`;
+  yticks.forEach(t=>{const y=Y(t);
+    s+=`<line x1="${L}" y1="${y}" x2="${L+iw}" y2="${y}" stroke="${CV('--grid')}"/>`;
+    s+=`<text x="${L-6}" y="${y+3}" text-anchor="end" class="axl">${fmt(t)}</text>`;});
+  xticks.forEach(t=>s+=`<text x="${XE(t)}" y="${H-9}" text-anchor="middle" class="axl">${t}</text>`);
+  (cfg.vlines||[]).forEach(x=>s+=`<line x1="${XE(x)}" y1="${T}" x2="${XE(x)}" y2="${T+ih}" stroke="${CV('--muted')}" stroke-dasharray="2 3"/>`);
+  cfg.series.forEach(se=>{const c=CV(se.color);
+    const X=i=>se.xs?se.xs[i]:xmin+i, d=se.data.map((v,i)=>`${i?'L':'M'}${XE(X(i)).toFixed(1)} ${Y(v).toFixed(1)}`).join(' ');
+    s+=`<path d="${d}" fill="none" stroke="${c}" stroke-width="${se.width||1.8}" opacity="${se.faint?.5:1}" ${se.dash?`stroke-dasharray="${se.dash}"`:''}/>`;
+    if(se.dash) return;
+    const n=se.data.length-1, lx=XE(X(n)), ly=Y(se.data[n]);
+    s+=`<circle cx="${lx.toFixed(1)}" cy="${ly.toFixed(1)}" r="2.4" fill="${c}" opacity="${se.faint?.5:1}"/>`;
+    if(se.tag&&!se.faint) s+=`<text x="${lx+5}" y="${ly+3.5}" class="hll" fill="${c}">${se.tag}</text>`;});
+  s+=`<text x="${L+iw/2}" y="${H-0.5}" text-anchor="middle" class="axl">${cfg.xlab||'epoch'}</text></svg>`;
+  el.innerHTML=s;
+}
+
+
+/* ================= DATA =================
+   Per epoch (index = epoch) from each job's stdout, at epoch end.
+   ct = control 46503892, mr = multires 47022776, mz = multires z-cache 47058660.
+   iter / hours (cumulative wall-clock) / train from the "Epoch N, Iter, Train, Eval, Time" line.
+   K = [Eval/256 @ KittiSeqMultiView] (old draw); K15 / N10 / W46 = KITTI stride15, nuScenes stride10, Waymo stride46.
+   ======================================== */
+const D={"ct":{"iter":[2000,4000,6000,8000,10000,12000,14000,16000,18000,20000,22000,24000,26000,28000,30000,32000,34000,36000,38000,40000,42000,44000,46000,48000,50000],"hours":[1.88,3.74,5.64,7.53,9.4,11.29,13.19,15.07,16.95,18.82,20.7,22.57,24.42,26.29,28.16,30.02,31.91,33.8,35.7,37.58,39.45,41.32,43.17,45.02,46.88],"train":[5.1448,0.6646,0.6003,0.5793,0.5683,0.5608,0.5538,0.5456,0.5388,0.5323,0.5272,0.5212,0.5157,0.5095,0.506,0.5013,0.4967,0.4931,0.4907,0.4875,0.4836,0.4824,0.4793,0.4788,0.4743],"K":{"LossFlow":[5.9951,5.3088,5.1285,4.983,4.9621,5.0208,5.2534,5.1964,5.2639,5.3108,5.3722,5.3463,5.3356,5.2819,5.3616,5.3864,5.4137,5.3699,5.4689,5.4927,5.5053,5.5431,5.6075,5.5571,5.5472],"MSEToken":[1.5394,1.9794,1.7888,1.9778,1.7209,1.7993,1.9738,1.9057,1.8794,1.8926,1.8871,1.8865,1.8328,1.8503,1.9529,1.9369,1.8649,1.7936,1.8512,1.8387,1.8606,1.8814,1.9248,1.8587,1.8617],"LossPointmap":[20.358,18.1509,19.5409,19.0632,19.7903,19.7416,19.4168,19.4388,19.6988,19.5663,19.3442,19.1699,19.2491,19.0993,18.0839,18.3132,18.7522,19.1466,18.997,18.8742,18.3894,18.4805,17.8102,18.366,18.1729],"LossDepth":[4.1091,4.264,3.9577,3.9753,3.9698,3.9527,3.9223,3.8529,3.9235,3.9166,3.9032,3.8733,3.9016,3.8652,3.8682,3.8802,3.8588,3.8429,3.8338,3.8738,3.8983,3.8361,3.8745,3.7889,3.8338],"LossRaymap":[19.3261,17.0579,19.1,18.362,19.3964,19.2819,18.8881,19.0357,19.2236,19.0707,18.7475,18.6902,18.8185,18.5795,17.757,17.7561,18.3634,18.8285,18.5163,18.458,17.9279,17.9581,17.1434,17.9093,17.6545]}},"mr":{"iter":[2000,4000,6000,8000,10000,12000,14000,16000,18000,20000,22000,24000,26000],"hours":[1.85,3.74,5.64,7.55,9.44,11.34,13.22,15.1,16.98,18.84,20.69,22.54,24.37],"train":[5.2227,0.6703,0.5949,0.5663,0.5524,0.5438,0.5357,0.5288,0.523,0.5196,0.513,0.5093,0.5024],"K":{"LossFlow":[0.8318,0.7145,0.6385,0.6216,0.595,0.5855,0.5869,0.5738,0.5788,0.5633,0.5588,0.5527,0.5478],"MSEToken":[1.2504,1.3858,1.4071,1.3217,1.351,1.3486,1.1713,1.3703,1.3293,1.3317,1.3206,1.3889,1.3674],"LossPointmap":[21.4884,21.8539,17.1222,17.7889,17.5639,17.8969,19.0172,17.0176,17.1674,17.2423,16.928,18.3763,17.5854],"LossDepth":[4.8611,5.8482,4.945,4.0722,4.2004,4.0982,3.8718,4.2469,3.9943,4.0449,4.2594,4.5537,4.308],"LossRaymap":[19.2731,18.5286,15.8221,16.8733,16.7246,17.1198,18.5172,16.308,16.7549,16.7687,16.1784,18.9467,18.0152]},"K15":{"LossFlow":[0.8282,0.7112,0.6363,0.6198,0.5928,0.583,0.5846,0.5721,0.5761,0.5614,0.5569,0.551,0.5456],"MSEToken":[1.2479,1.3831,1.4043,1.3168,1.3483,1.3456,1.1679,1.3684,1.3273,1.3289,1.314,1.3861,1.3635],"LossPointmap":[21.7734,22.3886,17.4317,18.5212,18.6681,18.969,19.1975,17.6746,17.546,17.4776,17.1804,18.6558,17.413],"LossDepth":[4.9334,6.0005,5.1022,4.2055,4.3167,4.2228,3.9267,4.3674,4.0813,4.1542,4.3437,4.6591,4.3478],"LossRaymap":[19.4399,18.9398,16.2172,17.6583,17.8238,18.1272,18.7292,16.9548,17.0507,17.0905,16.637,19.4266,17.8153]},"N10":{"LossFlow":[0.7142,0.6333,0.577,0.571,0.5496,0.5445,0.5399,0.5342,0.5336,0.5279,0.5224,0.5167,0.5137],"MSEToken":[1.0869,1.1112,1.1764,1.0865,1.1216,1.1487,1.0357,1.1464,1.1142,1.0913,1.0898,1.1016,1.1118],"LossPointmap":[16.2031,16.6558,15.2633,15.1582,14.9394,15.3716,15.0702,15.4412,15.4009,15.3889,15.4351,15.3992,15.0048],"LossDepth":[4.9492,5.3805,4.7647,4.4793,4.5768,4.6821,4.5004,4.8517,4.7001,4.7033,4.733,4.9903,4.8241],"LossRaymap":[13.3381,13.311,13.2781,13.1468,12.9425,13.3171,13.2504,13.5428,13.4347,13.6041,13.5383,14.2619,14.031]},"W46":{"LossFlow":[0.7254,0.6421,0.5827,0.5747,0.5532,0.5475,0.5422,0.5359,0.5347,0.5286,0.5231,0.5165,0.5133],"MSEToken":[1.1329,1.1452,1.1949,1.1162,1.1356,1.1686,1.0607,1.1554,1.1151,1.1037,1.1027,1.0987,1.1109],"LossPointmap":[22.9931,23.9221,20.4,18.8147,19.4116,20.1731,18.3827,20.2505,19.3011,19.2491,18.7406,18.5643,17.3394],"LossDepth":[7.9438,8.8124,7.5494,6.48,6.5726,6.6866,5.9767,7.3672,6.8295,7.1634,7.1266,7.6696,7.5747],"LossRaymap":[18.0929,18.0716,16.7554,16.6754,16.9868,17.4277,16.9706,17.3041,16.8045,16.3551,16.0103,16.328,15.3811]}},"mz":{"iter":[2000,4000,6000,8000,10000,12000,14000,16000,18000,20000,22000,24000,26000,28000,30000],"hours":[0.43,0.87,1.31,1.75,2.19,2.63,3.06,3.5,3.94,4.38,4.82,5.26,5.7,6.14,6.58],"train":[5.4461,0.7489,0.6162,0.5613,0.5467,0.5348,0.5263,0.5194,0.512,0.5071,0.5007,0.4964,0.492,0.4878,0.4842],"K":{"LossFlow":[1.004,0.7288,0.6494,0.611,0.5977,0.5849,0.5804,0.5693,0.5651,0.5576,0.5602,0.5537,0.5465,0.542,0.5391],"MSEToken":[2.1255,1.3448,1.3147,1.2419,1.348,1.3229,1.3371,1.3025,1.3095,1.2943,1.3545,1.2491,1.2512,1.2851,1.262],"LossPointmap":[20.0576,22.4325,16.8928,18.422,18.0513,17.8484,17.5713,18.098,17.9834,17.0908,16.7874,17.3341,16.4012,17.7825,17.7504],"LossDepth":[3.9612,6.2236,4.3961,3.9325,4.1654,3.9772,4.0282,3.9422,3.9776,4.4033,4.4691,4.1913,4.0397,4.079,4.1505],"LossRaymap":[19.4074,18.8142,15.8845,17.8218,16.995,17.2275,16.8501,17.4383,17.2542,16.7339,16.8582,17.11,15.9166,17.9964,17.739]},"K15":{"LossFlow":[1.001,0.726,0.6473,0.6085,0.5952,0.5827,0.5782,0.5673,0.5628,0.5554,0.5582,0.5513,0.5443,0.5399,0.5368],"MSEToken":[2.1222,1.3415,1.3094,1.2384,1.3453,1.3192,1.333,1.2991,1.3042,1.2904,1.3498,1.2427,1.2466,1.2801,1.2558],"LossPointmap":[20.3312,22.791,17.6585,19.2431,18.853,18.9767,18.8628,18.6473,18.4886,17.3905,17.1901,17.3781,16.3409,17.5186,17.1124],"LossDepth":[4.0604,6.2964,4.4994,4.0443,4.3058,4.0886,4.1096,4.0223,4.0349,4.5051,4.5186,4.2495,4.0317,4.0864,4.1951],"LossRaymap":[19.5755,19.174,16.7832,18.4836,17.8905,18.3786,18.0934,18.1019,17.9663,16.8493,17.4934,17.2683,16.1305,17.8588,17.4317]},"N10":{"LossFlow":[0.9013,0.6515,0.5904,0.5653,0.5551,0.5461,0.5403,0.5357,0.5299,0.5249,0.524,0.5181,0.517,0.5118,0.5089],"MSEToken":[1.8033,1.1752,1.1216,1.0618,1.127,1.062,1.1321,1.0903,1.1234,1.0821,1.1174,1.0448,0.9828,1.0359,1.0621],"LossPointmap":[15.9777,17.4094,15.1493,14.5956,15.0429,15.0152,15.3084,15.4681,15.4296,15.1059,15.1669,15.3308,14.7095,14.8011,15.4831],"LossDepth":[4.6593,6.0994,4.6746,4.3372,4.5666,4.3943,4.6453,4.5987,4.7932,4.8506,4.8835,4.7512,4.5455,4.7438,4.8914],"LossRaymap":[13.4645,13.3343,13.2624,12.8299,13.1011,13.1649,13.2927,13.4877,13.4314,13.1855,13.7003,13.6289,12.8787,13.4895,14.3952]},"W46":{"LossFlow":[0.9102,0.6595,0.5967,0.5709,0.5593,0.549,0.5424,0.5374,0.5316,0.5254,0.5244,0.5182,0.5166,0.5111,0.5077],"MSEToken":[1.8414,1.2261,1.138,1.0803,1.1646,1.0821,1.1351,1.1089,1.1352,1.083,1.1206,1.0552,0.9854,1.0337,1.0639],"LossPointmap":[20.3246,25.6291,20.0266,18.4256,19.31,18.8028,19.7302,19.7139,19.9673,19.1956,19.0252,19.1408,18.6502,18.2886,17.3759],"LossDepth":[6.4247,10.2475,7.2937,6.025,6.3919,6.1079,6.6709,6.7003,7.2323,7.1193,7.7383,7.3434,6.3926,7.0329,7.1561],"LossRaymap":[17.5641,18.2293,16.5878,16.6273,17.0188,16.9114,17.0194,17.314,17.2016,16.8027,16.3913,16.6158,16.6283,16.2384,15.5361]}}};
+const RUNS={ct:{color:'--ink2',tag:'ctrl'},mr:{color:'--s1',tag:'mr'},mz:{color:'--s2',tag:'zc'}};
+const NAMES={LossFlow:'Flow',MSEToken:'MSEToken',LossPointmap:'Pointmap',LossDepth:'Depth',LossRaymap:'Raymap'};
+const mean=(a,lo,hi)=>a.slice(lo,hi+1).reduce((s,v)=>s+v,0)/(hi-lo+1);
+const pct=(a,b)=>100*(a/b-1);
+function pcell(p){
+  const c=p<=-5?'g':(p>=5?'w':'');
+  if(Math.abs(p)<0.5) return `<td>0%</td>`;
+  return `<td class="${c}">${p>0?'+':'−'}${Math.abs(p).toFixed(0)}%</td>`;
+}
+
+/* slide 1: iterations and KITTI Raymap against wall-clock hours */
+(function(){
+  const s=[];
+  ['ct','mr','mz'].forEach(r=>s.push({color:RUNS[r].color,tag:RUNS[r].tag,xs:[0].concat(D[r].hours),data:[0].concat(D[r].iter.map(v=>v/1000))}));
+  const mr=D.mr, mz=D.mz, nm=mr.hours.length-1, nz=mz.hours.length-1;
+  s.push({color:'--s1',dash:'4 3',width:1.4,xs:[mr.hours[nm],46.7],data:[mr.iter[nm]/1000,50]});          // 1.87 h/epoch to the last full epoch before 48 h
+  s.push({color:'--s2',dash:'4 3',width:1.4,xs:[mz.hours[nz],43.9],data:[mz.iter[nz]/1000,200]});         // 0.44 h/epoch to max_iter
+  s.push({color:'--muted',dash:'2 3',width:1,xs:[0,48],data:[200,200]});                                  // max_iter
+  lineChart(document.getElementById('h1'),{W:620,H:205,xmin:0,xmax:48,xticks:[0,6,12,18,24,30,36,42,48],xlab:'hours',
+    ymin:0,ymax:210,yticks:[0,50,100,150,200],fmt:t=>t.toFixed(0),vlines:[48],series:s});
+  const s2=['ct','mr','mz'].map(r=>({color:RUNS[r].color,tag:RUNS[r].tag,xs:D[r].hours,data:D[r].K.LossRaymap}));
+  lineChart(document.getElementById('h2'),{W:620,H:205,xmin:0,xmax:48,xticks:[0,6,12,18,24,30,36,42,48],xlab:'hours',
+    ymin:15,ymax:20,yticks:[15,16,17,18,19,20],fmt:t=>t.toFixed(0),series:s2});
+})();
+
+/* slide 2: per epoch, KITTI old draw, all three runs */
+function arms(get,from){
+  return ['ct','mr','mz'].map(r=>{const a=get(D[r]).slice(from||0);
+    return {color:RUNS[r].color,tag:r==='ct'?'ctrl':'',xs:a.map((_,i)=>i+(from||0)),data:a};});            // multires tags collide; the legend carries them
+}
+function panel(id,get,o){
+  lineChart(document.getElementById(id),Object.assign({W:400,H:205,xmin:0,xmax:24,xticks:[0,4,8,12,16,20,24],series:arms(get,o.from)},o));
+}
+panel('pa',d=>d.train,{from:1,ymin:0.45,ymax:0.8,yticks:[0.5,0.6,0.7,0.8],fmt:t=>t.toFixed(1)});
+panel('pb',d=>d.K.LossFlow,{log:true,ymin:0.4,ymax:8,yticks:[0.5,1,2,4,8],fmt:t=>t+''});
+panel('pc',d=>d.K.MSEToken,{ymin:1.1,ymax:2.2,yticks:[1.2,1.5,1.8,2.1],fmt:t=>t.toFixed(1)});
+panel('pd',d=>d.K.LossRaymap,{ymin:15,ymax:20,yticks:[15,16,17,18,19,20],fmt:t=>t.toFixed(0)});
+panel('pe',d=>d.K.LossPointmap,{ymin:16,ymax:23,yticks:[16,18,20,22],fmt:t=>t.toFixed(0)});
+panel('pf',d=>d.K.LossDepth,{ymin:3.5,ymax:6.5,yticks:[3.5,4.5,5.5,6.5],fmt:t=>t.toFixed(1)});
+
+/* slide 3: multires vs z-cache on the newer sets */
+const Q=[['q1','K15','LossRaymap',15.5,20,[16,18,20]],['q2','N10','LossRaymap',12.5,15,[13,14,15]],['q3','W46','LossRaymap',15,18.5,[15,16,17,18]],
+         ['q4','K15','LossPointmap',16,23,[16,18,20,22]],['q5','N10','LossPointmap',14.5,17.5,[15,16,17]],['q6','W46','LossPointmap',17,26,[18,20,22,24,26]],
+         ['q7','K15','LossDepth',3.8,6.5,[4,5,6]],['q8','N10','LossDepth',4.2,6.2,[4.5,5,5.5,6]],['q9','W46','LossDepth',5.8,10.5,[6,8,10]]];
+Q.forEach(([id,set,k,lo,hi,yt])=>{
+  const s=['mr','mz'].map(r=>({color:RUNS[r].color,data:D[r][set][k]}));
+  lineChart(document.getElementById(id),{W:400,H:130,T:6,B:22,xmin:0,xmax:14,xticks:[0,2,4,6,8,10,12,14],
+    ymin:lo,ymax:hi,yticks:yt,fmt:t=>(t%1?t.toFixed(1):t.toFixed(0)),series:s});
+});
+
+/* slide 4: tables */
+(function(){
+  const ks=Object.keys(NAMES);
+  let h='<thead><tr><th>window</th><th>run</th>'+ks.map(k=>`<th>${NAMES[k]}</th>`).join('')+'</tr></thead><tbody>';
+  [[2,5],[6,8],[9,12]].forEach(([lo,hi],w)=>{
+    ['mr','mz'].forEach((r,j)=>{
+      h+=`<tr class="${j===0&&w>0?'grp':''}"><td>${j===0?`ep ${lo}–${hi}`:''}</td><td>${r==='mr'?'multires':'z-cache'}</td>`+
+         ks.map(k=>pcell(pct(mean(D[r].K[k],lo,hi),mean(D.ct.K[k],lo,hi)))).join('')+'</tr>';
+    });
+  });
+  document.getElementById('t1').innerHTML=h+'</tbody>';
+  const sets=[['K','KITTI old'],['K15','KITTI stride15'],['N10','nuScenes stride10'],['W46','Waymo stride46']], gk=['LossPointmap','LossDepth','LossRaymap'];
+  let h2='<thead><tr><th>set</th>'+gk.map(k=>`<th>${NAMES[k]}</th>`).join('')+'<th>MSEToken</th></tr></thead><tbody>';
+  sets.forEach(([s,lab])=>{
+    h2+=`<tr><td>${lab}</td>`+gk.concat(['MSEToken']).map(k=>pcell(pct(mean(D.mz[s][k],9,12),mean(D.mr[s][k],9,12)))).join('')+'</tr>';
+  });
+  document.getElementById('t2').innerHTML=h2+'</tbody>';
+})();
+</script>
+</body>
+</html>
