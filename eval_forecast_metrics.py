@@ -40,6 +40,9 @@ from occrae.deltatok_shared import DeltaTokSharedMixin  # noqa: E402
 from occrae.forecast_dump import load_windows  # noqa: E402
 from occrae.visualization_helper import _build_bev_panel, _log_viz_sample  # noqa: E402
 
+# dust3r's dataset import sets file_system; a sibling job's /dev/shm cleanup then kills the loader.
+torch.multiprocessing.set_sharing_strategy("file_descriptor")
+
 N_CTX = 2  # frames 0-1 given
 
 

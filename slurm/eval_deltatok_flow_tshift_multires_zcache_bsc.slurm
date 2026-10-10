@@ -32,7 +32,7 @@ ulimit -n "$(ulimit -Hn)"
 : "${CKPT:=$SCRATCH/quan/deltatok_flow_log/deltatok_flow_alldata_consec10cam0_ctx2fwd8_tc1536mg9sigreg002compose_seed1_ep70tok_xxl_dit_multires_zcache/ckpts/iter_200000.pth}"
 : "${T_SHIFT:=1}"
 : "${TEST_FILTER:=}"  # Kitti | Nuscenes | Waymo; empty = all 3
-: "${OUTPUT_DIR:=results/deltatok_flow_tshift_multires_zcache/tshift${T_SHIFT}}"
+: "${OUTPUT_DIR:=results/deltatok_flow_tshift_multires_zcache/tshift${T_SHIFT}${TEST_FILTER:+_$TEST_FILTER}}"  # per set: concurrent jobs race on makedirs
 : "${NUM_STEPS:=20}"
 : "${NUM_ITEMS:=1000000}"  # above any split: window_stride sets each set's size
 : "${STEP_MODES:=ode}"

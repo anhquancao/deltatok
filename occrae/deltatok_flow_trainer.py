@@ -273,7 +273,7 @@ class DeltaTokFlowMatchingTrainer(DeltaTokSharedMixin, Trainer):
         if archi == "vit":
             if self.rank == 0:
                 if not os.path.exists(self.cfg.training.vit_folder):
-                    os.makedirs(self.cfg.training.vit_folder)
+                    os.makedirs(self.cfg.training.vit_folder, exist_ok=True)  # parallel eval jobs share it
                     print(f"Folder created: {self.cfg.training.vit_folder}")
 
             # Define transformer architecture parameters

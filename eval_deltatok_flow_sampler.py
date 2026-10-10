@@ -54,6 +54,9 @@ torch.backends.cudnn.allow_tf32 = True
 from occrae.deltatok_flow_trainer import DeltaTokFlowMatchingTrainer  # noqa: E402
 from occany.datasets import get_data_loader  # noqa: E402
 
+# dust3r's dataset import sets file_system; a sibling job's /dev/shm cleanup then kills the loader.
+torch.multiprocessing.set_sharing_strategy("file_descriptor")
+
 # Default target run. Its arch flags live in slurm/deltatok_flow/train_deltatok_flow_waymo_xxl_dit_jz.slurm
 # (EXTRA_CFG), NOT in the config — replicated in `_RUN_DEFAULTS` below.
 _RUN_ROOT = ("/lustre/fswork/projects/rech/trg/uyl37fq/deltatok_flow_log/"
