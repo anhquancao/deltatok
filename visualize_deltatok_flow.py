@@ -296,6 +296,7 @@ def main() -> None:
                     step_mode=str(cfg.model.get("sampler_step_mode", "ode")),
                     scheduler_mode=str(cfg.model.get("sampler_scheduler_mode", "cosine")),
                     alpha=float(cfg.model.get("sampler_alpha", 0.5)),
+                    t_shift=float(cfg.model.get("sampler_t_shift", 1.0)),
                     cross_cond=cross_cond,
                     autocast_ctx=trainer.autocast,
                 )

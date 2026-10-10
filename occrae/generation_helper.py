@@ -19,6 +19,7 @@ def flow_euler_sample(
     alpha=0.5,
     scheduler_mode="cosine",
     step_mode="ode",
+    t_shift=1.0,
     cross_cond=None,
     pose_cond=None,
     cfg_w=0,
@@ -42,6 +43,7 @@ def flow_euler_sample(
             clamp(1-t, 0.05) near t=1); ``"damped"`` = VGGT-World blend-to-x_hat
             (fm.py:479) — never divides by the noise level, first step jumps to
             x_hat. ``"damped"`` requires ``pred_mode="x"``.
+        t_shift: noise-ward t-grid shift, as model.t_shift in training; 1 = off.
         cross_cond: Optional conditioning for cross-attention.
         pose_cond: Optional per-slot pose (B, T, 7) for a pose_cond model.
         cfg_w: Classifier-free guidance weight (0 disables CFG).
@@ -76,7 +78,12 @@ def flow_euler_sample(
         else:
             progress = i / num_steps
             progress_next = (i + 1) / num_steps
-     
+        if t_shift != 1.0:
+            # clamp first: progress_next passes 1 on the last step, and the map has a pole there
+            s, s_next = 1 - min(progress, 1.0), 1 - min(progress_next, 1.0)  # noise fractions
+            progress = 1 - t_shift * s / (1 + (t_shift - 1) * s)
+            progress_next = 1 - t_shift * s_next / (1 + (t_shift - 1) * s_next)
+
 
         offsets = 1 + (torch.linspace(1, 0, t_dim, device=z.device)[None, :] * alpha)
         t_curr = torch.clamp(progress * offsets, 0, 1).expand(B, t_dim).clone()

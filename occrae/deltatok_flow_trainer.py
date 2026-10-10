@@ -108,9 +108,11 @@ class DeltaTokFlowMatchingTrainer(DeltaTokSharedMixin, Trainer):
         # pointdit --force_zero_t: fraction of each train batch pinned to t=0.
         # Printed so a schedule override that never landed is not read as a null.
         self.force_zero_t_ratio = float(self.cfg.model.get("force_zero_t_ratio", 0.0))
+        self.t_shift = float(self.cfg.model.get("t_shift", 1.0))  # train only: Eval/LossFlow keeps the control's t
         print(f"t schedule: t_dist={self.cfg.model.get('t_dist', 'logitnormal')} "
               f"mu={self.cfg.model.mu} sigma={self.cfg.model.sigma} "
-              f"force_zero_t_ratio={self.force_zero_t_ratio}")
+              f"force_zero_t_ratio={self.force_zero_t_ratio} "
+              f"t_shift={self.t_shift} sampler_t_shift={self.cfg.model.get('sampler_t_shift', 1.0)}")
 
         # Decoder-in-the-loop: + w * log-cosh(frozen-tokenizer decode of x_pred | GT next-frame
         # layer-12 feats) on the forecast slots. 0 = off (the control).
@@ -540,7 +542,7 @@ class DeltaTokFlowMatchingTrainer(DeltaTokSharedMixin, Trainer):
             self._fixed_noise_cache[key] = cached
         return cached.to(x.dtype).expand(b, c, t_dim, h, w).contiguous()  # (B, C, T-1, N, K) writable copy
 
-    def flow_noising(self, x, context=None, mu=-0.6, sigma=1, force_zero_t_ratio=0.0):
+    def flow_noising(self, x, context=None, mu=-0.6, sigma=1, force_zero_t_ratio=0.0, t_shift=1.0):
         device = x.device
         b, c, t_dim, h, w = x.shape
 
@@ -563,6 +565,9 @@ class DeltaTokFlowMatchingTrainer(DeltaTokSharedMixin, Trainer):
                 t = torch.sigmoid(s)                                                  # (b, 1|t)
             else:
                 raise ValueError(f"model.t_dist must be uniform|logitnormal, got {t_dist!r}")
+            if t_shift != 1.0:
+                s = 1.0 - t                                          # (b, 1|t) noise fraction
+                t = 1.0 - t_shift * s / (1.0 + (t_shift - 1.0) * s)  # (b, 1|t) shifted toward noise
             # pointdit --force_zero_t: pin a fraction of the batch to exactly t=0
             # (denoiser.py:76-85). Only train passes it, so eval t stays replayable.
             if force_zero_t_ratio > 0:
@@ -713,7 +718,7 @@ class DeltaTokFlowMatchingTrainer(DeltaTokSharedMixin, Trainer):
 
             z_t, e, timestep = self.flow_noising(
                 x_spatial, context=self.n_ctx, mu=self.cfg.model.mu, sigma=self.cfg.model.sigma,
-                force_zero_t_ratio=self.force_zero_t_ratio,
+                force_zero_t_ratio=self.force_zero_t_ratio, t_shift=self.t_shift,
             )
 
             with self.autocast:
@@ -964,6 +969,7 @@ class DeltaTokFlowMatchingTrainer(DeltaTokSharedMixin, Trainer):
                         step_mode=str(self.cfg.model.get("sampler_step_mode", "ode")),
                         scheduler_mode=str(self.cfg.model.get("sampler_scheduler_mode", "cosine")),
                         alpha=float(self.cfg.model.get("sampler_alpha", 0.5)),
+                        t_shift=float(self.cfg.model.get("sampler_t_shift", 1.0)),
                         cross_cond=cross_cond,
                         pose_cond=pose_cond,
                         autocast_ctx=self.autocast,
