@@ -1,0 +1,95 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Main baseline comparisons</title>
+<style>
+:root{color-scheme:light only;--backdrop:#e9e9e6;--surface:#ffffff;--ink:#0b0b0b;--ink2:#52514e;--muted:#83817c;
+  --grid:#e4e4de;--axis:#c3c2b7;--border:rgba(11,11,11,.12);--accent:#2a78d6;
+  --serif:"Iowan Old Style","Palatino Linotype",Palatino,Georgia,serif;--sans:system-ui,-apple-system,"Segoe UI",sans-serif}
+*{box-sizing:border-box;margin:0}
+html,body{height:100%}
+body{background:var(--backdrop);color:var(--ink);font:15px/1.45 var(--sans);overflow:hidden}
+.stage{position:absolute;left:50%;top:50%;width:1280px;height:720px;transform-origin:center center}
+.slide{position:absolute;inset:0;background:var(--surface);border:1px solid var(--border);
+  padding:70px 60px;display:none;flex-direction:column;justify-content:center;gap:22px}
+.slide.on{display:flex}
+.cap{font:16px/1.5 var(--serif);color:var(--ink2);max-width:1100px}
+.cap b{color:var(--ink)}
+table{border-collapse:collapse;width:100%;font:16px/1.3 var(--sans);font-variant-numeric:tabular-nums}
+th,td{text-align:right;padding:8px 9px}
+th.l,td.l{text-align:left}
+thead tr:first-child th{border-top:2px solid var(--ink)}
+thead tr:last-child th,thead th[rowspan]{border-bottom:1px solid var(--ink);font-weight:600;white-space:nowrap}
+th.grp{text-align:center;font-weight:600;border-bottom:1px solid var(--axis)}
+thead th{font-weight:600}
+.sep{border-left:1px solid var(--grid)}
+tr.blk td{border-top:1px solid var(--axis)}
+tbody tr:first-child td{border-top:none}
+tbody tr:last-child td{border-bottom:2px solid var(--ink)}
+td.l{white-space:nowrap}
+.nav{position:fixed;left:50%;bottom:14px;transform:translateX(-50%);display:flex;gap:8px;align-items:center;z-index:5}
+.nav button{width:9px;height:9px;border-radius:50%;border:1px solid var(--muted);background:transparent;cursor:pointer;padding:0}
+.nav button.cur{background:var(--accent);border-color:var(--accent)}
+.arr{position:fixed;top:50%;transform:translateY(-50%);z-index:5;border:1px solid var(--border);
+  background:var(--surface);color:var(--ink2);width:34px;height:56px;cursor:pointer;font-size:18px;border-radius:4px}
+#prev{left:10px}#next{right:10px}
+@media print{body{overflow:visible;background:#fff}.stage{position:static;transform:none!important;width:auto;height:auto}
+  .slide{display:flex;position:static;width:1280px;height:720px;page-break-after:always;margin:0 auto}.nav,.arr{display:none}}
+</style>
+</head>
+<body>
+<div class="stage" id="stage">
+<section class="slide on">
+  <p class="cap"><b>KITTI val.</b> Forecast of frames 2–9 from frames 0–1, 0.5 s apart, at metric scale with no alignment. ↓ lower is better, ↑ higher is better. MAE, Acc, Comp, Chamfer, point error, ATE and RTE in metres; RRE in degrees. Bold = best.</p>
+  <table><thead><tr><th rowspan="2" class="l">Method</th><th rowspan="2">Steps</th><th colspan="3" class="grp">Depth</th><th colspan="4" class="grp">Points</th><th colspan="3" class="grp">Camera</th></tr><tr><th class="sep">AbsRel ↓</th><th>δ1 ↑</th><th>MAE ↓</th><th class="sep">Acc ↓</th><th>Comp ↓</th><th>Chamfer ↓</th><th>Pt. err. ↓</th><th class="sep">ATE ↓</th><th>RTE ↓</th><th>RRE ↓</th></tr></thead><tbody><tr class="blk"><td class="l">VGGT-World</td><td>–</td><td class="sep">0.319</td><td>0.499</td><td>4.38</td><td class="sep"><b>0.95</b></td><td><b>5.30</b></td><td><b>3.12</b></td><td>18.41</td><td class="sep"><b>17.18</b></td><td>3.78</td><td>3.53</td></tr><tr class="blk"><td class="l">Gen3R</td><td>–</td><td class="sep">0.741</td><td>0.262</td><td>8.20</td><td class="sep">3.80</td><td>8.19</td><td>5.99</td><td>18.73</td><td class="sep">17.92</td><td><b>3.28</b></td><td>5.33</td></tr><tr class="blk"><td class="l">Ours, 50k iters</td><td>1</td><td class="sep">0.321</td><td>0.590</td><td>4.21</td><td class="sep">0.98</td><td>5.41</td><td>3.19</td><td>19.59</td><td class="sep">19.72</td><td>4.01</td><td><b>3.44</b></td></tr><tr><td class="l"></td><td>5</td><td class="sep">0.288</td><td><b>0.602</b></td><td>3.97</td><td class="sep">1.00</td><td>5.65</td><td>3.33</td><td>19.99</td><td class="sep">19.67</td><td>4.11</td><td>3.64</td></tr><tr><td class="l"></td><td>20</td><td class="sep"><b>0.279</b></td><td>0.574</td><td><b>3.93</b></td><td class="sep">1.13</td><td>5.33</td><td>3.23</td><td><b>18.26</b></td><td class="sep">17.51</td><td>4.66</td><td>5.22</td></tr></tbody></table>
+</section>
+<section class="slide">
+  <p class="cap"><b>nuScenes val.</b> Forecast of frames 2–9 from frames 0–1, 0.5 s apart, at metric scale with no alignment. ↓ lower is better, ↑ higher is better. MAE, Acc, Comp, Chamfer, point error, ATE and RTE in metres; RRE in degrees. Bold = best.</p>
+  <table><thead><tr><th rowspan="2" class="l">Method</th><th rowspan="2">Steps</th><th colspan="3" class="grp">Depth</th><th colspan="4" class="grp">Points</th><th colspan="3" class="grp">Camera</th></tr><tr><th class="sep">AbsRel ↓</th><th>δ1 ↑</th><th>MAE ↓</th><th class="sep">Acc ↓</th><th>Comp ↓</th><th>Chamfer ↓</th><th>Pt. err. ↓</th><th class="sep">ATE ↓</th><th>RTE ↓</th><th>RRE ↓</th></tr></thead><tbody><tr class="blk"><td class="l">VGGT-World</td><td>–</td><td class="sep">0.306</td><td>0.571</td><td>4.80</td><td class="sep">1.90</td><td><b>1.94</b></td><td><b>1.92</b></td><td><b>13.54</b></td><td class="sep">12.40</td><td>4.01</td><td><b>1.77</b></td></tr><tr class="blk"><td class="l">Gen3R</td><td>–</td><td class="sep">0.718</td><td>0.272</td><td>9.52</td><td class="sep">3.04</td><td>2.38</td><td>2.71</td><td>14.76</td><td class="sep">13.02</td><td><b>2.30</b></td><td>2.07</td></tr><tr class="blk"><td class="l">Ours, 50k iters</td><td>1</td><td class="sep">0.245</td><td><b>0.639</b></td><td>4.56</td><td class="sep">1.89</td><td>4.44</td><td>3.17</td><td>15.06</td><td class="sep">12.43</td><td>2.83</td><td>5.78</td></tr><tr><td class="l"></td><td>5</td><td class="sep"><b>0.244</b></td><td>0.611</td><td><b>4.54</b></td><td class="sep"><b>1.89</b></td><td>3.80</td><td>2.85</td><td>13.87</td><td class="sep"><b>11.12</b></td><td>3.89</td><td>6.87</td></tr><tr><td class="l"></td><td>20</td><td class="sep">0.257</td><td>0.539</td><td>4.89</td><td class="sep">2.16</td><td>3.48</td><td>2.82</td><td>14.03</td><td class="sep">12.02</td><td>5.06</td><td>9.02</td></tr></tbody></table>
+</section>
+<section class="slide">
+  <p class="cap"><b>Waymo test.</b> Forecast of frames 2–9 from frames 0–1, 0.5 s apart, at metric scale with no alignment. ↓ lower is better, ↑ higher is better. MAE, Acc, Comp, Chamfer, point error, ATE and RTE in metres; RRE in degrees. Bold = best.</p>
+  <table><thead><tr><th rowspan="2" class="l">Method</th><th rowspan="2">Steps</th><th colspan="3" class="grp">Depth</th><th colspan="4" class="grp">Points</th><th colspan="3" class="grp">Camera</th></tr><tr><th class="sep">AbsRel ↓</th><th>δ1 ↑</th><th>MAE ↓</th><th class="sep">Acc ↓</th><th>Comp ↓</th><th>Chamfer ↓</th><th>Pt. err. ↓</th><th class="sep">ATE ↓</th><th>RTE ↓</th><th>RRE ↓</th></tr></thead><tbody><tr class="blk"><td class="l">VGGT-World</td><td>–</td><td class="sep">0.341</td><td>0.212</td><td>7.27</td><td class="sep">5.69</td><td>4.31</td><td>5.00</td><td>21.05</td><td class="sep">19.88</td><td>7.76</td><td><b>1.46</b></td></tr><tr class="blk"><td class="l">Gen3R</td><td>–</td><td class="sep">0.379</td><td>0.502</td><td>7.80</td><td class="sep">4.27</td><td><b>3.87</b></td><td><b>4.07</b></td><td>18.12</td><td class="sep">16.95</td><td><b>2.92</b></td><td>1.54</td></tr><tr class="blk"><td class="l">Ours, 50k iters</td><td>1</td><td class="sep">0.268</td><td><b>0.612</b></td><td><b>5.38</b></td><td class="sep"><b>1.70</b></td><td>7.80</td><td>4.75</td><td><b>14.69</b></td><td class="sep">14.94</td><td>3.81</td><td>4.40</td></tr><tr><td class="l"></td><td>5</td><td class="sep"><b>0.256</b></td><td>0.611</td><td>5.43</td><td class="sep">2.29</td><td>6.60</td><td>4.45</td><td>15.42</td><td class="sep">13.55</td><td>4.94</td><td>4.94</td></tr><tr><td class="l"></td><td>20</td><td class="sep">0.309</td><td>0.445</td><td>6.85</td><td class="sep">2.84</td><td>5.76</td><td>4.30</td><td>16.37</td><td class="sep"><b>13.38</b></td><td>5.85</td><td>7.51</td></tr></tbody></table>
+</section>
+</div>
+<button class="arr" id="prev" aria-label="Previous slide">‹</button>
+<button class="arr" id="next" aria-label="Next slide">›</button>
+<div class="nav" id="nav" role="tablist" aria-label="Slides"></div>
+<script>
+/* ---------- deck nav ---------- */
+const stage=document.getElementById("stage");
+const slides=[...document.querySelectorAll(".slide")];
+const nav=document.getElementById("nav");
+let cur=0;
+slides.forEach((_,i)=>{
+  const b=document.createElement("button");
+  b.setAttribute("role","tab");b.setAttribute("aria-label","Slide "+(i+1));
+  b.addEventListener("click",()=>go(i));
+  nav.appendChild(b);
+});
+function go(i){
+  cur=Math.max(0,Math.min(slides.length-1,i));
+  slides.forEach((s,j)=>s.classList.toggle("on",j===cur));
+  [...nav.children].forEach((b,j)=>b.classList.toggle("cur",j===cur));
+}
+document.getElementById("prev").addEventListener("click",()=>go(cur-1));
+document.getElementById("next").addEventListener("click",()=>go(cur+1));
+addEventListener("keydown",e=>{
+  if(["ArrowRight","PageDown"," "].includes(e.key)){go(cur+1);e.preventDefault();}
+  else if(["ArrowLeft","PageUp"].includes(e.key)){go(cur-1);e.preventDefault();}
+  else if(e.key==="Home")go(0);
+  else if(e.key==="End")go(slides.length-1);
+});
+go(0);
+/* ---------- auto-scale ---------- */
+function fit(){
+  const s=Math.min(innerWidth/1300,(innerHeight-40)/730);
+  stage.style.transform=`translate(-50%,-50%) scale(${Math.min(s,1.4)})`;
+}
+addEventListener("resize",fit);fit();
+
+</script>
+</body>
+</html>
